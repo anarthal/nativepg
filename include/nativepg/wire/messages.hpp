@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
+#include <utility>
 
 #include "nativepg/wire/serialization_context.hpp"
 
@@ -177,6 +178,73 @@ struct query_message
     std::string_view query;
 
     void serialize(serialization_context& ctx) const { ctx.add_string(query); }
+};
+
+struct sync_message
+{
+    static constexpr unsigned char message_type = static_cast<unsigned char>('S');
+
+    void serialize(serialization_context& ctx) const {}
+};
+
+struct terminate_message
+{
+    static constexpr unsigned char message_type = static_cast<unsigned char>('X');
+
+    void serialize(serialization_context& ctx) const {}
+};
+
+// Note: the below messages don't have a type code
+struct ssl_request
+{
+    void serialize(serialization_context& ctx) const
+    {
+        // The SSL request code. The value is chosen to contain 1234 in the most significant 16 bits, and 5679
+        // in the least significant 16 bits. (To avoid confusion, this code must not be the same as any
+        // protocol version number.)
+        ctx.add_integral(std::int32_t(80877103));
+    }
+};
+
+struct startup_message
+{
+    // The database user name to connect as. Required; there is no default.
+    std::string_view user;
+
+    // The database to connect to. Defaults to the user name. Leave empty for no database
+    std::string_view database;
+
+    // Additional key/value settings
+    boost::span<const std::pair<std::string_view, std::string_view>> params;
+
+    void serialize(serialization_context& ctx) const
+    {
+        // The protocol version number. The most significant 16 bits are the major version number (3 for the
+        // protocol described here). The least significant 16 bits are the minor version number (0 for the
+        // protocol described here).
+        ctx.add_integral(std::int32_t(196608));
+
+        // Username
+        ctx.add_string("user");
+        ctx.add_string(user);
+
+        // Database, if present
+        if (!database.empty())
+        {
+            ctx.add_string("database");
+            ctx.add_string(database);
+        }
+
+        // Rest of params
+        for (auto param : params)
+        {
+            ctx.add_string(param.first);
+            ctx.add_string(param.second);
+        }
+
+        // Terminator
+        ctx.add_byte(0);
+    }
 };
 
 // Note: this message does not have a type code

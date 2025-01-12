@@ -8,7 +8,9 @@
 #include <boost/system/error_code.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
+#include <cstring>
 #include <string_view>
 
 #include "nativepg/client_errc.hpp"
@@ -23,12 +25,6 @@ class parse_context
     boost::system::error_code ec_;
 
     std::size_t size() const { return last_ - first_; }
-
-    void add_error(boost::system::error_code ec)
-    {
-        if (!ec_)
-            ec_ = ec;
-    }
 
     void advance(std::size_t by)
     {
@@ -85,6 +81,33 @@ public:
         advance(n);
         return res;
     }
+
+    template <std::size_t N>
+    std::array<unsigned char, N> get_byte_array()
+    {
+        std::array<unsigned char, N> res{};
+        if (N > size())
+            add_error(client_errc::incomplete_message);
+        if (ec_)
+            return res;
+        std::memcpy(res.data(), first_, N);
+        advance(N);
+        return res;
+    }
+
+    void add_error(boost::system::error_code ec)
+    {
+        if (!ec_)
+            ec_ = ec;
+    }
+
+    void check_extra_bytes()
+    {
+        if (first_ != last_)
+            add_error(client_errc::extra_bytes);
+    }
+
+    boost::system::error_code error() const { return ec_; }
 };
 
 }  // namespace detail

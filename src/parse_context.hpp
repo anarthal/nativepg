@@ -16,6 +16,7 @@
 #include "nativepg/client_errc.hpp"
 
 namespace nativepg {
+namespace protocol {
 namespace detail {
 
 class parse_context
@@ -111,4 +112,5 @@ public:
 };
 
 }  // namespace detail
+}  // namespace protocol
 }  // namespace nativepg

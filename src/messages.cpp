@@ -85,6 +85,20 @@ boost::system::result<any_backend_message> parse_authentication_request(boost::s
 
 }  // namespace
 
+void nativepg::protocol::serialize_header(message_header header, boost::span<unsigned char, 5> dest)
+{
+    // TODO: this can result in an overflow
+    unsigned char* ptr = dest.data();
+    *ptr++ = header.type;
+    boost::endian::store_big_s32(ptr, header.size);
+}
+
+message_header nativepg::protocol::parse_header(boost::span<const unsigned char, 5> from)
+{
+    // TODO: this can technically be negative!
+    return {from[0], boost::endian::load_big_s32(from.data() + 1u)};
+}
+
 boost::system::error_code nativepg::protocol::parse(
     boost::span<const unsigned char> data,
     backend_key_data& to

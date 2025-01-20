@@ -31,18 +31,8 @@ struct message_header
     std::uint8_t type;  // The message type
     std::int32_t size;  // Should be >= 0
 };
-
-inline void serialize_header(message_header header, boost::span<unsigned char, 5> dest)
-{
-    unsigned char* ptr = dest.data();
-    *ptr++ = header.type;
-    boost::endian::store_big_s32(ptr, header.size);
-}
-
-inline message_header parse_header(boost::span<const unsigned char, 5> from)
-{
-    return {from[0], boost::endian::load_big_s32(from.data() + 1u)};
-}
+void serialize_header(message_header header, boost::span<unsigned char, 5> dest);
+message_header parse_header(boost::span<const unsigned char, 5> from);
 
 //
 // Messages that we may receive from the backend
@@ -200,8 +190,6 @@ inline boost::system::error_code parse(boost::span<const unsigned char> data, em
 {
     return detail::check_empty(data);
 }
-
-
 
 }  // namespace protocol
 }  // namespace nativepg

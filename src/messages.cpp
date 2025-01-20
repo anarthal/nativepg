@@ -5,12 +5,15 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#include <boost/charconv/from_chars.hpp>
+#include <boost/charconv/limits.hpp>
 #include <boost/core/span.hpp>
 #include <boost/endian/conversion.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <cstddef>
 #include <cstdint>
+#include <system_error>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/wire/messages.hpp"
@@ -240,6 +243,22 @@ boost::system::error_code nativepg::protocol::parse(boost::span<const unsigned c
     }
 
     return ctx.check();
+}
+
+std::optional<std::size_t> nativepg::protocol::error_response::parsed_line_number() const
+{
+    // If we received no string field, return nothing
+    if (!line_number.has_value())
+        return {};
+
+    // Attempt to parse the value, return nothing on error
+    std::size_t res = 0u;
+    const char* first = line_number->data();
+    const char* last = first + line_number->size();
+    auto result = boost::charconv::from_chars(first, last, res);
+    if (result.ec != std::errc() || result.ptr != last)
+        return {};
+    return res;
 }
 
 boost::system::result<any_backend_message> nativepg::protocol::parse(

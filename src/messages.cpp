@@ -3,6 +3,7 @@
 #include <boost/endian/conversion.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <cstddef>
 #include <cstdint>
 
 #include "nativepg/client_errc.hpp"
@@ -106,6 +107,48 @@ boost::system::error_code nativepg::protocol::parse(
 {
     detail::parse_context ctx(data);
     to.tag = ctx.get_string();
+    return ctx.check();
+}
+
+// Each field is: Int32 size + Byte<n>
+boost::span<const unsigned char> nativepg::protocol::columns_view::iterator::dereference() const
+{
+    auto size = static_cast<std::size_t>(boost::endian::load_big_s32(data_));
+    return {data_ + 4u, size};
+}
+
+void nativepg::protocol::columns_view::iterator::advance()
+{
+    data_ += (static_cast<std::size_t>(boost::endian::load_big_s32(data_)) + 4u);
+}
+
+boost::system::error_code nativepg::protocol::parse(boost::span<const unsigned char> data, data_row& to)
+{
+    detail::parse_context ctx(data);
+
+    // Get the number of columns
+    auto num_columns = static_cast<std::size_t>(ctx.get_nonnegative_integral<std::int16_t>());
+
+    // The values start here, record it
+    const auto* values_begin = ctx.first();
+
+    // Iterate over all columns to check if there's any error
+    for (std::size_t i = 0u; i < num_columns; ++i)
+    {
+        // Size of the column value
+        auto value_size = static_cast<std::size_t>(ctx.get_nonnegative_integral<std::int32_t>());
+
+        // Column value
+        ctx.get_bytes(value_size);
+    }
+
+    // The values end here
+    const auto* values_end = ctx.first();
+
+    // Set the output value
+    to.columns = columns_view(num_columns, {values_begin, values_end});
+
+    // Done
     return ctx.check();
 }
 

@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <cstring>
 #include <string_view>
+#include <type_traits>
 
 #include "nativepg/client_errc.hpp"
 
@@ -38,15 +39,31 @@ public:
     {
     }
 
+    const unsigned char* first() const { return first_; }
+    const unsigned char* last() const { return last_; }
+
     template <class IntType>
     IntType get_integral()
     {
+        static_assert(std::is_signed<IntType>::value, "Postgres only uses signed types");
         if (size() < sizeof(IntType))
             add_error(client_errc::incomplete_message);
         if (ec_)
             return {};
         auto res = boost::endian::endian_load<IntType, sizeof(IntType), boost::endian::order::big>(first_);
         advance(sizeof(IntType));
+        return res;
+    }
+
+    template <class IntType>
+    IntType get_nonnegative_integral()
+    {
+        auto res = get_integral<IntType>();
+        if (res < 0)
+        {
+            add_error(client_errc::protocol_value_error);
+            return {};
+        }
         return res;
     }
 

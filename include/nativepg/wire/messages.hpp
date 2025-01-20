@@ -193,6 +193,16 @@ struct data_row
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, data_row& to);
 
+struct empty_query_response
+{
+};
+inline boost::system::error_code parse(boost::span<const unsigned char> data, empty_query_response&)
+{
+    return detail::check_empty(data);
+}
+
+
+
 }  // namespace protocol
 }  // namespace nativepg
 

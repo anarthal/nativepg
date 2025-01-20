@@ -109,13 +109,12 @@ inline boost::system::error_code parse(boost::span<const unsigned char> data, cl
     return detail::check_empty(data);
 }
 
-// struct command_complete_message
-// {
-//     // The command tag. This is usually a single word that identifies which SQL command was completed.
-//     std::string_view tag;
-
-//     void parse(parse_context& ctx) { tag = ctx.get_string(); }
-// };
+struct command_complete
+{
+    // The command tag. This is usually a single word that identifies which SQL command was completed.
+    std::string_view tag;
+};
+boost::system::error_code parse(boost::span<const unsigned char> data, command_complete& to);
 
 // struct backend_message
 // {

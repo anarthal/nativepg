@@ -47,12 +47,6 @@ enum class authentication_message_type : std::int32_t
     md5_password = 5,
 };
 
-boost::system::error_code check(detail::parse_context& ctx)
-{
-    ctx.check_extra_bytes();
-    return ctx.error();
-}
-
 template <class MessageType>
 boost::system::result<any_backend_message> parse_impl(boost::span<const unsigned char> from)
 {
@@ -92,7 +86,7 @@ boost::system::error_code nativepg::protocol::parse(
     detail::parse_context ctx(data);
     to.process_id = ctx.get_integral<std::int32_t>();
     to.secret_key = ctx.get_integral<std::int32_t>();
-    return check(ctx);
+    return ctx.check();
 }
 
 boost::system::error_code nativepg::protocol::parse(
@@ -102,7 +96,17 @@ boost::system::error_code nativepg::protocol::parse(
 {
     detail::parse_context ctx(data);
     to.salt = ctx.get_byte_array<4>();
-    return check(ctx);
+    return ctx.check();
+}
+
+boost::system::error_code nativepg::protocol::parse(
+    boost::span<const unsigned char> data,
+    command_complete& to
+)
+{
+    detail::parse_context ctx(data);
+    to.tag = ctx.get_string();
+    return ctx.check();
 }
 
 boost::system::result<any_backend_message> nativepg::protocol::parse(

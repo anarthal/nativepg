@@ -109,6 +109,12 @@ public:
     }
 
     boost::system::error_code error() const { return ec_; }
+
+    boost::system::error_code check()
+    {
+        check_extra_bytes();
+        return error();
+    }
 };
 
 }  // namespace detail

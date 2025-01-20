@@ -45,8 +45,7 @@ public:
             add_error(client_errc::incomplete_message);
         if (ec_)
             return {};
-        IntType res{};
-        boost::endian::endian_load<IntType, sizeof(IntType), boost::endian::order::big>(first_, res);
+        auto res = boost::endian::endian_load<IntType, sizeof(IntType), boost::endian::order::big>(first_);
         advance(sizeof(IntType));
         return res;
     }

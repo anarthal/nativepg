@@ -49,6 +49,13 @@ public:
     const unsigned char* first() const { return first_; }
     const unsigned char* last() const { return last_; }
 
+    unsigned char get_byte()
+    {
+        if (size() < 1)
+            add_error(client_errc::incomplete_message);
+        return ec_ ? 0u : *first_++;
+    }
+
     template <class IntType>
     IntType get_integral()
     {

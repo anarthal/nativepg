@@ -83,6 +83,55 @@ boost::system::result<any_backend_message> parse_authentication_request(boost::s
     }
 }
 
+// https://www.postgresql.org/docs/current/protocol-error-fields.html
+enum class error_field_type : unsigned char
+{
+    severity_i18n = 'S',
+    severity = 'V',
+    sqlstate = 'C',
+    message = 'M',
+    detail = 'D',
+    hint = 'H',
+    position = 'P',
+    internal_position = 'p',
+    internal_query = 'q',
+    where = 'W',
+    schema_name = 's',
+    table_name = 't',
+    column_name = 'c',
+    data_type_name = 'd',
+    constraint_name = 'n',
+    file_name = 'F',
+    line_number = 'L',
+    routine = 'R',
+};
+
+void populate_field(detail::parse_context& ctx, error_field_type type, error_response& to)
+{
+    switch (type)
+    {
+    case error_field_type::severity_i18n: to.localized_severity = ctx.get_string(); break;
+    case error_field_type::severity: to.severity = ctx.get_string(); break;
+    case error_field_type::sqlstate: to.sqlstate = ctx.get_string(); break;
+    case error_field_type::message: to.message = ctx.get_string(); break;
+    case error_field_type::detail: to.detail = ctx.get_string(); break;
+    case error_field_type::hint: to.hint = ctx.get_string(); break;
+    case error_field_type::position: to.position = ctx.get_string(); break;
+    case error_field_type::internal_position: to.internal_position = ctx.get_string(); break;
+    case error_field_type::internal_query: to.internal_query = ctx.get_string(); break;
+    case error_field_type::where: to.where = ctx.get_string(); break;
+    case error_field_type::schema_name: to.schema_name = ctx.get_string(); break;
+    case error_field_type::table_name: to.table_name = ctx.get_string(); break;
+    case error_field_type::column_name: to.column_name = ctx.get_string(); break;
+    case error_field_type::data_type_name: to.data_type_name = ctx.get_string(); break;
+    case error_field_type::constraint_name: to.constraint_name = ctx.get_string(); break;
+    case error_field_type::file_name: to.file_name = ctx.get_string(); break;
+    case error_field_type::line_number: to.line_number = ctx.get_string(); break;
+    case error_field_type::routine: to.routine = ctx.get_string(); break;
+    default: break;  // Intentionally ignore unknown fields
+    }
+}
+
 }  // namespace
 
 void nativepg::protocol::serialize_header(message_header header, boost::span<unsigned char, 5> dest)
@@ -169,6 +218,27 @@ boost::system::error_code nativepg::protocol::parse(boost::span<const unsigned c
     to.columns = columns_view(num_columns, {values_begin, values_end});
 
     // Done
+    return ctx.check();
+}
+
+boost::system::error_code nativepg::protocol::parse(boost::span<const unsigned char> data, error_response& to)
+{
+    detail::parse_context ctx(data);
+
+    // A collection of fields, with a 1 byte header stating the field meaning, followed by a string.
+    // Terminated by a NULL byte.
+    while (true)
+    {
+        // Get the type byte. On error, this returns 0, which is OK
+        unsigned char type_byte = ctx.get_byte();
+        if (type_byte == 0u)
+            break;
+        auto field_type = static_cast<error_field_type>(type_byte);
+
+        // Populate the relevant field
+        populate_field(ctx, field_type, to);
+    }
+
     return ctx.check();
 }
 

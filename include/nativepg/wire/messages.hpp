@@ -93,15 +93,21 @@ boost::system::result<any_backend_message> parse(
     boost::span<const unsigned char> data
 );
 
-// struct bind_complete_message
-// {
-//     void parse(parse_context&) {}
-// };
+struct bind_complete
+{
+};
+inline boost::system::error_code parse(boost::span<const unsigned char> data, bind_complete&)
+{
+    return detail::check_empty(data);
+}
 
-// struct close_complete_message
-// {
-//     void parse(parse_context&) {}
-// };
+struct close_complete
+{
+};
+inline boost::system::error_code parse(boost::span<const unsigned char> data, close_complete&)
+{
+    return detail::check_empty(data);
+}
 
 // struct command_complete_message
 // {

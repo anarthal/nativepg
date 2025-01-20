@@ -1,6 +1,7 @@
 
 #include <boost/core/span.hpp>
 #include <boost/endian/conversion.hpp>
+#include <boost/system/error_code.hpp>
 
 #include <cstdint>
 
@@ -46,17 +47,14 @@ enum class authentication_message_type : std::int32_t
     md5_password = 5,
 };
 
-template <class Fn>
-boost::system::error_code parse_impl(boost::span<const unsigned char> from, const Fn& fn)
+boost::system::error_code check(detail::parse_context& ctx)
 {
-    detail::parse_context ctx(from);
-    fn(ctx);
     ctx.check_extra_bytes();
     return ctx.error();
 }
 
 template <class MessageType>
-boost::system::result<any_backend_message> parse_any_impl(boost::span<const unsigned char> from)
+boost::system::result<any_backend_message> parse_impl(boost::span<const unsigned char> from)
 {
     MessageType res;
     auto ec = nativepg::protocol::parse(from, res);
@@ -76,10 +74,10 @@ boost::system::result<any_backend_message> parse_authentication_request(boost::s
     // Parse
     switch (type)
     {
-    case authentication_message_type::ok: return parse_any_impl<authentication_ok>(from);
+    case authentication_message_type::ok: return parse_impl<authentication_ok>(from);
     case authentication_message_type::cleartext_password:
-        return parse_any_impl<authentication_cleartext_password>(from);
-    case authentication_message_type::md5_password: return parse_any_impl<authentication_md5_password>(from);
+        return parse_impl<authentication_cleartext_password>(from);
+    case authentication_message_type::md5_password: return parse_impl<authentication_md5_password>(from);
     default: return nativepg::client_errc::protocol_value_error;
     }
 }
@@ -91,10 +89,10 @@ boost::system::error_code nativepg::protocol::parse(
     backend_key_data& to
 )
 {
-    return parse_impl(data, [&to](detail::parse_context& ctx) {
-        to.process_id = ctx.get_integral<std::int32_t>();
-        to.secret_key = ctx.get_integral<std::int32_t>();
-    });
+    detail::parse_context ctx(data);
+    to.process_id = ctx.get_integral<std::int32_t>();
+    to.secret_key = ctx.get_integral<std::int32_t>();
+    return check(ctx);
 }
 
 boost::system::error_code nativepg::protocol::parse(
@@ -102,7 +100,9 @@ boost::system::error_code nativepg::protocol::parse(
     authentication_md5_password& to
 )
 {
-    return parse_impl(data, [&to](detail::parse_context& ctx) { to.salt = ctx.get_byte_array<4>(); });
+    detail::parse_context ctx(data);
+    to.salt = ctx.get_byte_array<4>();
+    return check(ctx);
 }
 
 boost::system::result<any_backend_message> nativepg::protocol::parse(
@@ -116,8 +116,8 @@ boost::system::result<any_backend_message> nativepg::protocol::parse(
     switch (t)
     {
     case backend_message_type::authentication_request: return parse_authentication_request(data);
-    case backend_message_type::backend_key_data: return parse_any_impl<backend_key_data>(data);
-    // case backend_message_type::bind_complete: return parse_any_impl<bind_complete_message>(t, data);
+    case backend_message_type::backend_key_data: return parse_impl<backend_key_data>(data);
+    // case backend_message_type::bind_complete: return parse_impl<bind_complete_message>(t, data);
     // case backend_message_type::close_complete: return parse_message_impl<close_complete_message>(t, data);
     // case backend_message_type::command_complete: return parse_message_impl<command_complete_message>(t,
     // data);

@@ -9,8 +9,7 @@
 #define NATIVEPG_WIRE_MESSAGES_HPP
 
 #include <boost/core/span.hpp>
-#include <boost/endian/conversion.hpp>
-#include <boost/system/detail/error_code.hpp>
+#include <boost/system/error_code.hpp>
 #include <boost/system/result.hpp>
 #include <boost/variant2/variant.hpp>
 
@@ -193,69 +192,6 @@ struct data_row
     columns_view columns;
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, data_row& to);
-
-// struct backend_message
-// {
-//     union data_t
-//     {
-//         boost::system::error_code error;
-//         authentication_request_message authentication_request;
-//         backend_key_data_message backend_key_data;
-//         bind_complete_message bind_complete;
-//         close_complete_message close_complete;
-//         command_complete_message command_complete;
-
-//         data_t(boost::system::error_code v) noexcept : error(v) {}
-//         data_t(authentication_request_message v) noexcept : authentication_request(v) {}
-//         data_t(backend_key_data_message v) noexcept : backend_key_data(v) {}
-//         data_t(bind_complete_message v) noexcept : bind_complete(v) {}
-//         data_t(close_complete_message v) noexcept : close_complete(v) {}
-//         data_t(command_complete_message v) noexcept : command_complete(v) {}
-//     };
-
-//     backend_message_type type;
-//     data_t data;
-// };
-
-// // When the type is known
-// template <class Message>
-// inline boost::system::result<Message> parse_known_message(boost::span<const unsigned char> bytes)
-// {
-//     parse_context ctx(bytes);
-//     Message res;
-//     res.parse(ctx);
-//     ctx.check_extra_bytes();
-//     boost::system::error_code err = ctx.error();
-//     if (err)
-//         return err;
-//     return res;
-// }
-
-// template <class Message>
-// backend_message parse_message_impl(backend_message_type type, boost::span<const unsigned char> data)
-// {
-//     auto res = parse_known_message<Message>(data);
-//     if (res.has_error())
-//         return {backend_message_type::invalid, res.error()};
-//     return {type, *res};
-// }
-
-// inline backend_message parse_message(unsigned char type, boost::span<const unsigned char> data)
-// {
-//     auto t = static_cast<backend_message_type>(type);
-//     switch (t)
-//     {
-//     case backend_message_type::authentication_request:
-//         return parse_message_impl<authentication_request_message>(t, data);
-//     case backend_message_type::backend_key_data: return parse_message_impl<backend_key_data_message>(t,
-//     data); case backend_message_type::bind_complete: return parse_message_impl<bind_complete_message>(t,
-//     data); case backend_message_type::close_complete: return parse_message_impl<close_complete_message>(t,
-//     data); case backend_message_type::command_complete: return
-//     parse_message_impl<command_complete_message>(t, data); default:
-//         return {backend_message_type::invalid,
-//         boost::system::error_code(client_errc::protocol_value_error)};
-//     }
-// }
 
 }  // namespace protocol
 }  // namespace nativepg

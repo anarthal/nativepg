@@ -5,10 +5,11 @@
 # file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 #
 
-cmake_minimum_required(VERSION 3.8.0)
+cmake_minimum_required(VERSION 3.10..3.31)
 project(nativepg)
 
-find_package(Boost REQUIRED COMPONENTS headers)
+find_package(boost_headers REQUIRED)
+find_package(boost_charconv REQUIRED)
 find_package(OpenSSL REQUIRED)
 
 
@@ -16,7 +17,7 @@ add_library(nativepg
     src/error.cpp
     src/messages.cpp
 )
-target_link_libraries(nativepg PUBLIC Boost::headers OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(nativepg PUBLIC Boost::headers Boost::charconv OpenSSL::SSL OpenSSL::Crypto)
 target_include_directories(nativepg PUBLIC include)
 
 add_executable(main test/main.cpp)

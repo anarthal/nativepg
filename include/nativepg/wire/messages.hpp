@@ -25,6 +25,9 @@
 namespace nativepg {
 namespace protocol {
 
+// Forward decl
+struct field_description;
+
 namespace detail {
 boost::system::error_code check_empty(boost::span<const unsigned char> data);
 
@@ -33,6 +36,13 @@ template <>
 struct forward_traits<boost::span<const unsigned char>>
 {
     static boost::span<const unsigned char> dereference(const unsigned char* data);
+    static const unsigned char* advance(const unsigned char* data);
+};
+
+template <>
+struct forward_traits<field_description>
+{
+    static field_description dereference(const unsigned char* data);
     static const unsigned char* advance(const unsigned char* data);
 };
 
@@ -468,76 +478,10 @@ struct field_description
     format_code fmt_code;
 };
 
-// View over a range of field descriptions in a RowDescription message
-// This collection assumes the data is well-formed. parse() checks this.
-class field_descriptions_view
-{
-    std::size_t size_;                       // number of fields
-    boost::span<const unsigned char> data_;  // serialized fields
-
-public:
-    class iterator
-    {
-        const unsigned char* data_;  // pointer into the message
-
-        iterator(const unsigned char* data) noexcept : data_(data) {}
-        field_description dereference() const;
-        void advance();
-
-        friend class field_descriptions_view;
-
-    public:
-        using value_type = field_description;
-        using reference = field_description;
-        using pointer = field_description;
-        using difference_type = std::ptrdiff_t;
-        using iterator_category = std::forward_iterator_tag;
-
-        iterator& operator++() noexcept
-        {
-            advance();
-            return *this;
-        }
-        iterator operator++(int) noexcept
-        {
-            auto res = *this;
-            advance();
-            return res;
-        }
-        reference operator*() const noexcept { return dereference(); }
-        bool operator==(iterator rhs) const noexcept { return data_ == rhs.data_; }
-        bool operator!=(iterator rhs) const noexcept { return !(*this == rhs); }
-    };
-
-    using const_iterator = iterator;
-    using value_type = field_description;
-    using reference = value_type;
-    using const_reference = value_type;
-    using size_type = std::size_t;
-    using difference_type = std::ptrdiff_t;
-
-    // size is the number of fields. data is a view over the "fields" part
-    // of the RowDescription message, and must be valid. parse() performs this validation.
-    // Don't use this unless you know what you're doing (TODO: make this private?)
-    field_descriptions_view(std::size_t size, boost::span<const unsigned char> data) noexcept
-        : size_(size), data_(data)
-    {
-    }
-
-    // The number of fields
-    std::size_t size() const { return size_; }
-
-    // Is the range empty?
-    bool empty() const { return size_ == 0u; }
-
-    // Range functions
-    iterator begin() const { return iterator(data_.begin()); }
-    iterator end() const { return iterator(data_.end()); }
-};
-
 struct row_description
 {
-    field_descriptions_view fields;
+    // A collection of descriptions, one per column
+    forward_parsing_view<field_description> field_descriptions;
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, row_description& to);
 

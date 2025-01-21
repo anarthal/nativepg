@@ -215,8 +215,9 @@ boost::span<const unsigned char> nativepg::protocol::detail::forward_traits<
     return {data + 4u, size};
 }
 
-const unsigned char* nativepg::protocol::detail::forward_traits<
-    boost::span<const unsigned char>>::advance(const unsigned char* data)
+const unsigned char* nativepg::protocol::detail::forward_traits<boost::span<const unsigned char>>::advance(
+    const unsigned char* data
+)
 {
     return data + boost::endian::load_big_s32(data) + 4u;
 }
@@ -357,29 +358,30 @@ boost::system::error_code nativepg::protocol::parse(
     return ctx.check();
 }
 
-nativepg::protocol::field_description nativepg::protocol::field_descriptions_view::iterator::dereference(
-) const
+nativepg::protocol::field_description nativepg::protocol::detail::forward_traits<
+    field_description>::dereference(const unsigned char* data)
 {
-    const unsigned char* it = data_;
-
     // Evaluation order of initializers is well defined
     return {
-        detail::unchecked_get_string(it),                  // name
-        detail::unchecked_get_integral<std::int32_t>(it),  // table_oid
-        detail::unchecked_get_integral<std::int16_t>(it),  // column_attribute
-        detail::unchecked_get_integral<std::int32_t>(it),  // type_oid
-        detail::unchecked_get_integral<std::int16_t>(it),  // type_length
-        detail::unchecked_get_integral<std::int32_t>(it),  // type_modifier
-        static_cast<format_code>(detail::unchecked_get_integral<std::uint8_t>(it)),
+        detail::unchecked_get_string(data),                  // name
+        detail::unchecked_get_integral<std::int32_t>(data),  // table_oid
+        detail::unchecked_get_integral<std::int16_t>(data),  // column_attribute
+        detail::unchecked_get_integral<std::int32_t>(data),  // type_oid
+        detail::unchecked_get_integral<std::int16_t>(data),  // type_length
+        detail::unchecked_get_integral<std::int32_t>(data),  // type_modifier
+        static_cast<format_code>(detail::unchecked_get_integral<std::uint8_t>(data)),
     };
 }
 
-void nativepg::protocol::field_descriptions_view::iterator::advance()
+const unsigned char* nativepg::protocol::detail::forward_traits<field_description>::advance(
+    const unsigned char* data
+)
 {
-    // The string is the only variable-size item
-    const unsigned char* it = data_;
-    detail::unchecked_get_string(it);
-    data_ = it + field_description_fixed_size;
+    // The string is the only variable-size item. Skip it
+    detail::unchecked_get_string(data);
+
+    // Skip the fixed fields
+    return data + field_description_fixed_size;
 }
 
 boost::system::error_code nativepg::protocol::parse(
@@ -391,6 +393,9 @@ boost::system::error_code nativepg::protocol::parse(
 
     // Get the number of items (Int16)
     auto num_items = static_cast<std::size_t>(ctx.get_nonnegative_integral<std::int16_t>());
+
+    // Message to pass to the forward parsing collection starts here
+    const auto* data_first = ctx.first();
 
     // Iterate over all items to check that the format is valid
     for (std::size_t i = 0u; i < num_items; ++i)
@@ -407,6 +412,13 @@ boost::system::error_code nativepg::protocol::parse(
         if (!is_valid_format_code(fmt_code))
             ctx.add_error(client_errc::protocol_value_error);
     }
+
+    // Message to pass to the forward parsing collection ends here
+    const auto* data_last = ctx.first();
+    to.field_descriptions = {
+        num_items,
+        {data_first, data_last}
+    };
 
     // Done
     return ctx.check();

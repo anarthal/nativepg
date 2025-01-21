@@ -273,6 +273,38 @@ std::optional<std::size_t> nativepg::protocol::error_response::parsed_line_numbe
     return res;
 }
 
+std::int32_t nativepg::protocol::int32_array_view::deserialize_int(const unsigned char* ptr)
+{
+    return boost::endian::load_big_s32(ptr);
+}
+
+boost::system::error_code nativepg::protocol::parse(
+    boost::span<const unsigned char> data,
+    parameter_description& to
+)
+{
+    detail::parse_context ctx(data);
+
+    // Get the number of parameters (Int16)
+    auto num_params = static_cast<std::size_t>(ctx.get_nonnegative_integral<std::int16_t>());
+
+    // Check that there is space for all the parameters (an Int32 for each parameter).
+    // No need to deserialize them, since ints can't fail deserialization.
+    // num_params*4 can't overflow in this context AFAIK
+    std::size_t required_size = num_params * 4u;
+    if (ctx.size() < required_size)
+    {
+        ctx.add_error(client_errc::incomplete_message);
+    }
+    else
+    {
+        ctx.advance(required_size);
+    }
+
+    // Done
+    return ctx.check();
+}
+
 boost::system::result<any_backend_message> nativepg::protocol::parse(
     std::uint8_t message_type,
     boost::span<const unsigned char> data

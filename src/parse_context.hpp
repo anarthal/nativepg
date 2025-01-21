@@ -33,14 +33,6 @@ class parse_context
     const unsigned char* last_;
     boost::system::error_code ec_;
 
-    std::size_t size() const { return last_ - first_; }
-
-    void advance(std::size_t by)
-    {
-        BOOST_ASSERT(by <= size());
-        first_ += by;
-    }
-
 public:
     parse_context(boost::span<const unsigned char> range) noexcept : first_(range.begin()), last_(range.end())
     {
@@ -48,6 +40,14 @@ public:
 
     const unsigned char* first() const { return first_; }
     const unsigned char* last() const { return last_; }
+
+    std::size_t size() const { return last_ - first_; }
+
+    void advance(std::size_t by)
+    {
+        BOOST_ASSERT(by <= size());
+        first_ += by;
+    }
 
     unsigned char get_byte()
     {

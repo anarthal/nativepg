@@ -16,7 +16,6 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <iterator>
 #include <optional>
 #include <string_view>
 
@@ -44,6 +43,12 @@ struct forward_traits<field_description>
 {
     static field_description dereference(const unsigned char* data);
     static const unsigned char* advance(const unsigned char* data);
+};
+
+template <>
+struct random_access_traits<std::int32_t>
+{
+    static std::int32_t dereference(const unsigned char* data);
 };
 
 }  // namespace detail
@@ -259,146 +264,11 @@ struct notification_response
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, notification_response& to);
 
-// A view over a serialized array of int32_t values
-class int32_array_view
-{
-    const unsigned char* data_;
-    std::size_t size_;  // number of items (as opposed to bytes)
-
-    // Deserializes the int at that position, no check
-    static std::int32_t deserialize_int(const unsigned char* ptr);
-
-    std::int32_t unchecked_access(std::size_t i) const { return deserialize_int(data_ + 4 * i); }
-
-public:
-    class iterator
-    {
-        const unsigned char* data_;  // pointer into the message
-
-        iterator(const unsigned char* data) noexcept : data_(data) {}
-        std::int32_t dereference() const { return deserialize_int(data_); }
-        void advance_by(std::ptrdiff_t i) { data_ += (4u * i); }
-
-        friend class int32_array_view;
-
-    public:
-        using value_type = std::int32_t;
-        using reference = std::int32_t;
-        using pointer = std::int32_t;
-        using difference_type = std::ptrdiff_t;
-        using iterator_category = std::random_access_iterator_tag;
-
-        iterator& operator++() noexcept
-        {
-            advance_by(1);
-            return *this;
-        }
-        iterator operator++(int) noexcept
-        {
-            auto res = *this;
-            advance_by(1);
-            return res;
-        }
-        iterator& operator--() noexcept
-        {
-            advance_by(-1);
-            return *this;
-        }
-        iterator operator--(int) noexcept
-        {
-            auto res = *this;
-            advance_by(-1);
-            return res;
-        }
-        iterator& operator+=(std::ptrdiff_t n) noexcept
-        {
-            advance_by(n);
-            return *this;
-        }
-        iterator& operator-=(std::ptrdiff_t n) noexcept
-        {
-            advance_by(-n);
-            return *this;
-        }
-        iterator operator+(std::ptrdiff_t n) const noexcept
-        {
-            iterator res(*this);
-            res.advance_by(n);
-            return res;
-        }
-        iterator operator-(std::ptrdiff_t n) const noexcept
-        {
-            iterator res(*this);
-            res.advance_by(-n);
-            return res;
-        }
-        std::ptrdiff_t operator-(iterator rhs) const noexcept { return (data_ - rhs.data_) / 4; }
-        friend inline iterator operator+(std::ptrdiff_t n, iterator it) noexcept { return it + n; }
-
-        pointer operator->() const noexcept { return dereference(); }
-        reference operator*() const noexcept { return dereference(); }
-        reference operator[](std::ptrdiff_t i) const noexcept
-        {
-            iterator temp(*this);
-            temp.advance_by(i);
-            return temp.dereference();
-        }
-
-        bool operator==(iterator rhs) const noexcept { return data_ == rhs.data_; }
-        bool operator!=(iterator rhs) const noexcept { return !(*this == rhs); }
-        bool operator<(iterator rhs) const noexcept { return data_ < rhs.data_; }
-        bool operator<=(iterator rhs) const noexcept { return data_ <= rhs.data_; }
-        bool operator>(iterator rhs) const noexcept { return data_ > rhs.data_; }
-        bool operator>=(iterator rhs) const noexcept { return data_ >= rhs.data_; }
-        // TODO: spaceship?
-    };
-
-    using const_iterator = iterator;
-    using value_type = std::int32_t;
-    using reference = value_type;
-    using const_reference = value_type;
-    using size_type = std::size_t;
-    using difference_type = std::ptrdiff_t;
-
-    // size is the number of int32 values. data is a pointer to the storage
-    // where the ints are serialized. Performs no validation.
-    // parse() performs this validation.
-    // Don't use this unless you know what you're doing (TODO: make this private?)
-    int32_array_view(const unsigned char* data, std::size_t size) noexcept : size_(size), data_(data) {}
-
-    // The number of integer values
-    std::size_t size() const { return size_; }
-
-    // Is the range empty?
-    bool empty() const { return size_ == 0u; }
-
-    // TODO: should this be in a .cpp?
-    std::int32_t at(std::size_t i) const
-    {
-        if (i >= size())
-            BOOST_THROW_EXCEPTION(std::out_of_range("int32_array_view::at"));
-        return unchecked_access(i);
-    }
-
-    std::int32_t operator[](std::size_t i) const noexcept
-    {
-        BOOST_ASSERT(i < size());
-        return unchecked_access(i);
-    }
-
-    std::int32_t front() const noexcept { return (*this)[0]; }
-
-    std::int32_t back() const noexcept { return (*this)[size() - 1]; }
-
-    // Range functions
-    iterator begin() const { return iterator(data_); }
-    iterator end() const { return iterator(data_ + 4 * size_); }
-};
-
 // Describes the parameters of a statement
 struct parameter_description
 {
-    int32_array_view parameters;
+    // The type OIDs of the statement parameters, one for each parameter
+    random_access_parsing_view<std::int32_t> parameter_type_oids;
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, parameter_description& to);
 

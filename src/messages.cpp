@@ -10,6 +10,7 @@
 #include <boost/core/span.hpp>
 #include <boost/endian/conversion.hpp>
 #include <boost/system/error_code.hpp>
+#include <boost/throw_exception.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -162,6 +163,12 @@ constexpr std::size_t field_description_fixed_size = 18u;
 
 }  // namespace
 
+void nativepg::protocol::detail::at_range_check(std::size_t i, std::size_t collection_size)
+{
+    if (i >= collection_size)
+        BOOST_THROW_EXCEPTION(std::out_of_range("random_access_parsing_view::at"));
+}
+
 void nativepg::protocol::serialize_header(message_header header, boost::span<unsigned char, 5> dest)
 {
     // TODO: this can result in an overflow
@@ -304,7 +311,9 @@ std::optional<std::size_t> nativepg::protocol::error_response::parsed_line_numbe
     return res;
 }
 
-std::int32_t nativepg::protocol::int32_array_view::deserialize_int(const unsigned char* ptr)
+std::int32_t nativepg::protocol::detail::random_access_traits<std::int32_t>::dereference(
+    const unsigned char* ptr
+)
 {
     return boost::endian::load_big_s32(ptr);
 }

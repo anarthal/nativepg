@@ -20,12 +20,23 @@
 #include <optional>
 #include <string_view>
 
+#include "nativepg/wire/views.hpp"
+
 namespace nativepg {
 namespace protocol {
 
 namespace detail {
 boost::system::error_code check_empty(boost::span<const unsigned char> data);
-}
+
+// Collections impl
+template <>
+struct forward_traits<boost::span<const unsigned char>>
+{
+    static boost::span<const unsigned char> dereference(const unsigned char* data);
+    static const unsigned char* advance(const unsigned char* data);
+};
+
+}  // namespace detail
 
 // Common definitions
 enum class format_code : std::int16_t
@@ -120,75 +131,11 @@ struct command_complete
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, command_complete& to);
 
-// View over the columns of a DataRow message. Each element is a serialized field (a byte string).
-// This collection assumes the data is well-formed. parse() checks this.
-class columns_view
-{
-    std::size_t size_;                       // number of fields
-    boost::span<const unsigned char> data_;  // serialized fields
-
-public:
-    class iterator
-    {
-        const unsigned char* data_;  // pointer into the message
-
-        iterator(const unsigned char* data) noexcept : data_(data) {}
-        boost::span<const unsigned char> dereference() const;
-        void advance();
-
-        friend class columns_view;
-
-    public:
-        using value_type = boost::span<const unsigned char>;
-        using reference = boost::span<const unsigned char>;
-        using pointer = boost::span<const unsigned char>;
-        using difference_type = std::ptrdiff_t;
-        using iterator_category = std::forward_iterator_tag;
-
-        iterator& operator++() noexcept
-        {
-            advance();
-            return *this;
-        }
-        iterator operator++(int) noexcept
-        {
-            auto res = *this;
-            advance();
-            return res;
-        }
-        reference operator*() const noexcept { return dereference(); }
-        bool operator==(iterator rhs) const noexcept { return data_ == rhs.data_; }
-        bool operator!=(iterator rhs) const noexcept { return !(*this == rhs); }
-    };
-
-    using const_iterator = iterator;
-    using value_type = boost::span<const unsigned char>;
-    using reference = value_type;
-    using const_reference = value_type;
-    using size_type = std::size_t;
-    using difference_type = std::ptrdiff_t;
-
-    // size is the number of fields. data is a view over the "fields" part
-    // of the DataRow message, and must be valid. parse() performs this validation.
-    // Don't use this unless you know what you're doing (TODO: make this private?)
-    columns_view(std::size_t size, boost::span<const unsigned char> data) noexcept : size_(size), data_(data)
-    {
-    }
-
-    // The number of fields
-    std::size_t size() const { return size_; }
-
-    // Is the range empty?
-    bool empty() const { return size_ == 0u; }
-
-    // Range functions
-    iterator begin() const { return iterator(data_.begin()); }
-    iterator end() const { return iterator(data_.end()); }
-};
-
 struct data_row
 {
-    columns_view columns;
+    // The actual values. Contains a span<const unsigned char> per column,
+    // containing the serialized value
+    forward_parsing_view<boost::span<const unsigned char>> columns;
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, data_row& to);
 

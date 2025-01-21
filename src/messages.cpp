@@ -17,6 +17,7 @@
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/wire/messages.hpp"
+#include "nativepg/wire/views.hpp"
 #include "parse_context.hpp"
 
 using namespace nativepg::protocol;
@@ -207,15 +208,17 @@ boost::system::error_code nativepg::protocol::parse(
 }
 
 // Each field is: Int32 size + Byte<n>
-boost::span<const unsigned char> nativepg::protocol::columns_view::iterator::dereference() const
+boost::span<const unsigned char> nativepg::protocol::detail::forward_traits<
+    boost::span<const unsigned char>>::dereference(const unsigned char* data)
 {
-    auto size = static_cast<std::size_t>(boost::endian::load_big_s32(data_));
-    return {data_ + 4u, size};
+    auto size = static_cast<std::size_t>(boost::endian::load_big_s32(data));
+    return {data + 4u, size};
 }
 
-void nativepg::protocol::columns_view::iterator::advance()
+const unsigned char* nativepg::protocol::detail::forward_traits<
+    boost::span<const unsigned char>>::advance(const unsigned char* data)
 {
-    data_ += (static_cast<std::size_t>(boost::endian::load_big_s32(data_)) + 4u);
+    return data + boost::endian::load_big_s32(data) + 4u;
 }
 
 boost::system::error_code nativepg::protocol::parse(boost::span<const unsigned char> data, data_row& to)
@@ -242,7 +245,10 @@ boost::system::error_code nativepg::protocol::parse(boost::span<const unsigned c
     const auto* values_end = ctx.first();
 
     // Set the output value
-    to.columns = columns_view(num_columns, {values_begin, values_end});
+    to.columns = forward_parsing_view<boost::span<const unsigned char>>(
+        num_columns,
+        {values_begin, values_end}
+    );
 
     // Done
     return ctx.check();

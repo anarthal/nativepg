@@ -146,6 +146,19 @@ bool is_valid_status(transaction_status v)
     }
 }
 
+bool is_valid_format_code(format_code v)
+{
+    switch (v)
+    {
+    case format_code::text:
+    case format_code::binary: return true;
+    default: return false;
+    }
+}
+
+// The size of the fixed-length fields in a field description of a RowDescription message
+constexpr std::size_t field_description_fixed_size = 18u;
+
 }  // namespace
 
 void nativepg::protocol::serialize_header(message_header header, boost::span<unsigned char, 5> dest)
@@ -302,15 +315,7 @@ boost::system::error_code nativepg::protocol::parse(
     // Check that there is space for all the parameters (an Int32 for each parameter).
     // No need to deserialize them, since ints can't fail deserialization.
     // num_params*4 can't overflow in this context AFAIK
-    std::size_t required_size = num_params * 4u;
-    if (ctx.size() < required_size)
-    {
-        ctx.add_error(client_errc::incomplete_message);
-    }
-    else
-    {
-        ctx.advance(required_size);
-    }
+    ctx.check_size_and_advance(num_params * 4u);
 
     // Done
     return ctx.check();
@@ -343,6 +348,61 @@ boost::system::error_code nativepg::protocol::parse(
     }
     to.status = status;
 
+    return ctx.check();
+}
+
+nativepg::protocol::field_description nativepg::protocol::field_descriptions_view::iterator::dereference(
+) const
+{
+    const unsigned char* it = data_;
+
+    // Evaluation order of initializers is well defined
+    return {
+        detail::unchecked_get_string(it),                  // name
+        detail::unchecked_get_integral<std::int32_t>(it),  // table_oid
+        detail::unchecked_get_integral<std::int16_t>(it),  // column_attribute
+        detail::unchecked_get_integral<std::int32_t>(it),  // type_oid
+        detail::unchecked_get_integral<std::int16_t>(it),  // type_length
+        detail::unchecked_get_integral<std::int32_t>(it),  // type_modifier
+        static_cast<format_code>(detail::unchecked_get_integral<std::uint8_t>(it)),
+    };
+}
+
+void nativepg::protocol::field_descriptions_view::iterator::advance()
+{
+    // The string is the only variable-size item
+    const unsigned char* it = data_;
+    detail::unchecked_get_string(it);
+    data_ = it + field_description_fixed_size;
+}
+
+boost::system::error_code nativepg::protocol::parse(
+    boost::span<const unsigned char> data,
+    row_description& to
+)
+{
+    detail::parse_context ctx(data);
+
+    // Get the number of items (Int16)
+    auto num_items = static_cast<std::size_t>(ctx.get_nonnegative_integral<std::int16_t>());
+
+    // Iterate over all items to check that the format is valid
+    for (std::size_t i = 0u; i < num_items; ++i)
+    {
+        // The name (string) is variable size, so we must get it
+        ctx.get_string();
+
+        // We don't need to check the validity of fixed fields, since they are integrals.
+        // Stop before the format code field, which needs to be checked
+        ctx.check_size_and_advance(field_description_fixed_size - 2u);
+
+        // Check that the format code is known
+        auto fmt_code = static_cast<format_code>(ctx.get_integral<std::int16_t>());
+        if (!is_valid_format_code(fmt_code))
+            ctx.add_error(client_errc::protocol_value_error);
+    }
+
+    // Done
     return ctx.check();
 }
 

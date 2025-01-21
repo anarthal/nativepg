@@ -27,6 +27,24 @@ namespace nativepg {
 namespace protocol {
 namespace detail {
 
+// Unchecked versions, for views
+template <class IntType>
+IntType unchecked_get_integral(const unsigned char*& it)
+{
+    auto res = boost::endian::endian_load<IntType, sizeof(IntType), boost::endian::order::big>(it);
+    it += sizeof(IntType);
+    return res;
+}
+
+inline std::string_view unchecked_get_string(const unsigned char*& it)
+{
+    const char* data = reinterpret_cast<const char*>(it);
+    auto len = std::strlen(data);
+    std::string_view res{data, len};
+    it += len + 1u;  // skip NULL terminator, too
+    return res;
+}
+
 class parse_context
 {
     const unsigned char* first_;
@@ -64,9 +82,7 @@ public:
             add_error(client_errc::incomplete_message);
         if (ec_)
             return {};
-        auto res = boost::endian::endian_load<IntType, sizeof(IntType), boost::endian::order::big>(first_);
-        advance(sizeof(IntType));
-        return res;
+        return unchecked_get_integral<IntType>(first_);
     }
 
     template <class IntType>
@@ -100,6 +116,14 @@ public:
         advance(res.size() + 1u);
 
         return res;
+    }
+
+    void check_size_and_advance(std::size_t n)
+    {
+        if (n > size())
+            add_error(client_errc::incomplete_message);
+        else
+            advance(n);
     }
 
     boost::span<const unsigned char> get_bytes(std::size_t n)

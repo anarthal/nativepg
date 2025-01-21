@@ -449,6 +449,42 @@ struct parameter_status
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, parameter_status& to);
 
+struct parse_complete
+{
+};
+inline boost::system::error_code parse(boost::span<const unsigned char> data, parse_complete&)
+{
+    return detail::check_empty(data);
+}
+
+struct portal_suspended
+{
+};
+inline boost::system::error_code parse(boost::span<const unsigned char> data, portal_suspended&)
+{
+    return detail::check_empty(data);
+}
+
+// Sent when operations complete
+enum class transaction_status : unsigned char
+{
+    // not in a transaction block
+    idle = 'I',
+
+    // in a transaction block
+    in_transaction = 'T',
+
+    // in a failed transaction block (queries will be rejected until block is ended)
+    failed = 'E',
+};
+
+struct ready_for_query
+{
+    // Current backend transaction status indicator
+    transaction_status status;
+};
+boost::system::error_code parse(boost::span<const unsigned char> data, ready_for_query& to);
+
 }  // namespace protocol
 }  // namespace nativepg
 

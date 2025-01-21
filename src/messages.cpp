@@ -135,6 +135,17 @@ void populate_field(detail::parse_context& ctx, error_field_type type, error_res
     }
 }
 
+bool is_valid_status(transaction_status v)
+{
+    switch (v)
+    {
+    case transaction_status::idle:
+    case transaction_status::in_transaction:
+    case transaction_status::failed: return true;
+    default: return false;
+    }
+}
+
 }  // namespace
 
 void nativepg::protocol::serialize_header(message_header header, boost::span<unsigned char, 5> dest)
@@ -313,6 +324,25 @@ boost::system::error_code nativepg::protocol::parse(
     detail::parse_context ctx(data);
     to.name = ctx.get_string();
     to.value = ctx.get_string();
+    return ctx.check();
+}
+
+boost::system::error_code nativepg::protocol::parse(
+    boost::span<const unsigned char> data,
+    ready_for_query& to
+)
+{
+    detail::parse_context ctx(data);
+
+    // The status is one byte. Get it and check that what we got is one of the valid values.
+    // On error, returns a zero byte, which is not valid, either
+    auto status = static_cast<transaction_status>(ctx.get_byte());
+    if (!is_valid_status(status))
+    {
+        ctx.add_error(client_errc::protocol_value_error);
+    }
+    to.status = status;
+
     return ctx.check();
 }
 

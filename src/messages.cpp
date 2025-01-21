@@ -305,6 +305,17 @@ boost::system::error_code nativepg::protocol::parse(
     return ctx.check();
 }
 
+boost::system::error_code nativepg::protocol::parse(
+    boost::span<const unsigned char> data,
+    parameter_status& to
+)
+{
+    detail::parse_context ctx(data);
+    to.name = ctx.get_string();
+    to.value = ctx.get_string();
+    return ctx.check();
+}
+
 boost::system::result<any_backend_message> nativepg::protocol::parse(
     std::uint8_t message_type,
     boost::span<const unsigned char> data

@@ -438,6 +438,17 @@ struct parameter_description
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, parameter_description& to);
 
+// Sent when a config parameter that might interest us changes value (e.g. character set)
+struct parameter_status
+{
+    // The name of the run-time parameter being reported.
+    std::string_view name;
+
+    // The current value of the parameter.
+    std::string_view value;
+};
+boost::system::error_code parse(boost::span<const unsigned char> data, parameter_status& to);
+
 }  // namespace protocol
 }  // namespace nativepg
 

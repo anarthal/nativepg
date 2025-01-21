@@ -192,7 +192,7 @@ inline boost::system::error_code parse(boost::span<const unsigned char> data, em
     return detail::check_empty(data);
 }
 
-// Errors and notices
+// Errors and notices. NoticeResponse has the same structure, and is represented with the same type
 // TODO: should we make these const char*?
 // All of the fields are optional, and user-defined functions may use them as they like,
 // so we tolerate almost anything in them
@@ -272,6 +272,27 @@ struct error_response
     std::optional<std::string_view> routine;
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, error_response& to);
+
+struct no_data
+{
+};
+inline boost::system::error_code parse(boost::span<const unsigned char> data, no_data&)
+{
+    return detail::check_empty(data);
+}
+
+struct notification_response
+{
+    // The process ID of the notifying backend process.
+    std::int32_t process_id;
+
+    // The name of the channel that the notify has been raised on.
+    std::string_view channel_name;
+
+    // The “payload” string passed from the notifying process.
+    std::string_view payload;
+};
+boost::system::error_code parse(boost::span<const unsigned char> data, notification_response& to);
 
 }  // namespace protocol
 }  // namespace nativepg

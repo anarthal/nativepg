@@ -245,6 +245,18 @@ boost::system::error_code nativepg::protocol::parse(boost::span<const unsigned c
     return ctx.check();
 }
 
+boost::system::error_code nativepg::protocol::parse(
+    boost::span<const unsigned char> data,
+    notification_response& to
+)
+{
+    detail::parse_context ctx(data);
+    to.process_id = ctx.get_integral<std::int32_t>();
+    to.channel_name = ctx.get_string();
+    to.payload = ctx.get_string();
+    return ctx.check();
+}
+
 std::optional<std::size_t> nativepg::protocol::error_response::parsed_line_number() const
 {
     // If we received no string field, return nothing

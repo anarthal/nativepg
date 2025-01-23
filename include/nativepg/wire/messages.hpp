@@ -58,6 +58,13 @@ struct random_access_traits<format_code>
     static format_code dereference(const unsigned char* data);
 };
 
+template <>
+struct forward_traits<std::string_view>
+{
+    static std::string_view dereference(const unsigned char* data);
+    static const unsigned char* advance(const unsigned char* data);
+};
+
 }  // namespace detail
 
 // Common definitions
@@ -173,12 +180,12 @@ inline boost::system::error_code parse(boost::span<const unsigned char> data, co
     return detail::check_empty(data);
 }
 
+// TODO: this is frontend
 struct copy_fail
 {
     // An error message to report as the cause of failure.
     std::string_view error_message;
 };
-boost::system::error_code parse(boost::span<const unsigned char> data, copy_fail& to);
 
 struct copy_in_response
 {
@@ -309,6 +316,17 @@ struct error_response
     std::optional<std::string_view> routine;
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, error_response& to);
+
+struct negotiate_protocol_version
+{
+    // Newest minor protocol version supported by the server for the major protocol version requested by the
+    // client.
+    std::int32_t minor_version;
+
+    // Options not recognized by the server
+    forward_parsing_view<std::string_view> non_recognized_options;
+};
+boost::system::error_code parse(boost::span<const unsigned char> data, negotiate_protocol_version& to);
 
 struct no_data
 {

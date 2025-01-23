@@ -206,6 +206,7 @@ public:
     // where the items are serialized. Performs no validation.
     // parse() performs this validation.
     // Don't use this unless you know what you're doing (TODO: make this private?)
+    // TODO: make this uniform with the above
     random_access_parsing_view(const unsigned char* data, std::size_t size) noexcept
         : size_(size), data_(data)
     {

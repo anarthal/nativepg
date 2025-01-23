@@ -14,6 +14,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 #include <system_error>
 
 #include "nativepg/client_errc.hpp"
@@ -279,13 +280,6 @@ format_code nativepg::protocol::detail::random_access_traits<format_code>::deref
     return static_cast<format_code>(unchecked_get_integral<std::int16_t>(data));
 }
 
-boost::system::error_code nativepg::protocol::parse(boost::span<const unsigned char> data, copy_fail& to)
-{
-    detail::parse_context ctx(data);
-    to.error_message = ctx.get_string();
-    return ctx.check();
-}
-
 boost::system::error_code nativepg::protocol::parse(
     boost::span<const unsigned char> data,
     copy_in_response& to
@@ -355,6 +349,53 @@ boost::system::error_code nativepg::protocol::parse(boost::span<const unsigned c
     );
 
     // Done
+    return ctx.check();
+}
+
+std::string_view nativepg::protocol::detail::forward_traits<std::string_view>::dereference(
+    const unsigned char* data
+)
+{
+    return detail::unchecked_get_string(data);
+}
+
+const unsigned char* nativepg::protocol::detail::forward_traits<std::string_view>::advance(
+    const unsigned char* data
+)
+{
+    detail::unchecked_get_string(data);
+    return data;
+}
+
+boost::system::error_code nativepg::protocol::parse(
+    boost::span<const unsigned char> data,
+    negotiate_protocol_version& to
+)
+{
+    detail::parse_context ctx(data);
+
+    // Minor version
+    to.minor_version = ctx.get_nonnegative_integral<std::int32_t>();
+
+    // Number of options
+    auto num_ops = static_cast<std::size_t>(ctx.get_nonnegative_integral<std::int32_t>());
+
+    // This is where strings begin
+    const auto* opts_first = ctx.first();
+
+    // Check that all strings are well-formed
+    for (std::size_t i = 0u; i < num_ops; ++i)
+        ctx.get_string();
+
+    // Strings end here
+    const auto* opts_last = ctx.first();
+
+    // Set output
+    to.non_recognized_options = {
+        num_ops,
+        {opts_first, opts_last}
+    };
+
     return ctx.check();
 }
 

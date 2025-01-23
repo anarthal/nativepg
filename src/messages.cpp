@@ -14,6 +14,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string_view>
 #include <system_error>
 
@@ -372,18 +373,20 @@ boost::system::error_code nativepg::protocol::parse(
 }
 
 // Each field is: Int32 size + Byte<n>
-boost::span<const unsigned char> nativepg::protocol::detail::forward_traits<
-    boost::span<const unsigned char>>::dereference(const unsigned char* data)
+std::optional<boost::span<const unsigned char>> nativepg::protocol::detail::forward_traits<
+    std::optional<boost::span<const unsigned char>>>::dereference(const unsigned char* data)
 {
-    auto size = static_cast<std::size_t>(boost::endian::load_big_s32(data));
-    return {data + 4u, size};
+    auto size = boost::endian::load_big_s32(data);
+    if (size == -1)
+        return std::nullopt;
+    return boost::span<const unsigned char>(data + 4u, static_cast<std::size_t>(size));
 }
 
-const unsigned char* nativepg::protocol::detail::forward_traits<boost::span<const unsigned char>>::advance(
-    const unsigned char* data
-)
+const unsigned char* nativepg::protocol::detail::forward_traits<
+    std::optional<boost::span<const unsigned char>>>::advance(const unsigned char* data)
 {
-    return data + boost::endian::load_big_s32(data) + 4u;
+    auto size = boost::endian::load_big_s32(data);
+    return data + 4u + (size > 0 ? size : 0);
 }
 
 boost::system::error_code nativepg::protocol::parse(boost::span<const unsigned char> data, data_row& to)
@@ -400,17 +403,24 @@ boost::system::error_code nativepg::protocol::parse(boost::span<const unsigned c
     for (std::size_t i = 0u; i < num_columns; ++i)
     {
         // Size of the column value
-        auto value_size = static_cast<std::size_t>(ctx.get_nonnegative_integral<std::int32_t>());
+        auto value_size = ctx.get_integral<std::int32_t>();
 
-        // Column value
-        ctx.get_bytes(value_size);
+        // -1 means NULL
+        if (value_size == -1)
+            continue;
+
+        // Otherwise, the value should be positive, and indicates the value's length
+        if (value_size >= 0)
+            ctx.check_size_and_advance(value_size);
+        else
+            ctx.add_error(client_errc::protocol_value_error);
     }
 
     // The values end here
     const auto* values_end = ctx.first();
 
     // Set the output value
-    to.columns = forward_parsing_view<boost::span<const unsigned char>>(
+    to.columns = forward_parsing_view<std::optional<boost::span<const unsigned char>>>(
         num_columns,
         {values_begin, values_end}
     );

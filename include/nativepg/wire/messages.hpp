@@ -33,9 +33,9 @@ boost::system::error_code check_empty(boost::span<const unsigned char> data);
 
 // Collections impl
 template <>
-struct forward_traits<boost::span<const unsigned char>>
+struct forward_traits<std::optional<boost::span<const unsigned char>>>
 {
-    static boost::span<const unsigned char> dereference(const unsigned char* data);
+    static std::optional<boost::span<const unsigned char>> dereference(const unsigned char* data);
     static const unsigned char* advance(const unsigned char* data);
 };
 
@@ -276,9 +276,9 @@ boost::system::error_code parse(boost::span<const unsigned char> data, copy_both
 
 struct data_row
 {
-    // The actual values. Contains a span<const unsigned char> per column,
-    // containing the serialized value
-    forward_parsing_view<boost::span<const unsigned char>> columns;
+    // The actual values. Contains a an optional<span<const unsigned char>> per column,
+    // containing the serialized value, or an empty optional, if the field is NULL
+    forward_parsing_view<std::optional<boost::span<const unsigned char>>> columns;
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, data_row& to);
 

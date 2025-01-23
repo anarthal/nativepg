@@ -153,7 +153,31 @@ struct authentication_sasl
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, authentication_sasl&);
 
-// TODO: rest of authentication messages
+struct authentication_sasl_continue
+{
+    // SASL data, specific to the SASL mechanism being used.
+    boost::span<const unsigned char> data;
+};
+inline boost::system::error_code parse(
+    boost::span<const unsigned char> data,
+    authentication_sasl_continue& to
+)
+{
+    to.data = data;
+    return {};
+}
+
+struct authentication_sasl_final
+{
+    // SASL outcome "additional data", specific to the SASL mechanism being used.
+    boost::span<const unsigned char> data;
+};
+inline boost::system::error_code parse(boost::span<const unsigned char> data, authentication_sasl_final& to)
+{
+    to.data = data;
+    return {};
+}
+
 // TODO: do we want to expose a fn to parse any authentication message? (they share message code, type is
 // determined with the following bytes)
 

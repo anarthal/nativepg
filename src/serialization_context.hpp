@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_WIRE_SERIALIZATION_CONTEXT_HPP
-#define NATIVEPG_WIRE_SERIALIZATION_CONTEXT_HPP
+#ifndef NATIVEPG_PROTOCOL_SERIALIZATION_CONTEXT_HPP
+#define NATIVEPG_PROTOCOL_SERIALIZATION_CONTEXT_HPP
 
 #include <boost/core/span.hpp>
 #include <boost/endian/conversion.hpp>
@@ -24,7 +24,7 @@ class serialization_context
     std::vector<unsigned char>& buffer_;
 
 public:
-    serialization_context(std::vector<std::uint8_t>& buff) : buffer_(buff) {}
+    serialization_context(std::vector<std::uint8_t>& buff) noexcept : buffer_(buff) {}
 
     template <class IntType>
     void add_integral(IntType value)

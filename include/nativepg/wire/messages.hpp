@@ -165,6 +165,21 @@ inline boost::system::error_code parse(boost::span<const unsigned char> data, co
     return {};
 }
 
+struct copy_done
+{
+};
+inline boost::system::error_code parse(boost::span<const unsigned char> data, copy_done&)
+{
+    return detail::check_empty(data);
+}
+
+struct copy_fail
+{
+    // An error message to report as the cause of failure.
+    std::string_view error_message;
+};
+boost::system::error_code parse(boost::span<const unsigned char> data, copy_fail& to);
+
 struct copy_in_response
 {
     // Indicates whether the overall COPY format is textual (rows separated by newlines, columns separated by

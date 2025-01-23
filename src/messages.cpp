@@ -279,6 +279,13 @@ format_code nativepg::protocol::detail::random_access_traits<format_code>::deref
     return static_cast<format_code>(unchecked_get_integral<std::int16_t>(data));
 }
 
+boost::system::error_code nativepg::protocol::parse(boost::span<const unsigned char> data, copy_fail& to)
+{
+    detail::parse_context ctx(data);
+    to.error_message = ctx.get_string();
+    return ctx.check();
+}
+
 boost::system::error_code nativepg::protocol::parse(
     boost::span<const unsigned char> data,
     copy_in_response& to

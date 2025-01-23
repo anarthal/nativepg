@@ -10,8 +10,6 @@
 
 #include <boost/core/span.hpp>
 #include <boost/endian/conversion.hpp>
-#include <boost/endian/detail/endian_store.hpp>
-#include <boost/endian/detail/order.hpp>
 
 #include <array>
 #include <cstdint>

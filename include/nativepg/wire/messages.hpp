@@ -164,6 +164,28 @@ struct copy_in_response
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, copy_in_response& to);
 
+struct copy_out_response
+{
+    // Indicates whether the overall COPY format is textual (rows separated by newlines, columns separated by
+    // separator characters, etc.) or binary (similar to DataRow format).
+    format_code overall_fmt_code;
+
+    // The format codes to be used for each column. If overall_fmt_code is text, all these must be zero.
+    random_access_parsing_view<format_code> fmt_codes;
+};
+boost::system::error_code parse(boost::span<const unsigned char> data, copy_out_response& to);
+
+struct copy_both_response
+{
+    // Indicates whether the overall COPY format is textual (rows separated by newlines, columns separated by
+    // separator characters, etc.) or binary (similar to DataRow format).
+    format_code overall_fmt_code;
+
+    // The format codes to be used for each column. If overall_fmt_code is text, all these must be zero.
+    random_access_parsing_view<format_code> fmt_codes;
+};
+boost::system::error_code parse(boost::span<const unsigned char> data, copy_both_response& to);
+
 struct data_row
 {
     // The actual values. Contains a span<const unsigned char> per column,

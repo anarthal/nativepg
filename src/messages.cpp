@@ -178,6 +178,47 @@ bool is_valid_format_code(overall_format_code v)
     }
 }
 
+// Shared between copy_in_response, copy_out_response, copy_both_response
+boost::system::error_code parse_copy_response(
+    boost::span<const unsigned char> data,
+    format_code& overall_code_output,
+    random_access_parsing_view<format_code>& fmt_codes_output
+)
+{
+    detail::parse_context ctx(data);
+
+    // Overall format code
+    auto overall_code = static_cast<overall_format_code>(ctx.get_byte());
+    if (!is_valid_format_code(overall_code))
+    {
+        ctx.add_error(nativepg::client_errc::protocol_value_error);
+        return ctx.check();
+    }
+
+    // If the overall format is text, subsequent codes should be text, too.
+    const bool should_be_text = overall_code == overall_format_code::text;
+
+    // Number of format codes
+    auto num_items = static_cast<std::size_t>(ctx.get_nonnegative_integral<std::int16_t>());
+
+    // Individual format codes start here
+    const auto* fmt_codes_first = ctx.first();
+
+    // Check each code
+    for (std::size_t i = 0; i < num_items; ++i)
+    {
+        auto code = static_cast<format_code>(ctx.get_integral<std::int16_t>());
+        if ((should_be_text && code != format_code::text) || !is_valid_format_code(code))
+            ctx.add_error(nativepg::client_errc::protocol_value_error);
+    }
+
+    // Populate the response
+    overall_code_output = static_cast<format_code>(static_cast<std::int16_t>(overall_code));
+    fmt_codes_output = {fmt_codes_first, num_items};
+
+    return ctx.check();
+}
+
 }  // namespace
 
 void nativepg::protocol::detail::at_range_check(std::size_t i, std::size_t collection_size)
@@ -243,38 +284,23 @@ boost::system::error_code nativepg::protocol::parse(
     copy_in_response& to
 )
 {
-    detail::parse_context ctx(data);
+    return parse_copy_response(data, to.overall_fmt_code, to.fmt_codes);
+}
 
-    // Overall format code
-    auto overall_code = static_cast<overall_format_code>(ctx.get_byte());
-    if (!is_valid_format_code(overall_code))
-    {
-        ctx.add_error(client_errc::protocol_value_error);
-        return ctx.check();
-    }
+boost::system::error_code nativepg::protocol::parse(
+    boost::span<const unsigned char> data,
+    copy_out_response& to
+)
+{
+    return parse_copy_response(data, to.overall_fmt_code, to.fmt_codes);
+}
 
-    // If the overall format is text, subsequent codes should be text, too.
-    const bool should_be_text = overall_code == overall_format_code::text;
-
-    // Number of format codes
-    auto num_items = static_cast<std::size_t>(ctx.get_nonnegative_integral<std::int16_t>());
-
-    // Individual format codes start here
-    const auto* fmt_codes_first = ctx.first();
-
-    // Check each code
-    for (std::size_t i = 0; i < num_items; ++i)
-    {
-        auto code = static_cast<format_code>(ctx.get_integral<std::int16_t>());
-        if ((should_be_text && code != format_code::text) || !is_valid_format_code(code))
-            ctx.add_error(client_errc::protocol_value_error);
-    }
-
-    // Populate the response
-    to.overall_fmt_code = static_cast<format_code>(static_cast<std::int16_t>(overall_code));
-    to.fmt_codes = {fmt_codes_first, num_items};
-
-    return ctx.check();
+boost::system::error_code nativepg::protocol::parse(
+    boost::span<const unsigned char> data,
+    copy_both_response& to
+)
+{
+    return parse_copy_response(data, to.overall_fmt_code, to.fmt_codes);
 }
 
 // Each field is: Int32 size + Byte<n>

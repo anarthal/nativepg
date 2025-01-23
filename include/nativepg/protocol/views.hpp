@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_WIRE_VIEWS_HPP
-#define NATIVEPG_WIRE_VIEWS_HPP
+#ifndef NATIVEPG_PROTOCOL_VIEWS_HPP
+#define NATIVEPG_PROTOCOL_VIEWS_HPP
 
 // Views that deserialize fields while iterating, avoiding copies.
 // Not to be instantiated by the user with arbitrary types.

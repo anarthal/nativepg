@@ -19,8 +19,13 @@
 #include <system_error>
 
 #include "nativepg/client_errc.hpp"
-#include "nativepg/wire/messages.hpp"
-#include "nativepg/wire/views.hpp"
+#include "nativepg/protocol/async.hpp"
+#include "nativepg/protocol/copy.hpp"
+#include "nativepg/protocol/execution.hpp"
+#include "nativepg/protocol/header.hpp"
+#include "nativepg/protocol/messages.hpp"
+#include "nativepg/protocol/notice_error.hpp"
+#include "nativepg/protocol/startup.hpp"
 #include "parse_context.hpp"
 
 using namespace nativepg::protocol;

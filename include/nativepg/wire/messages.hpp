@@ -26,6 +26,7 @@ namespace protocol {
 
 // Forward decl
 struct field_description;
+enum class format_code : std::int16_t;
 
 namespace detail {
 boost::system::error_code check_empty(boost::span<const unsigned char> data);
@@ -49,6 +50,12 @@ template <>
 struct random_access_traits<std::int32_t>
 {
     static std::int32_t dereference(const unsigned char* data);
+};
+
+template <>
+struct random_access_traits<format_code>
+{
+    static format_code dereference(const unsigned char* data);
 };
 
 }  // namespace detail
@@ -145,6 +152,17 @@ struct command_complete
     std::string_view tag;
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, command_complete& to);
+
+struct copy_in_response
+{
+    // Indicates whether the overall COPY format is textual (rows separated by newlines, columns separated by
+    // separator characters, etc.) or binary (similar to DataRow format).
+    format_code overall_fmt_code;
+
+    // The format codes to be used for each column. If overall_fmt_code is text, all these must be zero.
+    random_access_parsing_view<format_code> fmt_codes;
+};
+boost::system::error_code parse(boost::span<const unsigned char> data, copy_in_response& to);
 
 struct data_row
 {

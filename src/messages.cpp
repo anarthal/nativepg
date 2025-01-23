@@ -161,6 +161,23 @@ bool is_valid_format_code(format_code v)
 // The size of the fixed-length fields in a field description of a RowDescription message
 constexpr std::size_t field_description_fixed_size = 18u;
 
+// Like format_code, but only in 1 byte. Used in copy messages
+enum class overall_format_code : std::uint8_t
+{
+    text = 0,
+    binary = 1,
+};
+
+bool is_valid_format_code(overall_format_code v)
+{
+    switch (v)
+    {
+    case overall_format_code::text:
+    case overall_format_code::binary: return true;
+    default: return false;
+    }
+}
+
 }  // namespace
 
 void nativepg::protocol::detail::at_range_check(std::size_t i, std::size_t collection_size)
@@ -211,6 +228,52 @@ boost::system::error_code nativepg::protocol::parse(
 {
     detail::parse_context ctx(data);
     to.tag = ctx.get_string();
+    return ctx.check();
+}
+
+format_code nativepg::protocol::detail::random_access_traits<format_code>::dereference(
+    const unsigned char* data
+)
+{
+    return static_cast<format_code>(unchecked_get_integral<std::int16_t>(data));
+}
+
+boost::system::error_code nativepg::protocol::parse(
+    boost::span<const unsigned char> data,
+    copy_in_response& to
+)
+{
+    detail::parse_context ctx(data);
+
+    // Overall format code
+    auto overall_code = static_cast<overall_format_code>(ctx.get_byte());
+    if (!is_valid_format_code(overall_code))
+    {
+        ctx.add_error(client_errc::protocol_value_error);
+        return ctx.check();
+    }
+
+    // If the overall format is text, subsequent codes should be text, too.
+    const bool should_be_text = overall_code == overall_format_code::text;
+
+    // Number of format codes
+    auto num_items = static_cast<std::size_t>(ctx.get_nonnegative_integral<std::int16_t>());
+
+    // Individual format codes start here
+    const auto* fmt_codes_first = ctx.first();
+
+    // Check each code
+    for (std::size_t i = 0; i < num_items; ++i)
+    {
+        auto code = static_cast<format_code>(ctx.get_integral<std::int16_t>());
+        if ((should_be_text && code != format_code::text) || !is_valid_format_code(code))
+            ctx.add_error(client_errc::protocol_value_error);
+    }
+
+    // Populate the response
+    to.overall_fmt_code = static_cast<format_code>(static_cast<std::int16_t>(overall_code));
+    to.fmt_codes = {fmt_codes_first, num_items};
+
     return ctx.check();
 }
 

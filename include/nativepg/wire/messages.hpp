@@ -290,11 +290,11 @@ inline boost::system::error_code parse(boost::span<const unsigned char> data, em
     return detail::check_empty(data);
 }
 
-// Errors and notices. NoticeResponse has the same structure, and is represented with the same type
+// Errors and notices. error_response and notice_response share the same structure
 // TODO: should we make these const char*?
 // All of the fields are optional, and user-defined functions may use them as they like,
 // so we tolerate almost anything in them
-struct error_response
+struct error_notice_fields
 {
     // Severity: the field contents are ERROR, FATAL, or PANIC (in an error message), or WARNING, NOTICE,
     // DEBUG, INFO, or LOG (in a notice message). Non-localized.
@@ -369,6 +369,10 @@ struct error_response
     // Routine: the name of the source-code routine reporting the error.
     std::optional<std::string_view> routine;
 };
+
+struct error_response : error_notice_fields
+{
+};
 boost::system::error_code parse(boost::span<const unsigned char> data, error_response& to);
 
 struct negotiate_protocol_version
@@ -389,6 +393,11 @@ inline boost::system::error_code parse(boost::span<const unsigned char> data, no
 {
     return detail::check_empty(data);
 }
+
+struct notice_response : error_notice_fields
+{
+};
+boost::system::error_code parse(boost::span<const unsigned char> data, notice_response& to);
 
 struct notification_response
 {
@@ -523,6 +532,7 @@ using any_backend_message = boost::variant2::variant<
     error_response,
     negotiate_protocol_version,
     no_data,
+    notice_response,
     notification_response,
     parameter_description,
     parameter_status,

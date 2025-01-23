@@ -126,7 +126,7 @@ enum class error_field_type : unsigned char
     routine = 'R',
 };
 
-void populate_field(detail::parse_context& ctx, error_field_type type, error_response& to)
+void populate_field(detail::parse_context& ctx, error_field_type type, error_notice_fields& to)
 {
     switch (type)
     {
@@ -150,6 +150,28 @@ void populate_field(detail::parse_context& ctx, error_field_type type, error_res
     case error_field_type::routine: to.routine = ctx.get_string(); break;
     default: break;  // Intentionally ignore unknown fields
     }
+}
+
+// Shared between errors and notices
+boost::system::error_code parse_error_notice(boost::span<const unsigned char> data, error_notice_fields& to)
+{
+    detail::parse_context ctx(data);
+
+    // A collection of fields, with a 1 byte header stating the field meaning, followed by a string.
+    // Terminated by a NULL byte.
+    while (true)
+    {
+        // Get the type byte. On error, this returns 0, which is OK
+        unsigned char type_byte = ctx.get_byte();
+        if (type_byte == 0u)
+            break;
+        auto field_type = static_cast<error_field_type>(type_byte);
+
+        // Populate the relevant field
+        populate_field(ctx, field_type, to);
+    }
+
+    return ctx.check();
 }
 
 bool is_valid_status(transaction_status v)
@@ -444,40 +466,7 @@ boost::system::error_code nativepg::protocol::parse(
     return ctx.check();
 }
 
-boost::system::error_code nativepg::protocol::parse(boost::span<const unsigned char> data, error_response& to)
-{
-    detail::parse_context ctx(data);
-
-    // A collection of fields, with a 1 byte header stating the field meaning, followed by a string.
-    // Terminated by a NULL byte.
-    while (true)
-    {
-        // Get the type byte. On error, this returns 0, which is OK
-        unsigned char type_byte = ctx.get_byte();
-        if (type_byte == 0u)
-            break;
-        auto field_type = static_cast<error_field_type>(type_byte);
-
-        // Populate the relevant field
-        populate_field(ctx, field_type, to);
-    }
-
-    return ctx.check();
-}
-
-boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
-    notification_response& to
-)
-{
-    detail::parse_context ctx(data);
-    to.process_id = ctx.get_integral<std::int32_t>();
-    to.channel_name = ctx.get_string();
-    to.payload = ctx.get_string();
-    return ctx.check();
-}
-
-std::optional<std::size_t> nativepg::protocol::error_response::parsed_line_number() const
+std::optional<std::size_t> nativepg::protocol::error_notice_fields::parsed_line_number() const
 {
     // If we received no string field, return nothing
     if (!line_number.has_value())
@@ -491,6 +480,31 @@ std::optional<std::size_t> nativepg::protocol::error_response::parsed_line_numbe
     if (result.ec != std::errc() || result.ptr != last)
         return {};
     return res;
+}
+
+boost::system::error_code nativepg::protocol::parse(boost::span<const unsigned char> data, error_response& to)
+{
+    return parse_error_notice(data, to);
+}
+
+boost::system::error_code nativepg::protocol::parse(
+    boost::span<const unsigned char> data,
+    notice_response& to
+)
+{
+    return parse_error_notice(data, to);
+}
+
+boost::system::error_code nativepg::protocol::parse(
+    boost::span<const unsigned char> data,
+    notification_response& to
+)
+{
+    detail::parse_context ctx(data);
+    to.process_id = ctx.get_integral<std::int32_t>();
+    to.channel_name = ctx.get_string();
+    to.payload = ctx.get_string();
+    return ctx.check();
 }
 
 std::int32_t nativepg::protocol::detail::random_access_traits<std::int32_t>::dereference(
@@ -641,6 +655,7 @@ boost::system::result<any_backend_message> nativepg::protocol::parse(
     case backend_message_type::negotiate_protocol_version:
         return parse_impl<negotiate_protocol_version>(data);
     case backend_message_type::no_data: return parse_impl<no_data>(data);
+    case backend_message_type::notice_response: return parse_impl<notice_response>(data);
     case backend_message_type::notification_response: return parse_impl<notification_response>(data);
     case backend_message_type::parameter_description: return parse_impl<parameter_description>(data);
     case backend_message_type::parameter_status: return parse_impl<parameter_status>(data);
@@ -648,7 +663,6 @@ boost::system::result<any_backend_message> nativepg::protocol::parse(
     case backend_message_type::portal_suspended: return parse_impl<portal_suspended>(data);
     case backend_message_type::ready_for_query: return parse_impl<ready_for_query>(data);
     case backend_message_type::row_description: return parse_impl<row_description>(data);
-    // TODO: notices
     default: return nativepg::client_errc::protocol_value_error;
     }
 }

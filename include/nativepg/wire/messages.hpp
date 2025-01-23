@@ -104,6 +104,21 @@ inline boost::system::error_code parse(boost::span<const unsigned char> data, au
     return detail::check_empty(data);
 }
 
+struct authentication_cleartext_password
+{
+};
+inline boost::system::error_code parse(boost::span<const unsigned char> data, authentication_cleartext_password&)
+{
+    return detail::check_empty(data);
+}
+
+struct authentication_md5_password
+{
+    // The salt to use when encrypting the password.
+    std::array<unsigned char, 4> salt;
+};
+boost::system::error_code parse(boost::span<const unsigned char> data, authentication_md5_password&);
+
 struct authentication_gss
 {
 };
@@ -122,21 +137,6 @@ inline boost::system::error_code parse(boost::span<const unsigned char> data, au
     to.data = data;
     return {};
 }
-
-struct authentication_cleartext_password
-{
-};
-inline boost::system::error_code parse(boost::span<const unsigned char> data, authentication_cleartext_password&)
-{
-    return detail::check_empty(data);
-}
-
-struct authentication_md5_password
-{
-    // The salt to use when encrypting the password.
-    std::array<unsigned char, 4> salt;
-};
-boost::system::error_code parse(boost::span<const unsigned char> data, authentication_md5_password&);
 
 struct authentication_sspi
 {
@@ -190,18 +190,6 @@ struct backend_key_data
     std::int32_t secret_key;
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, backend_key_data& to);
-
-// TODO: this should be at the end
-// TODO: this is not the most efficient
-using any_backend_message = boost::variant2::variant<
-    authentication_ok,
-    authentication_cleartext_password,
-    authentication_md5_password,
-    backend_key_data>;
-boost::system::result<any_backend_message> parse(
-    std::uint8_t message_type,
-    boost::span<const unsigned char> data
-);
 
 struct bind_complete
 {
@@ -505,6 +493,48 @@ struct row_description
     forward_parsing_view<field_description> field_descriptions;
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, row_description& to);
+
+// TODO: a) this is variant (encapsulated in result) over variant
+// b) a variant with so many possibilities might cause long compile times.
+// All options are trivially destructible, make a custom class maybe?
+using any_backend_message = boost::variant2::variant<
+    authentication_ok,
+    authentication_kerberos_v5,
+    authentication_cleartext_password,
+    authentication_md5_password,
+    authentication_gss,
+    authentication_gss_continue,
+    authentication_sspi,
+    authentication_sasl,
+    authentication_sasl_continue,
+    authentication_sasl_final,
+    backend_key_data,
+    bind_complete,
+    close_complete,
+    command_complete,
+    copy_data,
+    copy_done,
+    copy_fail,
+    copy_in_response,
+    copy_out_response,
+    copy_both_response,
+    data_row,
+    empty_query_response,
+    error_response,
+    negotiate_protocol_version,
+    no_data,
+    notification_response,
+    parameter_description,
+    parameter_status,
+    parse_complete,
+    portal_suspended,
+    ready_for_query,
+    field_description,
+    row_description>;
+boost::system::result<any_backend_message> parse(
+    std::uint8_t message_type,
+    boost::span<const unsigned char> data
+);
 
 }  // namespace protocol
 }  // namespace nativepg

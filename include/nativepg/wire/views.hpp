@@ -38,7 +38,7 @@ void at_range_check(std::size_t i, std::size_t collection_size);
 template <class T>
 class forward_parsing_view
 {
-    std::size_t size_;                       // number of items
+    std::size_t size_{};                     // number of items
     boost::span<const unsigned char> data_;  // serialized items
 
 public:
@@ -82,6 +82,9 @@ public:
     using size_type = std::size_t;
     using difference_type = std::ptrdiff_t;
 
+    // Constructs an empty view, with no items
+    forward_parsing_view() = default;
+
     // of the DataRow message, and must be valid. parse() performs this validation.
     // Don't use this unless you know what you're doing (TODO: make this private?)
     forward_parsing_view(std::size_t size, boost::span<const unsigned char> data) noexcept
@@ -104,8 +107,8 @@ public:
 template <class T>
 class random_access_parsing_view
 {
-    const unsigned char* data_;
-    std::size_t size_;  // number of items (as opposed to bytes)
+    const unsigned char* data_{};
+    std::size_t size_{};  // number of items (as opposed to bytes)
 
     T unchecked_access(std::size_t i) const
     {
@@ -201,6 +204,9 @@ public:
     using const_reference = value_type;
     using size_type = std::size_t;
     using difference_type = std::ptrdiff_t;
+
+    // Constructs an empty view, with no items
+    random_access_parsing_view() = default;
 
     // size is the number of serialized items. data is a pointer to the storage
     // where the items are serialized. Performs no validation.

@@ -33,6 +33,8 @@ enum class backend_message_type : char
     bind_complete = '2',
     close_complete = '3',
     command_complete = 'C',
+    copy_data = 'd',
+    copy_done = 'c',
     copy_in_response = 'G',
     copy_out_response = 'H',
     copy_both_response = 'W',
@@ -49,15 +51,20 @@ enum class backend_message_type : char
     portal_suspended = 's',
     ready_for_query = 'Z',
     row_description = 'T',
-    copy_data = 'd',
-    copy_done = 'c'
 };
 
 enum class authentication_message_type : std::int32_t
 {
     ok = 0,
+    kerberos_v5 = 2,
     cleartext_password = 3,
     md5_password = 5,
+    gss = 7,
+    gss_continue = 8,
+    sspi = 9,
+    sasl = 10,
+    sasl_continue = 11,
+    sasl_final = 12,
 };
 
 template <class MessageType>
@@ -82,9 +89,16 @@ boost::system::result<any_backend_message> parse_authentication_request(boost::s
     switch (type)
     {
     case authentication_message_type::ok: return parse_impl<authentication_ok>(from);
+    case authentication_message_type::kerberos_v5: return parse_impl<authentication_kerberos_v5>(from);
     case authentication_message_type::cleartext_password:
         return parse_impl<authentication_cleartext_password>(from);
     case authentication_message_type::md5_password: return parse_impl<authentication_md5_password>(from);
+    case authentication_message_type::gss: return parse_impl<authentication_gss>(from);
+    case authentication_message_type::gss_continue: return parse_impl<authentication_gss_continue>(from);
+    case authentication_message_type::sspi: return parse_impl<authentication_sspi>(from);
+    case authentication_message_type::sasl: return parse_impl<authentication_sasl>(from);
+    case authentication_message_type::sasl_continue: return parse_impl<authentication_sasl_continue>(from);
+    case authentication_message_type::sasl_final: return parse_impl<authentication_sasl_final>(from);
     default: return nativepg::client_errc::protocol_value_error;
     }
 }
@@ -613,10 +627,28 @@ boost::system::result<any_backend_message> nativepg::protocol::parse(
     {
     case backend_message_type::authentication_request: return parse_authentication_request(data);
     case backend_message_type::backend_key_data: return parse_impl<backend_key_data>(data);
-    // case backend_message_type::bind_complete: return parse_impl<bind_complete_message>(t, data);
-    // case backend_message_type::close_complete: return parse_message_impl<close_complete_message>(t, data);
-    // case backend_message_type::command_complete: return parse_message_impl<command_complete_message>(t,
-    // data);
+    case backend_message_type::bind_complete: return parse_impl<bind_complete>(data);
+    case backend_message_type::close_complete: return parse_impl<close_complete>(data);
+    case backend_message_type::command_complete: return parse_impl<command_complete>(data);
+    case backend_message_type::copy_data: return parse_impl<copy_data>(data);
+    case backend_message_type::copy_done: return parse_impl<copy_done>(data);
+    case backend_message_type::copy_in_response: return parse_impl<copy_in_response>(data);
+    case backend_message_type::copy_out_response: return parse_impl<copy_out_response>(data);
+    case backend_message_type::copy_both_response: return parse_impl<copy_both_response>(data);
+    case backend_message_type::data_row: return parse_impl<data_row>(data);
+    case backend_message_type::empty_query_response: return parse_impl<empty_query_response>(data);
+    case backend_message_type::error_response: return parse_impl<error_response>(data);
+    case backend_message_type::negotiate_protocol_version:
+        return parse_impl<negotiate_protocol_version>(data);
+    case backend_message_type::no_data: return parse_impl<no_data>(data);
+    case backend_message_type::notification_response: return parse_impl<notification_response>(data);
+    case backend_message_type::parameter_description: return parse_impl<parameter_description>(data);
+    case backend_message_type::parameter_status: return parse_impl<parameter_status>(data);
+    case backend_message_type::parse_complete: return parse_impl<parse_complete>(data);
+    case backend_message_type::portal_suspended: return parse_impl<portal_suspended>(data);
+    case backend_message_type::ready_for_query: return parse_impl<ready_for_query>(data);
+    case backend_message_type::row_description: return parse_impl<row_description>(data);
+    // TODO: notices
     default: return nativepg::client_errc::protocol_value_error;
     }
 }

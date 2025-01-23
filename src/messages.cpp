@@ -265,6 +265,37 @@ boost::system::error_code nativepg::protocol::parse(
 
 boost::system::error_code nativepg::protocol::parse(
     boost::span<const unsigned char> data,
+    authentication_sasl& to
+)
+{
+    detail::parse_context ctx(data);
+
+    // This is a list of strings, terminated by a NULL byte (that is, an empty string).
+    // Strings start here
+    const unsigned char* mechanisms_first = ctx.first();
+
+    // On error, get_string returns an empty string, so this is safe
+    std::size_t num_items = 0u;
+    while (!ctx.get_string().empty())
+        ++num_items;
+
+    // Strings end in the NULL byte - that is, one byte before what we are now.
+    // The check avoids UB in case of empty messages
+    const auto* current = ctx.first();
+    const unsigned char* mechanisms_last = current > mechanisms_first ? current - 1 : current;
+
+    // Set the output value
+    to.mechanisms = {
+        num_items,
+        {mechanisms_first, mechanisms_last}
+    };
+
+    // Done
+    return ctx.check();
+}
+
+boost::system::error_code nativepg::protocol::parse(
+    boost::span<const unsigned char> data,
     command_complete& to
 )
 {

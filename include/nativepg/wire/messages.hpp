@@ -96,6 +96,33 @@ inline boost::system::error_code parse(boost::span<const unsigned char> data, au
     return detail::check_empty(data);
 }
 
+struct authentication_kerberos_v5
+{
+};
+inline boost::system::error_code parse(boost::span<const unsigned char> data, authentication_kerberos_v5&)
+{
+    return detail::check_empty(data);
+}
+
+struct authentication_gss
+{
+};
+inline boost::system::error_code parse(boost::span<const unsigned char> data, authentication_gss&)
+{
+    return detail::check_empty(data);
+}
+
+struct authentication_gss_continue
+{
+    // GSSAPI or SSPI authentication data.
+    boost::span<const unsigned char> data;
+};
+inline boost::system::error_code parse(boost::span<const unsigned char> data, authentication_gss_continue& to)
+{
+    to.data = data;
+    return {};
+}
+
 struct authentication_cleartext_password
 {
 };
@@ -110,6 +137,21 @@ struct authentication_md5_password
     std::array<unsigned char, 4> salt;
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, authentication_md5_password&);
+
+struct authentication_sspi
+{
+};
+inline boost::system::error_code parse(boost::span<const unsigned char> data, authentication_sspi&)
+{
+    return detail::check_empty(data);
+}
+
+struct authentication_sasl
+{
+    // List of SASL authentication mechanisms, in the server's order of preference
+    forward_parsing_view<std::string_view> mechanisms;
+};
+boost::system::error_code parse(boost::span<const unsigned char> data, authentication_sasl&);
 
 // TODO: rest of authentication messages
 // TODO: do we want to expose a fn to parse any authentication message? (they share message code, type is

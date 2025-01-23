@@ -153,6 +153,18 @@ struct command_complete
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, command_complete& to);
 
+struct copy_data
+{
+    // Data that forms part of a COPY data stream. Messages sent from the backend will always correspond to
+    // single data rows, but messages sent by frontends might divide the data stream arbitrarily.
+    boost::span<const unsigned char> data;
+};
+inline boost::system::error_code parse(boost::span<const unsigned char> data, copy_data& to)
+{
+    to.data = data;
+    return {};
+}
+
 struct copy_in_response
 {
     // Indicates whether the overall COPY format is textual (rows separated by newlines, columns separated by

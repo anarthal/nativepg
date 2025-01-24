@@ -29,6 +29,7 @@
 #include "nativepg/protocol/execution.hpp"
 #include "nativepg/protocol/header.hpp"
 // #include "nativepg/protocol/messages.hpp"
+#include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/startup.hpp"
 #include "parse_context.hpp"
@@ -797,5 +798,20 @@ boost::system::error_code nativepg::protocol::serialize(const bind& msg, std::ve
     // Result format codes
     serialize_fmt_codes(msg.result_fmt_codes, ctx);
 
+    return ctx.finalize_message();
+}
+
+boost::system::error_code nativepg::protocol::serialize(const describe& msg, std::vector<unsigned char>& to)
+{
+    detail::serialization_context ctx(to);
+
+    // Header
+    ctx.add_header('D');
+
+    // Contents
+    ctx.add_byte(static_cast<unsigned char>(msg.type));
+    ctx.add_string(msg.name);
+
+    // Done
     return ctx.finalize_message();
 }

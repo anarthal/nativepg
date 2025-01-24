@@ -11,19 +11,32 @@
 #include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <cstdint>
+
+#include "nativepg/client_errc.hpp"
+
 namespace nativepg {
 namespace protocol {
 
 namespace detail {
 
-boost::system::error_code check_empty(boost::span<const unsigned char> data);
-
+inline boost::system::error_code check_empty(boost::span<const unsigned char> data)
+{
+    return data.empty() ? boost::system::error_code() : boost::system::error_code(client_errc::extra_bytes);
 }
+
+}  // namespace detail
 
 enum class format_code : std::int16_t
 {
     text = 0,
     binary = 1,
+};
+
+enum class portal_or_statement : std::int8_t
+{
+    statement = 'S',
+    portal = 'P',
 };
 
 }  // namespace protocol

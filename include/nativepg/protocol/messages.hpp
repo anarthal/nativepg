@@ -16,7 +16,9 @@
 #include <cstdint>
 
 #include "nativepg/protocol/async.hpp"
+#include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/copy.hpp"
+#include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/execution.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/startup.hpp"

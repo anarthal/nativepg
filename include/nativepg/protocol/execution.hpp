@@ -18,9 +18,6 @@
 namespace nativepg {
 namespace protocol {
 
-// Forward decl
-struct field_description;
-
 namespace detail {
 
 // Collections impl
@@ -29,19 +26,6 @@ struct forward_traits<std::optional<boost::span<const unsigned char>>>
 {
     static std::optional<boost::span<const unsigned char>> dereference(const unsigned char* data);
     static const unsigned char* advance(const unsigned char* data);
-};
-
-template <>
-struct forward_traits<field_description>
-{
-    static field_description dereference(const unsigned char* data);
-    static const unsigned char* advance(const unsigned char* data);
-};
-
-template <>
-struct random_access_traits<std::int32_t>
-{
-    static std::int32_t dereference(const unsigned char* data);
 };
 
 }  // namespace detail
@@ -85,14 +69,6 @@ inline boost::system::error_code parse(boost::span<const unsigned char> data, no
     return detail::check_empty(data);
 }
 
-// Describes the parameters of a statement
-struct parameter_description
-{
-    // The type OIDs of the statement parameters, one for each parameter
-    random_access_parsing_view<std::int32_t> parameter_type_oids;
-};
-boost::system::error_code parse(boost::span<const unsigned char> data, parameter_description& to);
-
 struct parse_complete
 {
 };
@@ -128,42 +104,6 @@ struct ready_for_query
     transaction_status status;
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, ready_for_query& to);
-
-// A description of a single field
-struct field_description
-{
-    // The field name.
-    std::string_view name;
-
-    // If the field can be identified as a column of a specific table, the object ID of the table; otherwise
-    // zero.
-    std::int32_t table_oid;
-
-    // If the field can be identified as a column of a specific table, the attribute number of the column;
-    // otherwise zero.
-    std::int16_t column_attribute;
-
-    // The object ID of the field's data type.
-    std::int32_t type_oid;
-
-    // The data type size (see pg_type.typlen). Note that negative values denote variable-width types.
-    std::int16_t type_length;
-
-    // The type modifier (see pg_attribute.atttypmod). The meaning of the modifier is type-specific.
-    std::int32_t type_modifier;
-
-    // The format code being used for the field. Currently will be zero (text) or one (binary). In a
-    // RowDescription returned from the statement variant of Describe, the format code is not yet known and
-    // will always be zero.
-    format_code fmt_code;
-};
-
-struct row_description
-{
-    // A collection of descriptions, one per column
-    forward_parsing_view<field_description> field_descriptions;
-};
-boost::system::error_code parse(boost::span<const unsigned char> data, row_description& to);
 
 }  // namespace protocol
 }  // namespace nativepg

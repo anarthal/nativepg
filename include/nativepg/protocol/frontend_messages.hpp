@@ -26,20 +26,6 @@ enum class format_code : std::int16_t
     binary = 1
 };
 
-class any_params_ref
-{
-    // TODO
-public:
-    std::size_t size() const;
-    void serialize(serialization_context&) const;
-};
-
-enum class portal_or_statement : char
-{
-    statement = 'S',
-    portal = 'P',
-};
-
 struct close_message
 {
     static constexpr unsigned char message_type = static_cast<unsigned char>('C');
@@ -66,24 +52,6 @@ struct copy_fail_message
     std::string_view error_message;
 
     void serialize(serialization_context& ctx) const { ctx.add_string(error_message); }
-};
-
-struct describe_message
-{
-    static constexpr unsigned char message_type = static_cast<unsigned char>('D');
-
-    // 'S' to describe a prepared statement; or 'P' to describe a portal.
-    portal_or_statement type;
-
-    // The name of the prepared statement or portal to describe (an empty string selects the unnamed prepared
-    // statement or portal).
-    std::string_view name;
-
-    void serialize(serialization_context& ctx) const
-    {
-        ctx.add_byte(static_cast<unsigned char>(type));
-        ctx.add_string(name);
-    }
 };
 
 struct execute_message

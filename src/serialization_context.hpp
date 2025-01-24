@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_PROTOCOL_SERIALIZATION_CONTEXT_HPP
-#define NATIVEPG_PROTOCOL_SERIALIZATION_CONTEXT_HPP
+#ifndef NATIVEPG_SRC_SERIALIZATION_CONTEXT_HPP
+#define NATIVEPG_SRC_SERIALIZATION_CONTEXT_HPP
 
 #include <boost/assert.hpp>
 #include <boost/core/span.hpp>

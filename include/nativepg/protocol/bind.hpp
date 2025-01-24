@@ -10,7 +10,7 @@
 
 #include <boost/compat/function_ref.hpp>
 #include <boost/core/span.hpp>
-#include <boost/system/detail/error_code.hpp>
+#include <boost/system/error_code.hpp>
 #include <boost/variant2/variant.hpp>
 
 #include <cstddef>
@@ -100,6 +100,14 @@ struct bind
     format_codes result_fmt_codes;
 };
 boost::system::error_code serialize(const bind& msg, std::vector<unsigned char>& to);
+
+struct bind_complete
+{
+};
+inline boost::system::error_code parse(boost::span<const unsigned char> data, bind_complete&)
+{
+    return detail::check_empty(data);
+}
 
 }  // namespace protocol
 }  // namespace nativepg

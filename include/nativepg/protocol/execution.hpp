@@ -46,14 +46,6 @@ struct random_access_traits<std::int32_t>
 
 }  // namespace detail
 
-struct bind_complete
-{
-};
-inline boost::system::error_code parse(boost::span<const unsigned char> data, bind_complete&)
-{
-    return detail::check_empty(data);
-}
-
 struct close_complete
 {
 };

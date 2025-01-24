@@ -43,8 +43,6 @@ struct random_access_traits<std::int32_t>
 // Request to describe a statement or parameter
 struct describe
 {
-    static constexpr unsigned char message_type = static_cast<unsigned char>('D');
-
     // 'S' to describe a prepared statement; or 'P' to describe a portal.
     portal_or_statement type;
 

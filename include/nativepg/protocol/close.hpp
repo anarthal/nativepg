@@ -20,8 +20,6 @@ namespace protocol {
 // Requests to close a prepared statement or portal
 struct close
 {
-    static constexpr unsigned char message_type = static_cast<unsigned char>('C');
-
     // Whether to close a prepared statement or a portal
     portal_or_statement type;
 

@@ -32,6 +32,7 @@
 #include "nativepg/protocol/execution.hpp"
 #include "nativepg/protocol/header.hpp"
 #include "nativepg/protocol/notice_error.hpp"
+#include "nativepg/protocol/parse.hpp"
 #include "nativepg/protocol/startup.hpp"
 #include "parse_context.hpp"
 #include "serialization_context.hpp"
@@ -827,6 +828,31 @@ boost::system::error_code nativepg::protocol::serialize(const close& msg, std::v
     // Contents
     ctx.add_byte(static_cast<unsigned char>(msg.type));
     ctx.add_string(msg.name);
+
+    // Done
+    return ctx.finalize_message();
+}
+
+boost::system::error_code nativepg::protocol::serialize(const parse_t& msg, std::vector<unsigned char>& to)
+{
+    detail::serialization_context ctx(to);
+
+    // Header
+    ctx.add_header('P');
+
+    // Fixed fields
+    ctx.add_string(msg.statement_name);
+    ctx.add_string(msg.query);
+
+    // Parameter types
+    if (msg.parameter_type_oids.size() > (std::numeric_limits<std::int16_t>::max)())
+    {
+        ctx.add_error(client_errc::value_too_big);
+        return ctx.error();
+    }
+    ctx.add_integral(static_cast<std::int16_t>(msg.parameter_type_oids.size()));
+    for (auto code : msg.parameter_type_oids)
+        ctx.add_integral(code);
 
     // Done
     return ctx.finalize_message();

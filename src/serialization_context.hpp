@@ -11,6 +11,7 @@
 #include <boost/assert.hpp>
 #include <boost/core/span.hpp>
 #include <boost/endian/conversion.hpp>
+#include <boost/system/detail/error_code.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <array>
@@ -38,6 +39,8 @@ public:
         if (!err_)
             err_ = ec;
     }
+
+    boost::system::error_code error() const { return err_; }
 
     template <class IntType>
     void add_integral(IntType value)

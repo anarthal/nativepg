@@ -61,31 +61,6 @@ struct flush_message
     void serialize(serialization_context&) const {}
 };
 
-struct parse_message
-{
-    static constexpr unsigned char message_type = static_cast<unsigned char>('P');
-
-    // The name of the destination prepared statement (an empty string selects the unnamed prepared
-    // statement).
-    std::string_view statement_name;
-
-    // The query string to be parsed.
-    std::string_view query;
-
-    // Specifies the object ID of the parameter data type. Placing a zero here is equivalent to leaving
-    //         the type unspecified.
-    boost::span<const std::int32_t> param_types;
-
-    void serialize(serialization_context& ctx) const
-    {
-        ctx.add_string(statement_name);
-        ctx.add_string(query);
-        ctx.add_integral(static_cast<std::int16_t>(param_types.size()));
-        for (auto code : param_types)
-            ctx.add_integral(code);
-    }
-};
-
 struct password_message
 {
     static constexpr unsigned char message_type = static_cast<unsigned char>('p');

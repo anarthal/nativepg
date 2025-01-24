@@ -857,3 +857,17 @@ boost::system::error_code nativepg::protocol::serialize(const parse_t& msg, std:
     // Done
     return ctx.finalize_message();
 }
+
+boost::system::error_code nativepg::protocol::serialize(const copy_fail& msg, std::vector<unsigned char>& to)
+{
+    detail::serialization_context ctx(to);
+
+    // Header
+    ctx.add_header('f');
+
+    // Fields
+    ctx.add_string(msg.error_message);
+
+    // Done
+    return ctx.finalize_message();
+}

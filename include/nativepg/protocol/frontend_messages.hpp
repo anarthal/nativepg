@@ -26,16 +26,6 @@ enum class format_code : std::int16_t
     binary = 1
 };
 
-struct copy_fail_message
-{
-    static constexpr unsigned char message_type = static_cast<unsigned char>('f');
-
-    // An error message to report as the cause of failure.
-    std::string_view error_message;
-
-    void serialize(serialization_context& ctx) const { ctx.add_string(error_message); }
-};
-
 struct execute_message
 {
     static constexpr unsigned char message_type = static_cast<unsigned char>('E');

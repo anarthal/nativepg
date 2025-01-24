@@ -11,6 +11,8 @@
 #include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <vector>
+
 #include "nativepg/protocol/common.hpp"
 #include "nativepg/protocol/views.hpp"
 
@@ -47,12 +49,12 @@ inline boost::system::error_code parse(boost::span<const unsigned char> data, co
     return detail::check_empty(data);
 }
 
-// TODO: this is frontend
 struct copy_fail
 {
     // An error message to report as the cause of failure.
     std::string_view error_message;
 };
+boost::system::error_code serialize(const copy_fail& msg, std::vector<unsigned char>& to);
 
 struct copy_in_response
 {

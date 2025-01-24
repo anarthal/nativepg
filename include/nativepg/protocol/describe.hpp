@@ -98,6 +98,15 @@ struct row_description
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, row_description& to);
 
+// Returned if a statement or portal doesn't return data
+struct no_data
+{
+};
+inline boost::system::error_code parse(boost::span<const unsigned char> data, no_data&)
+{
+    return detail::check_empty(data);
+}
+
 }  // namespace protocol
 }  // namespace nativepg
 

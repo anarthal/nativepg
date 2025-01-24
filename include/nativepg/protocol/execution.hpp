@@ -61,14 +61,6 @@ inline boost::system::error_code parse(boost::span<const unsigned char> data, em
     return detail::check_empty(data);
 }
 
-struct no_data
-{
-};
-inline boost::system::error_code parse(boost::span<const unsigned char> data, no_data&)
-{
-    return detail::check_empty(data);
-}
-
 struct parse_complete
 {
 };

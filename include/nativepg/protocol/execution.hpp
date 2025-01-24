@@ -18,32 +18,12 @@
 namespace nativepg {
 namespace protocol {
 
-namespace detail {
-
-// Collections impl
-template <>
-struct forward_traits<std::optional<boost::span<const unsigned char>>>
-{
-    static std::optional<boost::span<const unsigned char>> dereference(const unsigned char* data);
-    static const unsigned char* advance(const unsigned char* data);
-};
-
-}  // namespace detail
-
 struct command_complete
 {
     // The command tag. This is usually a single word that identifies which SQL command was completed.
     std::string_view tag;
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, command_complete& to);
-
-struct data_row
-{
-    // The actual values. Contains a an optional<span<const unsigned char>> per column,
-    // containing the serialized value, or an empty optional, if the field is NULL
-    forward_parsing_view<std::optional<boost::span<const unsigned char>>> columns;
-};
-boost::system::error_code parse(boost::span<const unsigned char> data, data_row& to);
 
 struct empty_query_response
 {

@@ -27,6 +27,7 @@
 #include "nativepg/protocol/close.hpp"
 #include "nativepg/protocol/common.hpp"
 #include "nativepg/protocol/copy.hpp"
+#include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/execution.hpp"
 #include "nativepg/protocol/header.hpp"

@@ -26,24 +26,6 @@ enum class format_code : std::int16_t
     binary = 1
 };
 
-struct close_message
-{
-    static constexpr unsigned char message_type = static_cast<unsigned char>('C');
-
-    // 'S' to close a prepared statement; or 'P' to close a portal.
-    portal_or_statement type;
-
-    // The name of the prepared statement or portal to close (an empty string selects the unnamed prepared
-    // statement or portal).
-    std::string_view name;
-
-    void serialize(serialization_context& ctx)
-    {
-        ctx.add_byte(static_cast<unsigned char>(type));
-        ctx.add_string(name);
-    }
-};
-
 struct copy_fail_message
 {
     static constexpr unsigned char message_type = static_cast<unsigned char>('f');

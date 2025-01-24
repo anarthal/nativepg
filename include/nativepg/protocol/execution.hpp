@@ -30,14 +30,6 @@ struct forward_traits<std::optional<boost::span<const unsigned char>>>
 
 }  // namespace detail
 
-struct close_complete
-{
-};
-inline boost::system::error_code parse(boost::span<const unsigned char> data, close_complete&)
-{
-    return detail::check_empty(data);
-}
-
 struct command_complete
 {
     // The command tag. This is usually a single word that identifies which SQL command was completed.

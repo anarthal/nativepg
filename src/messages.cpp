@@ -871,3 +871,10 @@ boost::system::error_code nativepg::protocol::serialize(const copy_fail& msg, st
     // Done
     return ctx.finalize_message();
 }
+
+boost::system::error_code nativepg::protocol::serialize(copy_done, std::vector<unsigned char>& to)
+{
+    detail::serialization_context ctx(to);
+    ctx.add_header('c');
+    return ctx.finalize_message();
+}

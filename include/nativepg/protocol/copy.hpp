@@ -48,6 +48,7 @@ inline boost::system::error_code parse(boost::span<const unsigned char> data, co
 {
     return detail::check_empty(data);
 }
+boost::system::error_code serialize(copy_done, std::vector<unsigned char>& to);
 
 struct copy_fail
 {

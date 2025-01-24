@@ -27,6 +27,9 @@ enum class client_errc : int
     /// Unexpected extra bytes at the end of a message were received (indicates a deserialization
     /// error or packet mismatch).
     extra_bytes,
+
+    // You passed a collection whose size exceeds a protocol max
+    value_too_big,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

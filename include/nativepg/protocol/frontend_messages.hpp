@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_WIRE_FRONTEND_MESSAGES_HPP
-#define NATIVEPG_WIRE_FRONTEND_MESSAGES_HPP
+#ifndef NATIVEPG_PROTOCOL_FRONTEND_MESSAGES_HPP
+#define NATIVEPG_PROTOCOL_FRONTEND_MESSAGES_HPP
 
 #include <boost/core/span.hpp>
 
@@ -32,38 +32,6 @@ class any_params_ref
 public:
     std::size_t size() const;
     void serialize(serialization_context&) const;
-};
-
-struct bind_message
-{
-    static constexpr unsigned char message_type = static_cast<unsigned char>('B');
-
-    // The name of the destination portal (an empty string selects the unnamed portal).
-    std::string_view portal_name;
-
-    // The name of the source prepared statement (an empty string selects the unnamed prepared statement).
-    std::string_view statement_name;
-
-    // TODO: allow all text or all binary optimization
-    boost::span<const format_code> params_format_codes;
-
-    any_params_ref params;
-
-    // TODO: allow all text or all binary optimization
-    boost::span<const format_code> result_format_codes;
-
-    void serialize(serialization_context& ctx)
-    {
-        ctx.add_string(portal_name);
-        ctx.add_string(statement_name);
-        ctx.add_integral(static_cast<std::int16_t>(params_format_codes.size()));  // size check?
-        for (auto code : params_format_codes)
-            ctx.add_integral(static_cast<std::int16_t>(code));
-        ctx.add_integral(static_cast<std::int16_t>(params.size()));
-        ctx.add_integral(static_cast<std::int16_t>(result_format_codes.size()));  // size check?
-        for (auto code : result_format_codes)
-            ctx.add_integral(static_cast<std::int16_t>(code));
-    }
 };
 
 enum class portal_or_statement : char

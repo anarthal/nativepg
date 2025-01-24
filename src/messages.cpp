@@ -11,22 +11,28 @@
 #include <boost/endian/conversion.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/throw_exception.hpp>
+#include <boost/variant2/variant.hpp>
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string_view>
 #include <system_error>
+#include <vector>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/async.hpp"
+#include "nativepg/protocol/bind.hpp"
+#include "nativepg/protocol/common.hpp"
 #include "nativepg/protocol/copy.hpp"
 #include "nativepg/protocol/execution.hpp"
 #include "nativepg/protocol/header.hpp"
-#include "nativepg/protocol/messages.hpp"
+// #include "nativepg/protocol/messages.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/startup.hpp"
 #include "parse_context.hpp"
+#include "serialization_context.hpp"
 
 using namespace nativepg::protocol;
 
@@ -73,41 +79,42 @@ enum class authentication_message_type : std::int32_t
     sasl_final = 12,
 };
 
-template <class MessageType>
-boost::system::result<any_backend_message> parse_impl(boost::span<const unsigned char> from)
-{
-    MessageType res;
-    auto ec = nativepg::protocol::parse(from, res);
-    if (ec)
-        return ec;
-    return res;
-}
+// template <class MessageType>
+// boost::system::result<any_backend_message> parse_impl(boost::span<const unsigned char> from)
+// {
+//     MessageType res;
+//     auto ec = nativepg::protocol::parse(from, res);
+//     if (ec)
+//         return ec;
+//     return res;
+// }
 
-boost::system::result<any_backend_message> parse_authentication_request(boost::span<const unsigned char> from)
-{
-    // Get the authentication request type code
-    if (from.size() < 4u)
-        return nativepg::client_errc::incomplete_message;
-    auto type = static_cast<authentication_message_type>(boost::endian::load_big_s32(from.data()));
-    from = from.subspan(4);
+// boost::system::result<any_backend_message> parse_authentication_request(boost::span<const unsigned char>
+// from)
+// {
+//     // Get the authentication request type code
+//     if (from.size() < 4u)
+//         return nativepg::client_errc::incomplete_message;
+//     auto type = static_cast<authentication_message_type>(boost::endian::load_big_s32(from.data()));
+//     from = from.subspan(4);
 
-    // Parse
-    switch (type)
-    {
-    case authentication_message_type::ok: return parse_impl<authentication_ok>(from);
-    case authentication_message_type::kerberos_v5: return parse_impl<authentication_kerberos_v5>(from);
-    case authentication_message_type::cleartext_password:
-        return parse_impl<authentication_cleartext_password>(from);
-    case authentication_message_type::md5_password: return parse_impl<authentication_md5_password>(from);
-    case authentication_message_type::gss: return parse_impl<authentication_gss>(from);
-    case authentication_message_type::gss_continue: return parse_impl<authentication_gss_continue>(from);
-    case authentication_message_type::sspi: return parse_impl<authentication_sspi>(from);
-    case authentication_message_type::sasl: return parse_impl<authentication_sasl>(from);
-    case authentication_message_type::sasl_continue: return parse_impl<authentication_sasl_continue>(from);
-    case authentication_message_type::sasl_final: return parse_impl<authentication_sasl_final>(from);
-    default: return nativepg::client_errc::protocol_value_error;
-    }
-}
+//     // Parse
+//     switch (type)
+//     {
+//     case authentication_message_type::ok: return parse_impl<authentication_ok>(from);
+//     case authentication_message_type::kerberos_v5: return parse_impl<authentication_kerberos_v5>(from);
+//     case authentication_message_type::cleartext_password:
+//         return parse_impl<authentication_cleartext_password>(from);
+//     case authentication_message_type::md5_password: return parse_impl<authentication_md5_password>(from);
+//     case authentication_message_type::gss: return parse_impl<authentication_gss>(from);
+//     case authentication_message_type::gss_continue: return parse_impl<authentication_gss_continue>(from);
+//     case authentication_message_type::sspi: return parse_impl<authentication_sspi>(from);
+//     case authentication_message_type::sasl: return parse_impl<authentication_sasl>(from);
+//     case authentication_message_type::sasl_continue: return parse_impl<authentication_sasl_continue>(from);
+//     case authentication_message_type::sasl_final: return parse_impl<authentication_sasl_final>(from);
+//     default: return nativepg::client_errc::protocol_value_error;
+//     }
+// }
 
 // https://www.postgresql.org/docs/current/protocol-error-fields.html
 enum class error_field_type : unsigned char
@@ -644,40 +651,151 @@ boost::system::error_code nativepg::protocol::parse(
     return ctx.check();
 }
 
-boost::system::result<any_backend_message> nativepg::protocol::parse(
-    std::uint8_t message_type,
-    boost::span<const unsigned char> data
+// boost::system::result<any_backend_message> nativepg::protocol::parse(
+//     std::uint8_t message_type,
+//     boost::span<const unsigned char> data
+// )
+// {
+//     // Cast the message type
+//     auto t = static_cast<backend_message_type>(message_type);
+
+//     switch (t)
+//     {
+//     case backend_message_type::authentication_request: return parse_authentication_request(data);
+//     case backend_message_type::backend_key_data: return parse_impl<backend_key_data>(data);
+//     case backend_message_type::bind_complete: return parse_impl<bind_complete>(data);
+//     case backend_message_type::close_complete: return parse_impl<close_complete>(data);
+//     case backend_message_type::command_complete: return parse_impl<command_complete>(data);
+//     case backend_message_type::copy_data: return parse_impl<copy_data>(data);
+//     case backend_message_type::copy_done: return parse_impl<copy_done>(data);
+//     case backend_message_type::copy_in_response: return parse_impl<copy_in_response>(data);
+//     case backend_message_type::copy_out_response: return parse_impl<copy_out_response>(data);
+//     case backend_message_type::copy_both_response: return parse_impl<copy_both_response>(data);
+//     case backend_message_type::data_row: return parse_impl<data_row>(data);
+//     case backend_message_type::empty_query_response: return parse_impl<empty_query_response>(data);
+//     case backend_message_type::error_response: return parse_impl<error_response>(data);
+//     case backend_message_type::negotiate_protocol_version:
+//         return parse_impl<negotiate_protocol_version>(data);
+//     case backend_message_type::no_data: return parse_impl<no_data>(data);
+//     case backend_message_type::notice_response: return parse_impl<notice_response>(data);
+//     case backend_message_type::notification_response: return parse_impl<notification_response>(data);
+//     case backend_message_type::parameter_description: return parse_impl<parameter_description>(data);
+//     case backend_message_type::parameter_status: return parse_impl<parameter_status>(data);
+//     case backend_message_type::parse_complete: return parse_impl<parse_complete>(data);
+//     case backend_message_type::portal_suspended: return parse_impl<portal_suspended>(data);
+//     case backend_message_type::ready_for_query: return parse_impl<ready_for_query>(data);
+//     case backend_message_type::row_description: return parse_impl<row_description>(data);
+//     default: return nativepg::client_errc::protocol_value_error;
+//     }
+// }
+
+struct nativepg::protocol::detail::bind_context_access
+{
+    static std::size_t num_params(const bind_context& ctx) { return ctx.num_params_; }
+    static void maybe_finish_parameter(bind_context& ctx) { ctx.maybe_finish_parameter(); }
+};
+
+namespace {
+
+struct format_codes_serializer
+{
+    detail::serialization_context& ctx;
+
+    void operator()(format_code f) const { ctx.add_integral(static_cast<std::int16_t>(f)); }
+    void operator()(boost::span<const format_code> codes) const
+    {
+        // Size check
+        if (codes.size() > (std::numeric_limits<std::int16_t>::max)())
+        {
+            ctx.add_error(nativepg::client_errc::value_too_big);
+        }
+        else
+        {
+            ctx.add_integral(static_cast<std::int16_t>(codes.size()));
+            for (auto c : codes)
+                ctx.add_integral(static_cast<std::int16_t>(c));
+        }
+    }
+};
+
+void serialize_fmt_codes(const bind::format_codes& fmt_codes, detail::serialization_context& ctx)
+{
+    boost::variant2::visit(format_codes_serializer{ctx}, fmt_codes);
+}
+
+void serialize_params(
+    boost::compat::function_ref<void(bind_context&)> parameters_fn,
+    detail::serialization_context& ctx
 )
 {
-    // Cast the message type
-    auto t = static_cast<backend_message_type>(message_type);
+    // Allocate space for the number of parameters (not yet known)
+    auto& buffer = ctx.buffer();
+    std::size_t num_params_offset = buffer.size();
+    buffer.resize(buffer.size() + 2u);
 
-    switch (t)
+    // Call the user function, which will serialize all the parameters
+    bind_context bind_ctx(buffer);
+    parameters_fn(bind_ctx);
+    detail::bind_context_access::maybe_finish_parameter(bind_ctx);
+
+    // Check for errors
+    ctx.add_error(bind_ctx.error());
+
+    // Serialize the number of parameters
+    std::size_t num_params = detail::bind_context_access::num_params(bind_ctx);
+    if (num_params > (std::numeric_limits<std::int16_t>::max)())
     {
-    case backend_message_type::authentication_request: return parse_authentication_request(data);
-    case backend_message_type::backend_key_data: return parse_impl<backend_key_data>(data);
-    case backend_message_type::bind_complete: return parse_impl<bind_complete>(data);
-    case backend_message_type::close_complete: return parse_impl<close_complete>(data);
-    case backend_message_type::command_complete: return parse_impl<command_complete>(data);
-    case backend_message_type::copy_data: return parse_impl<copy_data>(data);
-    case backend_message_type::copy_done: return parse_impl<copy_done>(data);
-    case backend_message_type::copy_in_response: return parse_impl<copy_in_response>(data);
-    case backend_message_type::copy_out_response: return parse_impl<copy_out_response>(data);
-    case backend_message_type::copy_both_response: return parse_impl<copy_both_response>(data);
-    case backend_message_type::data_row: return parse_impl<data_row>(data);
-    case backend_message_type::empty_query_response: return parse_impl<empty_query_response>(data);
-    case backend_message_type::error_response: return parse_impl<error_response>(data);
-    case backend_message_type::negotiate_protocol_version:
-        return parse_impl<negotiate_protocol_version>(data);
-    case backend_message_type::no_data: return parse_impl<no_data>(data);
-    case backend_message_type::notice_response: return parse_impl<notice_response>(data);
-    case backend_message_type::notification_response: return parse_impl<notification_response>(data);
-    case backend_message_type::parameter_description: return parse_impl<parameter_description>(data);
-    case backend_message_type::parameter_status: return parse_impl<parameter_status>(data);
-    case backend_message_type::parse_complete: return parse_impl<parse_complete>(data);
-    case backend_message_type::portal_suspended: return parse_impl<portal_suspended>(data);
-    case backend_message_type::ready_for_query: return parse_impl<ready_for_query>(data);
-    case backend_message_type::row_description: return parse_impl<row_description>(data);
-    default: return nativepg::client_errc::protocol_value_error;
+        ctx.add_error(nativepg::client_errc::value_too_big);
+        return;
     }
+    boost::endian::store_big_s16(buffer.data() + num_params_offset, static_cast<std::int16_t>(num_params));
+}
+
+}  // namespace
+
+void nativepg::protocol::bind_context::maybe_finish_parameter()
+{
+    // If there is no pending parameter, do nothing
+    if (param_offset_ == no_offset)
+        return;
+
+    // Compute the size of the parameter, as the number of bytes added by the user minus the header
+    BOOST_ASSERT(buff_.size() > param_offset_ + 4u);
+    std::size_t param_size = buff_.size() - param_offset_ - 4u;
+
+    // If the size exceeds INT32_MAX, error
+    if (param_size > (std::numeric_limits<std::int32_t>::max)())
+    {
+        add_error(client_errc::value_too_big);
+        return;
+    }
+
+    // Write the parameter size
+    boost::endian::store_big_s32(buff_.data() + param_offset_, static_cast<std::int32_t>(param_size));
+
+    // Clean up the offset
+    param_offset_ = no_offset;
+}
+
+boost::system::error_code nativepg::protocol::serialize(const bind& msg, std::vector<unsigned char>& to)
+{
+    detail::serialization_context ctx(to);
+
+    // Header
+    ctx.add_header('B');
+
+    // Portal and statement name
+    ctx.add_string(msg.portal_name);
+    ctx.add_string(msg.statement_name);
+
+    // Parameter format codes
+    serialize_fmt_codes(msg.parameter_fmt_codes, ctx);
+
+    // Serialize the parameters
+    serialize_params(msg.parameters_fn, ctx);
+
+    // Result format codes
+    serialize_fmt_codes(msg.result_fmt_codes, ctx);
+
+    return ctx.finalize_message();
 }

@@ -10,9 +10,11 @@
 #include <boost/core/span.hpp>
 #include <boost/endian/conversion.hpp>
 #include <boost/system/error_code.hpp>
+#include <boost/system/result.hpp>
 #include <boost/throw_exception.hpp>
 #include <boost/variant2/variant.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -280,18 +282,40 @@ void nativepg::protocol::detail::at_range_check(std::size_t i, std::size_t colle
         BOOST_THROW_EXCEPTION(std::out_of_range("random_access_parsing_view::at"));
 }
 
-void nativepg::protocol::serialize_header(message_header header, boost::span<unsigned char, 5> dest)
+boost::system::result<std::array<unsigned char, 5>> nativepg::protocol::serialize_header(message_header header
+)
 {
-    // TODO: this can result in an overflow
-    unsigned char* ptr = dest.data();
-    *ptr++ = header.type;
-    boost::endian::store_big_s32(ptr, header.size);
+    std::array<unsigned char, 5> res{};
+
+    // Range check the length. It should fit an int32, counting the 4 extra bytes in the length field
+    constexpr std::size_t max_size = (std::numeric_limits<std::int32_t>::max)() - 4u;
+    if (header.size > max_size)
+        return client_errc::value_too_big;
+
+    // Message type
+    res[0] = header.type;
+
+    // Length
+    boost::endian::store_big_s32(res.data() + 1, static_cast<std::int32_t>(header.size));
+
+    // Done
+    return res;
 }
 
-message_header nativepg::protocol::parse_header(boost::span<const unsigned char, 5> from)
+boost::system::result<message_header> nativepg::protocol::parse_header(
+    boost::span<const unsigned char, 5> from
+)
 {
-    // TODO: this can technically be negative!
-    return {from[0], boost::endian::load_big_s32(from.data() + 1u)};
+    // Deserialize individual fields
+    unsigned char msg_type = from[0];
+    auto size = boost::endian::load_big_s32(from.data() + 1u);
+
+    // Range check the length. The actual length (4 bytes) is included in this count
+    if (size < 4)
+        return client_errc::protocol_value_error;
+
+    // Done
+    return message_header{msg_type, size - 4u};
 }
 
 boost::system::error_code nativepg::protocol::parse(

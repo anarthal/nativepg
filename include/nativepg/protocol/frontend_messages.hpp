@@ -26,24 +26,6 @@ enum class format_code : std::int16_t
     binary = 1
 };
 
-struct execute_message
-{
-    static constexpr unsigned char message_type = static_cast<unsigned char>('E');
-
-    // The name of the portal to execute (an empty string selects the unnamed portal).
-    std::string_view portal_name;
-
-    // Maximum number of rows to return, if portal contains a query that returns rows (ignored otherwise).
-    // Zero denotes “no limit”.
-    std::int32_t max_num_rows;
-
-    void serialize(serialization_context& ctx) const
-    {
-        ctx.add_string(portal_name);
-        ctx.add_integral(max_num_rows);
-    }
-};
-
 struct flush_message
 {
     static constexpr unsigned char message_type = static_cast<unsigned char>('H');

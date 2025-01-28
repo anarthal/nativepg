@@ -31,6 +31,7 @@
 #include "nativepg/protocol/copy.hpp"
 #include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
+#include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/execution.hpp"
 #include "nativepg/protocol/header.hpp"
 #include "nativepg/protocol/notice_error.hpp"
@@ -900,5 +901,20 @@ boost::system::error_code nativepg::protocol::serialize(copy_done, std::vector<u
 {
     detail::serialization_context ctx(to);
     ctx.add_header('c');
+    return ctx.finalize_message();
+}
+
+boost::system::error_code nativepg::protocol::serialize(const execute& msg, std::vector<unsigned char>& to)
+{
+    detail::serialization_context ctx(to);
+
+    // Header
+    ctx.add_header('E');
+
+    // Fields
+    ctx.add_string(msg.portal_name);
+    ctx.add_integral(msg.max_num_rows);
+
+    // Done
     return ctx.finalize_message();
 }

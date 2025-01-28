@@ -93,25 +93,6 @@ public:
         // Done
         return {};
     }
-
-    template <class Message>
-    void add_message(const Message& msg)
-    {
-        // Add the message type
-        add_byte(Message::message_type);
-
-        // Record initial size
-        auto initial_offset = buffer_.size();
-
-        // Serialize the message
-        msg.serialize(*this);
-
-        // Compute the length. TODO: check length?
-        auto total_length = static_cast<std::uint32_t>(buffer_.size() - initial_offset);
-
-        // Serialize the length
-        boost::endian::store_big_u32(buffer_.data() + initial_offset, total_length);
-    }
 };
 
 }  // namespace detail

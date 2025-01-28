@@ -11,6 +11,7 @@
 #include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <cstdint>
 #include <vector>
 
 #include "nativepg/protocol/common.hpp"
@@ -40,6 +41,12 @@ inline boost::system::error_code parse(boost::span<const unsigned char> data, co
     to.data = data;
     return {};
 }
+
+// We don't provide a serialization function for copy_data.
+// The body is a chunk of user-supplied data that might be large, and is likely
+// better sent using scatter/gather I/O.
+// Use serialize_header with this message type byte
+inline constexpr std::uint8_t copy_data_message_type = static_cast<std::uint8_t>('c');
 
 struct copy_done
 {

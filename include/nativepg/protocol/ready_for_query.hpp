@@ -5,33 +5,14 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_PROTOCOL_EXECUTION_HPP
-#define NATIVEPG_PROTOCOL_EXECUTION_HPP
+#ifndef NATIVEPG_PROTOCOL_READY_FOR_QUERY_HPP
+#define NATIVEPG_PROTOCOL_READY_FOR_QUERY_HPP
 
 #include <boost/core/span.hpp>
-
-#include <optional>
-
-#include "nativepg/protocol/common.hpp"
-#include "nativepg/protocol/views.hpp"
+#include <boost/system/error_code.hpp>
 
 namespace nativepg {
 namespace protocol {
-
-struct command_complete
-{
-    // The command tag. This is usually a single word that identifies which SQL command was completed.
-    std::string_view tag;
-};
-boost::system::error_code parse(boost::span<const unsigned char> data, command_complete& to);
-
-struct empty_query_response
-{
-};
-inline boost::system::error_code parse(boost::span<const unsigned char> data, empty_query_response&)
-{
-    return detail::check_empty(data);
-}
 
 // Sent when operations complete
 enum class transaction_status : unsigned char

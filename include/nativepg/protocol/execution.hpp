@@ -33,14 +33,6 @@ inline boost::system::error_code parse(boost::span<const unsigned char> data, em
     return detail::check_empty(data);
 }
 
-struct portal_suspended
-{
-};
-inline boost::system::error_code parse(boost::span<const unsigned char> data, portal_suspended&)
-{
-    return detail::check_empty(data);
-}
-
 // Sent when operations complete
 enum class transaction_status : unsigned char
 {

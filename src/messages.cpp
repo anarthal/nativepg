@@ -21,6 +21,7 @@
 #include <optional>
 #include <string_view>
 #include <system_error>
+#include <vector>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/async.hpp"
@@ -39,6 +40,7 @@
 #include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/protocol/startup.hpp"
 #include "nativepg/protocol/sync.hpp"
+#include "nativepg/protocol/terminate.hpp"
 #include "parse_context.hpp"
 #include "serialization_context.hpp"
 
@@ -275,6 +277,15 @@ boost::system::error_code parse_copy_response(
     fmt_codes_output = {fmt_codes_first, num_items};
 
     return ctx.check();
+}
+
+// For messages that only have a header
+boost::system::error_code serialize_header_only(char header, std::vector<unsigned char>& to)
+{
+    auto buff = serialize_header({static_cast<unsigned char>(header), 5u});
+    BOOST_ASSERT(buff.has_value());
+    to.insert(to.end(), buff->begin(), buff->end());
+    return {};
 }
 
 }  // namespace
@@ -923,14 +934,15 @@ boost::system::error_code nativepg::protocol::serialize(const execute& msg, std:
 
 boost::system::error_code nativepg::protocol::serialize(flush, std::vector<unsigned char>& to)
 {
-    detail::serialization_context ctx(to);
-    ctx.add_header('H');
-    return ctx.finalize_message();
+    return serialize_header_only('H', to);
 }
 
 boost::system::error_code nativepg::protocol::serialize(sync, std::vector<unsigned char>& to)
 {
-    detail::serialization_context ctx(to);
-    ctx.add_header('S');
-    return ctx.finalize_message();
+    return serialize_header_only('S', to);
+}
+
+boost::system::error_code nativepg::protocol::serialize(terminate, std::vector<unsigned char>& to)
+{
+    return serialize_header_only('X', to);
 }

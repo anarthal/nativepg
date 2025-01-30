@@ -15,6 +15,7 @@
 #include <boost/system/error_code.hpp>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <string_view>
@@ -27,6 +28,7 @@ namespace detail {
 class serialization_context
 {
     std::vector<unsigned char>& buffer_;
+    std::size_t header_offset_{static_cast<std::size_t>(-1)};  // where is the message header?
     boost::system::error_code err_;
 
 public:
@@ -65,6 +67,12 @@ public:
 
     void add_header(char msg_type)
     {
+        // There shouldn't be an in-progress message
+        BOOST_ASSERT(header_offset_ != static_cast<std::size_t>(-1));
+
+        // Record the header offset
+        header_offset_ = buffer_.size();
+
         // Add the message type
         add_byte(static_cast<unsigned char>(msg_type));
 
@@ -80,8 +88,8 @@ public:
             return err_;
 
         // Compute the length to serialize. Everything except the type
-        BOOST_ASSERT(buffer_.size() >= 5u);
-        auto size = buffer_.size() - 1u;
+        BOOST_ASSERT(buffer_.size() >= header_offset_ + 5u);
+        auto size = buffer_.size() - header_offset_ - 1u;
 
         // Check that the length doesn't exceed an int32
         if (size > (std::numeric_limits<std::int32_t>::max)())
@@ -89,6 +97,9 @@ public:
 
         // Serialize the message size
         boost::endian::store_big_s32(buffer_.data() + 1u, static_cast<std::int32_t>(size));
+
+        // Record that we're no longer composing a message
+        header_offset_ = static_cast<std::size_t>(-1);
 
         // Done
         return {};

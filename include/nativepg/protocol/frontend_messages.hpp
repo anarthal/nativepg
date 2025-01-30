@@ -46,13 +46,6 @@ struct query_message
     void serialize(serialization_context& ctx) const { ctx.add_string(query); }
 };
 
-struct sync_message
-{
-    static constexpr unsigned char message_type = static_cast<unsigned char>('S');
-
-    void serialize(serialization_context& ctx) const {}
-};
-
 struct terminate_message
 {
     static constexpr unsigned char message_type = static_cast<unsigned char>('X');

@@ -38,6 +38,7 @@
 #include "nativepg/protocol/parse.hpp"
 #include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/protocol/startup.hpp"
+#include "nativepg/protocol/sync.hpp"
 #include "parse_context.hpp"
 #include "serialization_context.hpp"
 
@@ -924,5 +925,12 @@ boost::system::error_code nativepg::protocol::serialize(flush, std::vector<unsig
 {
     detail::serialization_context ctx(to);
     ctx.add_header('H');
+    return ctx.finalize_message();
+}
+
+boost::system::error_code nativepg::protocol::serialize(sync, std::vector<unsigned char>& to)
+{
+    detail::serialization_context ctx(to);
+    ctx.add_header('S');
     return ctx.finalize_message();
 }

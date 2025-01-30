@@ -26,13 +26,6 @@ enum class format_code : std::int16_t
     binary = 1
 };
 
-struct flush_message
-{
-    static constexpr unsigned char message_type = static_cast<unsigned char>('H');
-
-    void serialize(serialization_context&) const {}
-};
-
 struct password_message
 {
     static constexpr unsigned char message_type = static_cast<unsigned char>('p');

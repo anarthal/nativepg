@@ -32,6 +32,7 @@
 #include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/execute.hpp"
+#include "nativepg/protocol/flush.hpp"
 #include "nativepg/protocol/header.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/parse.hpp"
@@ -916,5 +917,12 @@ boost::system::error_code nativepg::protocol::serialize(const execute& msg, std:
     ctx.add_integral(msg.max_num_rows);
 
     // Done
+    return ctx.finalize_message();
+}
+
+boost::system::error_code nativepg::protocol::serialize(flush, std::vector<unsigned char>& to)
+{
+    detail::serialization_context ctx(to);
+    ctx.add_header('H');
     return ctx.finalize_message();
 }

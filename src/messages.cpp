@@ -946,3 +946,11 @@ boost::system::error_code nativepg::protocol::serialize(terminate, std::vector<u
 {
     return serialize_header_only('X', to);
 }
+
+boost::system::error_code nativepg::protocol::serialize(const password& msg, std::vector<unsigned char>& to)
+{
+    detail::serialization_context ctx(to);
+    ctx.add_header('p');
+    ctx.add_string(msg.password);
+    return ctx.finalize_message();
+}

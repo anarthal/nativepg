@@ -26,16 +26,6 @@ enum class format_code : std::int16_t
     binary = 1
 };
 
-struct password_message
-{
-    static constexpr unsigned char message_type = static_cast<unsigned char>('p');
-
-    // The password (encrypted, if requested). TODO: does this really have NULL terminator??
-    std::string_view password;
-
-    void serialize(serialization_context& ctx) const { ctx.add_string(password); }
-};
-
 struct query_message
 {
     static constexpr unsigned char message_type = static_cast<unsigned char>('Q');

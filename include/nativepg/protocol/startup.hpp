@@ -12,6 +12,7 @@
 #include <boost/system/error_code.hpp>
 
 #include <string_view>
+#include <vector>
 
 #include "nativepg/protocol/common.hpp"
 #include "nativepg/protocol/views.hpp"
@@ -29,6 +30,13 @@ struct forward_traits<std::string_view>
 };
 
 }  // namespace detail
+
+struct password
+{
+    // The password (encrypted, if requested). TODO: does this really have NULL terminator??
+    std::string_view password;
+};
+boost::system::error_code serialize(const password& msg, std::vector<unsigned char>& to);
 
 // Authentication messages require parsing the following 4 bytes, too
 struct authentication_ok

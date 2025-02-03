@@ -26,6 +26,7 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/bind.hpp"
+#include "nativepg/protocol/cancel_request.hpp"
 #include "nativepg/protocol/close.hpp"
 #include "nativepg/protocol/command_complete.hpp"
 #include "nativepg/protocol/common.hpp"
@@ -1011,4 +1012,20 @@ boost::system::error_code nativepg::protocol::serialize(
 
     // Done
     return {};
+}
+
+boost::system::error_code nativepg::protocol::serialize(
+    const cancel_request& msg,
+    std::vector<unsigned char>& to
+)
+{
+    detail::serialization_context ctx(to);
+
+    // The message has no type code. It has a length, but it's constant
+    ctx.add_integral(static_cast<std::int32_t>(16));        // length
+    ctx.add_integral(static_cast<std::int32_t>(80877102));  // cancel request code
+    ctx.add_integral(msg.process_id);
+    ctx.add_integral(msg.secret_key);
+
+    return ctx.error();
 }

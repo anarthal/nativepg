@@ -954,3 +954,61 @@ boost::system::error_code nativepg::protocol::serialize(const password& msg, std
     ctx.add_string(msg.password);
     return ctx.finalize_message();
 }
+
+boost::system::error_code nativepg::protocol::serialize(
+    const startup_message& msg,
+    std::vector<unsigned char>& to
+)
+{
+    detail::serialization_context ctx(to);
+
+    // This message does not have a message type, but it does have a length.
+    // Allocate space for the length
+    auto length_offset = to.size();
+    ctx.add_bytes(std::array<unsigned char, 4>{});
+
+    // The protocol version number. The most significant 16 bits are the major version number (3 for the
+    // protocol described here). The least significant 16 bits are the minor version number (0 for the
+    // protocol described here).
+    ctx.add_integral(std::int32_t(196608));
+
+    // Username
+    ctx.add_string("user");
+    ctx.add_string(msg.user);
+
+    // Database, if present
+    if (msg.database.has_value())
+    {
+        ctx.add_string("database");
+        ctx.add_string(*msg.database);
+    }
+
+    // Rest of params
+    for (auto param : msg.params)
+    {
+        ctx.add_string(param.first);
+        ctx.add_string(param.second);
+    }
+
+    // Terminator
+    ctx.add_byte(0);
+
+    // Calculate the message length
+    BOOST_ASSERT(to.size() >= length_offset + 4);
+    auto msg_length = to.size() - length_offset;
+
+    // Range check
+    if (msg_length > (std::numeric_limits<std::int32_t>::max)())
+        ctx.add_error(client_errc::value_too_big);
+
+    // Check for errors
+    auto err = ctx.error();
+    if (err)
+        return err;
+
+    // If everything was OK, set the message length
+    boost::endian::store_big_s32(to.data() + length_offset, static_cast<std::int32_t>(msg_length));
+
+    // Done
+    return {};
+}

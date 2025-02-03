@@ -11,6 +11,7 @@
 #include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -30,6 +31,19 @@ struct forward_traits<std::string_view>
 };
 
 }  // namespace detail
+
+struct startup_message
+{
+    // The database user name to connect as. Required; there is no default.
+    std::string_view user;
+
+    // The database to connect to. Defaults to the user name. Leave empty for no database
+    std::optional<std::string_view> database;
+
+    // Additional key/value settings
+    boost::span<const std::pair<std::string_view, std::string_view>> params;
+};
+boost::system::error_code serialize(const startup_message& msg, std::vector<unsigned char>& to);
 
 struct password
 {

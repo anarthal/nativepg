@@ -38,6 +38,7 @@
 #include "nativepg/protocol/header.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/parse.hpp"
+#include "nativepg/protocol/query.hpp"
 #include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/protocol/startup.hpp"
 #include "nativepg/protocol/sync.hpp"
@@ -1037,5 +1038,19 @@ boost::system::error_code nativepg::protocol::serialize(ssl_request, std::vector
     // The message has no type code and no length
     ctx.add_integral(std::int32_t(80877103));
 
+    return ctx.error();
+}
+
+boost::system::error_code nativepg::protocol::serialize(query msg, std::vector<unsigned char>& to)
+{
+    detail::serialization_context ctx(to);
+
+    // Header
+    ctx.add_header('Q');
+
+    // Query
+    ctx.add_string(msg.query);
+
+    // Done
     return ctx.error();
 }

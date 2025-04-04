@@ -8,35 +8,23 @@
 #ifndef NATIVEPG_PROTOCOL_FRONTEND_MESSAGES_HPP
 #define NATIVEPG_PROTOCOL_FRONTEND_MESSAGES_HPP
 
-#include <boost/core/span.hpp>
+#include <boost/system/error_code.hpp>
 
-#include <cstddef>
-#include <cstdint>
 #include <string_view>
-#include <utility>
-
-#include "nativepg/wire/serialization_context.hpp"
+#include <vector>
 
 namespace nativepg {
-namespace detail {
+namespace protocol {
 
-enum class format_code : std::int16_t
+struct query
 {
-    text = 0,
-    binary = 1
-};
-
-struct query_message
-{
-    static constexpr unsigned char message_type = static_cast<unsigned char>('Q');
-
     // The query string itself.
+    // TODO: allow for generators and vector I/O
     std::string_view query;
-
-    void serialize(serialization_context& ctx) const { ctx.add_string(query); }
 };
+boost::system::error_code serialize(query, std::vector<unsigned char>& to);
 
-}  // namespace detail
+}  // namespace protocol
 }  // namespace nativepg
 
 #endif

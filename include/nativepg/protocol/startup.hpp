@@ -45,6 +45,11 @@ struct startup_message
 };
 boost::system::error_code serialize(const startup_message& msg, std::vector<unsigned char>& to);
 
+struct ssl_request
+{
+};
+boost::system::error_code serialize(ssl_request msg, std::vector<unsigned char>& to);
+
 struct password
 {
     // The password (encrypted, if requested). TODO: does this really have NULL terminator??

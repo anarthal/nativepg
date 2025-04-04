@@ -1029,3 +1029,13 @@ boost::system::error_code nativepg::protocol::serialize(
 
     return ctx.error();
 }
+
+boost::system::error_code nativepg::protocol::serialize(ssl_request, std::vector<unsigned char>& to)
+{
+    detail::serialization_context ctx(to);
+
+    // The message has no type code and no length
+    ctx.add_integral(std::int32_t(80877103));
+
+    return ctx.error();
+}

@@ -38,7 +38,8 @@ struct scram_sha256_server_first_message
     // The nonce sent by the server, should contain the nonce we sent and an extra value created by the server
     std::string_view nonce;
 
-    // The salt sent by the server. This comes as base64. TODO: is this ok?
+    // The salt sent by the server. This comes as base64
+    // TODO: salt is likely restricted in size, so we could use a static_vector and make this non-allocating
     std::vector<unsigned char> salt;
 
     // Iteration count. As an arbitrary fixed-width integer to set an upper limit

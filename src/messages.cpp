@@ -14,7 +14,9 @@
 #include <boost/throw_exception.hpp>
 #include <boost/variant2/variant.hpp>
 
+#include <algorithm>
 #include <array>
+#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -44,6 +46,7 @@
 #include "nativepg/protocol/startup.hpp"
 #include "nativepg/protocol/sync.hpp"
 #include "nativepg/protocol/terminate.hpp"
+#include "nativepg_internal/base64.hpp"
 #include "parse_context.hpp"
 #include "serialization_context.hpp"
 
@@ -1100,4 +1103,94 @@ boost::system::error_code nativepg::protocol::serialize(
 
     // Done
     return ctx.finalize_message();
+}
+
+static bool scram_is_printable(unsigned char c)
+{
+    return (c >= 0x21 && c <= 0x2b) || (c >= 0x2d && c <= 0x7e);
+}
+
+boost::system::error_code nativepg::protocol::parse(
+    boost::span<const unsigned char> data,
+    scram_sha256_server_first_message& to
+)
+{
+    // server-first-message = [reserved-mext ","] nonce "," salt "," iteration-count ["," extensions]
+    // reserved-mext  = "m=" 1*(value-char) ;; if this is present, we're missing extensions and should fail
+    // parsing nonce          = "r=" c-nonce [s-nonce] ;; these are equal to printable
+    // printable       =%x21-2B / %x2D-7E
+    // salt            = "s=" base64
+    // iteration-count = "i=" posit-number
+    // extensions = attr-val *("," attr-val) ;; to be ignored
+    // attr-val        = ALPHA "=" value
+    // value           = 1*value-char
+
+    const unsigned char* p = data.data();
+    const unsigned char* last = data.data() + data.size();
+
+    // Try to match reserved-mext
+    if (p != last && *p == static_cast<unsigned char>('m'))
+    {
+        ++p;
+        return (p == last || *p != ',') ? client_errc::invalid_scram_message
+                                        : client_errc::mandatory_scram_extension_not_supported;
+    }
+
+    // Parse the nonce
+    if (p == last || *p++ != 'r')
+        return client_errc::invalid_scram_message;
+    if (p == last || *p++ != '=')
+        return client_errc::invalid_scram_message;
+    const auto* nonce_first = p;
+    while (true)
+    {
+        if (p == last)
+            return client_errc::invalid_scram_message;
+        if (*p == ',')
+            break;
+        if (!scram_is_printable(*p))
+            return client_errc::invalid_scram_message;
+        ++p;
+    }
+    to.nonce = {reinterpret_cast<const char*>(nonce_first), reinterpret_cast<const char*>(p)};
+    ++p;  // skip the final comma
+
+    // Parse the salt
+    if (p == last || *p++ != 's')
+        return client_errc::invalid_scram_message;
+    if (p == last || *p++ != '=')
+        return client_errc::invalid_scram_message;
+    const auto* salt_first = p;
+    while (true)
+    {
+        if (p == last)
+            return client_errc::invalid_scram_message;
+        if (*p == ',')
+            break;
+        ++p;
+    }
+    auto ec = detail::base64_decode({salt_first, p}, to.salt);
+    if (ec)
+        return ec;
+    ++p;  // skip the final comma
+
+    // Parse the iteration count. Verify that all the characters
+    // are numbers, to avoid any possible signed char
+    if (p == last || *p++ != 'i')
+        return client_errc::invalid_scram_message;
+    if (p == last || *p++ != '=')
+        return client_errc::invalid_scram_message;
+    const char* i_first = reinterpret_cast<const char*>(p);
+    const char* i_last = std::find(i_first, reinterpret_cast<const char*>(last), ',');
+    auto parse_result = std::from_chars(i_first, i_last, to.iteration_count);
+    if (parse_result.ec != std::errc() || parse_result.ptr != i_last)
+        return client_errc::invalid_scram_message;
+    ++p;  // skip the final comma
+
+    auto nonce_end = std::find(p, last, ',');
+    if (nonce_end == last)
+        return client_errc::invalid_scram_message;
+
+    // TODO: verify that if we got any extensions, they are well-formed
+    return {};
 }

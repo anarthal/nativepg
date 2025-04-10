@@ -26,12 +26,17 @@ target_include_directories(nativepg PUBLIC include)
 target_include_directories(nativepg PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 # Tests
+add_library(nativepg_test_utils STATIC test/test_utils/test_utils.cpp)
+target_include_directories(nativepg_test_utils PUBLIC test/test_utils/)
+target_link_libraries(nativepg_test_utils PUBLIC Boost::headers)
+
 function (add_unit_test TEST_NAME TEST_DIR)
     set(TARGET_NAME "nativepg_${TEST_NAME}")
     add_executable(${TARGET_NAME} test/unit/${TEST_DIR}/${TEST_NAME}.cpp)
     target_include_directories(${TARGET_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_link_libraries(${TARGET_NAME} PRIVATE nativepg)
+    target_link_libraries(${TARGET_NAME} PRIVATE nativepg nativepg_test_utils)
     add_test(NAME ${TARGET_NAME} COMMAND ${TARGET_NAME})
+    target_compile_options(${TARGET_NAME} PUBLIC -Wall -Wextra -Wpedantic -Werror)
 endfunction()
 
 enable_testing()

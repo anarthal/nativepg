@@ -1099,5 +1099,5 @@ boost::system::error_code nativepg::protocol::serialize(
     }
 
     // Done
-    return ctx.error();
+    return ctx.finalize_message();
 }

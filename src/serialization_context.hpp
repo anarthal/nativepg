@@ -63,6 +63,14 @@ public:
         buffer_.insert(buffer_.end(), contents.begin(), contents.end());
     }
 
+    void add_bytes(std::string_view contents)
+    {
+        add_bytes(boost::span<const unsigned char>(
+            reinterpret_cast<const unsigned char*>(contents.data()),
+            contents.size()
+        ));
+    }
+
     void add_byte(unsigned char byte) { buffer_.push_back(byte); }
 
     void add_header(char msg_type)

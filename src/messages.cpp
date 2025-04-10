@@ -40,6 +40,7 @@
 #include "nativepg/protocol/parse.hpp"
 #include "nativepg/protocol/query.hpp"
 #include "nativepg/protocol/ready_for_query.hpp"
+#include "nativepg/protocol/scram_sha256.hpp"
 #include "nativepg/protocol/startup.hpp"
 #include "nativepg/protocol/sync.hpp"
 #include "nativepg/protocol/terminate.hpp"
@@ -1050,6 +1051,52 @@ boost::system::error_code nativepg::protocol::serialize(query msg, std::vector<u
 
     // Query
     ctx.add_string(msg.query);
+
+    // Done
+    return ctx.error();
+}
+
+// scram sha256.
+// Message formats described in https://datatracker.ietf.org/doc/html/rfc5802
+
+boost::system::error_code nativepg::protocol::serialize(
+    const scram_sha256_client_first_message& msg,
+    std::vector<unsigned char>& to
+)
+{
+    detail::serialization_context ctx(to);
+
+    // Header
+    ctx.add_header('p');
+
+    // SASL mechanism name
+    ctx.add_string(msg.mechanism);
+
+    // The rest of the message is a SCRAM-SHA256 client-first-message.
+    // It's preceeded by a 4 byte integer indicating its length.
+    // Reserve empty space for this size
+    std::size_t length_offset = to.size();
+    ctx.add_bytes(std::array<unsigned char, 4>{});
+
+    // gs2-cbind-flag is always 'n', indicating that we don't support channel binding (yet)
+    // authzid is not included for the same reason
+    // this makes gs2-header be "n,," in all cases
+    // username is always empty, because it's already sent in the startup message
+    // the only variable part here is the nonce (attribute 'r').
+    // Conclusion: message format "n,,n=,r=" + nonce
+    ctx.add_bytes("n,,n=,r=");
+    ctx.add_bytes(msg.nonce);
+
+    // Calculate the length of what we serialized
+    auto data_length = to.size() - length_offset - 4u;
+    if (data_length > (std::numeric_limits<std::int32_t>::max)())
+    {
+        ctx.add_error(client_errc::value_too_big);
+    }
+    else
+    {
+        boost::endian::store_big_s32(to.data() + length_offset, static_cast<std::int32_t>(data_length));
+    }
 
     // Done
     return ctx.error();

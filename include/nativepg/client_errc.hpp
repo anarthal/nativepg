@@ -30,6 +30,9 @@ enum class client_errc : int
 
     // You passed a collection whose size exceeds a protocol max
     value_too_big,
+
+    // Decoding base64 failed because of malformed input
+    invalid_base64,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

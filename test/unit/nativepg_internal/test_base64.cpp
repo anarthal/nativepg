@@ -7,6 +7,7 @@
 
 #include <boost/core/lightweight_test.hpp>
 #include <boost/core/span.hpp>
+#include <boost/system/error_code.hpp>
 
 #include <string_view>
 #include <vector>
@@ -14,7 +15,6 @@
 #include "nativepg_internal/base64.hpp"
 #include "test_utils.hpp"
 
-using namespace std::string_view_literals;
 using boost::system::error_code;
 using nativepg::protocol::detail::base64_decode;
 using nativepg::protocol::detail::base64_encode;
@@ -24,30 +24,35 @@ using nativepg::protocol::detail::base64_encode;
 namespace {
 
 // TODO: this needs much more cases
-constexpr struct
+struct
 {
-    std::string_view raw;
+    std::vector<unsigned char> raw;
     std::string_view encoded;
 } success_cases[] = {
-    {"\0"sv,                                  "AA=="                                  },
-    {"a"sv,                                   "YQ=="                                  },
-    {"ab"sv,                                  "YWI="                                  },
-    {"abc"sv,                                 "YWJj"                                  },
-    {""sv,                                    ""                                      },
-    {"abcdefghijklmnopqrstuvwxyz"
-     "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-     "0123456789!@#0^&*();:<>,. []{}"sv, "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXpBQkNE"
-     "RUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NT"
-     "Y3ODkhQCMwXiYqKCk7Ojw+LC4gW117fQ=="},
-    {"\xff"sv,                                "/w=="                                  },
-    {"\xff\xee"sv,                            "/+4="                                  },
-    {"\xff\xee\xdd"sv,                        "/+7d"                                  },
-    {"\xff\xee\xdd\xcc"sv,                    "/+7dzA=="                              },
-    {"\xff\xee\xdd\xcc\xbb"sv,                "/+7dzLs="                              },
-    {"\xff\xee\xdd\xcc\xbb\xaa"sv,            "/+7dzLuq"                              },
-    {"\xff\xee\xdd\xcc\xbb\xaa\x99"sv,        "/+7dzLuqmQ=="                          },
-    {"\xff\xee\xdd\xcc\xbb\xaa\x99\x88"sv,    "/+7dzLuqmYg="                          },
+    {{0x00},                                                                                           "AA=="        },
+    {{0x61},                                                                                           "YQ=="        },
+    {{0x61, 0x62},                                                                                     "YWI="        },
+    {{0x61, 0x62, 0x63},                                                                               "YWJj"        },
+    {{},                                                                                               ""            },
+    {
+
+     {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x10, 0x50, 0x60, 0x70, 0x80, 0xab, 0xff, 0x00},
+     "AQIDBAUGBwgQUGBwgKv/AA=="
+    },
+    {{0xff},                                                                                           "/w=="        },
+    {{0xff, 0xee},                                                                                     "/+4="        },
+    {{0xff, 0xee, 0xdd},                                                                               "/+7d"        },
+    {{0xff, 0xee, 0xdd, 0xcc},                                                                         "/+7dzA=="    },
+    {{0xff, 0xee, 0xdd, 0xcc, 0xbb},                                                                   "/+7dzLs="    },
+    {{0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa},                                                             "/+7dzLuq"    },
+    {{0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99},                                                       "/+7dzLuqmQ=="},
+    {{0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88},                                                 "/+7dzLuqmYg="},
 };
+
+boost::span<const unsigned char> to_span(std::string_view input)
+{
+    return {reinterpret_cast<const unsigned char*>(input.data()), input.size()};
+}
 
 // Regular encode
 void test_encode()
@@ -58,13 +63,9 @@ void test_encode()
 
         // Setup
         std::vector<unsigned char> dest;
-        boost::span<const unsigned char> input(
-            reinterpret_cast<const unsigned char*>(tc.raw.data()),
-            tc.raw.size()
-        );
 
         // Encode
-        base64_encode(input, dest);
+        base64_encode(tc.raw, dest);
 
         // Check
         NATIVEPG_TEST_CONT_EQ(dest, tc.encoded)
@@ -86,40 +87,27 @@ void test_encode_non_empty_buffer()
     NATIVEPG_TEST_CONT_EQ(dest, expected)
 }
 
+void test_decode_success()
+{
+    for (auto tc : success_cases)
+    {
+        nativepg::test::context_frame frame(tc.encoded);
+
+        // Setup
+        std::vector<unsigned char> dest;
+
+        // Decode
+        auto ec = base64_decode(to_span(tc.encoded), dest);
+
+        // Check
+        NATIVEPG_TEST_EQ(ec, error_code())
+        NATIVEPG_TEST_CONT_EQ(dest, tc.raw)
+    }
+}
+
 }  // namespace
 
 // BOOST_AUTO_TEST_SUITE(base64)
-
-// BOOST_AUTO_TEST_CASE(encode) {}
-
-// BOOST_AUTO_TEST_CASE(encode_without_padding)
-// {
-//     for (auto tc : success_cases)
-//     {
-//         BOOST_TEST_CONTEXT(tc.encoded)
-//         {
-//             auto actual = base64_encode(
-//                 {reinterpret_cast<const unsigned char*>(tc.raw.data()), tc.raw.size()},
-//                 false
-//             );
-//             BOOST_TEST(actual == tc.encoded_no_padding);
-//         }
-//     }
-// }
-
-// BOOST_AUTO_TEST_CASE(decode_success)
-// {
-//     for (auto tc : success_cases)
-//     {
-//         BOOST_TEST_CONTEXT(tc.encoded)
-//         {
-//             auto actual = base64_decode(tc.encoded);
-//             BOOST_TEST_REQUIRE(actual.error() == error_code());
-//             auto actual_str = std::string_view(reinterpret_cast<const char*>(actual->data()),
-//             actual->size()); BOOST_TEST(actual_str == tc.raw);
-//         }
-//     }
-// }
 
 // BOOST_AUTO_TEST_CASE(decode_success_without_padding)
 // {
@@ -177,6 +165,7 @@ int main()
 {
     test_encode();
     test_encode_non_empty_buffer();
+    test_decode_success();
 
     return boost::report_errors();
 }

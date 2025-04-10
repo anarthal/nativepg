@@ -36,4 +36,8 @@ void print_context();
     if (!BOOST_TEST_ALL_EQ(::std::begin(a), ::std::end(a), ::std::begin(b), ::std::end(b))) \
         ::nativepg::test::print_context();
 
+#define NATIVEPG_TEST_EQ(a, b) \
+    if (!BOOST_TEST_EQ(a, b))  \
+        ::nativepg::test::print_context();
+
 #endif

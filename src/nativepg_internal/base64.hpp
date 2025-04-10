@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_SRC_BASE64_HPP
-#define NATIVEPG_SRC_BASE64_HPP
+#ifndef NATIVEPG_SRC_NATIVEPG_INTERNAL_BASE64_HPP
+#define NATIVEPG_SRC_NATIVEPG_INTERNAL_BASE64_HPP
 
 #include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>

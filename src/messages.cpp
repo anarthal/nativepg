@@ -1185,11 +1185,6 @@ boost::system::error_code nativepg::protocol::parse(
     auto parse_result = std::from_chars(i_first, i_last, to.iteration_count);
     if (parse_result.ec != std::errc() || parse_result.ptr != i_last)
         return client_errc::invalid_scram_message;
-    ++p;  // skip the final comma
-
-    auto nonce_end = std::find(p, last, ',');
-    if (nonce_end == last)
-        return client_errc::invalid_scram_message;
 
     // TODO: verify that if we got any extensions, they are well-formed
     return {};

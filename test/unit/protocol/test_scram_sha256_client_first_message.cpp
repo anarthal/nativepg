@@ -9,7 +9,6 @@
 #include <boost/system/detail/error_code.hpp>
 #include <boost/system/error_code.hpp>
 
-#include <string_view>
 #include <vector>
 
 #include "nativepg/protocol/scram_sha256.hpp"

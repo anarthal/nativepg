@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_PROTOCOL_FRONTEND_MESSAGES_HPP
-#define NATIVEPG_PROTOCOL_FRONTEND_MESSAGES_HPP
+#ifndef NATIVEPG_PROTOCOL_QUERY_HPP
+#define NATIVEPG_PROTOCOL_QUERY_HPP
 
 #include <boost/system/error_code.hpp>
 

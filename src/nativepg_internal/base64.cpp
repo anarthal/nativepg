@@ -123,8 +123,7 @@ void encode(boost::span<const unsigned char> src, char* dest)
 static bool decode(std::string_view from, unsigned char* dest)
 {
     // Base64 strings must have a size multiple of 4
-    if (from.size() % 4u != 0u)
-        return false;
+    BOOST_ASSERT(from.size() % 4u == 0u);
 
     // If the input is empty, there is nothing to do
     if (from.empty())
@@ -194,6 +193,10 @@ boost::system::error_code nativepg::protocol::detail::base64_decode(
 {
     // Convert the input
     std::string_view input_str(reinterpret_cast<const char*>(input.data()), input.size());
+
+    // Check that the size is valid
+    if (input_str.size() % 4u != 0u)
+        return client_errc::invalid_base64;
 
     // Reserve the size
     std::size_t size_before = output.size();

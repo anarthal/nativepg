@@ -12,6 +12,7 @@
 #include <string_view>
 #include <vector>
 
+#include "nativepg/client_errc.hpp"
 #include "nativepg_internal/base64.hpp"
 #include "test_utils.hpp"
 
@@ -105,67 +106,53 @@ void test_decode_success()
     }
 }
 
+void test_decode_error()
+{
+    constexpr std::string_view cases[] = {
+        // Invalid characters
+        "%3d==",
+        "$3d==",
+        "[==",
+        "YW]3=",
+        "3{d==",
+        "3d}==",
+        "@@",
+        "!",
+        "YWJj\n",
+        "YWJj\nYWI=",
+
+        // Bad padding
+        "aGVsbG8sIHdvcmxk=",
+        "aGVsbG8sIHdvcmxk==",
+        "aGVsbG8sIHdvcmxkPyE==",
+        "aGVsbG8sIHdvcmxkLg=",
+
+        // Extra bytes
+        "AA==A",
+        "AA===",
+    };
+
+    for (auto tc : cases)
+    {
+        nativepg::test::context_frame frame(tc);
+
+        // Setup
+        std::vector<unsigned char> dest;
+        auto ec = base64_decode(to_span(tc), dest);
+        NATIVEPG_TEST_EQ(ec, error_code(nativepg::client_errc::invalid_base64))
+    }
+}
+
 }  // namespace
 
-// BOOST_AUTO_TEST_SUITE(base64)
-
-// BOOST_AUTO_TEST_CASE(decode_success_without_padding)
-// {
-//     for (auto tc : success_cases)
-//     {
-//         BOOST_TEST_CONTEXT(tc.encoded_no_padding)
-//         {
-//             auto actual = base64_decode(tc.encoded_no_padding, false);
-//             BOOST_TEST_REQUIRE(actual.error() == error_code());
-//             auto actual_str = std::string_view(reinterpret_cast<const char*>(actual->data()),
-//             actual->size()); BOOST_TEST(actual_str == tc.raw);
-//         }
-//     }
-// }
-
-// BOOST_AUTO_TEST_CASE(decode_error)
-// {
-//     constexpr std::string_view cases[] = {
-//         // Invalid characters
-//         "%3d=="sv,
-//         "$3d=="sv,
-//         "[=="sv,
-//         "YW]3="sv,
-//         "3{d=="sv,
-//         "3d}=="sv,
-//         "@@"sv,
-//         "!"sv,
-//         "YWJj\n"sv,
-//         "YWJj\nYWI="sv,
-
-//         // Bad padding
-//         "aGVsbG8sIHdvcmxk="sv,
-//         "aGVsbG8sIHdvcmxk=="sv,
-//         "aGVsbG8sIHdvcmxkPyE=="sv,
-//         "aGVsbG8sIHdvcmxkLg="sv,
-
-//         // Extra bytes
-//         "AA==A"sv,
-//         "AA==="sv,
-//     };
-
-//     for (auto tc : cases)
-//     {
-//         BOOST_TEST_CONTEXT(tc)
-//         {
-//             BOOST_TEST(base64_decode(tc).error() == error_code(errc::invalid_base64));
-//             BOOST_TEST(base64_decode(tc, false).error() == error_code(errc::invalid_base64));
-//         }
-//     }
-// }
-
-// BOOST_AUTO_TEST_SUITE_END()
+// TODO: decode with non-empty buffer
 
 int main()
 {
     test_encode();
     test_encode_non_empty_buffer();
     test_decode_success();
+    test_decode_error();
 
     return boost::report_errors();
 }

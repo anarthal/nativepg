@@ -12,14 +12,29 @@ find_package(boost_headers REQUIRED)
 find_package(boost_charconv REQUIRED)
 find_package(OpenSSL REQUIRED)
 
-
+# Library
 add_library(nativepg
+    # Internal functions
+    src/nativepg_internal/base64.cpp
+
+    # External API
     src/error.cpp
     src/messages.cpp
-    src/base64.cpp
 )
 target_link_libraries(nativepg PUBLIC Boost::headers Boost::charconv OpenSSL::SSL OpenSSL::Crypto)
 target_include_directories(nativepg PUBLIC include)
+target_include_directories(nativepg PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
-add_executable(main test/main.cpp)
-target_link_libraries(main PRIVATE nativepg)
+# Tests
+function (add_unit_test TEST_NAME TEST_DIR)
+    set(TARGET_NAME "nativepg_${TEST_NAME}")
+    add_executable(${TARGET_NAME} test/unit/${TEST_DIR}/${TEST_NAME}.cpp)
+    target_include_directories(${TARGET_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(${TARGET_NAME} PRIVATE nativepg)
+    add_test(NAME ${TARGET_NAME} COMMAND ${TARGET_NAME})
+endfunction()
+
+enable_testing()
+if (BUILD_TESTING)
+    add_unit_test(test_base64 nativepg_internal)
+endif()

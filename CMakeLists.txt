@@ -16,6 +16,7 @@ find_package(OpenSSL REQUIRED)
 add_library(nativepg
     src/error.cpp
     src/messages.cpp
+    src/base64.cpp
 )
 target_link_libraries(nativepg PUBLIC Boost::headers Boost::charconv OpenSSL::SSL OpenSSL::Crypto)
 target_include_directories(nativepg PUBLIC include)

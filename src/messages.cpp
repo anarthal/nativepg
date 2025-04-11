@@ -1240,8 +1240,8 @@ boost::system::result<boost::span<const unsigned char>> nativepg::protocol::seri
     std::size_t offset_last = to.size();
 
     // proof
-    ctx.add_bytes("p=");
-    ctx.add_bytes(msg.proof);
+    ctx.add_bytes(",p=");
+    detail::base64_encode(msg.proof, to);
 
     // Finalize message
     if (auto ec = ctx.finalize_message())

@@ -41,6 +41,7 @@ struct startup_message
     std::optional<std::string_view> database;
 
     // Additional key/value settings
+    // (TODO: investigate: can we place here any config value that can be used with SET ... TO ...?)
     boost::span<const std::pair<std::string_view, std::string_view>> params;
 };
 boost::system::error_code serialize(const startup_message& msg, std::vector<unsigned char>& to);

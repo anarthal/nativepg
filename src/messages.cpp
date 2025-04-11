@@ -14,7 +14,9 @@
 #include <boost/throw_exception.hpp>
 #include <boost/variant2/variant.hpp>
 
+#include <algorithm>
 #include <array>
+#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -40,9 +42,11 @@
 #include "nativepg/protocol/parse.hpp"
 #include "nativepg/protocol/query.hpp"
 #include "nativepg/protocol/ready_for_query.hpp"
+#include "nativepg/protocol/scram_sha256.hpp"
 #include "nativepg/protocol/startup.hpp"
 #include "nativepg/protocol/sync.hpp"
 #include "nativepg/protocol/terminate.hpp"
+#include "nativepg_internal/base64.hpp"
 #include "parse_context.hpp"
 #include "serialization_context.hpp"
 
@@ -1053,4 +1057,231 @@ boost::system::error_code nativepg::protocol::serialize(query msg, std::vector<u
 
     // Done
     return ctx.error();
+}
+
+// scram sha256.
+// Message formats described in https://datatracker.ietf.org/doc/html/rfc5802
+
+boost::system::result<boost::span<const unsigned char>> nativepg::protocol::serialize(
+    const scram_sha256_client_first_message& msg,
+    std::vector<unsigned char>& to
+)
+{
+    detail::serialization_context ctx(to);
+
+    // Header
+    ctx.add_header('p');
+
+    // SASL mechanism name
+    ctx.add_string(msg.mechanism);
+
+    // The rest of the message is a SCRAM-SHA256 client-first-message.
+    // It's preceeded by a 4 byte integer indicating its length.
+    // Reserve empty space for this size
+    std::size_t length_offset = to.size();
+    ctx.add_bytes(std::array<unsigned char, 4>{});
+
+    // client-first-message = gs2-header client-first-message-bare
+    // gs2-header      = gs2-cbind-flag "," [ authzid ] ","
+    // client-first-message-bare =
+    //      [reserved-mext ","] username "," nonce ["," extensions]
+    // username        = "n=" saslname ;; always empty in our case, sent in the startup msg
+    // nonce           = "r=" c-nonce [s-nonce] ;; printable
+    // printable       = %x21-2B / %x2D-7E
+
+    // Add the gs2-header (always "n,," because we don't support channel binding yet)
+    ctx.add_bytes("n,,");
+
+    // client-first-message-bare starts here
+    std::size_t bare_start_offset = to.size();
+
+    // Add the username (always empty) and the nonce
+    // TODO: should we check that the nonce complies with the grammar?
+    ctx.add_bytes("n=,r=");
+    ctx.add_bytes(msg.nonce);
+
+    // client-first-message-bare ends here
+    std::size_t bare_end_offset = to.size();
+
+    // Calculate the length of what we serialized
+    auto data_length = to.size() - length_offset - 4u;
+    if (data_length > (std::numeric_limits<std::int32_t>::max)())
+    {
+        ctx.add_error(client_errc::value_too_big);
+    }
+    else
+    {
+        boost::endian::store_big_s32(to.data() + length_offset, static_cast<std::int32_t>(data_length));
+    }
+
+    // Finalize
+    if (auto ec = ctx.finalize_message())
+        return ec;
+
+    // Done
+    return boost::span<const unsigned char>(to.data() + bare_start_offset, to.data() + bare_end_offset);
+}
+
+static bool scram_is_printable(unsigned char c)
+{
+    return (c >= 0x21 && c <= 0x2b) || (c >= 0x2d && c <= 0x7e);
+}
+
+boost::system::error_code nativepg::protocol::parse(
+    boost::span<const unsigned char> data,
+    scram_sha256_server_first_message& to
+)
+{
+    // server-first-message = [reserved-mext ","] nonce "," salt "," iteration-count ["," extensions]
+    // reserved-mext  = "m=" 1*(value-char) ;; if this is present, we're missing extensions and should fail
+    // parsing nonce          = "r=" c-nonce [s-nonce] ;; these are equal to printable
+    // printable       =%x21-2B / %x2D-7E
+    // salt            = "s=" base64
+    // iteration-count = "i=" posit-number
+    // extensions = attr-val *("," attr-val) ;; to be ignored
+    // attr-val        = ALPHA "=" value
+    // value           = 1*value-char
+
+    const unsigned char* p = data.data();
+    const unsigned char* last = data.data() + data.size();
+
+    // Try to match reserved-mext
+    if (p != last && *p == static_cast<unsigned char>('m'))
+    {
+        ++p;
+        return (p == last || *p != ',') ? client_errc::invalid_scram_message
+                                        : client_errc::mandatory_scram_extension_not_supported;
+    }
+
+    // Parse the nonce
+    if (p == last || *p++ != 'r')
+        return client_errc::invalid_scram_message;
+    if (p == last || *p++ != '=')
+        return client_errc::invalid_scram_message;
+    const auto* nonce_first = p;
+    while (true)
+    {
+        if (p == last)
+            return client_errc::invalid_scram_message;
+        if (*p == ',')
+            break;
+        if (!scram_is_printable(*p))
+            return client_errc::invalid_scram_message;
+        ++p;
+    }
+    to.nonce = {reinterpret_cast<const char*>(nonce_first), reinterpret_cast<const char*>(p)};
+    ++p;  // skip the final comma
+
+    // Parse the salt
+    if (p == last || *p++ != 's')
+        return client_errc::invalid_scram_message;
+    if (p == last || *p++ != '=')
+        return client_errc::invalid_scram_message;
+    const auto* salt_first = p;
+    while (true)
+    {
+        if (p == last)
+            return client_errc::invalid_scram_message;
+        if (*p == ',')
+            break;
+        ++p;
+    }
+    auto ec = detail::base64_decode({salt_first, p}, to.salt);
+    if (ec)
+        return ec;
+    ++p;  // skip the final comma
+
+    // Parse the iteration count. Verify that all the characters
+    // are numbers, to avoid any possible signed char
+    if (p == last || *p++ != 'i')
+        return client_errc::invalid_scram_message;
+    if (p == last || *p++ != '=')
+        return client_errc::invalid_scram_message;
+    const char* i_first = reinterpret_cast<const char*>(p);
+    const char* i_last = std::find(i_first, reinterpret_cast<const char*>(last), ',');
+    auto parse_result = std::from_chars(i_first, i_last, to.iteration_count);
+    if (parse_result.ec != std::errc() || parse_result.ptr != i_last)
+        return client_errc::invalid_scram_message;
+
+    // TODO: verify that if we got any extensions, they are well-formed
+    return {};
+}
+
+boost::system::result<boost::span<const unsigned char>> nativepg::protocol::serialize(
+    const scram_sha256_client_final_message& msg,
+    std::vector<unsigned char>& to
+)
+{
+    detail::serialization_context ctx(to);
+
+    // Header
+    ctx.add_header('p');
+
+    // client-final-message = client-final-message-without-proof "," proof
+    // client-final-message-without-proof = channel-binding "," nonce ["," extensions]
+    // channel-binding = "c=" base64 ;; base64 encoding of cbind-input.
+    // cbind-input   = gs2-header [ cbind-data ] ;; cbind-data absent if no channel binding is present
+    // gs2-header      = gs2-cbind-flag "," [ authzid ] ","
+    // gs2-cbind-flag  = ("p=" cb-name) / "n" / "y" ;; always "n" in our case
+    // nonce           = "r=" c-nonce [s-nonce]
+    // extensions = attr-val *("," attr-val) ;; none supported right now
+    // proof           = "p=" base64
+
+    // client-final-message-without-proof starts here
+    std::size_t offset_first = to.size();
+
+    // gs2-header is always "n,," when no channel binding is present
+    // this makes channel-binding always equals to "c=biws"
+    // nonce ("r=") comes next
+    ctx.add_bytes("c=biws,r=");
+    ctx.add_bytes(msg.nonce);
+
+    // client-final-message-without-proof ends here
+    std::size_t offset_last = to.size();
+
+    // proof
+    ctx.add_bytes(",p=");
+    detail::base64_encode(msg.proof, to);
+
+    // Finalize message
+    if (auto ec = ctx.finalize_message())
+        return ec;
+
+    // Done
+    return boost::span<const unsigned char>(to.data() + offset_first, to.data() + offset_last);
+}
+
+boost::system::error_code nativepg::protocol::parse(
+    boost::span<const unsigned char> data,
+    scram_sha256_server_final_message& to
+)
+{
+    // server-final-message = (server-error / verifier) ["," extensions]
+    // server-error = "e=" server-error-value ;; TODO: does postgres really ever send this?
+    // verifier        = "v=" base64 ;; base-64 encoded ServerSignature.
+    // extensions = attr-val *("," attr-val)
+
+    const char* p = reinterpret_cast<const char*>(data.data());
+    const char* last = p + data.size();
+
+    // TODO: handle server-error
+
+    // Parse the verifier
+    if (p == last || *p++ != 'v')
+        return client_errc::invalid_scram_message;
+    if (p == last || *p++ != '=')
+        return client_errc::invalid_scram_message;
+    const char* verifier_last = std::find(p, last, ',');
+    auto ec = detail::base64_decode(
+        boost::span<const unsigned char>(
+            reinterpret_cast<const unsigned char*>(p),
+            reinterpret_cast<const unsigned char*>(verifier_last)
+        ),
+        to.server_signature
+    );
+    if (ec)
+        return ec;
+
+    // TODO: verify that extensions are well-formed
+    return {};
 }

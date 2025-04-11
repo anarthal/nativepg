@@ -33,6 +33,13 @@ enum class client_errc : int
 
     // Decoding base64 failed because of malformed input
     invalid_base64,
+
+    // Parsing a SCRAM message failed
+    invalid_scram_message,
+
+    // We found a mandatory SCRAM extension ('m'), which requires us to fail
+    // authentication in the current version
+    mandatory_scram_extension_not_supported,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

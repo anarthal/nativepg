@@ -1250,3 +1250,38 @@ boost::system::result<boost::span<const unsigned char>> nativepg::protocol::seri
     // Done
     return boost::span<const unsigned char>(to.data() + offset_first, to.data() + offset_last);
 }
+
+boost::system::error_code nativepg::protocol::parse(
+    boost::span<const unsigned char> data,
+    scram_sha256_server_final_message& to
+)
+{
+    // server-final-message = (server-error / verifier) ["," extensions]
+    // server-error = "e=" server-error-value ;; TODO: does postgres really ever send this?
+    // verifier        = "v=" base64 ;; base-64 encoded ServerSignature.
+    // extensions = attr-val *("," attr-val)
+
+    const char* p = reinterpret_cast<const char*>(data.data());
+    const char* last = p + data.size();
+
+    // TODO: handle server-error
+
+    // Parse the verifier
+    if (p == last || *p++ != 'v')
+        return client_errc::invalid_scram_message;
+    if (p == last || *p++ != '=')
+        return client_errc::invalid_scram_message;
+    const char* verifier_last = std::find(p, last, ',');
+    auto ec = detail::base64_decode(
+        boost::span<const unsigned char>(
+            reinterpret_cast<const unsigned char*>(p),
+            reinterpret_cast<const unsigned char*>(verifier_last)
+        ),
+        to.server_signature
+    );
+    if (ec)
+        return ec;
+
+    // TODO: verify that extensions are well-formed
+    return {};
+}

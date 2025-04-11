@@ -1206,3 +1206,47 @@ boost::system::error_code nativepg::protocol::parse(
     // TODO: verify that if we got any extensions, they are well-formed
     return {};
 }
+
+boost::system::result<boost::span<const unsigned char>> nativepg::protocol::serialize(
+    const scram_sha256_client_final_message& msg,
+    std::vector<unsigned char>& to
+)
+{
+    detail::serialization_context ctx(to);
+
+    // Header
+    ctx.add_header('p');
+
+    // client-final-message = client-final-message-without-proof "," proof
+    // client-final-message-without-proof = channel-binding "," nonce ["," extensions]
+    // channel-binding = "c=" base64 ;; base64 encoding of cbind-input.
+    // cbind-input   = gs2-header [ cbind-data ] ;; cbind-data absent if no channel binding is present
+    // gs2-header      = gs2-cbind-flag "," [ authzid ] ","
+    // gs2-cbind-flag  = ("p=" cb-name) / "n" / "y" ;; always "n" in our case
+    // nonce           = "r=" c-nonce [s-nonce]
+    // extensions = attr-val *("," attr-val) ;; none supported right now
+    // proof           = "p=" base64
+
+    // client-final-message-without-proof starts here
+    std::size_t offset_first = to.size();
+
+    // gs2-header is always "n,," when no channel binding is present
+    // this makes channel-binding always equals to "c=biws"
+    // nonce ("r=") comes next
+    ctx.add_bytes("c=biws,r=");
+    ctx.add_bytes(msg.nonce);
+
+    // client-final-message-without-proof ends here
+    std::size_t offset_last = to.size();
+
+    // proof
+    ctx.add_bytes("p=");
+    ctx.add_bytes(msg.proof);
+
+    // Finalize message
+    if (auto ec = ctx.finalize_message())
+        return ec;
+
+    // Done
+    return boost::span<const unsigned char>(to.data() + offset_first, to.data() + offset_last);
+}

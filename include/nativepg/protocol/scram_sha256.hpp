@@ -50,7 +50,9 @@ struct scram_sha256_server_first_message
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, scram_sha256_server_first_message&);
 
-// This is an authentication_sasl_final
+// This is an authentication_sasl_final. serialize serializes the entire message,
+// including the header. Returns the client-final-message-without-proof part of the serialized
+// message, required by the SCRAM algorithm
 struct scram_sha256_client_final_message
 {
     // The nonce sent to the server
@@ -59,7 +61,7 @@ struct scram_sha256_client_final_message
     // Proof that we have the password, to be b64 encoded
     boost::span<const unsigned char> proof;
 };
-boost::system::error_code serialize(
+boost::system::result<boost::span<const unsigned char>> serialize(
     const scram_sha256_client_final_message& msg,
     std::vector<unsigned char>& to
 );

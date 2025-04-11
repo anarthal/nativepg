@@ -32,6 +32,10 @@ void print_context();
 }  // namespace test
 }  // namespace nativepg
 
+#define NATIVEPG_TEST(a) \
+    if (!BOOST_TEST(a))  \
+        ::nativepg::test::print_context();
+
 #define NATIVEPG_TEST_CONT_EQ(a, b)                                                         \
     if (!BOOST_TEST_ALL_EQ(::std::begin(a), ::std::end(a), ::std::begin(b), ::std::end(b))) \
         ::nativepg::test::print_context();

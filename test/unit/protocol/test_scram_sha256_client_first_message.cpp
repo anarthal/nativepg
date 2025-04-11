@@ -6,15 +6,13 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
-#include <boost/system/detail/error_code.hpp>
-#include <boost/system/error_code.hpp>
 
+#include <string_view>
 #include <vector>
 
 #include "nativepg/protocol/scram_sha256.hpp"
 #include "test_utils.hpp"
 
-using boost::system::error_code;
 using namespace nativepg::protocol;
 
 namespace {
@@ -32,12 +30,14 @@ void test_serialize()
         0x2c, 0x72, 0x3d, 0x37, 0x76, 0x68, 0x61, 0x35, 0x62, 0x68, 0x45, 0x6c, 0x78, 0x35, 0x36,
         0x34, 0x55, 0x36, 0x6d, 0x7a, 0x58, 0x69, 0x6d, 0x49, 0x4a, 0x71, 0x64,
     };
+    constexpr std::string_view client_bare = "n=,r=7vha5bhElx564U6mzXimIJqd";
 
     // Serialize
-    auto ec = serialize(msg, buff);
+    auto res = serialize(msg, buff);
 
     // Check
-    NATIVEPG_TEST_EQ(ec, error_code())
+    NATIVEPG_TEST(res.has_value())
+    NATIVEPG_TEST_CONT_EQ(res.value(), client_bare)
     NATIVEPG_TEST_CONT_EQ(buff, expected)
 }
 

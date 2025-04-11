@@ -1062,7 +1062,7 @@ boost::system::error_code nativepg::protocol::serialize(query msg, std::vector<u
 // scram sha256.
 // Message formats described in https://datatracker.ietf.org/doc/html/rfc5802
 
-boost::system::error_code nativepg::protocol::serialize(
+boost::system::result<boost::span<const unsigned char>> nativepg::protocol::serialize(
     const scram_sha256_client_first_message& msg,
     std::vector<unsigned char>& to
 )
@@ -1081,14 +1081,27 @@ boost::system::error_code nativepg::protocol::serialize(
     std::size_t length_offset = to.size();
     ctx.add_bytes(std::array<unsigned char, 4>{});
 
-    // gs2-cbind-flag is always 'n', indicating that we don't support channel binding (yet)
-    // authzid is not included for the same reason
-    // this makes gs2-header be "n,," in all cases
-    // username is always empty, because it's already sent in the startup message
-    // the only variable part here is the nonce (attribute 'r').
-    // Conclusion: message format "n,,n=,r=" + nonce
-    ctx.add_bytes("n,,n=,r=");
+    // client-first-message = gs2-header client-first-message-bare
+    // gs2-header      = gs2-cbind-flag "," [ authzid ] ","
+    // client-first-message-bare =
+    //      [reserved-mext ","] username "," nonce ["," extensions]
+    // username        = "n=" saslname ;; always empty in our case, sent in the startup msg
+    // nonce           = "r=" c-nonce [s-nonce] ;; printable
+    // printable       = %x21-2B / %x2D-7E
+
+    // Add the gs2-header (always "n,," because we don't support channel binding yet)
+    ctx.add_bytes("n,,");
+
+    // client-first-message-bare starts here
+    std::size_t bare_start_offset = to.size();
+
+    // Add the username (always empty) and the nonce
+    // TODO: should we check that the nonce complies with the grammar?
+    ctx.add_bytes("n=,r=");
     ctx.add_bytes(msg.nonce);
+
+    // client-first-message-bare ends here
+    std::size_t bare_end_offset = to.size();
 
     // Calculate the length of what we serialized
     auto data_length = to.size() - length_offset - 4u;
@@ -1101,8 +1114,12 @@ boost::system::error_code nativepg::protocol::serialize(
         boost::endian::store_big_s32(to.data() + length_offset, static_cast<std::int32_t>(data_length));
     }
 
+    // Finalize
+    if (auto ec = ctx.finalize_message())
+        return ec;
+
     // Done
-    return ctx.finalize_message();
+    return boost::span<const unsigned char>(to.data() + bare_start_offset, to.data() + bare_end_offset);
 }
 
 static bool scram_is_printable(unsigned char c)

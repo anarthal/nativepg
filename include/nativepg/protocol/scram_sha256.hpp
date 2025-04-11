@@ -10,6 +10,7 @@
 
 #include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
+#include <boost/system/result.hpp>
 
 #include <cstdint>
 #include <string_view>
@@ -18,7 +19,9 @@
 namespace nativepg {
 namespace protocol {
 
-// This is really a password message. serialize serializes the header
+// This is really a password message. serialize serializes the entire message,
+// including the header. Returns the client-first-message-bare part of the serialized
+// message, required by the SCRAM algorithm
 struct scram_sha256_client_first_message
 {
     // The SASL mechanism name that was chosen
@@ -27,7 +30,7 @@ struct scram_sha256_client_first_message
     // The nonce sent to the server
     std::string_view nonce;
 };
-boost::system::error_code serialize(
+boost::system::result<boost::span<const unsigned char>> serialize(
     const scram_sha256_client_first_message& msg,
     std::vector<unsigned char>& to
 );

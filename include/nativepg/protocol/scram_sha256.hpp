@@ -50,7 +50,7 @@ struct scram_sha256_server_first_message
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, scram_sha256_server_first_message&);
 
-// This is an authentication_sasl_final. serialize serializes the entire message,
+// This is a password message. serialize serializes the entire message,
 // including the header. Returns the client-final-message-without-proof part of the serialized
 // message, required by the SCRAM algorithm
 struct scram_sha256_client_final_message
@@ -65,6 +65,15 @@ boost::system::result<boost::span<const unsigned char>> serialize(
     const scram_sha256_client_final_message& msg,
     std::vector<unsigned char>& to
 );
+
+// This is an authentication_sasl_final message. parse does not parse the type
+struct scram_sha256_server_final_message
+{
+    // Proof that the server had access to our password
+    // TODO: this is restricted to digest size, we should probably use this knowledge and static storage
+    std::vector<unsigned char> server_signature;
+};
+boost::system::error_code parse(boost::span<const unsigned char> data, scram_sha256_server_final_message&);
 
 }  // namespace protocol
 }  // namespace nativepg

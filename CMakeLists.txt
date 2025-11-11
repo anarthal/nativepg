@@ -6,6 +6,26 @@
 #
 
 cmake_minimum_required(VERSION 3.10..3.31)
+
+set(CMAKE_CXX_STANDARD 20)
+
+if(APPLE)
+    execute_process(COMMAND uname -m
+            OUTPUT_VARIABLE CMAKE_OSX_ARCHITECTURES
+            OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+    # Specify the C and CXX compilers
+    set(CMAKE_C_COMPILER clang)
+    set(CMAKE_CXX_COMPILER clang++)
+
+    # Add Homebrew path to find modules
+    set(CMAKE_PREFIX_PATH "/opt/homebrew" ${CMAKE_PREFIX_PATH})
+
+    # For sake of development speed for now:
+    set(CMAKE_BUILD_TYPE Debug)
+endif(APPLE)
+
+
 project(nativepg)
 
 find_package(boost_headers REQUIRED)
@@ -39,11 +59,13 @@ function (add_unit_test TEST_DIR TEST_NAME)
     target_compile_options(${TARGET_NAME} PUBLIC -Wall -Wextra -Wpedantic -Werror)
 endfunction()
 
-enable_testing()
+#include(CTest)
+
 if (BUILD_TESTING)
     add_unit_test(nativepg_internal test_base64)
     add_unit_test(protocol          test_scram_sha256_client_first_message)
     add_unit_test(protocol          test_scram_sha256_server_first_message)
     add_unit_test(protocol          test_scram_sha256_client_final_message)
     add_unit_test(protocol          test_scram_sha256_server_final_message)
+    enable_testing()
 endif()

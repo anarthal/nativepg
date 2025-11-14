@@ -119,15 +119,28 @@ public:
         protocol::format_code result_codes
     )
     {
-        // Parse
+        add_prepare(q, {});
+        add_execute({}, params, result_codes);
+    }
+
+    void add_prepare(std::string_view query, std::string_view statement_name)
+    {
+        // Prepare is just a parse
         add_advanced(
             protocol::parse_t{
-                .statement_name = {},
-                .query = q,
+                .statement_name = statement_name,
+                .query = query,
                 .parameter_type_oids = {},
             }
         );
+    }
 
+    void add_execute(
+        std::string_view statement_name,
+        std::span<const parameter_ref> params,
+        protocol::format_code result_codes
+    )
+    {
         // Bind
         // If all parameters support binary, do binary. Otherwise, do text
         // TODO: provide a way to override this?
@@ -170,10 +183,9 @@ public:
                 .max_num_rows = 0,
             }
         );
-
-        // TODO: this doesn't add a sync at the end - how can we ensure it gets added?
     }
 
+    // TODO: how can we ensure that syncs are added without creating footguns?
     void add_sync() { add_advanced(protocol::sync{}); }
 
     // Low-level. TODO: restrict types

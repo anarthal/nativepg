@@ -19,9 +19,17 @@
 #include <iterator>
 #include <cassert>
 
-#include "nativepg/types/types.hpp"
+#include "nativepg/types/pg_oid_type.hpp"
 
 namespace nativepg::types {
+
+// -------- Concepts / helpers --------
+template <class T>
+concept integral_not_bool = std::integral<T> && !std::same_as<std::remove_cv_t<T>, bool>;
+
+template <integral_not_bool T>
+using uof_t = std::make_unsigned_t<std::remove_cv_t<T>>;
+
 
 namespace detail {
 

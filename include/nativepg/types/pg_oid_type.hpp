@@ -5,23 +5,11 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_TYPES_TYPES_HPP
-#define NATIVEPG_TYPES_TYPES_HPP
+#ifndef NATIVEPG_TYPES_PG_OID_TYPE_HPP
+#define NATIVEPG_TYPES_PG_OID_TYPE_HPP
 
-#include <string>
-#include <string_view>
-#include <span>
-#include <cstddef>
-#include <sstream>
-#include <iomanip>
-#include <chrono>
-#include <array>
-#include <bit>        // std::endian, std::bit_cast
-#include <type_traits>
-#include <concepts>
-
-
-namespace nativepg::types {
+namespace nativepg {
+namespace types {
 
 /// PostgreSQL built-in type OIDs.
 /// Source: pg_type.h (PostgreSQL source)
@@ -155,15 +143,7 @@ inline const char* to_string(pg_oid_type oid)
     }
 }
 
-
-// -------- Concepts / helpers --------
-template <class T>
-concept integral_not_bool = std::integral<T> && !std::same_as<std::remove_cv_t<T>, bool>;
-
-template <integral_not_bool T>
-using uof_t = std::make_unsigned_t<std::remove_cv_t<T>>;
-
-
+}
 }
 
 #endif

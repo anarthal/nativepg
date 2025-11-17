@@ -5,20 +5,24 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include <string_view>
-#include <vector>
-#include <array>
-#include <cstddef>
-
 #include <boost/core/lightweight_test.hpp>
 #include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <array>
+#include <cstddef>
+#include <string_view>
+#include <vector>
 
-#include "test_utils.hpp"
+#include "../../test_utils/test_utils.hpp"
 #include "nativepg/types/pg_bool.hpp"
+#include "nativepg/types/pg_float4.hpp"
+#include "nativepg/types/pg_float8.hpp"
 #include "nativepg/types/pg_int2.hpp"
 #include "nativepg/types/pg_int4.hpp"
+#include "nativepg/types/pg_text.hpp"
+#include "nativepg/types/pg_uuid.hpp"
+#include "test_utils.hpp"
 
 using boost::system::error_code;
 using nativepg::types::pg_oid_type;
@@ -26,6 +30,11 @@ using nativepg::types::pg_type_traits;
 using nativepg::types::pg_bool;
 using nativepg::types::pg_int2;
 using nativepg::types::pg_int4;
+using nativepg::types::pg_float4;
+using nativepg::types::pg_float8;
+
+using nativepg::types::pg_text;
+using nativepg::types::pg_uuid;
 
 // Some test cases have been copied from CPython's and Android's base64 test suites
 
@@ -33,48 +42,115 @@ namespace {
 
 void test_pg_bool()
 {
-    // Setup
-    constexpr pg_bool bv_true{true};
-    constexpr pg_bool bv_false{false};
+    // Arrange / Setup
+    bool test_value = true;
 
-    static_assert(bv_true.get() == true);
-    static_assert(bv_false.get() == false);
+    // Act
+    pg_bool subject {test_value};
 
-    // Text
-    std::string t1 = bv_true.encode_text();  // "t"
-    auto bv2 = pg_bool::from_text("true");
-    NATIVEPG_TEST_EQ(bv2.get(), true);
-
-    // Binary
-    std::string b1 = bv_true.encode_binary();  // "\x01"
-    auto bv3 = pg_bool::from_binary(b1);
-    NATIVEPG_TEST_EQ(bv3.get(), true);
+    // Assert / Checks
+    NATIVEPG_TEST_EQ(subject.type_name(), "bool");
+    NATIVEPG_TEST_EQ(subject.oid_name(), "BOOL");
+    NATIVEPG_TEST_EQ(subject.byte_length(), 1);
+    NATIVEPG_TEST_EQ(subject.get(), test_value);
+    NATIVEPG_TEST_EQ(subject.supports_binary(), true);
 }
 
 void test_pg_int2()
 {
-    // Setup
-    constexpr pg_int2 x{123};
-    static_assert(x.get() == 123);
+    // Arrange / Setup
+    std::int16_t test_value = 21;
 
-    std::string txt = x.encode_text();  // "123"
-    auto x2 = pg_int2::from_text("99");
-    NATIVEPG_TEST_EQ(x2.get(), 99);
+    // Act
+    pg_int2 subject {test_value};
 
-    std::string bin = x.encode_binary(); // "\x00{"
-    auto x3 = pg_int2::from_binary(bin);
-    NATIVEPG_TEST_EQ(x3.get(), 123);
+    // Assert / Checks
+    NATIVEPG_TEST_EQ(subject.type_name(), "std::int16_t");
+    NATIVEPG_TEST_EQ(subject.oid_name(), "INT2");
+    NATIVEPG_TEST_EQ(subject.byte_length(), 2);
+    NATIVEPG_TEST_EQ(subject.get(), test_value);
+    NATIVEPG_TEST_EQ(subject.supports_binary(), true);
 }
 
 void test_pg_int4()
 {
-    // Setup
-    // constexpr usage:
-    constexpr pg_int4 answer{42};
-    NATIVEPG_TEST_EQ(answer.get(), 42);
-    //NATIVEPG_TEST_EQ(pg_int4::oid(), pg_oid_type::int4);
-    NATIVEPG_TEST_EQ(pg_int4::byte_length(), 4);
-    NATIVEPG_TEST_EQ(pg_int4::supports_binary(), true);
+    // Arrange / Setup
+    std::int32_t test_value = 42;
+
+    // Act
+    pg_int4 subject {test_value};
+
+    // Assert / Checks
+    NATIVEPG_TEST_EQ(subject.type_name(), "std::int32_t");
+    NATIVEPG_TEST_EQ(subject.oid_name(), "INT4");
+    NATIVEPG_TEST_EQ(subject.byte_length(), 4);
+    NATIVEPG_TEST_EQ(subject.get(), test_value);
+    NATIVEPG_TEST_EQ(subject.supports_binary(), true);
+}
+
+void test_pg_float4()
+{
+    // Arrange / Setup
+    float test_value = 42.7f;
+
+    // Act
+    pg_float4 subject {test_value};
+
+    // Assert / Checks
+    NATIVEPG_TEST_EQ(subject.type_name(), "float");
+    NATIVEPG_TEST_EQ(subject.oid_name(), "FLOAT4");
+    NATIVEPG_TEST_EQ(subject.byte_length(), 4);
+    NATIVEPG_TEST_EQ(subject.get(), test_value);
+    NATIVEPG_TEST_EQ(subject.supports_binary(), true);
+}
+
+void test_pg_float8()
+{
+    // Arrange / Setup
+    double test_value = 82.210677;
+
+    // Act
+    pg_float8 subject {test_value};
+
+    // Assert / Checks
+    NATIVEPG_TEST_EQ(subject.type_name(), "double");
+    NATIVEPG_TEST_EQ(subject.oid_name(), "FLOAT8");
+    NATIVEPG_TEST_EQ(subject.byte_length(), 8);
+    NATIVEPG_TEST_EQ(subject.get(), test_value);
+    NATIVEPG_TEST_EQ(subject.supports_binary(), true);
+}
+
+
+void test_pg_text()
+{
+    // Arrange / Setup
+    std::string test_text{"lazy turtle didn't jump over the quick fox!"};
+
+    // Act
+    pg_text subject {test_text};
+
+    // Assert / Checks
+    NATIVEPG_TEST_EQ(subject.get(), test_text);
+    NATIVEPG_TEST_EQ(subject.supports_binary(), true);
+    NATIVEPG_TEST_EQ(subject.byte_length(), -1); // variable length
+    NATIVEPG_TEST_EQ(subject.type_name(), "std::string");
+    NATIVEPG_TEST_EQ(subject.oid_name(), "TEXT");
+}
+
+void test_pg_uuid()
+{
+    // Arrange / Setup
+    auto test_value = pg_uuid::from_text("123e4567-e89b-12d3-a456-426655440000");
+
+    // Act
+    pg_uuid subject {test_value};
+
+    // Assert / Checks
+    NATIVEPG_TEST(subject.encode_text() ==  test_value.encode_text());
+    NATIVEPG_TEST_EQ(subject.supports_binary(), true);
+    NATIVEPG_TEST_EQ(subject.byte_length(), 16);
+    NATIVEPG_TEST_EQ(subject.type_name(), "std::array<std::uint8_t,16>");
+    NATIVEPG_TEST_EQ(subject.oid_name(), "UUID");
 }
 
 }
@@ -83,8 +159,15 @@ void test_pg_int4()
 int main()
 {
     test_pg_bool();
+
     test_pg_int2();
     test_pg_int4();
+
+    test_pg_float4();
+    test_pg_float8();
+
+    test_pg_text();
+    test_pg_uuid();
 
     return boost::report_errors();
 }

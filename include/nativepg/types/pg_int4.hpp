@@ -70,7 +70,20 @@ struct pg_type_traits<std::int32_t, pg_oid_type::int4>
     }
 };
 
-using pg_int4 = basic_pg_value<std::int32_t, pg_oid_type::int4>;
+
+template <>
+struct pg_type_from_oid<pg_oid_type::int4>
+{
+    using type = std::int32_t;
+};
+
+
+// Trait type
+using pg_int4_traits = pg_type_traits<pg_type_from_oid<pg_oid_type::int4>::type, pg_oid_type::int4>;
+
+// Value Type declaration
+using pg_int4 = basic_pg_value<pg_int4_traits>;
+
 
 }
 }

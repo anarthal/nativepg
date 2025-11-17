@@ -46,6 +46,20 @@ struct pg_type_traits
     static value_type  decode_binary(std::string_view);
 };
 
+
+template <pg_oid_type Oid>
+struct pg_type_from_oid;   // primary template (no definition)
+
+
+template <pg_oid_type Oid>
+static constexpr auto make_pg_type()
+{
+    using T = typename pg_type_from_oid<Oid>::type;
+    return pg_type_traits<T, Oid>{};
+}
+
+
+
 }
 }
 

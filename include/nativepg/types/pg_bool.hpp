@@ -23,7 +23,7 @@ struct pg_type_traits<bool, pg_oid_type::bool_oid>
     static constexpr pg_oid_type oid_type = pg_oid_type::bool_oid;
     static constexpr std::int32_t byte_len = 1;
 
-    static constexpr std::string_view oid_name  = "bool";
+    static constexpr std::string_view oid_name  = "BOOL";
     static constexpr std::string_view type_name = "bool";
 
     static constexpr bool supports_binary = true;
@@ -71,8 +71,20 @@ struct pg_type_traits<bool, pg_oid_type::bool_oid>
 };
 
 
+template <>
+struct pg_type_from_oid<pg_oid_type::bool_oid>
+{
+    using type = bool;
+};
+
+
+// Trait type
+using pg_bool_traits = pg_type_traits<pg_type_from_oid<pg_oid_type::bool_oid>::type, pg_oid_type::bool_oid>;
+
 // Value Type declaration
-using pg_bool = basic_pg_value<bool, pg_oid_type::bool_oid>;
+using pg_bool = basic_pg_value<pg_bool_traits>;
+
+
 
 }
 }

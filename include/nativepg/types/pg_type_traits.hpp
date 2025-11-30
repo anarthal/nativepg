@@ -12,6 +12,9 @@
 #include <string_view>
 #include <string>
 #include <type_traits>
+#include <cstddef>
+#include <boost/core/span.hpp>
+#include <boost/system/error_code.hpp>
 
 #include "nativepg/types/pg_oid_type.hpp"
 
@@ -24,8 +27,9 @@ template <typename T, pg_oid_type Oid>
 struct pg_type_traits
 {
     using value_type           = T;
-    using reference_type       = T&;
-    using const_reference_type = const T&;
+
+    using read_span            = boost::span<const std::byte>;
+    using write_span           = boost::span<std::byte>;
 
     static constexpr pg_oid_type oid_type = Oid;
 
@@ -37,15 +41,13 @@ struct pg_type_traits
 
     static constexpr bool supports_binary = false;
 
-    // The specializations will implement these:
-    static std::string encode_text(const_reference_type);
-    static value_type  decode_text(std::string_view);
+    // The specializations will implement these signatures:
+    static boost::system::error_code parse_binary(read_span from, value_type& to);
+    static boost::system::error_code parse_text(std::string_view from, value_type& to);
 
-    // Optional: binary versions, only valid if supports_binary == true
-    static std::string encode_binary(const_reference_type);
-    static value_type  decode_binary(std::string_view);
+    static boost::system::error_code serialize_binary(value_type const& from, write_span& to);
+    static boost::system::error_code serialize_text(value_type const& from, std::string& to);
 };
-
 
 template <pg_oid_type Oid>
 struct pg_type_from_oid;   // primary template (no definition)

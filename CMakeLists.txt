@@ -34,7 +34,12 @@ target_link_libraries(nativepg_test_utils PUBLIC Boost::headers)
 function (add_unit_test TEST_DIR TEST_NAME)
     set(TARGET_NAME "nativepg_${TEST_NAME}")
     add_executable(${TARGET_NAME} test/unit/${TEST_DIR}/${TEST_NAME}.cpp)
-    target_include_directories(${TARGET_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_include_directories(${TARGET_NAME}
+            PUBLIC
+                ${CMAKE_CURRENT_SOURCE_DIR}/include
+            PRIVATE
+                ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
     target_link_libraries(${TARGET_NAME} PRIVATE nativepg nativepg_test_utils)
     add_test(NAME ${TARGET_NAME} COMMAND ${TARGET_NAME})
     target_compile_options(${TARGET_NAME} PUBLIC -Wall -Wextra -Wpedantic -Werror)
@@ -47,6 +52,6 @@ if (BUILD_TESTING)
     add_unit_test(protocol          test_scram_sha256_server_first_message)
     add_unit_test(protocol          test_scram_sha256_client_final_message)
     add_unit_test(protocol          test_scram_sha256_server_final_message)
-    add_unit_test(types             test_binary_writer)
     add_unit_test(types             test_pg_types)
+    add_unit_test(misc              test_params)
 endif()

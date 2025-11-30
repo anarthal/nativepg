@@ -11,9 +11,11 @@
 #include <cstddef>
 #include <string>
 #include <string_view>
+#include <boost/core/span.hpp>
+#include <boost/system/error_code.hpp>
+#include <boost/endian/conversion.hpp>
 
 #include "nativepg/types/pg_type_traits.hpp"
-#include "nativepg/types/basic_pg_value.hpp"
 
 namespace nativepg {
 namespace types {
@@ -24,36 +26,52 @@ struct pg_type_traits<std::string, pg_oid_type::text>
     using value_type = std::string;
 
     static constexpr pg_oid_type   oid_type  = pg_oid_type::text;
-    static constexpr std::int32_t  byte_len  = -1; // variable length
 
     static constexpr std::string_view oid_name  = "TEXT";
     static constexpr std::string_view type_name = "std::string";
 
+    static constexpr std::int32_t  byte_len  = -1; // variable length
     static constexpr bool supports_binary = true;
 
-    // ----- TEXT ENCODE / DECODE -----
-    static std::string encode_text(const value_type& v)
+    static boost::system::error_code parse_binary(boost::span<const std::byte> bytes, value_type& val)
     {
-        // PostgreSQL text representation is just the string bytes
-        return v;
+        // For TEXT, PostgreSQL binary representation is just the raw bytes of the string.
+        // No endianness conversion is required.
+        val.assign(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+        return {}; // success
     }
 
-    static value_type decode_text(std::string_view sv)
+    static boost::system::error_code parse_text(std::string const& str, value_type& val)
     {
-        return std::string{sv};
+        // Text representation is already a string; just copy it.
+        val = str;
+        return {}; // success
     }
 
-    // ----- BINARY ENCODE / DECODE -----
-    static std::string encode_binary(const value_type& v)
+
+    static boost::system::error_code serialize_binary(value_type const& val, boost::span<std::byte>& bytes)
     {
-        // Binary format is also just the raw bytes
-        return v;
+        using boost::system::errc::no_buffer_space;
+        using boost::system::errc::make_error_code;
+
+        // For TEXT, binary format is the raw bytes of the string.
+        // Ensure the output buffer is large enough.
+        if (bytes.size() < val.size())
+            return make_error_code(no_buffer_space);
+
+        const auto* data = reinterpret_cast<const std::byte*>(val.data());
+        std::copy(data, data + val.size(), bytes.begin());
+
+        return {}; // success
     }
 
-    static value_type decode_binary(std::string_view sv)
+    static boost::system::error_code serialize_text(value_type const& val, std::string& text)
     {
-        return std::string{sv};
+        // Text representation is just the value itself.
+        text = val;
+        return {}; // success
     }
+
 };
 
 
@@ -70,9 +88,6 @@ using pg_text_traits = pg_type_traits<
     pg_type_from_oid<pg_oid_type::text>::type,
     pg_oid_type::text
 >;
-
-// Value Type alias
-using pg_text = basic_pg_value<pg_text_traits>;
 
 } // namespace types
 } // namespace nativepg

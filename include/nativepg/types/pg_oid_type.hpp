@@ -16,9 +16,9 @@ namespace types {
 enum class pg_oid_type : std::uint32_t
 {
     // Boolean & binary
-    bool_oid        = 16,
+    bool_           = 16,
     bytea           = 17,
-    char_oid        = 18,
+    char_           = 18,
     name            = 19,
     int8            = 20,
     int2            = 21,
@@ -87,7 +87,7 @@ enum class pg_oid_type : std::uint32_t
     // Object identifiers for composite/record
     record          = 2249,
     recordarray     = 2287,
-    void_oid        = 2278,
+    void_           = 2278,
     unknown         = 705,
     any             = 2276,
     anyarray        = 2277,
@@ -117,7 +117,7 @@ inline const char* to_string(pg_oid_type oid)
 {
     switch (oid)
     {
-    case pg_oid_type::bool_oid: return "bool";
+    case pg_oid_type::bool_: return "bool";
     case pg_oid_type::bytea: return "bytea";
     case pg_oid_type::int2: return "int2";
     case pg_oid_type::int4: return "int4";

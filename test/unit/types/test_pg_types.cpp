@@ -27,14 +27,6 @@
 using boost::system::error_code;
 using nativepg::types::pg_oid_type;
 using nativepg::types::pg_type_traits;
-using nativepg::types::pg_bool;
-using nativepg::types::pg_int2;
-using nativepg::types::pg_int4;
-using nativepg::types::pg_float4;
-using nativepg::types::pg_float8;
-
-using nativepg::types::pg_text;
-using nativepg::types::pg_uuid;
 
 // Some test cases have been copied from CPython's and Android's base64 test suites
 
@@ -44,113 +36,177 @@ void test_pg_bool()
 {
     // Arrange / Setup
     bool test_value = true;
+    bool result_value = false;
+    std::string str;
+    boost::system::error_code ec;
+    boost::span<const std::byte> bytes_in;
+    boost::span<std::byte> bytes_out;
 
     // Act
-    pg_bool subject {test_value};
+    nativepg::types::pg_bool_traits subject;
+
+    ec = subject.serialize_binary(test_value, bytes_out);
+    ec = subject.parse_binary(bytes_in, result_value);
+
+    ec = subject.serialize_text(test_value, str);
+    ec = subject.parse_text(str, result_value);
 
     // Assert / Checks
-    NATIVEPG_TEST_EQ(subject.type_name(), "bool");
-    NATIVEPG_TEST_EQ(subject.oid_name(), "BOOL");
-    NATIVEPG_TEST_EQ(subject.byte_length(), 1);
-    NATIVEPG_TEST_EQ(subject.get(), test_value);
-    NATIVEPG_TEST_EQ(subject.supports_binary(), true);
+    NATIVEPG_TEST_EQ(subject.type_name, "bool");
+    NATIVEPG_TEST_EQ(subject.oid_name, "BOOL");
+    NATIVEPG_TEST_EQ(subject.byte_len, 1);
+    NATIVEPG_TEST_EQ(subject.supports_binary, true);
 }
 
 void test_pg_int2()
 {
     // Arrange / Setup
     std::int16_t test_value = 21;
+    std::int16_t result_value;
+    std::string str;
+    boost::system::error_code ec;
+    boost::span<const std::byte> bytes_in;
+    boost::span<std::byte> bytes_out;
 
     // Act
-    pg_int2 subject {test_value};
+    nativepg::types::pg_int2_traits subject;
+    ec = subject.serialize_binary(test_value, bytes_out);
+    ec = subject.parse_binary(bytes_in, result_value);
+
+    ec = subject.serialize_text(test_value, str);
+    ec = subject.parse_text(str, result_value);
 
     // Assert / Checks
-    NATIVEPG_TEST_EQ(subject.type_name(), "std::int16_t");
-    NATIVEPG_TEST_EQ(subject.oid_name(), "INT2");
-    NATIVEPG_TEST_EQ(subject.byte_length(), 2);
-    NATIVEPG_TEST_EQ(subject.get(), test_value);
-    NATIVEPG_TEST_EQ(subject.supports_binary(), true);
+    NATIVEPG_TEST_EQ(subject.type_name, "std::int16_t");
+    NATIVEPG_TEST_EQ(subject.oid_name, "INT2");
+    NATIVEPG_TEST_EQ(subject.byte_len, 2);
+    NATIVEPG_TEST_EQ(subject.supports_binary, true);
 }
 
 void test_pg_int4()
 {
     // Arrange / Setup
     std::int32_t test_value = 42;
+    std::int32_t result_value;
+    std::string str;
+    boost::system::error_code ec;
+    boost::span<const std::byte> bytes_in;
+    boost::span<std::byte> bytes_out;
 
     // Act
-    pg_int4 subject {test_value};
+    nativepg::types::pg_int4_traits subject;
+    ec = subject.serialize_binary(test_value, bytes_out);
+    ec = subject.parse_binary(bytes_in, result_value);
+
+    ec = subject.serialize_text(test_value, str);
+    ec = subject.parse_text(str, result_value);
 
     // Assert / Checks
-    NATIVEPG_TEST_EQ(subject.type_name(), "std::int32_t");
-    NATIVEPG_TEST_EQ(subject.oid_name(), "INT4");
-    NATIVEPG_TEST_EQ(subject.byte_length(), 4);
-    NATIVEPG_TEST_EQ(subject.get(), test_value);
-    NATIVEPG_TEST_EQ(subject.supports_binary(), true);
+    NATIVEPG_TEST_EQ(subject.type_name, "std::int32_t");
+    NATIVEPG_TEST_EQ(subject.oid_name, "INT4");
+    NATIVEPG_TEST_EQ(subject.byte_len, 4);
+    NATIVEPG_TEST_EQ(subject.supports_binary, true);
 }
 
 void test_pg_float4()
 {
     // Arrange / Setup
     float test_value = 42.7f;
+    float result_value;
+    std::string str;
+    boost::system::error_code ec;
+    boost::span<const std::byte> bytes_in;
+    boost::span<std::byte> bytes_out;
 
     // Act
-    pg_float4 subject {test_value};
+    nativepg::types::pg_float4_traits subject;
+    ec = subject.serialize_binary(test_value, bytes_out);
+    ec = subject.parse_binary(bytes_in, result_value);
+
+    ec = subject.serialize_text(test_value, str);
+    ec = subject.parse_text(str, result_value);
 
     // Assert / Checks
-    NATIVEPG_TEST_EQ(subject.type_name(), "float");
-    NATIVEPG_TEST_EQ(subject.oid_name(), "FLOAT4");
-    NATIVEPG_TEST_EQ(subject.byte_length(), 4);
-    NATIVEPG_TEST_EQ(subject.get(), test_value);
-    NATIVEPG_TEST_EQ(subject.supports_binary(), true);
+    NATIVEPG_TEST_EQ(subject.type_name, "float");
+    NATIVEPG_TEST_EQ(subject.oid_name, "FLOAT4");
+    NATIVEPG_TEST_EQ(subject.byte_len, 4);
+    NATIVEPG_TEST_EQ(subject.supports_binary, true);
 }
 
 void test_pg_float8()
 {
     // Arrange / Setup
     double test_value = 82.210677;
+    double result_value;
+    std::string str;
+    boost::system::error_code ec;
+    boost::span<const std::byte> bytes_in;
+    boost::span<std::byte> bytes_out;
 
     // Act
-    pg_float8 subject {test_value};
+    nativepg::types::pg_float8_traits subject;
+    ec = subject.serialize_binary(test_value, bytes_out);
+    ec = subject.parse_binary(bytes_in, result_value);
+
+    ec = subject.serialize_text(test_value, str);
+    ec = subject.parse_text(str, result_value);
 
     // Assert / Checks
-    NATIVEPG_TEST_EQ(subject.type_name(), "double");
-    NATIVEPG_TEST_EQ(subject.oid_name(), "FLOAT8");
-    NATIVEPG_TEST_EQ(subject.byte_length(), 8);
-    NATIVEPG_TEST_EQ(subject.get(), test_value);
-    NATIVEPG_TEST_EQ(subject.supports_binary(), true);
+    NATIVEPG_TEST_EQ(subject.type_name, "double");
+    NATIVEPG_TEST_EQ(subject.oid_name, "FLOAT8");
+    NATIVEPG_TEST_EQ(subject.byte_len, 8);
+    NATIVEPG_TEST_EQ(subject.supports_binary, true);
 }
 
 
 void test_pg_text()
 {
     // Arrange / Setup
-    std::string test_text{"lazy turtle didn't jump over the quick fox!"};
+    std::string test_value{"lazy turtle didn't jump over the quick fox!"};
+    std::string result_value;
+    std::string str;
+    boost::system::error_code ec;
+    boost::span<const std::byte> bytes_in = {};
+    boost::span<std::byte> bytes_out = {};
 
     // Act
-    pg_text subject {test_text};
+    nativepg::types::pg_text_traits subject;
+    ec = subject.serialize_binary(test_value, bytes_out);
+    ec = subject.parse_binary(bytes_in, result_value);
+
+    ec = subject.serialize_text(test_value, str);
+    ec = subject.parse_text(str, result_value);
 
     // Assert / Checks
-    NATIVEPG_TEST_EQ(subject.get(), test_text);
-    NATIVEPG_TEST_EQ(subject.supports_binary(), true);
-    NATIVEPG_TEST_EQ(subject.byte_length(), -1); // variable length
-    NATIVEPG_TEST_EQ(subject.type_name(), "std::string");
-    NATIVEPG_TEST_EQ(subject.oid_name(), "TEXT");
+    NATIVEPG_TEST_EQ(subject.supports_binary, true);
+    NATIVEPG_TEST_EQ(subject.byte_len, -1); // variable length
+    NATIVEPG_TEST_EQ(subject.type_name, "std::string");
+    NATIVEPG_TEST_EQ(subject.oid_name, "TEXT");
 }
 
 void test_pg_uuid()
 {
     // Arrange / Setup
-    auto test_value = pg_uuid::from_text("123e4567-e89b-12d3-a456-426655440000");
+    auto const test_value = nativepg::types::to_uuid("123e4567-e89b-12d3-a456-426655440000");
+    boost::uuids::uuid result_value;
+    std::string str;
+    boost::system::error_code ec;
+    boost::span<const std::byte> bytes_in = {};
+    boost::span<std::byte> bytes_out = {};
 
     // Act
-    pg_uuid subject {test_value};
+    nativepg::types::pg_uuid_traits subject;
+    ec = subject.serialize_binary(test_value, bytes_out);
+    ec = subject.parse_binary(bytes_in, result_value);
+
+    ec = subject.serialize_text(test_value, str);
+    ec = subject.parse_text(str, result_value);
 
     // Assert / Checks
-    NATIVEPG_TEST(subject.encode_text() ==  test_value.encode_text());
-    NATIVEPG_TEST_EQ(subject.supports_binary(), true);
-    NATIVEPG_TEST_EQ(subject.byte_length(), 16);
-    NATIVEPG_TEST_EQ(subject.type_name(), "std::array<std::uint8_t,16>");
-    NATIVEPG_TEST_EQ(subject.oid_name(), "UUID");
+    NATIVEPG_TEST_EQ(subject.supports_binary, true);
+    NATIVEPG_TEST_EQ(subject.byte_len, 16);
+    NATIVEPG_TEST_EQ(subject.type_name, "boost::uuids::uuid");
+    NATIVEPG_TEST_EQ(subject.oid_name, "UUID");
 }
 
 }

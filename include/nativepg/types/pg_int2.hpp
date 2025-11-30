@@ -8,10 +8,19 @@
 #ifndef NATIVEPG_TYPES_PG_INT2_HPP
 #define NATIVEPG_TYPES_PG_INT2_HPP
 
-#include <cstddef>
 
+#include <cstddef>
+#include <limits>
+#include <string>
+#include <boost/charconv.hpp>
+
+#include <boost/system/system_error.hpp>
+#include <boost/endian/conversion.hpp>
+
+#include "nativepg/client_errc.hpp"
+#include "nativepg/types/readable_traits.hpp"
+#include "nativepg/types/writeable_traits.hpp"
 #include "nativepg/types/pg_type_traits.hpp"
-#include "nativepg/types/basic_pg_value.hpp"
 
 
 namespace nativepg {
@@ -32,43 +41,106 @@ struct pg_type_traits<std::int16_t, pg_oid_type::int2>
 
     static constexpr bool supports_binary = true;
 
-    // ----- TEXT ENCODE / DECODE -----
-    static std::string encode_text(const value_type& v)
+    // readable_traits methods
+    static boost::system::error_code parse_binary(boost::span<const std::byte> const& bytes, value_type& out)
     {
-        return std::to_string(v);
+        using boost::system::errc::invalid_argument;
+        using boost::system::errc::make_error_code;
+
+        // int16 must be exactly 2 bytes
+        if (bytes.size() != byte_len)
+            return make_error_code(invalid_argument);
+
+        // Read raw network bytes (big-endian) into a 16-bit unsigned integer
+        const std::uint8_t b0 = static_cast<std::uint8_t>(bytes[0]);
+        const std::uint8_t b1 = static_cast<std::uint8_t>(bytes[1]);
+
+        std::uint16_t network_value =
+            (static_cast<std::uint16_t>(b0) << 8) |
+             static_cast<std::uint16_t>(b1);
+
+        // Convert from big-endian (network) to native endianness using Boost.Endian
+        std::uint16_t host_value = boost::endian::big_to_native(network_value);
+
+        // Cast to signed 16-bit (PostgreSQL int2 is signed)
+        out = static_cast<value_type>(host_value);
+
+        return {}; // success
     }
 
-    static value_type decode_text(std::string_view sv)
+    static boost::system::error_code parse_text(std::string_view text, value_type& out)
     {
-        return static_cast<std::int16_t>(std::stoi(std::string{sv}));
+        using boost::system::errc::invalid_argument;
+        using boost::system::errc::result_out_of_range;
+        using boost::system::errc::make_error_code;
+
+        // Empty input is invalid
+        if (text.empty())
+            return make_error_code(invalid_argument);
+
+        // Parse as decimal using boost::charconv
+        int value32 = 0;
+        const char* first = text.data();
+        const char* last  = text.data() + text.size();
+
+        auto res = boost::charconv::from_chars(first, last, value32);
+
+        // from_chars failed
+        if (res.ec != std::errc())
+        {
+            if (res.ec == std::errc::result_out_of_range)
+                return make_error_code(result_out_of_range);
+
+            return make_error_code(invalid_argument);
+        }
+
+        // Ensure we consumed all characters (no trailing garbage)
+        if (res.ptr != last)
+            return make_error_code(invalid_argument);
+
+        // Range check for int16_t
+        if (value32 < std::numeric_limits<value_type>::min() ||
+            value32 > std::numeric_limits<value_type>::max())
+        {
+            return make_error_code(result_out_of_range);
+        }
+
+        out = static_cast<value_type>(value32);
+        return {}; // success
     }
 
-    // ----- BINARY ENCODE / DECODE -----
-    static std::string encode_binary(const value_type& v)
+    // writeable_traits methods
+    static boost::system::error_code serialize_binary(const value_type& val, boost::span<std::byte>& bytes)
     {
-        // int2 is big-endian 2-byte signed integer
-        std::string buf(2, '\0');
-        buf[0] = static_cast<char>((v >> 8) & 0xFF);
-        buf[1] = static_cast<char>((v)      & 0xFF);
-        return buf;
+        using boost::system::errc::invalid_argument;
+        using boost::system::errc::make_error_code;
+
+        // int16 must be exactly 2 bytes for serialization
+        if (bytes.size() != byte_len)
+            return make_error_code(invalid_argument);
+
+        // Convert signed 16-bit value to unsigned host representation
+        std::uint16_t host_value = static_cast<std::uint16_t>(val);
+
+        // Convert from native endianness to big-endian (network order)
+        std::uint16_t network_value = boost::endian::native_to_big(host_value);
+
+        // Store as two big-endian bytes
+        bytes[0] = static_cast<std::byte>((network_value >> 8) & 0xFF);
+        bytes[1] = static_cast<std::byte>(network_value & 0xFF);
+
+        return {}; // success
     }
 
-    static value_type decode_binary(std::string_view sv)
+    static boost::system::error_code serialize_text(const value_type& val, std::string& text)
     {
-        if (sv.size() != 2)
-            throw std::runtime_error{"int2 binary length != 2"};
-
-        const unsigned char b0 = static_cast<unsigned char>(sv[0]);
-        const unsigned char b1 = static_cast<unsigned char>(sv[1]);
-
-        // big-endian decode
-        std::int16_t v =
-            (static_cast<std::int16_t>(b0) << 8) |
-            (static_cast<std::int16_t>(b1));
-
-        return v;
+        // Text representation is the decimal string form of the value
+        text = std::to_string(val);
+        return {}; // success
     }
 };
+static_assert(readable_traits<pg_type_traits<std::int16_t, pg_oid_type::int2>>);
+static_assert(writeable_traits<pg_type_traits<std::int16_t, pg_oid_type::int2>>);
 
 template <>
 struct pg_type_from_oid<pg_oid_type::int2>
@@ -79,10 +151,6 @@ struct pg_type_from_oid<pg_oid_type::int2>
 
 // Trait type
 using pg_int2_traits = pg_type_traits<pg_type_from_oid<pg_oid_type::int2>::type, pg_oid_type::int2>;
-
-// Value Type declaration
-using pg_int2 = basic_pg_value<pg_int2_traits>;
-
 
 }
 }

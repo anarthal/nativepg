@@ -13,125 +13,98 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <algorithm>
+#include <boost/core/span.hpp>
+#include <boost/system/error_code.hpp>
+#include <boost/endian/conversion.hpp>
 #include <stdexcept>
 
+#include <boost/lexical_cast.hpp>
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_generators.hpp>
+#include <boost/uuid/uuid_io.hpp>
+
 #include "nativepg/types/pg_type_traits.hpp"
-#include "nativepg/types/basic_pg_value.hpp"
 
 namespace nativepg {
 namespace types {
 
 template <>
-struct pg_type_traits<std::array<std::uint8_t, 16>, pg_oid_type::uuid>
+struct pg_type_traits<boost::uuids::uuid, pg_oid_type::uuid>
 {
-    using value_type = std::array<std::uint8_t, 16>;
+    using value_type = boost::uuids::uuid;
 
     static constexpr pg_oid_type   oid_type  = pg_oid_type::uuid;
-    static constexpr std::int32_t  byte_len  = 16;
 
     static constexpr std::string_view oid_name  = "UUID";
-    static constexpr std::string_view type_name = "std::array<std::uint8_t,16>";
+    static constexpr std::string_view type_name = "boost::uuids::uuid";
 
+    static constexpr std::int32_t  byte_len  = 16;
     static constexpr bool supports_binary = true;
 
-    // ----- helpers for hex -----
-    static constexpr char to_hex_digit(std::uint8_t v) noexcept
+    static boost::system::error_code parse_binary(boost::span<const std::byte> bytes, value_type& val)
     {
-        return (v < 10) ? static_cast<char>('0' + v)
-                        : static_cast<char>('a' + (v - 10));
-    }
+        using boost::system::errc::invalid_argument;
+        using boost::system::errc::make_error_code;
 
-    static std::uint8_t from_hex_digit(char c)
-    {
-        if (c >= '0' && c <= '9') return static_cast<std::uint8_t>(c - '0');
-        if (c >= 'a' && c <= 'f') return static_cast<std::uint8_t>(c - 'a' + 10);
-        if (c >= 'A' && c <= 'F') return static_cast<std::uint8_t>(c - 'A' + 10);
-        throw std::runtime_error{"Invalid hex digit in UUID"};
-    }
+        // UUID must be exactly 16 bytes
+        if (bytes.size() != byte_len)
+            return make_error_code(invalid_argument);
 
-    // ----- TEXT ENCODE / DECODE -----
-    static std::string encode_text(const value_type& v)
-    {
-        // Canonical 36-char form: 8-4-4-4-12
-        std::string out;
-        out.resize(36);
-
-        std::size_t o = 0;
-        for (std::size_t i = 0; i < 16; ++i)
+        // PostgreSQL UUID binary format is just 16 raw bytes in network order.
+        // No endianness conversion of the fields is required here; we just copy the bytes.
+        for (std::size_t i = 0; i < static_cast<std::size_t>(byte_len); ++i)
         {
-            if (i == 4 || i == 6 || i == 8 || i == 10)
-                out[o++] = '-';
-
-            std::uint8_t byte = v[i];
-            out[o++] = to_hex_digit((byte >> 4) & 0x0F);
-            out[o++] = to_hex_digit(byte & 0x0F);
-        }
-
-        return out;
-    }
-
-    static value_type decode_text(std::string_view sv)
-    {
-        // Accept canonical form with dashes, or just 32 hex digits
-        value_type out{};
-        std::size_t out_idx = 0;
-
-        std::uint8_t high_nibble = 0;
-        bool have_half_byte = false;
-
-        for (char c : sv)
-        {
-            if (c == '-') continue; // ignore dashes
-
-            std::uint8_t nibble = from_hex_digit(c);
-
-            if (!have_half_byte)
-            {
-                high_nibble = nibble;
-                have_half_byte = true;
-            }
-            else
-            {
-                if (out_idx >= out.size())
-                    throw std::runtime_error{"Too many hex digits in UUID"};
-
-                out[out_idx++] = static_cast<std::uint8_t>((high_nibble << 4) | nibble);
-                have_half_byte = false;
-            }
-        }
-
-        if (have_half_byte || out_idx != out.size())
-            throw std::runtime_error{"Invalid UUID hex length"};
-
-        return out;
-    }
-
-    // ----- BINARY ENCODE / DECODE -----
-    static std::string encode_binary(const value_type& v)
-    {
-        std::string buf;
-        buf.resize(16);
-        for (std::size_t i = 0; i < 16; ++i)
-        {
-            buf[i] = static_cast<char>(v[i]);
-        }
-        return buf;
-    }
-
-    static value_type decode_binary(std::string_view sv)
-    {
-        if (sv.size() != 16)
-            throw std::runtime_error{"uuid binary length != 16"};
-
-        value_type out{};
-        for (std::size_t i = 0; i < 16; ++i)
-        {
-            out[i] = static_cast<std::uint8_t>(
-                static_cast<unsigned char>(sv[i])
+            val.data[i] = static_cast<boost::uuids::uuid::value_type>(
+                std::to_integer<std::uint8_t>(bytes[i])
             );
         }
-        return out;
+
+        return {}; // success
     }
+
+    static boost::system::error_code parse_text(std::string_view str, value_type& val)
+    {
+        using boost::system::errc::invalid_argument;
+        using boost::system::errc::make_error_code;
+
+        // Expect canonical UUID text like "550e8400-e29b-41d4-a716-446655440000"
+        try
+        {
+            val = boost::lexical_cast<boost::uuids::uuid>(std::string(str));
+            return {}; // success
+        }
+        catch (const std::exception&)
+        {
+            return make_error_code(invalid_argument);
+        }
+    }
+
+    static boost::system::error_code serialize_binary(value_type const& val, boost::span<std::byte>& bytes)
+    {
+        using boost::system::errc::invalid_argument;
+        using boost::system::errc::make_error_code;
+
+        // UUID must be exactly 16 bytes for serialization
+        if (bytes.size() != byte_len)
+            return make_error_code(invalid_argument);
+
+        // PostgreSQL UUID binary format is 16 raw bytes; copy them out.
+        for (std::size_t i = 0; i < static_cast<std::size_t>(byte_len); ++i)
+        {
+            bytes[i] = static_cast<std::byte>(val.data[i]);
+        }
+
+        return {}; // success
+    }
+
+    static boost::system::error_code serialize_text(value_type const& val, std::string& text)
+    {
+        // Use Boost.UUID's string conversion for canonical representation
+        text = boost::uuids::to_string(val);
+        return {}; // success
+    }
+
 };
 
 
@@ -139,7 +112,7 @@ struct pg_type_traits<std::array<std::uint8_t, 16>, pg_oid_type::uuid>
 template <>
 struct pg_type_from_oid<pg_oid_type::uuid>
 {
-    using type = std::array<std::uint8_t, 16>;
+    using type = boost::uuids::uuid;
 };
 
 
@@ -149,8 +122,12 @@ using pg_uuid_traits = pg_type_traits<
     pg_oid_type::uuid
 >;
 
-// Value Type alias
-using pg_uuid = basic_pg_value<pg_uuid_traits>;
+
+inline boost::uuids::uuid to_uuid(std::string_view text)
+{
+    return boost::lexical_cast<boost::uuids::uuid>(text);
+}
+
 
 } // namespace types
 } // namespace nativepg

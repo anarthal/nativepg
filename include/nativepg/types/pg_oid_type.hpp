@@ -8,6 +8,8 @@
 #ifndef NATIVEPG_TYPES_PG_OID_TYPE_HPP
 #define NATIVEPG_TYPES_PG_OID_TYPE_HPP
 
+#include <cstddef>
+
 namespace nativepg {
 namespace types {
 

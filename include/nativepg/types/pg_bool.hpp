@@ -121,17 +121,6 @@ struct pg_type_traits<bool, pg_oid_type::bool_>
     }
 };
 
-
-template <>
-struct pg_type_from_oid<pg_oid_type::bool_>
-{
-    using type = bool;
-};
-
-
-// Trait type
-using pg_bool_traits = pg_type_traits<pg_type_from_oid<pg_oid_type::bool_>::type, pg_oid_type::bool_>;
-
 }
 }
 

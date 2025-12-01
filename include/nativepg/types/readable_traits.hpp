@@ -9,7 +9,6 @@
 #define NATIVEPG_TYPES_READABLE_TRAITS_HPP
 
 #include <concepts>
-#include <type_traits>
 
 #include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>

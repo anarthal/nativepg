@@ -135,20 +135,6 @@ struct pg_type_traits<float, pg_oid_type::float4>
 };
 
 
-// OID -> C++ type mapping
-template <>
-struct pg_type_from_oid<pg_oid_type::float4>
-{
-    using type = float;
-};
-
-
-// Trait and value aliases
-using pg_float4_traits = pg_type_traits<
-    pg_type_from_oid<pg_oid_type::float4>::type,
-    pg_oid_type::float4
->;
-
 } // namespace types
 } // namespace nativepg
 

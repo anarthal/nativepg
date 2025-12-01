@@ -75,20 +75,6 @@ struct pg_type_traits<std::string, pg_oid_type::text>
 };
 
 
-// OID -> C++ type mapping
-template <>
-struct pg_type_from_oid<pg_oid_type::text>
-{
-    using type = std::string;
-};
-
-
-// Trait type
-using pg_text_traits = pg_type_traits<
-    pg_type_from_oid<pg_oid_type::text>::type,
-    pg_oid_type::text
->;
-
 } // namespace types
 } // namespace nativepg
 

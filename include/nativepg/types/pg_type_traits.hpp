@@ -49,18 +49,6 @@ struct pg_type_traits
     static boost::system::error_code serialize_text(value_type const& from, std::string& to);
 };
 
-template <pg_oid_type Oid>
-struct pg_type_from_oid;   // primary template (no definition)
-
-
-template <pg_oid_type Oid>
-static constexpr auto make_pg_type()
-{
-    using T = typename pg_type_from_oid<Oid>::type;
-    return pg_type_traits<T, Oid>{};
-}
-
-
 
 }
 }

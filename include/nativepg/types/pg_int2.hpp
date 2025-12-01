@@ -142,15 +142,6 @@ struct pg_type_traits<std::int16_t, pg_oid_type::int2>
 static_assert(readable_traits<pg_type_traits<std::int16_t, pg_oid_type::int2>>);
 static_assert(writeable_traits<pg_type_traits<std::int16_t, pg_oid_type::int2>>);
 
-template <>
-struct pg_type_from_oid<pg_oid_type::int2>
-{
-    using type = std::int16_t;
-};
-
-
-// Trait type
-using pg_int2_traits = pg_type_traits<pg_type_from_oid<pg_oid_type::int2>::type, pg_oid_type::int2>;
 
 }
 }

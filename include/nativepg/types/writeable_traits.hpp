@@ -10,6 +10,7 @@
 
 #include <concepts>
 
+#include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
 
 namespace nativepg {

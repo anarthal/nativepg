@@ -108,21 +108,6 @@ struct pg_type_traits<boost::uuids::uuid, pg_oid_type::uuid>
 };
 
 
-// OID -> C++ type mapping
-template <>
-struct pg_type_from_oid<pg_oid_type::uuid>
-{
-    using type = boost::uuids::uuid;
-};
-
-
-// Trait type
-using pg_uuid_traits = pg_type_traits<
-    pg_type_from_oid<pg_oid_type::uuid>::type,
-    pg_oid_type::uuid
->;
-
-
 inline boost::uuids::uuid to_uuid(std::string_view text)
 {
     return boost::lexical_cast<boost::uuids::uuid>(text);

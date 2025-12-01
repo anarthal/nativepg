@@ -148,19 +148,6 @@ struct pg_type_traits<double, pg_oid_type::float8>
 };
 
 
-// OID -> C++ type mapping
-template <>
-struct pg_type_from_oid<pg_oid_type::float8>
-{
-    using type = double;
-};
-
-// Trait and value aliases
-using pg_float8_traits = pg_type_traits<
-    pg_type_from_oid<pg_oid_type::float8>::type,
-    pg_oid_type::float8
->;
-
 } // namespace types
 } // namespace nativepg
 

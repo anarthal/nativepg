@@ -1,0 +1,3 @@
+Checking design using UML image...
+
+<img src="https://github.com/driekus77/nativepg/blob/5814949141f76cdd8c75ad23f3698ca962354b8e/docs/images/nativepg.jpg" alt="design overview" width="12117">

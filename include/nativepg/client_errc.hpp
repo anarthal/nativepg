@@ -40,6 +40,9 @@ enum class client_errc : int
     // We found a mandatory SCRAM extension ('m'), which requires us to fail
     // authentication in the current version
     mandatory_scram_extension_not_supported,
+
+    // The byte container length does not match the type length
+    invalid_type_length,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

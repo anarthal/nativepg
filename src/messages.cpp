@@ -288,7 +288,7 @@ boost::system::error_code parse_copy_response(
 // For messages that only have a header
 boost::system::error_code serialize_header_only(char header, std::vector<unsigned char>& to)
 {
-    auto buff = serialize_header({static_cast<unsigned char>(header), 5u});
+    auto buff = serialize_header({static_cast<unsigned char>(header), 4u});
     BOOST_ASSERT(buff.has_value());
     to.insert(to.end(), buff->begin(), buff->end());
     return {};

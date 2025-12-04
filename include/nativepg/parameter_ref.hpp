@@ -49,7 +49,7 @@ void serialize_text(const T& value, std::vector<unsigned char>& to)
     char buffer[512];
     auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
     if (result.ec != std::errc{})
-        throw std::system_error(result.ec);
+        throw std::system_error(std::make_error_code(result.ec));
     to.insert(to.end(), buffer, result.ptr);
 }
 

@@ -84,13 +84,13 @@ class parameter_ref
     template <class T>
     static void do_serialize_text(const void* param, std::vector<unsigned char>& buffer)
     {
-        serialize_text(*static_cast<const T*>(param), buffer);
+        detail::serialize_text(*static_cast<const T*>(param), buffer);
     }
 
     template <class T>
     static void do_serialize_binary(const void* param, std::vector<unsigned char>& buffer)
     {
-        serialize_binary(*static_cast<const T*>(param), buffer);
+        detail::serialize_binary(*static_cast<const T*>(param), buffer);
     }
 
     template <class T>

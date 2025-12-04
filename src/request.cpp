@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <string_view>
 
+#include "nativepg/protocol/common.hpp"
+#include "nativepg/protocol/describe.hpp"
 #include "nativepg/request.hpp"
 
 using namespace nativepg;
@@ -56,7 +58,7 @@ request& request::add_execute(
     add_bind(statement_name, params, result_codes);
 
     // Describe
-    add_describe_portal(std::string_view{});
+    add_advanced(protocol::describe{protocol::portal_or_statement::portal, std::string_view{}});
 
     // Execute
     add_advanced(

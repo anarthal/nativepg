@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "nativepg/parameter_ref.hpp"
+#include "nativepg/protocol/close.hpp"
 #include "protocol/bind.hpp"
 #include "protocol/common.hpp"
 #include "protocol/describe.hpp"
@@ -94,6 +95,31 @@ public:
         protocol::format_code result_codes
     );
 
+    // Describes a named prepared statement (PQsendDescribePrepared)
+    void add_describe_statement(std::string_view statement_name)
+    {
+        add_advanced(protocol::describe{protocol::portal_or_statement::statement, statement_name});
+    }
+
+    // Describes a named portal (PQsendDescribePortal)
+    void add_describe_portal(std::string_view portal_name)
+    {
+        add_advanced(protocol::describe{protocol::portal_or_statement::portal, portal_name});
+    }
+
+    // Closes a named prepared statement (PQsendClosePrepared)
+    void add_close_statement(std::string_view statement_name)
+    {
+        add_advanced(protocol::close{protocol::portal_or_statement::statement, statement_name});
+    }
+
+    // Closes a named portal (PQsendClosePortal)
+    void add_close_portal(std::string_view portal_name)
+    {
+        add_advanced(protocol::close{protocol::portal_or_statement::portal, portal_name});
+    }
+
+    // Adds a sync message (PQsendPipelineSync)
     // TODO: how can we ensure that syncs are added without creating footguns?
     void add_sync() { add_advanced(protocol::sync{}); }
 

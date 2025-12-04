@@ -99,7 +99,7 @@ public:
     request& add_query(
         std::string_view q,
         std::initializer_list<parameter_ref> params,
-        protocol::format_code result_codes
+        protocol::format_code result_codes = protocol::format_code::text
     )
     {
         return add_query(q, std::span<const parameter_ref>(params.begin(), params.end()), result_codes);
@@ -109,7 +109,7 @@ public:
     request& add_query(
         std::string_view q,
         std::span<const parameter_ref> params,
-        protocol::format_code result_codes
+        protocol::format_code result_codes = protocol::format_code::text
     )
     {
         add_prepare_raw(q, std::string_view{});

@@ -11,7 +11,7 @@
 
 using namespace nativepg;
 
-void request::add_execute(
+request& request::add_execute(
     std::string_view statement_name,
     std::span<const parameter_ref> params,
     protocol::format_code result_codes
@@ -59,4 +59,6 @@ void request::add_execute(
             .max_num_rows = 0,
         }
     );
+
+    return *this;
 }

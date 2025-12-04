@@ -8,11 +8,12 @@
 #ifndef NATIVEPG_REQUEST_HPP
 #define NATIVEPG_REQUEST_HPP
 
+#include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/system/system_error.hpp>
 #include <boost/throw_exception.hpp>
 
-#include <algorithm>
+#include <cstdint>
 #include <initializer_list>
 #include <span>
 #include <string_view>
@@ -44,9 +45,12 @@ class request
 public:
     request() = default;
 
-    void add_query(std::string_view q);
+    // TODO: chaining
 
-    // TODO: allow an array of format codes?
+    // Adds a simple query (PQsendQuery)
+    void add_simple_query(std::string_view q) { add_advanced(protocol::query{q}); }
+
+    // Adds a query with parameters using the extended protocol (PQsendQueryParams)
     void add_query(
         std::string_view q,
         std::initializer_list<parameter_ref> params,
@@ -56,78 +60,39 @@ public:
         add_query(q, std::span<const parameter_ref>(params.begin(), params.end()), result_codes);
     }
 
-    // TODO: move to compiled
+    // Adds a query with parameters using the extended protocol (PQsendQueryParams)
     void add_query(
         std::string_view q,
         std::span<const parameter_ref> params,
         protocol::format_code result_codes
     )
     {
-        add_prepare(q, {});
-        add_execute({}, params, result_codes);
+        add_prepare(q, std::string_view{});
+        add_execute(std::string_view{}, params, result_codes);
     }
 
-    void add_prepare(std::string_view query, std::string_view statement_name)
+    // Prepares a named statement (PQsendPrepare)
+    void add_prepare(
+        std::string_view query,
+        std::string_view statement_name,
+        boost::span<const std::int32_t> parameter_type_oids = {}
+    )
     {
-        // Prepare is just a parse
         add_advanced(
             protocol::parse_t{
                 .statement_name = statement_name,
                 .query = query,
-                .parameter_type_oids = {},
+                .parameter_type_oids = parameter_type_oids,
             }
         );
     }
 
+    // Executes a named prepared statement (PQsendQueryPrepared)
     void add_execute(
         std::string_view statement_name,
         std::span<const parameter_ref> params,
         protocol::format_code result_codes
-    )
-    {
-        // Bind
-        // If all parameters support binary, do binary. Otherwise, do text
-        // TODO: provide a way to override this?
-        bool use_binary = std::all_of(params.begin(), params.end(), [](parameter_ref p) {
-            return detail::parameter_ref_access::supports_binary(p);
-        });
-        auto fmt_code = use_binary ? protocol::format_code::binary : protocol::format_code::text;
-        protocol::bind b{
-            .portal_name = {},
-            .statement_name = {},
-            .parameter_fmt_codes = fmt_code,
-            .parameters_fn =
-                [params, use_binary, this](protocol::bind_context& ctx) {
-                    for (parameter_ref param : params)
-                    {
-                        // TODO: this is bypassing the bind_context API, review
-                        ctx.start_parameter();
-                        if (use_binary)
-                            detail::parameter_ref_access::serialize_binary(param, buffer_);
-                        else
-                            detail::parameter_ref_access::serialize_text(param, buffer_);
-                    }
-                },
-            .result_fmt_codes = result_codes,
-        };
-        add_advanced(b);
-
-        // Describe
-        add_advanced(
-            protocol::describe{
-                .type = protocol::portal_or_statement::portal,
-                .name = {},
-            }
-        );
-
-        // Execute
-        add_advanced(
-            protocol::execute{
-                .portal_name = {},
-                .max_num_rows = 0,
-            }
-        );
-    }
+    );
 
     // TODO: how can we ensure that syncs are added without creating footguns?
     void add_sync() { add_advanced(protocol::sync{}); }

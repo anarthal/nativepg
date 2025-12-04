@@ -20,6 +20,7 @@ add_library(nativepg
     # External API
     src/error.cpp
     src/messages.cpp
+    src/request.cpp
 )
 target_link_libraries(nativepg PUBLIC Boost::headers Boost::charconv OpenSSL::SSL OpenSSL::Crypto)
 target_include_directories(nativepg PUBLIC include)

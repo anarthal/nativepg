@@ -21,6 +21,7 @@
 
 #include "nativepg/parameter_ref.hpp"
 #include "nativepg/protocol/close.hpp"
+#include "nativepg/protocol/flush.hpp"
 #include "protocol/bind.hpp"
 #include "protocol/common.hpp"
 #include "protocol/describe.hpp"
@@ -31,9 +32,24 @@
 
 namespace nativepg {
 
+namespace detail {
+enum class request_msg_type
+{
+    bind,
+    close,
+    describe,
+    execute,
+    flush,
+    parse,
+    query,
+    sync,
+};
+}
+
 class request
 {
     std::vector<unsigned char> buffer_;
+    std::vector<detail::request_msg_type> types_;
 
     void check(boost::system::error_code ec)
     {
@@ -56,6 +72,15 @@ class request
                 .parameter_type_oids = parameter_type_oids,
             }
         );
+    }
+
+    template <class T>
+    request& add_advanced_impl(const T& value, detail::request_msg_type type)
+    {
+        types_.reserve(types_.size() + 1u);  // strong guarantee
+        check(protocol::serialize(value, buffer_));
+        types_.push_back(type);
+        return *this;
     }
 
 public:
@@ -143,12 +168,45 @@ public:
         protocol::format_code result_codes
     );
 
-    // Low-level. TODO: restrict types
-    template <class T>
-    request& add_advanced(const T& v)
+    // Low-level
+    request& add_advanced(const protocol::bind& value)
     {
-        check(protocol::serialize(v, buffer_));
-        return *this;
+        return add_advanced_impl(value, detail::request_msg_type::bind);
+    }
+
+    request& add_advanced(const protocol::close& value)
+    {
+        return add_advanced_impl(value, detail::request_msg_type::close);
+    }
+
+    request& add_advanced(const protocol::describe& value)
+    {
+        return add_advanced_impl(value, detail::request_msg_type::describe);
+    }
+
+    request& add_advanced(const protocol::execute& value)
+    {
+        return add_advanced_impl(value, detail::request_msg_type::execute);
+    }
+
+    request& add_advanced(protocol::flush value)
+    {
+        return add_advanced_impl(value, detail::request_msg_type::flush);
+    }
+
+    request& add_advanced(const protocol::parse_t& value)
+    {
+        return add_advanced_impl(value, detail::request_msg_type::parse);
+    }
+
+    request& add_advanced(protocol::query value)
+    {
+        return add_advanced_impl(value, detail::request_msg_type::query);
+    }
+
+    request& add_advanced(protocol::sync value)
+    {
+        return add_advanced_impl(value, detail::request_msg_type::sync);
     }
 };
 

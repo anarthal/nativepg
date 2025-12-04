@@ -110,12 +110,7 @@ public:
         std::string_view q,
         std::span<const parameter_ref> params,
         protocol::format_code result_codes = protocol::format_code::text
-    )
-    {
-        add_prepare_raw(q, std::string_view{});
-        add_execute(std::string_view{}, params, result_codes);
-        return *this;
-    }
+    );
 
     // Prepares a named statement (PQsendPrepare)
     request& add_prepare(

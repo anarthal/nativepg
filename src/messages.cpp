@@ -749,7 +749,16 @@ struct format_codes_serializer
 {
     detail::serialization_context& ctx;
 
-    void operator()(format_code f) const { ctx.add_integral(static_cast<std::int16_t>(f)); }
+    void operator()(format_code f) const
+    {
+        if (f == format_code::text)
+            ctx.add_integral(static_cast<std::int16_t>(0u));
+        else
+        {
+            ctx.add_integral(static_cast<std::int16_t>(1u));
+            ctx.add_integral(static_cast<std::int16_t>(1u));
+        }
+    }
     void operator()(boost::span<const format_code> codes) const
     {
         // Size check

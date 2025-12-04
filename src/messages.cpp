@@ -302,7 +302,8 @@ void nativepg::protocol::detail::at_range_check(std::size_t i, std::size_t colle
         BOOST_THROW_EXCEPTION(std::out_of_range("random_access_parsing_view::at"));
 }
 
-boost::system::result<std::array<unsigned char, 5>> nativepg::protocol::serialize_header(message_header header
+boost::system::result<std::array<unsigned char, 5>> nativepg::protocol::serialize_header(
+    message_header header
 )
 {
     std::array<unsigned char, 5> res{};
@@ -1032,7 +1033,7 @@ boost::system::error_code nativepg::protocol::serialize(
     ctx.add_integral(msg.process_id);
     ctx.add_integral(msg.secret_key);
 
-    return ctx.error();
+    return ctx.finalize_message();
 }
 
 boost::system::error_code nativepg::protocol::serialize(ssl_request, std::vector<unsigned char>& to)
@@ -1042,7 +1043,7 @@ boost::system::error_code nativepg::protocol::serialize(ssl_request, std::vector
     // The message has no type code and no length
     ctx.add_integral(std::int32_t(80877103));
 
-    return ctx.error();
+    return ctx.finalize_message();
 }
 
 boost::system::error_code nativepg::protocol::serialize(query msg, std::vector<unsigned char>& to)
@@ -1056,7 +1057,7 @@ boost::system::error_code nativepg::protocol::serialize(query msg, std::vector<u
     ctx.add_string(msg.query);
 
     // Done
-    return ctx.error();
+    return ctx.finalize_message();
 }
 
 // scram sha256.

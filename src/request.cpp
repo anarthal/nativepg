@@ -6,18 +6,18 @@
 //
 
 #include <algorithm>
+#include <string_view>
 
 #include "nativepg/request.hpp"
 
 using namespace nativepg;
 
-request& request::add_execute(
+request& request::add_bind(
     std::string_view statement_name,
     std::span<const parameter_ref> params,
     protocol::format_code result_codes
 )
 {
-    // Bind
     // If all parameters support binary, do binary. Otherwise, do text
     // TODO: provide a way to override this?
     bool use_binary = std::all_of(params.begin(), params.end(), [](parameter_ref p) {
@@ -42,15 +42,21 @@ request& request::add_execute(
             },
         .result_fmt_codes = result_codes,
     };
-    add_advanced(b);
+
+    return add_advanced(b);
+}
+
+request& request::add_execute(
+    std::string_view statement_name,
+    std::span<const parameter_ref> params,
+    protocol::format_code result_codes
+)
+{
+    // Bind
+    add_bind(statement_name, params, result_codes);
 
     // Describe
-    add_advanced(
-        protocol::describe{
-            .type = protocol::portal_or_statement::portal,
-            .name = {},
-        }
-    );
+    add_describe_portal(std::string_view{});
 
     // Execute
     add_advanced(
@@ -60,5 +66,5 @@ request& request::add_execute(
         }
     );
 
-    return *this;
+    return add_sync();
 }

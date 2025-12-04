@@ -44,12 +44,15 @@ enum class request_msg_type
     query,
     sync,
 };
-}
+struct request_access;
+}  // namespace detail
 
 class request
 {
     std::vector<unsigned char> buffer_;
     std::vector<detail::request_msg_type> types_;
+
+    friend struct detail::request_access;
 
     void check(boost::system::error_code ec)
     {
@@ -85,6 +88,9 @@ class request
 
 public:
     request() = default;
+
+    // Returns the serialized payload
+    boost::span<const unsigned char> payload() const { return buffer_; }
 
     // Adds a simple query (PQsendQuery)
     request& add_simple_query(std::string_view q) { return add_advanced(protocol::query{q}); }
@@ -209,6 +215,13 @@ public:
         return add_advanced_impl(value, detail::request_msg_type::sync);
     }
 };
+
+namespace detail {
+struct request_access
+{
+    static boost::span<const request_msg_type> messages(const request& r) { return r.types_; }
+};
+}  // namespace detail
 
 }  // namespace nativepg
 

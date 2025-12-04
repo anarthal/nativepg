@@ -51,3 +51,7 @@ if (BUILD_TESTING)
     add_unit_test(protocol          test_scram_sha256_server_final_message)
     add_unit_test(""                test_request)
 endif()
+
+# Examples
+add_executable(nativepg_example example/nativepg.cpp)
+target_link_libraries(nativepg_example PRIVATE nativepg)

@@ -38,6 +38,7 @@
 #include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/flush.hpp"
 #include "nativepg/protocol/header.hpp"
+#include "nativepg/protocol/messages.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/parse.hpp"
 #include "nativepg/protocol/query.hpp"
@@ -95,42 +96,41 @@ enum class authentication_message_type : std::int32_t
     sasl_final = 12,
 };
 
-// template <class MessageType>
-// boost::system::result<any_backend_message> parse_impl(boost::span<const unsigned char> from)
-// {
-//     MessageType res;
-//     auto ec = nativepg::protocol::parse(from, res);
-//     if (ec)
-//         return ec;
-//     return res;
-// }
+template <class MessageType>
+boost::system::result<any_backend_message> parse_impl(boost::span<const unsigned char> from)
+{
+    MessageType res;
+    auto ec = nativepg::protocol::parse(from, res);
+    if (ec)
+        return ec;
+    return res;
+}
 
-// boost::system::result<any_backend_message> parse_authentication_request(boost::span<const unsigned char>
-// from)
-// {
-//     // Get the authentication request type code
-//     if (from.size() < 4u)
-//         return nativepg::client_errc::incomplete_message;
-//     auto type = static_cast<authentication_message_type>(boost::endian::load_big_s32(from.data()));
-//     from = from.subspan(4);
+boost::system::result<any_backend_message> parse_authentication_request(boost::span<const unsigned char> from)
+{
+    // Get the authentication request type code
+    if (from.size() < 4u)
+        return nativepg::client_errc::incomplete_message;
+    auto type = static_cast<authentication_message_type>(boost::endian::load_big_s32(from.data()));
+    from = from.subspan(4);
 
-//     // Parse
-//     switch (type)
-//     {
-//     case authentication_message_type::ok: return parse_impl<authentication_ok>(from);
-//     case authentication_message_type::kerberos_v5: return parse_impl<authentication_kerberos_v5>(from);
-//     case authentication_message_type::cleartext_password:
-//         return parse_impl<authentication_cleartext_password>(from);
-//     case authentication_message_type::md5_password: return parse_impl<authentication_md5_password>(from);
-//     case authentication_message_type::gss: return parse_impl<authentication_gss>(from);
-//     case authentication_message_type::gss_continue: return parse_impl<authentication_gss_continue>(from);
-//     case authentication_message_type::sspi: return parse_impl<authentication_sspi>(from);
-//     case authentication_message_type::sasl: return parse_impl<authentication_sasl>(from);
-//     case authentication_message_type::sasl_continue: return parse_impl<authentication_sasl_continue>(from);
-//     case authentication_message_type::sasl_final: return parse_impl<authentication_sasl_final>(from);
-//     default: return nativepg::client_errc::protocol_value_error;
-//     }
-// }
+    // Parse
+    switch (type)
+    {
+    case authentication_message_type::ok: return parse_impl<authentication_ok>(from);
+    case authentication_message_type::kerberos_v5: return parse_impl<authentication_kerberos_v5>(from);
+    case authentication_message_type::cleartext_password:
+        return parse_impl<authentication_cleartext_password>(from);
+    case authentication_message_type::md5_password: return parse_impl<authentication_md5_password>(from);
+    case authentication_message_type::gss: return parse_impl<authentication_gss>(from);
+    case authentication_message_type::gss_continue: return parse_impl<authentication_gss_continue>(from);
+    case authentication_message_type::sspi: return parse_impl<authentication_sspi>(from);
+    case authentication_message_type::sasl: return parse_impl<authentication_sasl>(from);
+    case authentication_message_type::sasl_continue: return parse_impl<authentication_sasl_continue>(from);
+    case authentication_message_type::sasl_final: return parse_impl<authentication_sasl_final>(from);
+    default: return nativepg::client_errc::protocol_value_error;
+    }
+}
 
 // https://www.postgresql.org/docs/current/protocol-error-fields.html
 enum class error_field_type : unsigned char
@@ -699,43 +699,43 @@ boost::system::error_code nativepg::protocol::parse(
     return ctx.check();
 }
 
-// boost::system::result<any_backend_message> nativepg::protocol::parse(
-//     std::uint8_t message_type,
-//     boost::span<const unsigned char> data
-// )
-// {
-//     // Cast the message type
-//     auto t = static_cast<backend_message_type>(message_type);
+boost::system::result<any_backend_message> nativepg::protocol::parse(
+    std::uint8_t message_type,
+    boost::span<const unsigned char> data
+)
+{
+    // Cast the message type
+    auto t = static_cast<backend_message_type>(message_type);
 
-//     switch (t)
-//     {
-//     case backend_message_type::authentication_request: return parse_authentication_request(data);
-//     case backend_message_type::backend_key_data: return parse_impl<backend_key_data>(data);
-//     case backend_message_type::bind_complete: return parse_impl<bind_complete>(data);
-//     case backend_message_type::close_complete: return parse_impl<close_complete>(data);
-//     case backend_message_type::command_complete: return parse_impl<command_complete>(data);
-//     case backend_message_type::copy_data: return parse_impl<copy_data>(data);
-//     case backend_message_type::copy_done: return parse_impl<copy_done>(data);
-//     case backend_message_type::copy_in_response: return parse_impl<copy_in_response>(data);
-//     case backend_message_type::copy_out_response: return parse_impl<copy_out_response>(data);
-//     case backend_message_type::copy_both_response: return parse_impl<copy_both_response>(data);
-//     case backend_message_type::data_row: return parse_impl<data_row>(data);
-//     case backend_message_type::empty_query_response: return parse_impl<empty_query_response>(data);
-//     case backend_message_type::error_response: return parse_impl<error_response>(data);
-//     case backend_message_type::negotiate_protocol_version:
-//         return parse_impl<negotiate_protocol_version>(data);
-//     case backend_message_type::no_data: return parse_impl<no_data>(data);
-//     case backend_message_type::notice_response: return parse_impl<notice_response>(data);
-//     case backend_message_type::notification_response: return parse_impl<notification_response>(data);
-//     case backend_message_type::parameter_description: return parse_impl<parameter_description>(data);
-//     case backend_message_type::parameter_status: return parse_impl<parameter_status>(data);
-//     case backend_message_type::parse_complete: return parse_impl<parse_complete>(data);
-//     case backend_message_type::portal_suspended: return parse_impl<portal_suspended>(data);
-//     case backend_message_type::ready_for_query: return parse_impl<ready_for_query>(data);
-//     case backend_message_type::row_description: return parse_impl<row_description>(data);
-//     default: return nativepg::client_errc::protocol_value_error;
-//     }
-// }
+    switch (t)
+    {
+    case backend_message_type::authentication_request: return parse_authentication_request(data);
+    case backend_message_type::backend_key_data: return parse_impl<backend_key_data>(data);
+    case backend_message_type::bind_complete: return parse_impl<bind_complete>(data);
+    case backend_message_type::close_complete: return parse_impl<close_complete>(data);
+    case backend_message_type::command_complete: return parse_impl<command_complete>(data);
+    case backend_message_type::copy_data: return parse_impl<copy_data>(data);
+    case backend_message_type::copy_done: return parse_impl<copy_done>(data);
+    case backend_message_type::copy_in_response: return parse_impl<copy_in_response>(data);
+    case backend_message_type::copy_out_response: return parse_impl<copy_out_response>(data);
+    case backend_message_type::copy_both_response: return parse_impl<copy_both_response>(data);
+    case backend_message_type::data_row: return parse_impl<data_row>(data);
+    case backend_message_type::empty_query_response: return parse_impl<empty_query_response>(data);
+    case backend_message_type::error_response: return parse_impl<error_response>(data);
+    case backend_message_type::negotiate_protocol_version:
+        return parse_impl<negotiate_protocol_version>(data);
+    case backend_message_type::no_data: return parse_impl<no_data>(data);
+    case backend_message_type::notice_response: return parse_impl<notice_response>(data);
+    case backend_message_type::notification_response: return parse_impl<notification_response>(data);
+    case backend_message_type::parameter_description: return parse_impl<parameter_description>(data);
+    case backend_message_type::parameter_status: return parse_impl<parameter_status>(data);
+    case backend_message_type::parse_complete: return parse_impl<parse_complete>(data);
+    case backend_message_type::portal_suspended: return parse_impl<portal_suspended>(data);
+    case backend_message_type::ready_for_query: return parse_impl<ready_for_query>(data);
+    case backend_message_type::row_description: return parse_impl<row_description>(data);
+    default: return nativepg::client_errc::protocol_value_error;
+    }
+}
 
 struct nativepg::protocol::detail::bind_context_access
 {

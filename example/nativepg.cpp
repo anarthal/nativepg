@@ -23,9 +23,8 @@
 #include <stdexcept>
 #include <vector>
 
-#include "nativepg/protocol/messages.hpp"
-#include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/protocol/startup.hpp"
+#include "nativepg/request.hpp"
 
 namespace asio = boost::asio;
 using namespace nativepg;
@@ -66,6 +65,8 @@ int main()
             throw std::runtime_error("Not enough data for the message type");
         auto msg_type = view[0];
         view = view.subspan(1);
+        if (msg_type == 'Z')
+            break;  // ready for query
 
         // Size
         if (view.size() < 4u)
@@ -79,15 +80,17 @@ int main()
             throw std::runtime_error("Not enough data for body");
 
         // Message
-        auto msg_result = protocol::parse(msg_type, view.subspan(0u, l));
-        const auto& msg = msg_result.value();
-        if (boost::variant2::holds_alternative<protocol::error_response>(msg))
-            throw std::runtime_error("Received error");
-        if (boost::variant2::holds_alternative<protocol::ready_for_query>(msg))
-            break;
-
         view = view.subspan(l);
     }
 
     std::cout << "Done\n";
+
+    // Now go send our messages
+    request req;
+    // req.add_simple_query("SELECT 1");
+    req.add_query("select $1", {42});
+    asio::write(sock, asio::buffer(req.payload()));
+
+    size = sock.read_some(asio::buffer(buffer));
+    buffer.resize(size);
 }

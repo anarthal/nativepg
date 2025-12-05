@@ -86,7 +86,7 @@ public:
     boost::span<const unsigned char> payload() const { return buffer_; }
 
     // Adds a simple query (PQsendQuery)
-    request& add_simple_query(std::string_view q) { return add_advanced(protocol::query{q}); }
+    request& add_simple_query(std::string_view q) { return add(protocol::query{q}); }
 
     // Adds a query with parameters using the extended protocol (PQsendQueryParams)
     request& add_query(
@@ -106,21 +106,18 @@ public:
     );
 
     // Prepares a named statement (PQsendPrepare)
-    // TODO: keep this?
     request& add_prepare(
         std::string_view query,
         std::string_view statement_name,
         boost::span<const std::int32_t> parameter_type_oids = {}
     )
     {
-        add_advanced(
-            protocol::parse_t{
-                .statement_name = statement_name,
-                .query = query,
-                .parameter_type_oids = parameter_type_oids,
-            }
-        );
-        return add_sync();
+        add(protocol::parse_t{
+            .statement_name = statement_name,
+            .query = query,
+            .parameter_type_oids = parameter_type_oids,
+        });
+        return add(protocol::sync{});
     }
 
     // Prepares a named statement (PQsendPrepare)
@@ -132,7 +129,6 @@ public:
     }
 
     // Executes a named prepared statement (PQsendQueryPrepared)
-    // TODO: keep this?
     request& add_execute(
         std::string_view statement_name,
         std::span<const parameter_ref> params,
@@ -163,74 +159,62 @@ public:
     // Describes a named prepared statement (PQsendDescribePrepared)
     request& add_describe_statement(std::string_view statement_name)
     {
-        add_advanced(protocol::describe{protocol::portal_or_statement::statement, statement_name});
-        return add_sync();
+        add(protocol::describe{protocol::portal_or_statement::statement, statement_name});
+        return add(protocol::sync{});
     }
 
     // Describes a named portal (PQsendDescribePortal)
     request& add_describe_portal(std::string_view portal_name)
     {
-        add_advanced(protocol::describe{protocol::portal_or_statement::portal, portal_name});
-        return add_sync();
+        add(protocol::describe{protocol::portal_or_statement::portal, portal_name});
+        return add(protocol::sync{});
     }
 
     // Closes a named prepared statement (PQsendClosePrepared)
     request& add_close_statement(std::string_view statement_name)
     {
-        add_advanced(protocol::close{protocol::portal_or_statement::statement, statement_name});
-        return add_sync();
+        add(protocol::close{protocol::portal_or_statement::statement, statement_name});
+        return add(protocol::sync{});
     }
 
     // Closes a named portal (PQsendClosePortal)
     request& add_close_portal(std::string_view portal_name)
     {
-        add_advanced(protocol::close{protocol::portal_or_statement::portal, portal_name});
-        return add_sync();
+        add(protocol::close{protocol::portal_or_statement::portal, portal_name});
+        return add(protocol::sync{});
     }
 
-    // Low-level. Adds a sync message (PQsendPipelineSync)
-    request& add_sync() { return add_advanced(protocol::sync{}); }
-
     // Low-level
-    request& add_advanced(const protocol::bind& value)
+    request& add(const protocol::bind& value)
     {
         return add_advanced_impl(value, detail::request_msg_type::bind);
     }
 
-    request& add_advanced(const protocol::close& value)
+    request& add(const protocol::close& value)
     {
         return add_advanced_impl(value, detail::request_msg_type::close);
     }
 
-    request& add_advanced(const protocol::describe& value)
+    request& add(const protocol::describe& value)
     {
         return add_advanced_impl(value, detail::request_msg_type::describe);
     }
 
-    request& add_advanced(const protocol::execute& value)
+    request& add(const protocol::execute& value)
     {
         return add_advanced_impl(value, detail::request_msg_type::execute);
     }
 
-    request& add_advanced(protocol::flush value)
-    {
-        return add_advanced_impl(value, detail::request_msg_type::flush);
-    }
+    request& add(protocol::flush value) { return add_advanced_impl(value, detail::request_msg_type::flush); }
 
-    request& add_advanced(const protocol::parse_t& value)
+    request& add(const protocol::parse_t& value)
     {
         return add_advanced_impl(value, detail::request_msg_type::parse);
     }
 
-    request& add_advanced(protocol::query value)
-    {
-        return add_advanced_impl(value, detail::request_msg_type::query);
-    }
+    request& add(protocol::query value) { return add_advanced_impl(value, detail::request_msg_type::query); }
 
-    request& add_advanced(protocol::sync value)
-    {
-        return add_advanced_impl(value, detail::request_msg_type::sync);
-    }
+    request& add(protocol::sync value) { return add_advanced_impl(value, detail::request_msg_type::sync); }
 };
 
 namespace detail {

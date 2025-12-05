@@ -15,6 +15,7 @@
 #include "nativepg/protocol/common.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/parse.hpp"
+#include "nativepg/protocol/sync.hpp"
 #include "nativepg/request.hpp"
 
 using namespace nativepg;
@@ -40,39 +41,35 @@ request& request::add_query(
             oids.push_back(detail::parameter_ref_access::type_oid(p));
     }
 
-    add_advanced(protocol::parse_t{.statement_name = {}, .query = q, .parameter_type_oids = oids});
+    add(protocol::parse_t{.statement_name = {}, .query = q, .parameter_type_oids = oids});
 
-    add_advanced(
-        protocol::bind{
-            .portal_name = {},
-            .statement_name = {},
-            .parameter_fmt_codes = use_binary ? protocol::format_code::binary : protocol::format_code::text,
-            .parameters_fn =
-                [params, use_binary, this](protocol::bind_context& ctx) {
-                    for (const parameter_ref& param : params)
-                    {
-                        // TODO: this is bypassing the bind_context API, review
-                        ctx.start_parameter();
-                        if (use_binary)
-                            detail::parameter_ref_access::serialize_binary(param, buffer_);
-                        else
-                            detail::parameter_ref_access::serialize_text(param, buffer_);
-                    }
-                },
-            .result_fmt_codes = result_codes,
-        }
-    );
+    add(protocol::bind{
+        .portal_name = {},
+        .statement_name = {},
+        .parameter_fmt_codes = use_binary ? protocol::format_code::binary : protocol::format_code::text,
+        .parameters_fn =
+            [params, use_binary, this](protocol::bind_context& ctx) {
+                for (const parameter_ref& param : params)
+                {
+                    // TODO: this is bypassing the bind_context API, review
+                    ctx.start_parameter();
+                    if (use_binary)
+                        detail::parameter_ref_access::serialize_binary(param, buffer_);
+                    else
+                        detail::parameter_ref_access::serialize_text(param, buffer_);
+                }
+            },
+        .result_fmt_codes = result_codes,
+    });
 
-    add_advanced(protocol::describe{protocol::portal_or_statement::portal, {}});
+    add(protocol::describe{protocol::portal_or_statement::portal, {}});
 
-    add_advanced(
-        protocol::execute{
-            .portal_name = {},
-            .max_num_rows = 0,
-        }
-    );
+    add(protocol::execute{
+        .portal_name = {},
+        .max_num_rows = 0,
+    });
 
-    return add_sync();
+    return add(protocol::sync{});
 }
 
 request& request::add_execute(
@@ -83,33 +80,29 @@ request& request::add_execute(
 {
     // Bind. In this version we stick to text because
     // we don't know whether the user sent the required type OIDs in parse
-    add_advanced(
-        protocol::bind{
-            .portal_name = {},
-            .statement_name = statement_name,
-            .parameter_fmt_codes = protocol::format_code::text,
-            .parameters_fn =
-                [params, this](protocol::bind_context& ctx) {
-                    for (const parameter_ref& param : params)
-                    {
-                        ctx.start_parameter();
-                        detail::parameter_ref_access::serialize_text(param, buffer_);
-                    }
-                },
-            .result_fmt_codes = result_codes,
-        }
-    );
+    add(protocol::bind{
+        .portal_name = {},
+        .statement_name = statement_name,
+        .parameter_fmt_codes = protocol::format_code::text,
+        .parameters_fn =
+            [params, this](protocol::bind_context& ctx) {
+                for (const parameter_ref& param : params)
+                {
+                    ctx.start_parameter();
+                    detail::parameter_ref_access::serialize_text(param, buffer_);
+                }
+            },
+        .result_fmt_codes = result_codes,
+    });
 
     // Describe
-    add_advanced(protocol::describe{protocol::portal_or_statement::portal, {}});
+    add(protocol::describe{protocol::portal_or_statement::portal, {}});
 
     // Execute
-    add_advanced(
-        protocol::execute{
-            .portal_name = {},
-            .max_num_rows = 0,
-        }
-    );
+    add(protocol::execute{
+        .portal_name = {},
+        .max_num_rows = 0,
+    });
 
-    return add_sync();
+    return add(protocol::sync{});
 }

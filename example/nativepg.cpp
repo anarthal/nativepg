@@ -87,11 +87,10 @@ int main()
     std::cout << "Done\n";
 
     // Now go send our messages
-    statement<int, std::string_view> stmt{"hola"};
     request req;
     // req.add_simple_query("SELECT 1");
-    req.add_prepare("SELECT $1, $2", stmt);
-    req.add_execute(stmt, 50, "adios");
+    req.add_prepare("SELECT $1, $2", "hola");
+    req.add_execute("hola", {50, "adios"});
     asio::write(sock, asio::buffer(req.payload()));
 
     size = sock.read_some(asio::buffer(buffer));

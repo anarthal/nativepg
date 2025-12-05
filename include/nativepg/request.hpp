@@ -191,13 +191,6 @@ public:
     // Low-level. Adds a sync message (PQsendPipelineSync)
     request& add_sync() { return add_advanced(protocol::sync{}); }
 
-    // Low-level. Adds a bind message
-    request& add_bind(
-        std::string_view statement_name,
-        std::span<const parameter_ref> params,
-        protocol::format_code result_codes
-    );
-
     // Low-level
     request& add_advanced(const protocol::bind& value)
     {

@@ -40,45 +40,39 @@ request& request::add_query(
             oids.push_back(detail::parameter_ref_access::type_oid(p));
     }
 
-    // Parse message
     add_advanced(protocol::parse_t{.statement_name = {}, .query = q, .parameter_type_oids = oids});
 
-    // Rest of the messages
-    return add_execute(std::string_view{}, params, result_codes);
-}
+    add_advanced(
+        protocol::bind{
+            .portal_name = {},
+            .statement_name = {},
+            .parameter_fmt_codes = use_binary ? protocol::format_code::binary : protocol::format_code::text,
+            .parameters_fn =
+                [params, use_binary, this](protocol::bind_context& ctx) {
+                    for (const parameter_ref& param : params)
+                    {
+                        // TODO: this is bypassing the bind_context API, review
+                        ctx.start_parameter();
+                        if (use_binary)
+                            detail::parameter_ref_access::serialize_binary(param, buffer_);
+                        else
+                            detail::parameter_ref_access::serialize_text(param, buffer_);
+                    }
+                },
+            .result_fmt_codes = result_codes,
+        }
+    );
 
-request& request::add_bind(
-    std::string_view statement_name,
-    std::span<const parameter_ref> params,
-    protocol::format_code result_codes
-)
-{
-    // If all parameters support binary, do binary. Otherwise, do text
-    // TODO: provide a way to override this?
-    bool use_binary = std::all_of(params.begin(), params.end(), [](parameter_ref p) {
-        return detail::parameter_ref_access::supports_binary(p);
-    });
-    auto fmt_code = use_binary ? protocol::format_code::binary : protocol::format_code::text;
-    protocol::bind b{
-        .portal_name = {},
-        .statement_name = statement_name,
-        .parameter_fmt_codes = fmt_code,
-        .parameters_fn =
-            [params, use_binary, this](protocol::bind_context& ctx) {
-                for (const parameter_ref& param : params)
-                {
-                    // TODO: this is bypassing the bind_context API, review
-                    ctx.start_parameter();
-                    if (use_binary)
-                        detail::parameter_ref_access::serialize_binary(param, buffer_);
-                    else
-                        detail::parameter_ref_access::serialize_text(param, buffer_);
-                }
-            },
-        .result_fmt_codes = result_codes,
-    };
+    add_advanced(protocol::describe{protocol::portal_or_statement::portal, {}});
 
-    return add_advanced(b);
+    add_advanced(
+        protocol::execute{
+            .portal_name = {},
+            .max_num_rows = 0,
+        }
+    );
+
+    return add_sync();
 }
 
 request& request::add_execute(
@@ -87,11 +81,27 @@ request& request::add_execute(
     protocol::format_code result_codes
 )
 {
-    // Bind
-    add_bind(statement_name, params, result_codes);
+    // Bind. In this version we stick to text because
+    // we don't know whether the user sent the required type OIDs in parse
+    add_advanced(
+        protocol::bind{
+            .portal_name = {},
+            .statement_name = statement_name,
+            .parameter_fmt_codes = protocol::format_code::text,
+            .parameters_fn =
+                [params, this](protocol::bind_context& ctx) {
+                    for (const parameter_ref& param : params)
+                    {
+                        ctx.start_parameter();
+                        detail::parameter_ref_access::serialize_text(param, buffer_);
+                    }
+                },
+            .result_fmt_codes = result_codes,
+        }
+    );
 
     // Describe
-    add_advanced(protocol::describe{protocol::portal_or_statement::portal, std::string_view{}});
+    add_advanced(protocol::describe{protocol::portal_or_statement::portal, {}});
 
     // Execute
     add_advanced(

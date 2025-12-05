@@ -35,6 +35,7 @@ request& request::add_query(
     boost::container::small_vector<std::int32_t, 128u> oids;
     if (use_binary)
     {
+        oids.reserve(params.size());
         for (const auto& p : params)
             oids.push_back(detail::parameter_ref_access::type_oid(p));
     }
@@ -60,7 +61,7 @@ request& request::add_bind(
     auto fmt_code = use_binary ? protocol::format_code::binary : protocol::format_code::text;
     protocol::bind b{
         .portal_name = {},
-        .statement_name = {},
+        .statement_name = statement_name,
         .parameter_fmt_codes = fmt_code,
         .parameters_fn =
             [params, use_binary, this](protocol::bind_context& ctx) {

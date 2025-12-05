@@ -13,10 +13,12 @@
 #include <boost/system/system_error.hpp>
 #include <boost/throw_exception.hpp>
 
+#include <array>
 #include <cstdint>
 #include <initializer_list>
 #include <span>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include "nativepg/parameter_ref.hpp"
@@ -47,6 +49,12 @@ enum class request_msg_type
 struct request_access;
 }  // namespace detail
 
+template <class... Params>
+struct statement
+{
+    std::string name;
+};
+
 class request
 {
     std::vector<unsigned char> buffer_;
@@ -60,21 +68,6 @@ class request
         // TODO: source loc
         if (ec)
             BOOST_THROW_EXCEPTION(boost::system::system_error(ec));
-    }
-
-    void add_prepare_raw(
-        std::string_view query,
-        std::string_view statement_name,
-        boost::span<const std::int32_t> parameter_type_oids = {}
-    )
-    {
-        add_advanced(
-            protocol::parse_t{
-                .statement_name = statement_name,
-                .query = query,
-                .parameter_type_oids = parameter_type_oids,
-            }
-        );
     }
 
     template <class T>
@@ -113,23 +106,50 @@ public:
     );
 
     // Prepares a named statement (PQsendPrepare)
+    // TODO: keep this?
     request& add_prepare(
         std::string_view query,
         std::string_view statement_name,
         boost::span<const std::int32_t> parameter_type_oids = {}
     )
     {
-        add_prepare_raw(query, statement_name, parameter_type_oids);
-        add_sync();
-        return *this;
+        add_advanced(
+            protocol::parse_t{
+                .statement_name = statement_name,
+                .query = query,
+                .parameter_type_oids = parameter_type_oids,
+            }
+        );
+        return add_sync();
+    }
+
+    // Prepares a named statement (PQsendPrepare)
+    template <class... Params>
+    request& add_prepare(std::string_view query, const statement<Params...>& stmt)
+    {
+        std::array<std::int32_t, sizeof...(Params)> type_oids{{detail::parameter_type_oid<Params>::value...}};
+        return add_prepare(query, stmt.name, type_oids);
     }
 
     // Executes a named prepared statement (PQsendQueryPrepared)
+    // TODO: keep this?
     request& add_execute(
         std::string_view statement_name,
         std::span<const parameter_ref> params,
         protocol::format_code result_codes
     );
+
+    // Executes a named prepared statement (PQsendQueryPrepared)
+    template <class... Params>
+    request& add_execute(
+        const statement<Params...>& stmt,
+        const std::type_identity_t<Params>&... params,
+        protocol::format_code result_codes = protocol::format_code::text
+    )
+    {
+        std::array<parameter_ref, sizeof...(Params)> erased_params{{params...}};
+        return add_execute(stmt.name, erased_params, result_codes);
+    }
 
     // Describes a named prepared statement (PQsendDescribePrepared)
     request& add_describe_statement(std::string_view statement_name)

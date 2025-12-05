@@ -21,6 +21,7 @@
 #include <iostream>
 #include <source_location>
 #include <stdexcept>
+#include <string_view>
 #include <vector>
 
 #include "nativepg/protocol/startup.hpp"
@@ -86,9 +87,11 @@ int main()
     std::cout << "Done\n";
 
     // Now go send our messages
+    statement<int, std::string_view> stmt{"hola"};
     request req;
     // req.add_simple_query("SELECT 1");
-    req.add_query("select $1", {42});
+    req.add_prepare("SELECT $1, $2", stmt);
+    req.add_execute(stmt, 50, "adios");
     asio::write(sock, asio::buffer(req.payload()));
 
     size = sock.read_some(asio::buffer(buffer));

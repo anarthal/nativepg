@@ -136,8 +136,17 @@ public:
     request& add_execute(
         std::string_view statement_name,
         std::span<const parameter_ref> params,
-        protocol::format_code result_codes
+        protocol::format_code result_codes = protocol::format_code::text
     );
+
+    request& add_execute(
+        std::string_view statement_name,
+        std::initializer_list<parameter_ref> params,
+        protocol::format_code result_codes = protocol::format_code::text
+    )
+    {
+        return add_execute(statement_name, std::span<const parameter_ref>(params), result_codes);
+    }
 
     // Executes a named prepared statement (PQsendQueryPrepared)
     template <class... Params>

@@ -61,7 +61,7 @@ void check_messages(
     NATIVEPG_TEST_CONT_EQ(detail::request_access::messages(req), expected);
 }
 
-void test_query()
+void test_simple_query()
 {
     request req;
     req.add_simple_query("select 1;");
@@ -77,7 +77,7 @@ void test_query()
 
 int main()
 {
-    test_query();
+    test_simple_query();
 
     return boost::report_errors();
 }

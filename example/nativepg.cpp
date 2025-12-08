@@ -24,7 +24,14 @@
 #include <string_view>
 #include <vector>
 
+#include "nativepg/parameter_ref.hpp"
+#include "nativepg/protocol/bind.hpp"
+#include "nativepg/protocol/common.hpp"
+#include "nativepg/protocol/describe.hpp"
+#include "nativepg/protocol/execute.hpp"
+#include "nativepg/protocol/parse.hpp"
 #include "nativepg/protocol/startup.hpp"
+#include "nativepg/protocol/sync.hpp"
 #include "nativepg/request.hpp"
 
 namespace asio = boost::asio;
@@ -87,10 +94,18 @@ int main()
     std::cout << "Done\n";
 
     // Now go send our messages
-    request req;
+    request req(false);
     // req.add_simple_query("SELECT 1");
-    req.add_prepare("SELECT $1, $2", "hola");
-    req.add_execute("hola", {50, "adios"});
+    statement<int> s1{"hola"};
+    statement<std::string_view> s2{"adios"};
+
+    req.add_prepare("SELECT * FROM myt WHERE f1 <> $1", s2)
+        .add_bind(s2, "value2")
+        .add(protocol::describe{protocol::portal_or_statement::portal, {}})
+        .add(protocol::execute{.portal_name = {}, .max_num_rows = 1})
+        .add(protocol::execute{.portal_name = {}, .max_num_rows = 2})
+        .add(protocol::sync{});
+
     asio::write(sock, asio::buffer(req.payload()));
 
     size = sock.read_some(asio::buffer(buffer));

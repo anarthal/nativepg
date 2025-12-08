@@ -55,13 +55,7 @@ request& request::add_query(
 
     // Add the messages
     add(protocol::parse_t{.statement_name = {}, .query = q, .parameter_type_oids = oids});
-    add_bind({}, params, fmt, {}, result_codes);
-    add(protocol::describe{protocol::portal_or_statement::portal, {}});
-    add(protocol::execute{
-        .portal_name = {},
-        .max_num_rows = 0,
-    });
-    maybe_add_sync();
+    add_execute({}, params, fmt, result_codes);
 
     return *this;
 }

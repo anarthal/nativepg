@@ -53,6 +53,12 @@ template <class... Params>
 struct statement
 {
     std::string name;
+
+    // TODO: keep this?
+    static std::array<std::int32_t, sizeof...(Params)> type_oids()
+    {
+        return {detail::parameter_type_oid<Params>::value...};
+    }
 };
 
 class request
@@ -184,7 +190,6 @@ public:
         return add(protocol::sync{});
     }
 
-    // Low-level
     request& add(const protocol::bind& value)
     {
         return add_advanced_impl(value, detail::request_msg_type::bind);

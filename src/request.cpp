@@ -48,15 +48,14 @@ request& request::add_query(
         .statement_name = {},
         .parameter_fmt_codes = use_binary ? protocol::format_code::binary : protocol::format_code::text,
         .parameters_fn =
-            [params, use_binary, this](protocol::bind_context& ctx) {
+            [params, use_binary](protocol::bind_context& ctx) {
                 for (const parameter_ref& param : params)
                 {
-                    // TODO: this is bypassing the bind_context API, review
                     ctx.start_parameter();
                     if (use_binary)
-                        detail::parameter_ref_access::serialize_binary(param, buffer_);
+                        detail::parameter_ref_access::serialize_binary(param, ctx.buffer());
                     else
-                        detail::parameter_ref_access::serialize_text(param, buffer_);
+                        detail::parameter_ref_access::serialize_text(param, ctx.buffer());
                 }
             },
         .result_fmt_codes = result_codes,
@@ -85,11 +84,11 @@ request& request::add_execute(
         .statement_name = statement_name,
         .parameter_fmt_codes = protocol::format_code::text,
         .parameters_fn =
-            [params, this](protocol::bind_context& ctx) {
+            [params](protocol::bind_context& ctx) {
                 for (const parameter_ref& param : params)
                 {
                     ctx.start_parameter();
-                    detail::parameter_ref_access::serialize_text(param, buffer_);
+                    detail::parameter_ref_access::serialize_text(param, ctx.buffer());
                 }
             },
         .result_fmt_codes = result_codes,

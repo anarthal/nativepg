@@ -53,12 +53,6 @@ template <class... Params>
 struct statement
 {
     std::string name;
-
-    // TODO: keep this?
-    static std::array<std::int32_t, sizeof...(Params)> type_oids()
-    {
-        return {detail::parameter_type_oid<Params>::value...};
-    }
 };
 
 class request
@@ -152,7 +146,8 @@ public:
     template <class... Params>
     request& add_prepare(std::string_view query, const statement<Params...>& stmt)
     {
-        return add_prepare(query, stmt.name, stmt.type_oids());
+        std::array<std::int32_t, sizeof...(Params)> type_oids{{detail::parameter_type_oid<Params>::value...}};
+        return add_prepare(query, stmt.name, type_oids);
     }
 
     // Executes a named prepared statement (PQsendQueryPrepared)

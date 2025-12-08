@@ -65,6 +65,7 @@ class request
 {
     std::vector<unsigned char> buffer_;
     std::vector<detail::request_msg_type> types_;
+    bool autosync_;
 
     friend struct detail::request_access;
 
@@ -85,8 +86,21 @@ class request
         return *this;
     }
 
+    void maybe_add_sync()
+    {
+        if (autosync_)
+            add(protocol::sync{});
+    }
+
 public:
-    request() = default;
+    // When autosync is enabled, sync messages are added automatically.
+    // You may disable autosync and add syncs manually to achieve certain
+    // pipeline patterns. This is an advanced feature, don't use it if you
+    // don't know what a sync message is.
+    request(bool autosync = true) noexcept : autosync_(autosync) {}
+
+    bool autosync() const { return autosync_; }
+    void set_autosync(bool value) { autosync_ = value; }
 
     // Returns the serialized payload
     boost::span<const unsigned char> payload() const { return buffer_; }
@@ -123,7 +137,8 @@ public:
             .query = query,
             .parameter_type_oids = parameter_type_oids,
         });
-        return add(protocol::sync{});
+        maybe_add_sync();
+        return *this;
     }
 
     // Prepares a named statement (PQsendPrepare)
@@ -166,28 +181,32 @@ public:
     request& add_describe_statement(std::string_view statement_name)
     {
         add(protocol::describe{protocol::portal_or_statement::statement, statement_name});
-        return add(protocol::sync{});
+        maybe_add_sync();
+        return *this;
     }
 
     // Describes a named portal (PQsendDescribePortal)
     request& add_describe_portal(std::string_view portal_name)
     {
         add(protocol::describe{protocol::portal_or_statement::portal, portal_name});
-        return add(protocol::sync{});
+        maybe_add_sync();
+        return *this;
     }
 
     // Closes a named prepared statement (PQsendClosePrepared)
     request& add_close_statement(std::string_view statement_name)
     {
         add(protocol::close{protocol::portal_or_statement::statement, statement_name});
-        return add(protocol::sync{});
+        maybe_add_sync();
+        return *this;
     }
 
     // Closes a named portal (PQsendClosePortal)
     request& add_close_portal(std::string_view portal_name)
     {
         add(protocol::close{protocol::portal_or_statement::portal, portal_name});
-        return add(protocol::sync{});
+        maybe_add_sync();
+        return *this;
     }
 
     request& add(const protocol::bind& value)

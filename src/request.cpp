@@ -68,7 +68,9 @@ request& request::add_query(
         .max_num_rows = 0,
     });
 
-    return add(protocol::sync{});
+    maybe_add_sync();
+
+    return *this;
 }
 
 request& request::add_execute(
@@ -103,5 +105,7 @@ request& request::add_execute(
         .max_num_rows = 0,
     });
 
-    return add(protocol::sync{});
+    maybe_add_sync();
+
+    return *this;
 }

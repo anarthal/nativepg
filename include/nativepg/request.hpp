@@ -113,17 +113,19 @@ public:
         std::string_view q,
         std::initializer_list<parameter_ref> params,
         param_format fmt = param_format::select_best,
-        protocol::format_code result_codes = protocol::format_code::text
+        protocol::format_code result_codes = protocol::format_code::text,
+        std::int32_t max_num_rows = 0
     )
     {
-        return add_query(q, std::span<const parameter_ref>(params), fmt, result_codes);
+        return add_query(q, std::span<const parameter_ref>(params), fmt, result_codes, max_num_rows);
     }
 
     request& add_query(
         std::string_view q,
         std::span<const parameter_ref> params,
         param_format fmt = param_format::select_best,
-        protocol::format_code result_codes = protocol::format_code::text
+        protocol::format_code result_codes = protocol::format_code::text,
+        std::int32_t max_num_rows = 0
     );
 
     // Prepares a named statement (PQsendPrepare)
@@ -157,17 +159,25 @@ public:
         std::string_view statement_name,
         std::initializer_list<parameter_ref> params,
         param_format fmt = param_format::text,
-        protocol::format_code result_codes = protocol::format_code::text
+        protocol::format_code result_codes = protocol::format_code::text,
+        std::int32_t max_num_rows = 0
     )
     {
-        return add_execute(statement_name, std::span<const parameter_ref>(params), fmt, result_codes);
+        return add_execute(
+            statement_name,
+            std::span<const parameter_ref>(params),
+            fmt,
+            result_codes,
+            max_num_rows
+        );
     }
 
     request& add_execute(
         std::string_view statement_name,
         std::span<const parameter_ref> params,
         param_format fmt = param_format::text,
-        protocol::format_code result_codes = protocol::format_code::text
+        protocol::format_code result_codes = protocol::format_code::text,
+        std::int32_t max_num_rows = 0
     );
 
     // Executes a named prepared statement (PQsendQueryPrepared)
@@ -176,10 +186,11 @@ public:
         const statement<Params...>& stmt,
         const std::type_identity_t<Params>&... params,
         param_format fmt = param_format::select_best,
-        protocol::format_code result_codes = protocol::format_code::text
+        protocol::format_code result_codes = protocol::format_code::text,
+        std::int32_t max_num_rows = 0
     )
     {
-        return add_execute(stmt.name, {params...}, fmt, result_codes);
+        return add_execute(stmt.name, {params...}, fmt, result_codes, max_num_rows);
     }
 
     // Describes a named prepared statement (PQsendDescribePrepared)

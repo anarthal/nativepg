@@ -40,7 +40,8 @@ request& request::add_query(
     std::string_view q,
     std::span<const parameter_ref> params,
     param_format fmt,
-    protocol::format_code result_codes
+    protocol::format_code result_codes,
+    std::int32_t max_num_rows
 )
 {
     // Determine the parameter OIDs. These are required if using binary
@@ -55,7 +56,7 @@ request& request::add_query(
 
     // Add the messages
     add(protocol::parse_t{.statement_name = {}, .query = q, .parameter_type_oids = oids});
-    add_execute({}, params, fmt, result_codes);
+    add_execute({}, params, fmt, result_codes, max_num_rows);
 
     return *this;
 }
@@ -64,14 +65,15 @@ request& request::add_execute(
     std::string_view statement_name,
     std::span<const parameter_ref> params,
     param_format fmt,
-    protocol::format_code result_codes
+    protocol::format_code result_codes,
+    std::int32_t max_num_rows
 )
 {
     add_bind(statement_name, params, fmt, {}, result_codes);
     add(protocol::describe{protocol::portal_or_statement::portal, {}});
     add(protocol::execute{
         .portal_name = {},
-        .max_num_rows = 0,
+        .max_num_rows = max_num_rows,
     });
     maybe_add_sync();
 

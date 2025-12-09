@@ -1,0 +1,76 @@
+
+name: CI
+
+on: [pull_request]
+
+# TODO: Windows
+
+jobs:
+  posix-cmake:
+    name: "CMake ${{ matrix.compiler }} ${{ matrix.cxxstd }} ${{ matrix.build-type }} ${{ matrix.cxxflags }}"
+    defaults:
+      run:
+        shell: bash
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: g++-13
+            container: build-gcc13
+            cxxstd: '20'
+            build-type: 'Debug'
+            cxxflags: '-fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all'
+            ldflags: '-fsanitize=address -fsanitize=undefined'
+
+          - compiler: g++-13
+            container: build-gcc13
+            cxxstd: '20'
+            build-type: 'Release'
+
+          - compiler: clang++-20
+            container: build-clang20
+            cxxstd: '20'
+            build-type: 'Debug'
+            cxxflags: '-fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all'
+            ldflags: '-fsanitize=address -fsanitize=undefined'
+
+          - compiler: clang++-20
+            container: build-clang20
+            cxxstd: '20'
+            build-type: 'Release'
+          
+    runs-on: ${{ matrix.container }}
+    env:
+      CXXFLAGS: ${{matrix.cxxflags}} -Wall -Wextra
+      LDFLAGS:  ${{matrix.ldflags}}
+      CMAKE_BUILD_PARALLEL_LEVEL: 4
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Setup Boost
+      run: |
+        mkdir ~/boost-download
+        cd ~/boost-download
+        apt-get update
+        apt-get install --no-install-recommends -y wget
+        wget -q https://github.com/boostorg/boost/releases/download/boost-1.89.0/boost-1.89.0-b2-nodocs.tar.gz
+        tar -xf boost-1.89.0-b2-nodocs.tar.gz
+        cd boost-1.89.0
+        ./bootstrap.sh
+        ./b2 --with-json --prefix=/opt/boost -d0 install
+    
+    - name: Build the code and run the tests
+      run: |
+        mkdir __build
+        cd __build
+        cmake \
+          -DCMAKE_CXX_COMPILER=${{ matrix.toolset }} \
+          -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} \
+          -DCMAKE_CXX_STANDARD=${{ matrix.cxxstd }} \
+          -DBUILD_TESTING=ON \
+          ..
+        cmake --build .
+        ctest --output-on-failure

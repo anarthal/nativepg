@@ -16,26 +16,30 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - compiler: g++-13
+          - id: gcc13-debug
+            compiler: g++-13
             container: build-gcc13
             cxxstd: '20'
             build-type: 'Debug'
             cxxflags: '-fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all'
             ldflags: '-fsanitize=address -fsanitize=undefined'
 
-          - compiler: g++-13
+          - id: gcc13-release
+            compiler: g++-13
             container: build-gcc13
             cxxstd: '20'
             build-type: 'Release'
 
-          - compiler: clang++-20
+          - id: clang20-debug
+            compiler: clang++-20
             container: build-clang20
             cxxstd: '20'
             build-type: 'Debug'
             cxxflags: '-fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all'
             ldflags: '-fsanitize=address -fsanitize=undefined'
 
-          - compiler: clang++-20
+          - id: clang20-release
+            compiler: clang++-20
             container: build-clang20
             cxxstd: '20'
             build-type: 'Release'
@@ -51,12 +55,20 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
     
+    - name: Cache Boost
+      id: cache-boost
+      uses: actions/cache@v4
+      with:
+        path: /opt/boost
+        key: ${{ matrix.id }}-boost
+    
     - name: Setup Boost
+      if: steps.cache-boost.outputs.cache-hit != 'true'
       run: |
-        mkdir ~/boost-download
-        cd ~/boost-download
         apt-get update
         apt-get install --no-install-recommends -y wget
+        mkdir ~/boost-download
+        cd ~/boost-download
         wget -q https://github.com/boostorg/boost/releases/download/boost-1.89.0/boost-1.89.0-b2-nodocs.tar.gz
         tar -xf boost-1.89.0-b2-nodocs.tar.gz
         cd boost-1.89.0

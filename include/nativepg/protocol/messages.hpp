@@ -17,10 +17,17 @@
 
 #include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/bind.hpp"
+#include "nativepg/protocol/close.hpp"
+#include "nativepg/protocol/command_complete.hpp"
 #include "nativepg/protocol/copy.hpp"
+#include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
-#include "nativepg/protocol/execution.hpp"
+#include "nativepg/protocol/empty_query_response.hpp"
+#include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/notice_error.hpp"
+#include "nativepg/protocol/parse.hpp"
+#include "nativepg/protocol/query.hpp"
+#include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/protocol/startup.hpp"
 
 namespace nativepg {

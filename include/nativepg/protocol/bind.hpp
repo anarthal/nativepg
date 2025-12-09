@@ -25,6 +25,9 @@ namespace detail {
 struct bind_context_access;
 }
 
+// Used within the user-supplied callback for bind parameters.
+// For each parameter you want to add, call start_parameter(),
+// then serialize the parameter into buffer()
 class bind_context
 {
     static inline constexpr std::size_t no_offset = static_cast<std::size_t>(-1);
@@ -42,6 +45,9 @@ public:
     // Constructor - usually called by the library
     bind_context(std::vector<unsigned char>& buff) noexcept : buff_(buff) {}
 
+    // Retrieves the serialization buffer
+    std::vector<unsigned char>& buffer() noexcept { return buff_; }
+
     // Starts a parameter. Add its value with one or several add_parameter_chunk calls
     void start_parameter()
     {
@@ -54,13 +60,6 @@ public:
 
         // Allocate space for the parameter size
         buff_.resize(buff_.size() + 4u);
-    }
-
-    // Adds a chunk to a parameter
-    void add_parameter_chunk(boost::span<const unsigned char> data)
-    {
-        BOOST_ASSERT(param_offset_ != no_offset);
-        buff_.insert(buff_.end(), data.begin(), data.end());
     }
 
     // Marks the serialization as failed. Only the first error is retained

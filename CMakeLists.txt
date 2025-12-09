@@ -20,12 +20,15 @@ add_library(nativepg
     # External API
     src/error.cpp
     src/messages.cpp
+    src/request.cpp
 )
 target_link_libraries(nativepg PUBLIC Boost::headers Boost::charconv OpenSSL::SSL OpenSSL::Crypto)
 target_include_directories(nativepg PUBLIC include)
 target_include_directories(nativepg PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 # Tests
+include(CTest)
+enable_testing()
 add_library(nativepg_test_utils STATIC test/test_utils/test_utils.cpp)
 target_include_directories(nativepg_test_utils PUBLIC test/test_utils/)
 target_link_libraries(nativepg_test_utils PUBLIC Boost::headers)
@@ -46,4 +49,9 @@ if (BUILD_TESTING)
     add_unit_test(protocol          test_scram_sha256_server_first_message)
     add_unit_test(protocol          test_scram_sha256_client_final_message)
     add_unit_test(protocol          test_scram_sha256_server_final_message)
+    add_unit_test(""                test_request)
 endif()
+
+# Examples
+add_executable(nativepg_example example/nativepg.cpp)
+target_link_libraries(nativepg_example PRIVATE nativepg)

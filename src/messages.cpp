@@ -586,7 +586,7 @@ std::int32_t nativepg::protocol::detail::random_access_traits<std::int32_t>::der
 
 boost::system::error_code nativepg::protocol::parse(
     boost::span<const unsigned char> data,
-    parameter_description& to
+    parameter_description&
 )
 {
     detail::parse_context ctx(data);

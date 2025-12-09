@@ -18,6 +18,7 @@
 #include <boost/throw_exception.hpp>
 #include <boost/variant2/variant.hpp>
 
+#include <cstddef>
 #include <iostream>
 #include <source_location>
 #include <stdexcept>
@@ -54,7 +55,7 @@ int main()
     // Send login request
     std::vector<unsigned char> buffer;
     auto ec = protocol::serialize(
-        protocol::startup_message{.user = "postgres", .database = "postgres"},
+        protocol::startup_message{.user = "postgres", .database = "postgres", .params = {}},
         buffer
     );
     check(ec);
@@ -84,7 +85,7 @@ int main()
         if (l < 4)
             throw std::runtime_error("Bad length");
         l -= 4;
-        if (view.size() < l)
+        if (view.size() < static_cast<std::size_t>(l))
             throw std::runtime_error("Not enough data for body");
 
         // Message

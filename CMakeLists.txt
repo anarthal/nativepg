@@ -6,10 +6,9 @@
 #
 
 cmake_minimum_required(VERSION 3.10..3.31)
-project(nativepg)
+project(nativepg LANGUAGES CXX)
 
 find_package(boost_headers REQUIRED)
-find_package(boost_charconv REQUIRED)
 find_package(OpenSSL REQUIRED)
 
 # Library
@@ -22,7 +21,7 @@ add_library(nativepg
     src/messages.cpp
     src/request.cpp
 )
-target_link_libraries(nativepg PUBLIC Boost::headers Boost::charconv OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(nativepg PUBLIC Boost::headers OpenSSL::SSL OpenSSL::Crypto)
 target_include_directories(nativepg PUBLIC include)
 target_include_directories(nativepg PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 

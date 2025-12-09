@@ -1,0 +1,98 @@
+
+name: CI
+
+on: [pull_request]
+
+# TODO: Windows
+
+jobs:
+  posix-cmake:
+    name: "CMake ${{ matrix.compiler }} ${{ matrix.cxxstd }} ${{ matrix.build-type }} ${{ matrix.cxxflags }}"
+    defaults:
+      run:
+        shell: bash
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: gcc13-debug
+            compiler: g++-13
+            container: build-gcc13
+            cxxstd: '20'
+            build-type: 'Debug'
+            cxxflags: '-fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all'
+            ldflags: '-fsanitize=address -fsanitize=undefined'
+
+          - id: gcc13-release
+            compiler: g++-13
+            container: build-gcc13
+            cxxstd: '20'
+            build-type: 'Release'
+
+          - id: clang20-debug
+            compiler: clang++-20
+            container: build-clang20
+            cxxstd: '20'
+            build-type: 'Debug'
+            cxxflags: '-fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all'
+            ldflags: '-fsanitize=address -fsanitize=undefined'
+
+          - id: clang20-release
+            compiler: clang++-20
+            container: build-clang20
+            cxxstd: '20'
+            build-type: 'Release'
+          
+    runs-on: ubuntu-latest
+    container: ghcr.io/anarthal/cpp-ci-containers/${{ matrix.container }}
+    env:
+      CXX: ${{matrix.compiler}}
+      CXXFLAGS: ${{matrix.cxxflags}} -Wall -Wextra
+      LDFLAGS:  ${{matrix.ldflags}}
+      CMAKE_BUILD_PARALLEL_LEVEL: 4
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Restore Boost from cache
+      id: restore-boost
+      uses: actions/cache/restore@v4
+      with:
+        path: /opt/boost
+        key: ${{ matrix.id }}-boost-1.89.0
+    
+    - name: Setup Boost
+      if: steps.restore-boost.outputs.cache-hit != 'true'
+      run: |
+        apt-get update
+        apt-get install --no-install-recommends -y wget
+        mkdir ~/boost-download
+        cd ~/boost-download
+        wget -q https://github.com/boostorg/boost/releases/download/boost-1.89.0/boost-1.89.0-b2-nodocs.tar.gz
+        tar -xf boost-1.89.0-b2-nodocs.tar.gz
+        cd boost-1.89.0
+        ./bootstrap.sh
+        ./b2 --with-headers --prefix=/opt/boost -d0 install
+    
+    - name: Save Boost to cache
+      if: steps.restore-boost.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: /opt/boost
+        key: ${{ matrix.id }}-boost-1.89.0
+    
+    - name: Build the code and run the tests
+      run: |
+        mkdir __build
+        cd __build
+        cmake \
+          -G Ninja \
+          -DCMAKE_PREFIX_PATH=/opt/boost \
+          -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} \
+          -DCMAKE_CXX_STANDARD=${{ matrix.cxxstd }} \
+          -DBUILD_TESTING=ON \
+          ..
+        cmake --build .
+        ctest --output-on-failure

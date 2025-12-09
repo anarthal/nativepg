@@ -89,6 +89,7 @@ jobs:
         cd __build
         cmake \
           -G Ninja \
+          -DCMAKE_PREFIX_PATH=/opt/boost \
           -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} \
           -DCMAKE_CXX_STANDARD=${{ matrix.cxxstd }} \
           -DBUILD_TESTING=ON \

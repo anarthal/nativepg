@@ -47,6 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     container: ghcr.io/anarthal/cpp-ci-containers/${{ matrix.container }}
     env:
+      CXX: ${{matrix.compiler}}
       CXXFLAGS: ${{matrix.cxxflags}} -Wall -Wextra
       LDFLAGS:  ${{matrix.ldflags}}
       CMAKE_BUILD_PARALLEL_LEVEL: 4
@@ -81,7 +82,6 @@ jobs:
         cd __build
         cmake \
           -G Ninja \
-          -DCMAKE_CXX_COMPILER=${{ matrix.toolset }} \
           -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} \
           -DCMAKE_CXX_STANDARD=${{ matrix.cxxstd }} \
           -DBUILD_TESTING=ON \

@@ -20,6 +20,7 @@
 #include <boost/variant2/variant.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <iostream>
 #include <source_location>
 #include <stdexcept>
@@ -27,6 +28,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "nativepg/client_errc.hpp"
 #include "nativepg/parameter_ref.hpp"
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/common.hpp"
@@ -51,9 +53,10 @@ static void check(boost::system::error_code ec, std::source_location loc = std::
 
 struct myrow
 {
+    std::int32_t f3;
     std::string f1;
 };
-BOOST_DESCRIBE_STRUCT(myrow, (), (f1))
+BOOST_DESCRIBE_STRUCT(myrow, (), (f3, f1))
 
 int main()
 {
@@ -158,7 +161,9 @@ int main()
                               std::is_same_v<T, protocol::notice_response> ||
                               std::is_same_v<T, protocol::parse_complete>)
                 {
-                    cb(any_request_message(msg));
+                    auto ec = cb(any_request_message(msg));
+                    if (ec && ec != client_errc::needs_more)
+                        throw boost::system::system_error(ec, "Error in parser");
                 }
             },
             parse_result
@@ -169,7 +174,7 @@ int main()
     }
 
     for (const auto& r : vec)
-        std::cout << "Got row: " << r.f1 << std::endl;
+        std::cout << "Got row: " << r.f1 << ", " << r.f3 << std::endl;
 
     std::cout << "Done\n";
 }

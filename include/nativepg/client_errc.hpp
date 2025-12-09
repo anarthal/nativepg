@@ -45,6 +45,10 @@ enum class client_errc : int
     needs_more,
 
     unexpected_message,
+
+    incompatible_type,
+
+    unexpected_null,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

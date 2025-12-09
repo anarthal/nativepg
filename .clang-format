@@ -44,7 +44,7 @@ IncludeCategories:
   - Regex: ".*"
     Priority: -5
     SortPriority: 6
-IndentCaseLabels: false
+IndentCaseLabels: true
 AllowShortCaseLabelsOnASingleLine: true
 AllowAllArgumentsOnNextLine: false
 AllowAllParametersOfDeclarationOnNextLine: false

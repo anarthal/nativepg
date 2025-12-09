@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
+#include "nativepg/field_traits.hpp"
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/close.hpp"
 #include "nativepg/protocol/command_complete.hpp"
@@ -63,18 +64,6 @@ class vector_response
 private:
     std::vector<handler_type> handlers_;
 };
-
-// TODO: field traits, TODO: string diagnostics
-template <class T>
-boost::system::error_code field_is_compatible(const protocol::field_description& desc);
-
-// TODO: implement
-template <class T>
-boost::system::error_code field_parse(
-    std::optional<boost::span<const unsigned char>> from,
-    const protocol::field_description& desc,
-    T& to
-);
 
 // TODO: string diagnostic
 boost::system::error_code compute_pos_map(
@@ -134,7 +123,7 @@ class resultset_callback
             boost::mp11::mp_for_each<type_identities>(
                 [&idx, &ec, &descriptions = self.descriptions_](auto type_identity) {
                     using FieldType = typename decltype(type_identity)::type;
-                    auto ec2 = field_is_compatible<FieldType>(descriptions[idx++]);
+                    auto ec2 = detail::field_is_compatible<FieldType>::call(descriptions[idx++]);
                     if (!ec)
                         ec = ec2;
                 }
@@ -177,7 +166,11 @@ class resultset_callback
             boost::system::error_code ec;
             std::size_t idx = 0u;
             for_each_member(row, [&ec, &idx, &ordered_data, &descs = this->self.descriptions_](auto& member) {
-                boost::system::error_code ec2 = field_parse(ordered_data[idx], descs[idx], member);
+                boost::system::error_code ec2 = detail::field_parse<T>::call(
+                    ordered_data[idx],
+                    descs[idx],
+                    member
+                );
                 if (!ec)
                     ec = ec2;
             });

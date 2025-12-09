@@ -51,7 +51,7 @@ static void check(boost::system::error_code ec, std::source_location loc = std::
 
 struct myrow
 {
-    std::string_view f1;
+    std::string f1;
 };
 BOOST_DESCRIBE_STRUCT(myrow, (), (f1))
 
@@ -115,7 +115,8 @@ int main()
     buffer.resize(size);
 
     // Parse the response
-    auto cb = resultset_callback<myrow>([](myrow r) { std::cout << "Got row: " << r.f1 << std::endl; });
+    std::vector<myrow> vec;
+    auto cb = into(vec);
 
     view = buffer;
     while (true)
@@ -166,6 +167,9 @@ int main()
         // Message
         view = view.subspan(l);
     }
+
+    for (const auto& r : vec)
+        std::cout << "Got row: " << r.f1 << std::endl;
 
     std::cout << "Done\n";
 }

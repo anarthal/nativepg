@@ -232,6 +232,23 @@ auto resultset_callback(Callback&& cb)
     return resultset_callback_t<T, std::decay_t<Callback>>{std::forward<Callback>(cb)};
 }
 
+namespace detail {
+
+template <class T>
+struct into_handler
+{
+    std::vector<T>& vec;
+    void operator()(T&& r) const { vec.push_back(std::move(r)); }
+};
+
+}  // namespace detail
+
+template <class T>
+resultset_callback_t<T, detail::into_handler<T>> into(std::vector<T>& vec)
+{
+    return resultset_callback_t<T, detail::into_handler<T>>{detail::into_handler<T>{vec}};
+}
+
 }  // namespace nativepg
 
 #endif

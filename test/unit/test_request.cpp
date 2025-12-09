@@ -313,6 +313,25 @@ void test_execute_typed_optional_args()
     );
 }
 
+// Describe
+void test_describe_statement()
+{
+    request req;
+    req.add_describe_statement("myname");
+
+    // clang-format off
+    check_payload(req, {
+        // Describe
+        0x44, 0x00, 0x00, 0x00, 0x0c, 0x53, 0x6d, 0x79, 0x6e, 0x61, 0x6d, 0x65, 0x00,
+
+        // Sync
+        0x53, 0x00, 0x00, 0x00, 0x04
+    });
+    // clang-format on
+
+    check_messages(req, {request_msg_type::describe, request_msg_type::sync});
+}
+
 }  // namespace
 
 int main()
@@ -328,6 +347,8 @@ int main()
     test_execute_untyped();
     test_execute_typed();
     test_execute_typed_optional_args();
+
+    test_describe_statement();
 
     return boost::report_errors();
 }

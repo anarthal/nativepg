@@ -38,6 +38,28 @@
 
 namespace nativepg {
 
+namespace detail {
+
+struct pos_map_entry
+{
+    // Index within the fields sent by the DB
+    std::size_t db_index;
+
+    // Metadata required to parse the field
+    protocol::field_description descr;
+};
+
+// TODO: string diagnostic
+boost::system::error_code compute_pos_map(
+    const protocol::row_description& meta,
+    std::span<const std::string_view> name_table,
+    std::span<pos_map_entry> output
+);
+
+inline constexpr std::size_t invalid_pos = static_cast<std::size_t>(-1);
+
+}  // namespace detail
+
 // TODO: maybe make this a class
 using any_request_message = boost::variant2::variant<
     protocol::bind_complete,
@@ -65,13 +87,6 @@ private:
     std::vector<handler_type> handlers_;
 };
 
-// TODO: string diagnostic
-boost::system::error_code compute_pos_map(
-    const protocol::row_description& meta,
-    std::span<const std::string_view> name_table,
-    std::vector<std::size_t> output
-);
-
 template <class T, std::invocable<T&&> Callback>
 class resultset_callback
 {
@@ -83,9 +98,8 @@ class resultset_callback
     };
 
     state_t state_{state_t::parsing_meta};
-    std::vector<std::size_t> pos_map_;
-    std::array<protocol::field_description, detail::row_size_v<T>> descriptions_;
-    std::array<std::string_view, detail::row_size_v<T>> random_access_data_;
+    std::array<detail::pos_map_entry, detail::row_size_v<T>> pos_map_;
+    std::vector<std::optional<std::span<const unsigned char>>> random_access_data_;
     Callback cb_;
 
     struct visitor
@@ -99,31 +113,18 @@ class resultset_callback
                 return client_errc::unexpected_message;
 
             // Compute the row => C++ map
-            auto ec = compute_pos_map(msg, detail::row_name_table_v<T>, self.pos_map_);
+            auto ec = detail::compute_pos_map(msg, detail::row_name_table_v<T>, self.pos_map_);
             if (ec)
                 return ec;
-
-            // Store the metadata required for parsing
-            std::size_t i = 0u;
-            for (auto it = msg.field_descriptions.begin(); it != msg.field_descriptions.end(); ++i, ++it)
-            {
-                std::size_t cpp_idx = self.pos_map_.at(i);
-                if (cpp_idx != static_cast<std::size_t>(-1))
-                {
-                    protocol::field_description& desc = self.descriptions_.at(cpp_idx);
-                    desc = (*it);
-                    desc.name = {};  // names not retained, as it would require another allocation
-                }
-            }
 
             // Metadata check
             using type_identities = boost::mp11::
                 mp_transform<std::type_identity, detail::row_field_types_t<T>>;
             std::size_t idx = 0u;
             boost::mp11::mp_for_each<type_identities>(
-                [&idx, &ec, &descriptions = self.descriptions_](auto type_identity) {
+                [&idx, &ec, &pos_map = self.pos_map_](auto type_identity) {
                     using FieldType = typename decltype(type_identity)::type;
-                    auto ec2 = detail::field_is_compatible<FieldType>::call(descriptions[idx++]);
+                    auto ec2 = detail::field_is_compatible<FieldType>::call(pos_map[idx++].descr);
                     if (!ec)
                         ec = ec2;
                 }
@@ -149,26 +150,18 @@ class resultset_callback
 
             // TODO: check that data_row has the appropriate size
 
-            // Select the data that we will be using
-            std::array<std::optional<boost::span<const unsigned char>>, detail::row_size_v<T>> ordered_data;
-            std::size_t i = 0u;
-            for (auto it = msg.columns.begin(); it != msg.columns.end(); ++it, ++i)
-            {
-                const std::size_t cpp_idx = self.pos_map_.at(i);
-                if (cpp_idx != static_cast<std::size_t>(-1))
-                {
-                    ordered_data.at(cpp_idx) = (*it);
-                }
-            }
+            // Copy the pointers to the data that we will be using to a random access collection
+            self.random_access_data_.assign(msg.columns.begin(), msg.columns.end());
 
             // Now invoke parse
             T row{};
             boost::system::error_code ec;
             std::size_t idx = 0u;
-            for_each_member(row, [&ec, &idx, &ordered_data, &descs = this->self.descriptions_](auto& member) {
+            for_each_member(row, [&ec, &idx, &self = this->self](auto& member) {
+                const detail::pos_map_entry& ent = self.pos_map_[idx++];
                 boost::system::error_code ec2 = detail::field_parse<T>::call(
-                    ordered_data[idx],
-                    descs[idx],
+                    self.random_access_data_.at(ent.db_index),
+                    ent.descr,
                     member
                 );
                 if (!ec)

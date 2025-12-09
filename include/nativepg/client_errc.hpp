@@ -49,6 +49,8 @@ enum class client_errc : int
     incompatible_type,
 
     unexpected_null,
+
+    cpp_field_not_found,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

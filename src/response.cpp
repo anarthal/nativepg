@@ -6,16 +6,17 @@
 //
 
 #include <boost/assert.hpp>
-#include <boost/endian/detail/endian_load.hpp>
-#include <boost/endian/detail/order.hpp>
-#include <boost/system/detail/error_code.hpp>
+#include <boost/endian/conversion.hpp>
+#include <boost/system/error_code.hpp>
 
+#include <algorithm>
 #include <charconv>
 #include <cstdint>
 #include <span>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/field_traits.hpp"
+#include "nativepg/response.hpp"
 
 using namespace nativepg;
 using boost::system::error_code;
@@ -119,4 +120,41 @@ boost::system::error_code detail::field_parse<std::int64_t>::call(
                                                                 : parse_binary_int(data, to);
         default: BOOST_ASSERT(false); return {};
     }
+}
+
+boost::system::error_code detail::compute_pos_map(
+    const protocol::row_description& meta,
+    std::span<const std::string_view> name_table,
+    std::span<pos_map_entry> output
+)
+{
+    // Name table should be the same size as the pos map
+    BOOST_ASSERT(name_table.size() == output.size());
+
+    // Set all positions to "invalid"
+    for (auto& elm : output)
+        elm = {invalid_pos, {}};
+
+    // Look up every DB field in the name table
+    std::size_t db_index = 0u;
+    for (const auto& field : meta.field_descriptions)
+    {
+        auto it = std::find(name_table.begin(), name_table.end(), field.name);
+        if (it != name_table.end())
+        {
+            auto cpp_index = static_cast<std::size_t>(it - name_table.begin());
+            output[cpp_index] = {db_index, field};
+        }
+        ++db_index;
+    }
+
+    // If there is any unmapped field, it is an error
+    if (std::find_if(output.begin(), output.end(), [](const pos_map_entry& ent) {
+            return ent.db_index == invalid_pos;
+        }) != output.end())
+    {
+        return client_errc::cpp_field_not_found;
+    }
+
+    return {};
 }

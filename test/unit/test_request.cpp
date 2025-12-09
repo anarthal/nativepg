@@ -350,6 +350,43 @@ void test_describe_portal()
     check_messages(req, {request_msg_type::describe, request_msg_type::sync});
 }
 
+// Close
+void test_close_statement()
+{
+    request req;
+    req.add_close_statement("myname");
+
+    // clang-format off
+    check_payload(req, {
+        // Describe
+        0x43, 0x00, 0x00, 0x00, 0x0c, 0x53, 0x6d, 0x79, 0x6e, 0x61, 0x6d, 0x65, 0x00,
+
+        // Sync
+        0x53, 0x00, 0x00, 0x00, 0x04
+    });
+    // clang-format on
+
+    check_messages(req, {request_msg_type::close, request_msg_type::sync});
+}
+
+void test_close_portal()
+{
+    request req;
+    req.add_close_portal("myname");
+
+    // clang-format off
+    check_payload(req, {
+        // Describe
+        0x43, 0x00, 0x00, 0x00, 0x0c, 0x50, 0x6d, 0x79, 0x6e, 0x61, 0x6d, 0x65, 0x00,
+
+        // Sync
+        0x53, 0x00, 0x00, 0x00, 0x04
+    });
+    // clang-format on
+
+    check_messages(req, {request_msg_type::close, request_msg_type::sync});
+}
+
 }  // namespace
 
 int main()
@@ -368,6 +405,9 @@ int main()
 
     test_describe_statement();
     test_describe_portal();
+
+    test_close_statement();
+    test_close_portal();
 
     return boost::report_errors();
 }

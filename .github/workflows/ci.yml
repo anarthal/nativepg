@@ -80,6 +80,7 @@ jobs:
         mkdir __build
         cd __build
         cmake \
+          -G Ninja \
           -DCMAKE_CXX_COMPILER=${{ matrix.toolset }} \
           -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} \
           -DCMAKE_CXX_STANDARD=${{ matrix.cxxstd }} \

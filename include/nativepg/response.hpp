@@ -106,6 +106,10 @@ class resultset_callback
     {
         resultset_callback& self;
 
+        // Ignore messages that may or may not appear
+        boost::system::error_code operator()(protocol::parse_complete) const { return {}; }
+        boost::system::error_code operator()(protocol::bind_complete) const { return {}; }
+
         boost::system::error_code operator()(const protocol::row_description& msg) const
         {
             // State check
@@ -178,6 +182,18 @@ class resultset_callback
         }
 
         boost::system::error_code operator()(protocol::command_complete) const
+        {
+            // State check
+            if (self.state_ != state_t::parsing_data)
+                return client_errc::unexpected_message;
+
+            // Done
+            self.state_ = state_t::done;
+            return {};
+        }
+
+        // TODO: this should be transmitted to the user somehow
+        boost::system::error_code operator()(protocol::portal_suspended) const
         {
             // State check
             if (self.state_ != state_t::parsing_data)

@@ -21,6 +21,7 @@
 #include <span>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
@@ -88,7 +89,7 @@ private:
 };
 
 template <class T, std::invocable<T&&> Callback>
-class resultset_callback
+class resultset_callback_t
 {
     enum class state_t
     {
@@ -104,7 +105,14 @@ class resultset_callback
 
     struct visitor
     {
-        resultset_callback& self;
+        resultset_callback_t& self;
+
+        // Error on unexpected messages
+        template <class Msg>
+        boost::system::error_code operator()(const Msg&) const
+        {
+            return client_errc::unexpected_message;
+        }
 
         // Ignore messages that may or may not appear
         boost::system::error_code operator()(protocol::parse_complete) const { return {}; }
@@ -161,9 +169,10 @@ class resultset_callback
             T row{};
             boost::system::error_code ec;
             std::size_t idx = 0u;
-            for_each_member(row, [&ec, &idx, &self = this->self](auto& member) {
+            detail::for_each_member(row, [&ec, &idx, &self = this->self](auto& member) {
+                using FieldType = std::decay_t<decltype(member)>;
                 const detail::pos_map_entry& ent = self.pos_map_[idx++];
-                boost::system::error_code ec2 = detail::field_parse<T>::call(
+                boost::system::error_code ec2 = detail::field_parse<FieldType>::call(
                     self.random_access_data_.at(ent.db_index),
                     ent.descr,
                     member
@@ -206,11 +215,22 @@ class resultset_callback
     };
 
 public:
+    template <class Cb>
+    explicit resultset_callback_t(Cb&& cb) : cb_(std::forward<Cb>(cb))
+    {
+    }
+
     boost::system::error_code operator()(const any_request_message& msg)
     {
         return boost::variant2::visit(visitor{*this}, msg);
     }
 };
+
+template <class T, std::invocable<T&&> Callback>
+auto resultset_callback(Callback&& cb)
+{
+    return resultset_callback_t<T, std::decay_t<Callback>>{std::forward<Callback>(cb)};
+}
 
 }  // namespace nativepg
 

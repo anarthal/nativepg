@@ -214,7 +214,7 @@ public:
     // Don't use this unless you know what you're doing (TODO: make this private?)
     // TODO: make this uniform with the above
     random_access_parsing_view(const unsigned char* data, std::size_t size) noexcept
-        : size_(size), data_(data)
+        : data_(data), size_(size)
     {
     }
 

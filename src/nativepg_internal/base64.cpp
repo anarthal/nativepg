@@ -22,17 +22,6 @@ using namespace nativepg;
 
 namespace {
 
-// Number of bytes of expected padding for a given input data length
-std::size_t get_padding(std::size_t data_length)
-{
-    switch (data_length % 3)
-    {
-    case 1: return 2;
-    case 2: return 1;
-    default: return 0;
-    }
-}
-
 // Returns the number of bytes needed to encode the given input
 std::size_t encoded_size(boost::span<const unsigned char> input) { return 4 * ((input.size() + 2) / 3); }
 
@@ -153,8 +142,8 @@ static bool decode(std::string_view from, unsigned char* dest)
     std::size_t padding = get_padding(from);
     const auto v0 = inverse_tab[static_cast<std::size_t>(*p_last)];
     const auto v1 = inverse_tab[static_cast<std::size_t>(*(p_last + 1))];
-    const auto v2 = padding == 2u ? 0u : inverse_tab[static_cast<std::size_t>(*(p_last + 2))];
-    const auto v3 = padding > 0u ? 0u : inverse_tab[static_cast<std::size_t>(*(p_last + 3))];
+    const auto v2 = padding == 2u ? 0 : inverse_tab[static_cast<std::size_t>(*(p_last + 2))];
+    const auto v3 = padding > 0u ? 0 : inverse_tab[static_cast<std::size_t>(*(p_last + 3))];
 
     // Check that the characters were valid
     if (v0 == -1 || v1 == -1 || v2 == -1 || v3 == -1)

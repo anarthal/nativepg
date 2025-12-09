@@ -9,9 +9,11 @@
 #include <boost/core/lightweight_test.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <cstdint>
 #include <initializer_list>
 #include <ostream>
 #include <source_location>
+#include <string_view>
 
 #include "nativepg/request.hpp"
 #include "test_utils.hpp"
@@ -180,6 +182,28 @@ void test_prepare_untyped()
     check_messages(req, {request_msg_type::parse, request_msg_type::sync});
 }
 
+void test_prepare_typed()
+{
+    statement<std::int32_t, std::string_view> stmt{"myname"};
+    request req;
+    req.add_prepare("SELECT $1, $2", stmt);
+
+    // clang-format off
+    check_payload(req, {
+        // Parse
+        0x50, 0x00, 0x00, 0x00, 0x23, 0x6d, 0x79, 0x6e, 0x61, 0x6d,
+        0x65, 0x00, 0x53, 0x45, 0x4c, 0x45, 0x43, 0x54, 0x20, 0x24,
+        0x31, 0x2c, 0x20, 0x24, 0x32, 0x00, 0x00, 0x02, 0x00, 0x00,
+        0x00, 0x17, 0x00, 0x00, 0x00, 0x19,
+
+        // Sync
+        0x53, 0x00, 0x00, 0x00, 0x04,
+    });
+    // clang-format on
+
+    check_messages(req, {request_msg_type::parse, request_msg_type::sync});
+}
+
 }  // namespace
 
 int main()
@@ -190,6 +214,7 @@ int main()
     test_query_text();
 
     test_prepare_untyped();
+    test_prepare_typed();
 
     return boost::report_errors();
 }

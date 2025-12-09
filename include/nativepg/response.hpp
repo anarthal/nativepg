@@ -10,13 +10,12 @@
 
 #include <boost/core/span.hpp>
 #include <boost/mp11/algorithm.hpp>
-#include <boost/system/detail/error_code.hpp>
+#include <boost/system/error_code.hpp>
 #include <boost/variant2/variant.hpp>
 
 #include <array>
 #include <concepts>
 #include <cstddef>
-#include <cstdint>
 #include <functional>
 #include <optional>
 #include <span>
@@ -29,7 +28,6 @@
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/close.hpp"
 #include "nativepg/protocol/command_complete.hpp"
-#include "nativepg/protocol/common.hpp"
 #include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/empty_query_response.hpp"
@@ -59,7 +57,7 @@ class vector_response
 
     vector_response() = default;
 
-    void add_handler(handler_type h) { handlers_.push_back(std::move(h)); }
+    void add(handler_type h) { handlers_.push_back(std::move(h)); }
 
 private:
     std::vector<handler_type> handlers_;
@@ -226,7 +224,7 @@ class resultset_callback
             return client_errc::needs_more;
         }
 
-        boost::system::error_code operator()(protocol::command_complete msg) const
+        boost::system::error_code operator()(protocol::command_complete) const
         {
             // State check
             if (self.state_ != state_t::parsing_data)
@@ -239,7 +237,10 @@ class resultset_callback
     };
 
 public:
-    boost::system::error_code on_message(const any_request_message& msg) {}
+    boost::system::error_code operator()(const any_request_message& msg)
+    {
+        return boost::variant2::visit(visitor{*this}, msg);
+    }
 };
 
 }  // namespace nativepg

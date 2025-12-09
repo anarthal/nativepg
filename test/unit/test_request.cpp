@@ -16,6 +16,7 @@
 #include <string_view>
 
 #include "nativepg/protocol/common.hpp"
+#include "nativepg/protocol/sync.hpp"
 #include "nativepg/request.hpp"
 #include "test_utils.hpp"
 
@@ -427,6 +428,36 @@ void test_bind_typed()
 
 // TODO: add with individual protocol messages
 
+// Advanced patterns involving turning off autosync
+void test_prepare_batch()
+{
+    request req(false);
+    req.add_prepare("SELECT $1, $2", "myname")
+        .add_prepare("SELECT 'hello'", "othername")
+        .add(protocol::sync{});
+
+    // clang-format off
+    check_payload(req, {
+        // Parse 1
+        0x50, 0x00, 0x00, 0x00, 0x1b, 0x6d, 0x79, 0x6e,
+        0x61, 0x6d, 0x65, 0x00, 0x53, 0x45, 0x4c, 0x45,
+        0x43, 0x54, 0x20, 0x24, 0x31, 0x2c, 0x20, 0x24,
+        0x32, 0x00, 0x00, 0x00,
+
+        // Parse 2
+        0x50, 0x00, 0x00, 0x00, 0x1f, 0x6f, 0x74, 0x68,
+        0x65, 0x72, 0x6e, 0x61, 0x6d, 0x65, 0x00, 0x53,
+        0x45, 0x4c, 0x45, 0x43, 0x54, 0x20, 0x27, 0x68,
+        0x65, 0x6c, 0x6c, 0x6f, 0x27, 0x00, 0x00, 0x00,
+
+        // Sync
+        0x53, 0x00, 0x00, 0x00, 0x04,
+    });
+    // clang-format on
+
+    check_messages(req, {request_msg_type::parse, request_msg_type::parse, request_msg_type::sync});
+}
+
 }  // namespace
 
 int main()
@@ -451,6 +482,8 @@ int main()
 
     test_bind_untyped();
     test_bind_typed();
+
+    test_prepare_batch();
 
     return boost::report_errors();
 }

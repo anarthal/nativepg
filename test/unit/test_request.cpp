@@ -156,6 +156,30 @@ void test_query_text()
     );
 }
 
+// TODO: max num rows, result format codes
+
+// Prepare
+void test_prepare_untyped()
+{
+    request req;
+    req.add_prepare("SELECT $1, $2", "myname");
+
+    // clang-format off
+    check_payload(req, {
+        // Parse
+        0x50, 0x00, 0x00, 0x00, 0x1b, 0x6d, 0x79, 0x6e,
+        0x61, 0x6d, 0x65, 0x00, 0x53, 0x45, 0x4c, 0x45,
+        0x43, 0x54, 0x20, 0x24, 0x31, 0x2c, 0x20, 0x24,
+        0x32, 0x00, 0x00, 0x00,
+
+        // Sync
+        0x53, 0x00, 0x00, 0x00, 0x04,
+    });
+    // clang-format on
+
+    check_messages(req, {request_msg_type::parse, request_msg_type::sync});
+}
+
 }  // namespace
 
 int main()
@@ -164,6 +188,8 @@ int main()
 
     test_query();
     test_query_text();
+
+    test_prepare_untyped();
 
     return boost::report_errors();
 }

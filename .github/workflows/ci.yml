@@ -56,15 +56,15 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
     
-    - name: Cache Boost
-      id: cache-boost
-      uses: actions/cache@v4
+    - name: Restore Boost from cache
+      id: restore-boost
+      uses: actions/cache/restore@v4
       with:
         path: /opt/boost
-        key: ${{ matrix.id }}-boost
+        key: ${{ matrix.id }}-boost-1.89.0
     
     - name: Setup Boost
-      if: steps.cache-boost.outputs.cache-hit != 'true'
+      if: steps.restore-boost.outputs.cache-hit != 'true'
       run: |
         apt-get update
         apt-get install --no-install-recommends -y wget
@@ -75,6 +75,13 @@ jobs:
         cd boost-1.89.0
         ./bootstrap.sh
         ./b2 --with-json --prefix=/opt/boost -d0 install
+    
+    - name: Save Boost to cache
+      if: steps.restore-boost.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: /opt/boost
+        key: ${{ matrix.id }}-boost-1.89.0
     
     - name: Build the code and run the tests
       run: |

@@ -40,7 +40,8 @@ jobs:
             cxxstd: '20'
             build-type: 'Release'
           
-    runs-on: ${{ matrix.container }}
+    runs-on: ubuntu-latest
+    container: ghcr.io/anarthal/cpp-ci-containers/${{ matrix.container }}
     env:
       CXXFLAGS: ${{matrix.cxxflags}} -Wall -Wextra
       LDFLAGS:  ${{matrix.ldflags}}

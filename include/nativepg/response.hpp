@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_REQUEST_HPP
-#define NATIVEPG_REQUEST_HPP
+#ifndef NATIVEPG_RESPONSE_HPP
+#define NATIVEPG_RESPONSE_HPP
 
 #include <boost/core/span.hpp>
 #include <boost/mp11/algorithm.hpp>
@@ -20,7 +20,6 @@
 #include <optional>
 #include <span>
 #include <string_view>
-#include <tuple>
 #include <type_traits>
 #include <vector>
 
@@ -34,6 +33,8 @@
 #include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/parse.hpp"
+#include "nativepg/row_traits.hpp"
+
 namespace nativepg {
 
 // TODO: maybe make this a class
@@ -62,28 +63,6 @@ class vector_response
 private:
     std::vector<handler_type> handlers_;
 };
-
-// TODO: row traits
-template <class T>
-inline constexpr std::size_t row_size_v = std::tuple_size_v<T>;
-
-// TODO: implement
-template <class T>
-constexpr std::span<const std::string_view> row_name_table_v;
-
-// TODO: implement
-template <class T>
-struct row_field_types
-{
-    using type = T;
-};
-
-template <class T>
-using row_field_types_t = typename row_field_types<T>::type;
-
-// TODO: implement
-template <class T, class F>
-constexpr auto for_each_member(T&&, F&&);
 
 // TODO: field traits, TODO: string diagnostics
 template <class T>
@@ -116,26 +95,13 @@ class resultset_callback
 
     state_t state_{state_t::parsing_meta};
     std::vector<std::size_t> pos_map_;
-    std::array<protocol::field_description, row_size_v<T>> descriptions_;
-    std::array<std::string_view, row_size_v<T>> random_access_data_;
+    std::array<protocol::field_description, detail::row_size_v<T>> descriptions_;
+    std::array<std::string_view, detail::row_size_v<T>> random_access_data_;
     Callback cb_;
 
     struct visitor
     {
         resultset_callback& self;
-
-        //         protocol::bind_complete,
-        // protocol::close_complete,
-        // protocol::command_complete,
-        // protocol::data_row,
-        // protocol::parameter_description,
-        // protocol::row_description,
-        // protocol::no_data,
-        // protocol::empty_query_response,
-        // protocol::portal_suspended,
-        // protocol::error_response,
-        // protocol::notice_response,
-        // protocol::parse_complete
 
         boost::system::error_code operator()(const protocol::row_description& msg) const
         {
@@ -144,7 +110,7 @@ class resultset_callback
                 return client_errc::unexpected_message;
 
             // Compute the row => C++ map
-            auto ec = compute_pos_map(msg, row_name_table_v<T>, self.pos_map_);
+            auto ec = compute_pos_map(msg, detail::row_name_table_v<T>, self.pos_map_);
             if (ec)
                 return ec;
 
@@ -162,7 +128,8 @@ class resultset_callback
             }
 
             // Metadata check
-            using type_identities = boost::mp11::mp_transform<std::type_identity, row_field_types_t<T>>;
+            using type_identities = boost::mp11::
+                mp_transform<std::type_identity, detail::row_field_types_t<T>>;
             std::size_t idx = 0u;
             boost::mp11::mp_for_each<type_identities>(
                 [&idx, &ec, &descriptions = self.descriptions_](auto type_identity) {
@@ -194,7 +161,7 @@ class resultset_callback
             // TODO: check that data_row has the appropriate size
 
             // Select the data that we will be using
-            std::array<std::optional<boost::span<const unsigned char>>, row_size_v<T>> ordered_data;
+            std::array<std::optional<boost::span<const unsigned char>>, detail::row_size_v<T>> ordered_data;
             std::size_t i = 0u;
             for (auto it = msg.columns.begin(); it != msg.columns.end(); ++it, ++i)
             {

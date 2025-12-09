@@ -6,7 +6,7 @@
 #
 
 cmake_minimum_required(VERSION 3.10..3.31)
-project(nativepg)
+project(nativepg LANGUAGES CXX)
 
 find_package(boost_headers REQUIRED)
 find_package(OpenSSL REQUIRED)

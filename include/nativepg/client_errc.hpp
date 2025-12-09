@@ -40,6 +40,11 @@ enum class client_errc : int
     // We found a mandatory SCRAM extension ('m'), which requires us to fail
     // authentication in the current version
     mandatory_scram_extension_not_supported,
+
+    // TODO: I don't like this
+    needs_more,
+
+    unexpected_message,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

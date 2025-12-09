@@ -101,7 +101,7 @@ int main()
     statement<std::string_view> s2{"adios"};
 
     req.add_prepare("SELECT * FROM myt WHERE f1 <> $1", s2)
-        .add_bind(s2, "value2")
+        .add_bind(s2.bind("value2"))
         .add(protocol::describe{protocol::portal_or_statement::portal, {}})
         .add(protocol::execute{.portal_name = {}, .max_num_rows = 1})
         .add(protocol::execute{.portal_name = {}, .max_num_rows = 2})

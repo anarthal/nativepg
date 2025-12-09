@@ -14,11 +14,11 @@
 #include <boost/throw_exception.hpp>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <initializer_list>
 #include <span>
 #include <string_view>
-#include <type_traits>
 #include <vector>
 
 #include "nativepg/parameter_ref.hpp"
@@ -49,10 +49,19 @@ enum class request_msg_type
 struct request_access;
 }  // namespace detail
 
+template <std::size_t N>
+struct bound_statement
+{
+    std::string_view name;
+    std::array<parameter_ref, N> params;
+};
+
 template <class... Params>
 struct statement
 {
     std::string name;
+
+    bound_statement<sizeof...(Params)> bind(const Params&... values) { return {name, {values...}}; }
 };
 
 class request
@@ -181,16 +190,15 @@ public:
     );
 
     // Executes a named prepared statement (PQsendQueryPrepared)
-    template <class... Params>
+    template <std::size_t N>
     request& add_execute(
-        const statement<Params...>& stmt,
-        const std::type_identity_t<Params>&... params,
+        const bound_statement<N>& stmt,
         param_format fmt = param_format::select_best,
         protocol::format_code result_codes = protocol::format_code::text,
         std::int32_t max_num_rows = 0
     )
     {
-        return add_execute(stmt.name, {params...}, fmt, result_codes, max_num_rows);
+        return add_execute(stmt.name, stmt.params, fmt, result_codes, max_num_rows);
     }
 
     // Describes a named prepared statement (PQsendDescribePrepared)
@@ -251,16 +259,15 @@ public:
         protocol::format_code result_fmt_codes = protocol::format_code::text
     );
 
-    template <class... Params>
+    template <std::size_t N>
     request& add_bind(
-        const statement<Params...>& stmt,
-        const std::type_identity_t<Params>&... params,
+        const bound_statement<N>& stmt,
         param_format fmt = param_format::select_best,
         std::string_view portal_name = {},
         protocol::format_code result_codes = protocol::format_code::text
     )
     {
-        return add_bind(stmt.name, {params...}, fmt, portal_name, result_codes);
+        return add_bind(stmt.name, stmt.params, fmt, portal_name, result_codes);
     }
 
     request& add(const protocol::bind& value)

@@ -246,7 +246,7 @@ void test_execute_typed()
 {
     statement<std::int32_t, std::string_view> stmt{"myname"};
     request req;
-    req.add_execute(stmt, 42, "value");
+    req.add_execute(stmt.bind(42, "value"));
 
     // clang-format off
     check_payload(req, {
@@ -282,7 +282,12 @@ void test_execute_typed_optional_args()
 {
     statement<std::int32_t, std::string_view> stmt{"myname"};
     request req;
-    req.add_execute(stmt, 42, "value", request::param_format::select_best, protocol::format_code::binary, 2);
+    req.add_execute(
+        stmt.bind(42, "value"),
+        request::param_format::select_best,
+        protocol::format_code::binary,
+        2
+    );
 
     // clang-format off
     check_payload(req, {
@@ -411,7 +416,7 @@ void test_bind_typed()
 {
     statement<std::int32_t, std::string_view> stmt{"myname"};
     request req;
-    req.add_bind(stmt, 42, "value");
+    req.add_bind(stmt.bind(42, "value"));
 
     // clang-format off
     check_payload(req, {

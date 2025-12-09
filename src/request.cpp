@@ -44,15 +44,12 @@ request& request::add_query(
     std::int32_t max_num_rows
 )
 {
-    // Determine the parameter OIDs. These are required if using binary
+    // Determine the parameter OIDs. These are required if using binary,
+    // but we always send them for consistency
     boost::container::small_vector<std::int32_t, 128u> oids;
-    auto fmt_code = compute_format(fmt, params);
-    if (fmt_code == protocol::format_code::binary)
-    {
-        oids.reserve(params.size());
-        for (const auto& p : params)
-            oids.push_back(detail::parameter_ref_access::type_oid(p));
-    }
+    oids.reserve(params.size());
+    for (const auto& p : params)
+        oids.push_back(detail::parameter_ref_access::type_oid(p));
 
     // Add the messages
     add(protocol::parse_t{.statement_name = {}, .query = q, .parameter_type_oids = oids});

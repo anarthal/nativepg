@@ -387,6 +387,46 @@ void test_close_portal()
     check_messages(req, {request_msg_type::close, request_msg_type::sync});
 }
 
+// Low-level
+void test_bind_untyped()
+{
+    request req;
+    req.add_bind("myname", {42, "value"});  // will use text by default
+
+    // clang-format off
+    check_payload(req, {
+        // Bind
+        0x42, 0x00, 0x00, 0x00, 0x21, 0x00, 0x6d, 0x79, 0x6e, 0x61,
+        0x6d, 0x65, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+        0x02, 0x34, 0x32, 0x00, 0x00, 0x00, 0x05, 0x76, 0x61, 0x6c,
+        0x75, 0x65, 0x00, 0x00,
+    });
+    // clang-format on
+
+    check_messages(req, {request_msg_type::bind});
+}
+
+void test_bind_typed()
+{
+    statement<std::int32_t, std::string_view> stmt{"myname"};
+    request req;
+    req.add_bind(stmt, 42, "value");
+
+    // clang-format off
+    check_payload(req, {
+        // Bind
+        0x42, 0x00, 0x00, 0x00, 0x25, 0x00, 0x6d, 0x79, 0x6e, 0x61,
+        0x6d, 0x65, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x02, 0x00,
+        0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x2a, 0x00, 0x00, 0x00,
+        0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x00, 0x00,
+    });
+    // clang-format on
+
+    check_messages(req, {request_msg_type::bind});
+}
+
+// TODO: add with individual protocol messages
+
 }  // namespace
 
 int main()
@@ -408,6 +448,9 @@ int main()
 
     test_close_statement();
     test_close_portal();
+
+    test_bind_untyped();
+    test_bind_typed();
 
     return boost::report_errors();
 }

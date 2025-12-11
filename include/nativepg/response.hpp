@@ -76,6 +76,8 @@ using any_request_message = boost::variant2::variant<
     protocol::notice_response,
     protocol::parse_complete>;
 
+// Handles a resultset (i.e. a row_description + data_rows + command_complete)
+// by invoking a user-supplied callback
 template <class T, std::invocable<T&&> Callback>
 class resultset_callback_t
 {
@@ -223,6 +225,7 @@ public:
     }
 };
 
+// Helper to create resultset callbacks
 template <class T, std::invocable<T&&> Callback>
 auto resultset_callback(Callback&& cb)
 {
@@ -240,6 +243,8 @@ struct into_handler
 
 }  // namespace detail
 
+// Resultset callback that output rows into a vector
+// TODO: other allocators
 template <class T>
 resultset_callback_t<T, detail::into_handler<T>> into(std::vector<T>& vec)
 {

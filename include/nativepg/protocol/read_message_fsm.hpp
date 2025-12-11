@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_PROTOCOL_PARSE_MESSAGE_FSM_HPP
-#define NATIVEPG_PROTOCOL_PARSE_MESSAGE_FSM_HPP
+#ifndef NATIVEPG_PROTOCOL_READ_MESSAGE_FSM_HPP
+#define NATIVEPG_PROTOCOL_READ_MESSAGE_FSM_HPP
 
 #include <boost/system/error_code.hpp>
 
@@ -20,7 +20,18 @@
 
 namespace nativepg::protocol {
 
-class parse_message_fsm
+// A finite-state machine type to read messages from the server.
+// resume() returns a variant-like type specifying what to do next.
+// Flow should be:
+//   - Create a new FSM per message (they're lightweight)
+//   - Call resume() passing all the bytes available in your read buffer
+//   - If resume returns an error, a serious protocol violation happened. Not recoverable.
+//   - If resume returns needs_more, we need to read more data from the server.
+//     At least result::hint() bytes should be read. Read and resume again with your entire buffer.
+//   - If resume() returns a message, a message is available. Use the message and then call consume
+//     with result::bytes_consumed(). Remember that messages point into the network buffer, so
+//     don't call consume before using the message.
+class read_message_fsm
 {
     std::uint8_t msg_type_{};
     std::int32_t msg_size_{-1};
@@ -79,7 +90,7 @@ public:
         };
     };
 
-    parse_message_fsm() = default;
+    read_message_fsm() = default;
 
     result resume(std::span<const unsigned char> data)
     {

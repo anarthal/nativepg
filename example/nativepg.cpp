@@ -25,23 +25,19 @@
 #include <memory>
 #include <source_location>
 #include <span>
-#include <stdexcept>
 #include <string_view>
 #include <type_traits>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
-#include "nativepg/parameter_ref.hpp"
 #include "nativepg/protocol/bind.hpp"
-#include "nativepg/protocol/common.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/messages.hpp"
 #include "nativepg/protocol/parse.hpp"
-#include "nativepg/protocol/parse_message_fsm.hpp"
+#include "nativepg/protocol/read_message_fsm.hpp"
 #include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/protocol/startup.hpp"
-#include "nativepg/protocol/sync.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
 
@@ -71,7 +67,7 @@ std::pair<protocol::any_backend_message, std::size_t> read_message(
     asio::dynamic_vector_buffer<unsigned char, std::allocator<unsigned char>>& buff
 )
 {
-    protocol::parse_message_fsm fsm;
+    protocol::read_message_fsm fsm;
 
     while (true)
     {
@@ -80,16 +76,16 @@ std::pair<protocol::any_backend_message, std::size_t> read_message(
 
         switch (res.type())
         {
-            case protocol::parse_message_fsm::result_type::error:
+            case protocol::read_message_fsm::result_type::error:
             {
                 std::cerr << "Error while parsing message: " << res.error() << std::endl;
                 exit(1);
             }
-            case protocol::parse_message_fsm::result_type::message:
+            case protocol::read_message_fsm::result_type::message:
             {
                 return {res.message(), res.bytes_consumed()};
             }
-            case protocol::parse_message_fsm::result_type::needs_more:
+            case protocol::read_message_fsm::result_type::needs_more:
             {
                 auto bytes_read = sock.read_some(buff.prepare(res.hint()));
                 buff.commit(bytes_read);

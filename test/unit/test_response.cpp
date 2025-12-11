@@ -16,13 +16,15 @@
 #include <cstdint>
 #include <initializer_list>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "../src/serialization_context.hpp"  // TODO
 #include "nativepg/client_errc.hpp"
-#include "nativepg/field_traits.hpp"
 #include "nativepg/protocol/bind.hpp"
+#include "nativepg/protocol/command_complete.hpp"
 #include "nativepg/protocol/common.hpp"
+#include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/parse.hpp"
 #include "nativepg/response.hpp"
@@ -46,7 +48,6 @@ struct owning_row_description
     {
         // Create the serialized message
         protocol::detail::serialization_context ctx(data);
-        ctx.add_header('T');
         ctx.add_integral(static_cast<std::int16_t>(descrs.size()));
         for (const auto& desc : descrs)
         {
@@ -58,15 +59,14 @@ struct owning_row_description
             ctx.add_integral(desc.type_modifier);
             ctx.add_integral(static_cast<std::int16_t>(desc.fmt_code));
         }
-        auto ec = ctx.finalize_message();
-        if (!BOOST_TEST_EQ(ec, error_code()))
+        if (!BOOST_TEST_EQ(ctx.error(), error_code()))
         {
             std::cerr << "Called from " << loc << std::endl;
             exit(1);
         }
 
-        // Now create the view to parse it. Remove the message header
-        ec = protocol::parse(boost::span<const unsigned char>(data).subspan(5), msg);
+        // Now create the view to parse it
+        auto ec = protocol::parse(data, msg);
         if (!BOOST_TEST_EQ(ec, error_code()))
         {
             std::cerr << "Called from " << loc << std::endl;
@@ -75,6 +75,42 @@ struct owning_row_description
     }
 
     operator protocol::row_description() const { return msg; }
+};
+
+struct owning_data_row
+{
+    std::vector<unsigned char> data;
+    protocol::data_row msg;
+
+    owning_data_row(
+        std::initializer_list<std::string_view> values,
+        boost::source_location loc = BOOST_CURRENT_LOCATION
+    )
+    {
+        // Create the serialized message
+        protocol::detail::serialization_context ctx(data);
+        ctx.add_integral(static_cast<std::int16_t>(values.size()));
+        for (const auto value : values)
+        {
+            ctx.add_integral(static_cast<std::int32_t>(value.size()));
+            ctx.add_bytes(value);
+        }
+        if (!BOOST_TEST_EQ(ctx.error(), error_code()))
+        {
+            std::cerr << "Called from " << loc << std::endl;
+            exit(1);
+        }
+
+        // Now create the view to parse it
+        auto ec = protocol::parse(data, msg);
+        if (!BOOST_TEST_EQ(ec, error_code()))
+        {
+            std::cerr << "Called from " << loc << std::endl;
+            exit(1);
+        }
+    }
+
+    operator protocol::data_row() const { return msg; }
 };
 
 struct user
@@ -90,17 +126,20 @@ void test_query_returning_data()
     // Setup
     std::vector<user> users;
     auto cb = into(users);
-
-    // Messages
-    BOOST_TEST_EQ(cb(protocol::parse_complete{}), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(protocol::bind_complete{}), error_code(client_errc::needs_more));
-    auto ec = cb(owning_row_description({
+    owning_row_description descrs({
         // clang-format off
         {.name = "id",   .table_oid = 0, .column_attribute = 1, .type_oid = 23, .type_length = -1, .type_modifier = -1, .fmt_code = format_code::text},
         {.name = "name", .table_oid = 0, .column_attribute = 1, .type_oid = 25, .type_length = -1, .type_modifier = -1, .fmt_code = format_code::text},
         // clang-format on
-    }));
-    BOOST_TEST_EQ(ec, error_code(client_errc::needs_more));
+    });
+
+    // Messages
+    BOOST_TEST_EQ(cb(protocol::parse_complete{}), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(protocol::bind_complete{}), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(descrs), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(owning_data_row({"42", "perico"})), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(owning_data_row({"50", "pepe"})), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(protocol::command_complete{}), error_code());
 }
 
 }  // namespace

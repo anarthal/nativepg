@@ -12,6 +12,7 @@
 #include <boost/asio/read.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/core/span.hpp>
+#include <boost/describe/class.hpp>
 #include <boost/endian/conversion.hpp>
 #include <boost/system/detail/error_code.hpp>
 #include <boost/system/system_error.hpp>
@@ -19,21 +20,27 @@
 #include <boost/variant2/variant.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <iostream>
 #include <source_location>
 #include <stdexcept>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
+#include "nativepg/client_errc.hpp"
 #include "nativepg/parameter_ref.hpp"
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/common.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/execute.hpp"
+#include "nativepg/protocol/messages.hpp"
 #include "nativepg/protocol/parse.hpp"
+#include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/protocol/startup.hpp"
 #include "nativepg/protocol/sync.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/response.hpp"
 
 namespace asio = boost::asio;
 using namespace nativepg;
@@ -43,6 +50,13 @@ static void check(boost::system::error_code ec, std::source_location loc = std::
     if (ec)
         boost::throw_with_location(boost::system::system_error(ec), loc);
 }
+
+struct myrow
+{
+    std::int32_t f3;
+    std::string f1;
+};
+BOOST_DESCRIBE_STRUCT(myrow, (), (f3, f1))
 
 int main()
 {
@@ -92,23 +106,75 @@ int main()
         view = view.subspan(l);
     }
 
-    std::cout << "Done\n";
+    std::cout << "Handshake complete\n";
 
-    // Now go send our messages
-    request req(false);
-    // req.add_simple_query("SELECT 1");
-    statement<int> s1{"hola"};
-    statement<std::string_view> s2{"adios"};
-
-    req.add_prepare("SELECT * FROM myt WHERE f1 <> $1", s2)
-        .add_bind(s2.bind("value2"))
-        .add(protocol::describe{protocol::portal_or_statement::portal, {}})
-        .add(protocol::execute{.portal_name = {}, .max_num_rows = 1})
-        .add(protocol::execute{.portal_name = {}, .max_num_rows = 2})
-        .add(protocol::sync{});
+    // Compose our request
+    request req;
+    req.add_query("SELECT * FROM myt WHERE f1 <> $1", {"value2"});
 
     asio::write(sock, asio::buffer(req.payload()));
 
     size = sock.read_some(asio::buffer(buffer));
     buffer.resize(size);
+
+    // Parse the response
+    std::vector<myrow> vec;
+    auto cb = into(vec);
+
+    view = buffer;
+    while (true)
+    {
+        // Message type
+        if (view.empty())
+            throw std::runtime_error("Not enough data for the message type");
+        auto msg_type = view[0];
+        view = view.subspan(1);
+
+        // Size
+        if (view.size() < 4u)
+            throw std::runtime_error("Not enough data for the message length");
+        auto l = boost::endian::load_big_s32(view.data());
+        view = view.subspan(4u);
+        if (l < 4)
+            throw std::runtime_error("Bad length");
+        l -= 4;
+        if (view.size() < static_cast<std::size_t>(l))
+            throw std::runtime_error("Not enough data for body");
+
+        // Parse the message
+        auto parse_result = protocol::parse(msg_type, view.subspan(0, l)).value();
+        if (boost::variant2::holds_alternative<protocol::ready_for_query>(parse_result))
+            break;
+        boost::variant2::visit(
+            [&cb](auto msg) {
+                using T = decltype(msg);
+                if constexpr (std::is_same_v<T, protocol::bind_complete> ||
+                              std::is_same_v<T, protocol::close_complete> ||
+                              std::is_same_v<T, protocol::command_complete> ||
+                              std::is_same_v<T, protocol::data_row> ||
+                              std::is_same_v<T, protocol::parameter_description> ||
+                              std::is_same_v<T, protocol::row_description> ||
+                              std::is_same_v<T, protocol::no_data> ||
+                              std::is_same_v<T, protocol::empty_query_response> ||
+                              std::is_same_v<T, protocol::portal_suspended> ||
+                              std::is_same_v<T, protocol::error_response> ||
+                              std::is_same_v<T, protocol::notice_response> ||
+                              std::is_same_v<T, protocol::parse_complete>)
+                {
+                    auto ec = cb(any_request_message(msg));
+                    if (ec && ec != client_errc::needs_more)
+                        throw boost::system::system_error(ec, "Error in parser");
+                }
+            },
+            parse_result
+        );
+
+        // Message
+        view = view.subspan(l);
+    }
+
+    for (const auto& r : vec)
+        std::cout << "Got row: " << r.f1 << ", " << r.f3 << std::endl;
+
+    std::cout << "Done\n";
 }

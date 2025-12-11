@@ -20,6 +20,7 @@ add_library(nativepg
     src/error.cpp
     src/messages.cpp
     src/request.cpp
+    src/response.cpp
 )
 target_link_libraries(nativepg PUBLIC Boost::headers OpenSSL::SSL OpenSSL::Crypto)
 target_include_directories(nativepg PUBLIC include)
@@ -49,6 +50,7 @@ if (BUILD_TESTING)
     add_unit_test(protocol          test_scram_sha256_client_final_message)
     add_unit_test(protocol          test_scram_sha256_server_final_message)
     add_unit_test(""                test_request)
+    add_unit_test(""                test_response)
 endif()
 
 # Examples

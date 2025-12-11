@@ -12,7 +12,6 @@
 #include <boost/system/result.hpp>
 
 #include <array>
-#include <cstddef>
 #include <cstdint>
 
 namespace nativepg {
@@ -22,7 +21,7 @@ namespace protocol {
 struct message_header
 {
     std::uint8_t type;  // The message type
-    std::size_t size;   // Should be < INT32_MAX
+    std::int32_t size;  // Will always be >= 4
 };
 
 boost::system::result<message_header> parse_header(boost::span<const unsigned char, 5> from);

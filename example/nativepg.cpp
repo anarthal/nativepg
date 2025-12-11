@@ -22,7 +22,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <memory>
 #include <source_location>
+#include <span>
 #include <stdexcept>
 #include <string_view>
 #include <type_traits>
@@ -36,6 +38,7 @@
 #include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/messages.hpp"
 #include "nativepg/protocol/parse.hpp"
+#include "nativepg/protocol/parse_message_fsm.hpp"
 #include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/protocol/startup.hpp"
 #include "nativepg/protocol/sync.hpp"
@@ -58,6 +61,44 @@ struct myrow
 };
 BOOST_DESCRIBE_STRUCT(myrow, (), (f3, f1))
 
+std::span<const unsigned char> to_span(asio::const_buffer buff)
+{
+    return {static_cast<const unsigned char*>(buff.data()), buff.size()};
+}
+
+std::pair<protocol::any_backend_message, std::size_t> read_message(
+    asio::ip::tcp::socket& sock,
+    asio::dynamic_vector_buffer<unsigned char, std::allocator<unsigned char>>& buff
+)
+{
+    protocol::parse_message_fsm fsm;
+
+    while (true)
+    {
+        // Call the FSM
+        auto res = fsm.resume(to_span(buff.data()));
+
+        switch (res.type())
+        {
+            case protocol::parse_message_fsm::result_type::error:
+            {
+                std::cerr << "Error while parsing message: " << res.error() << std::endl;
+                exit(1);
+            }
+            case protocol::parse_message_fsm::result_type::message:
+            {
+                return {res.message(), res.bytes_consumed()};
+            }
+            case protocol::parse_message_fsm::result_type::needs_more:
+            {
+                auto bytes_read = sock.read_some(buff.prepare(res.hint()));
+                buff.commit(bytes_read);
+                break;
+            }
+        }
+    }
+}
+
 int main()
 {
     asio::io_context ctx;
@@ -75,35 +116,16 @@ int main()
     check(ec);
     asio::write(sock, asio::buffer(buffer));
 
-    // Ignore all messages until a ready for query is received (TODO: short reads)
-    buffer.resize(2048);
-    auto size = sock.read_some(asio::buffer(buffer));
-    buffer.resize(size);
-    boost::span<const unsigned char> view{buffer};
+    // Ignore all messages until a ready for query is received
+    std::vector<unsigned char> buff;
+    auto dynbuff = asio::dynamic_buffer(buff);
 
     while (true)
     {
-        // Message type
-        if (view.empty())
-            throw std::runtime_error("Not enough data for the message type");
-        auto msg_type = view[0];
-        view = view.subspan(1);
-        if (msg_type == 'Z')
-            break;  // ready for query
-
-        // Size
-        if (view.size() < 4u)
-            throw std::runtime_error("Not enough data for the message length");
-        auto l = boost::endian::load_big_s32(view.data());
-        view = view.subspan(4u);
-        if (l < 4)
-            throw std::runtime_error("Bad length");
-        l -= 4;
-        if (view.size() < static_cast<std::size_t>(l))
-            throw std::runtime_error("Not enough data for body");
-
-        // Message
-        view = view.subspan(l);
+        auto [msg, bytes_consumed] = read_message(sock, dynbuff);
+        if (boost::variant2::holds_alternative<protocol::ready_for_query>(msg))
+            break;
+        dynbuff.consume(bytes_consumed);
     }
 
     std::cout << "Handshake complete\n";
@@ -114,36 +136,16 @@ int main()
 
     asio::write(sock, asio::buffer(req.payload()));
 
-    size = sock.read_some(asio::buffer(buffer));
-    buffer.resize(size);
-
     // Parse the response
     std::vector<myrow> vec;
     auto cb = into(vec);
+    dynbuff.consume(dynbuff.max_size());
 
-    view = buffer;
     while (true)
     {
-        // Message type
-        if (view.empty())
-            throw std::runtime_error("Not enough data for the message type");
-        auto msg_type = view[0];
-        view = view.subspan(1);
+        auto [msg, bytes_consumed] = read_message(sock, dynbuff);
 
-        // Size
-        if (view.size() < 4u)
-            throw std::runtime_error("Not enough data for the message length");
-        auto l = boost::endian::load_big_s32(view.data());
-        view = view.subspan(4u);
-        if (l < 4)
-            throw std::runtime_error("Bad length");
-        l -= 4;
-        if (view.size() < static_cast<std::size_t>(l))
-            throw std::runtime_error("Not enough data for body");
-
-        // Parse the message
-        auto parse_result = protocol::parse(msg_type, view.subspan(0, l)).value();
-        if (boost::variant2::holds_alternative<protocol::ready_for_query>(parse_result))
+        if (boost::variant2::holds_alternative<protocol::ready_for_query>(msg))
             break;
         boost::variant2::visit(
             [&cb](auto msg) {
@@ -166,11 +168,13 @@ int main()
                         throw boost::system::system_error(ec, "Error in parser");
                 }
             },
-            parse_result
+            msg
         );
 
-        // Message
-        view = view.subspan(l);
+        if (boost::variant2::holds_alternative<protocol::ready_for_query>(msg))
+            break;
+
+        dynbuff.consume(bytes_consumed);
     }
 
     for (const auto& r : vec)

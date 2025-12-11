@@ -38,7 +38,10 @@ public:
     public:
         result(boost::system::error_code ec) noexcept : type_(result_type::error), ec_(ec) {}
         result(std::size_t hint) noexcept : type_(result_type::needs_more), hint_(hint) {}
-        result(const any_backend_message& msg) noexcept : type_(result_type::message), msg_(msg) {}
+        result(const any_backend_message& msg, std::size_t bytes_consumed) noexcept
+            : type_(result_type::message), msg_(msg, bytes_consumed)
+        {
+        }
 
         result_type type() const { return type_; }
 
@@ -57,7 +60,13 @@ public:
         const any_backend_message& message() const
         {
             BOOST_ASSERT(type_ == result_type::message);
-            return msg_;
+            return msg_.first;
+        }
+
+        std::size_t bytes_consumed() const
+        {
+            BOOST_ASSERT(type_ == result_type::message);
+            return msg_.second;
         }
 
     private:
@@ -65,7 +74,7 @@ public:
         union
         {
             boost::system::error_code ec_;
-            any_backend_message msg_;
+            std::pair<any_backend_message, std::size_t> msg_;
             std::size_t hint_;
         };
     };
@@ -78,7 +87,7 @@ public:
         {
             // Header. Ensure we have enough data
             if (data.size() < 5u)
-                return result(5u);
+                return result(static_cast<std::size_t>(5u - data.size()));
 
             // Do the parsing
             auto header_result = parse_header(boost::span<const unsigned char, 5>(data));
@@ -97,13 +106,13 @@ public:
         BOOST_ASSERT(msg_size_ != -1);
         const auto expected_size = static_cast<std::size_t>(msg_size_ + 1);
         if (data.size() < expected_size)
-            return result(expected_size);
+            return result(static_cast<std::size_t>(expected_size - data.size()));
 
         // Do the parsing
-        auto msg_result = parse(msg_type_, data.subspan(0, expected_size));
+        auto msg_result = parse(msg_type_, data.subspan(5, expected_size - 5));
         if (msg_result.has_error())
             return msg_result.error();
-        return *msg_result;
+        return result(*msg_result, expected_size);
     }
 };
 

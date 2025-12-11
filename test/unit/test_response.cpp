@@ -112,6 +112,23 @@ struct owning_data_row
     operator protocol::data_row() const { return msg; }
 };
 
+protocol::field_description make_field_descr(
+    std::string_view name,
+    std::int32_t type_oid,
+    protocol::format_code code
+)
+{
+    return {
+        .name = name,
+        .table_oid = 0,
+        .column_attribute = -1,
+        .type_oid = type_oid,
+        .type_length = -1,
+        .type_modifier = -1,
+        .fmt_code = code
+    };
+}
+
 struct user
 {
     std::int32_t id;
@@ -128,10 +145,8 @@ void test_simple_query()
     std::vector<user> users;
     auto cb = into(users);
     owning_row_description descrs({
-        // clang-format off
-        {.name = "id",   .table_oid = 0, .column_attribute = 1, .type_oid = 23, .type_length = -1, .type_modifier = -1, .fmt_code = format_code::text},
-        {.name = "name", .table_oid = 0, .column_attribute = 1, .type_oid = 25, .type_length = -1, .type_modifier = -1, .fmt_code = format_code::text},
-        // clang-format on
+        make_field_descr("id", 23, format_code::text),
+        make_field_descr("name", 25, format_code::text),
     });
 
     // Messages
@@ -153,10 +168,8 @@ void test_query()
     std::vector<user> users;
     auto cb = into(users);
     owning_row_description descrs({
-        // clang-format off
-        {.name = "id",   .table_oid = 0, .column_attribute = 1, .type_oid = 23, .type_length = -1, .type_modifier = -1, .fmt_code = format_code::text},
-        {.name = "name", .table_oid = 0, .column_attribute = 1, .type_oid = 25, .type_length = -1, .type_modifier = -1, .fmt_code = format_code::text},
-        // clang-format on
+        make_field_descr("id", 23, format_code::text),
+        make_field_descr("name", 25, format_code::text),
     });
 
     // Messages
@@ -175,12 +188,40 @@ void test_query()
     BOOST_TEST_ALL_EQ(users.begin(), users.end(), expected_rows.begin(), expected_rows.end());
 }
 
+// Having excess fields or out of order fields work
+void test_field_match_by_name()
+{
+    // Setup
+    std::vector<user> users;
+    auto cb = into(users);
+    owning_row_description descrs({
+        make_field_descr("name", 25, format_code::text),
+        make_field_descr("other", 40, format_code::text),
+        make_field_descr("id", 23, format_code::text),
+        make_field_descr("yet_another", 50, format_code::text),
+    });
+
+    // Messages
+    BOOST_TEST_EQ(cb(descrs), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(owning_data_row({"juan", "abc", "10", "value"})), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(owning_data_row({"antonio", "def", "21", ""})), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(protocol::command_complete{}), error_code());
+
+    // Rows
+    std::vector<user> expected_rows{
+        {10, "juan"   },
+        {21, "antonio"},
+    };
+    BOOST_TEST_ALL_EQ(users.begin(), users.end(), expected_rows.begin(), expected_rows.end());
+};
+
 }  // namespace
 
 int main()
 {
     test_simple_query();
     test_query();
+    test_field_match_by_name();
 
     return boost::report_errors();
 }

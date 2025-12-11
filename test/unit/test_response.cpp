@@ -262,6 +262,39 @@ void test_type_conversions()
     BOOST_TEST_ALL_EQ(users.begin(), users.end(), expected_rows.begin(), expected_rows.end());
 }
 
+// If a field is not present, that's an error
+void test_error_field_not_present()
+{
+    // Setup
+    std::vector<user> users;
+    auto cb = into(users);
+    owning_row_description descrs({
+        make_field_descr("id", 23, format_code::text),  // name is missing
+    });
+
+    // Messages
+    BOOST_TEST_EQ(cb(descrs), error_code(client_errc::cpp_field_not_found));
+}
+
+// If a field has an incompatible type, that's an error
+void test_error_incompatible_field_type()
+{
+    // Setup
+    std::vector<user> users;
+    auto cb = into(users);
+    owning_row_description descrs({
+        make_field_descr("id", 25, format_code::text),  // should be a number rather than text
+        make_field_descr("name", 25, format_code::text),
+    });
+
+    // Messages
+    BOOST_TEST_EQ(cb(descrs), error_code(client_errc::incompatible_type));
+}
+
+// TODO: queries with no data
+// TODO: properly test all types and what they support
+// TODO: all error conditions when parsing
+
 }  // namespace
 
 int main()
@@ -271,6 +304,9 @@ int main()
     test_field_match_by_name();
     test_binary();
     test_type_conversions();
+
+    test_error_field_not_present();
+    test_error_incompatible_field_type();
 
     return boost::report_errors();
 }

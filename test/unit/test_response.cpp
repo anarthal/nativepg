@@ -32,6 +32,7 @@
 using namespace nativepg;
 using boost::system::error_code;
 using protocol::format_code;
+using namespace std::string_view_literals;
 
 namespace {
 
@@ -215,6 +216,29 @@ void test_field_match_by_name()
     BOOST_TEST_ALL_EQ(users.begin(), users.end(), expected_rows.begin(), expected_rows.end());
 };
 
+// Binary fields are supported
+void test_binary()
+{
+    // Setup
+    std::vector<user> users;
+    auto cb = into(users);
+    owning_row_description descrs({
+        make_field_descr("id", 23, format_code::binary),
+        make_field_descr("name", 25, format_code::binary),
+    });
+
+    // Messages
+    BOOST_TEST_EQ(cb(descrs), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(owning_data_row({"\0\0\0\x2a"sv, "perico"})), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(protocol::command_complete{}), error_code());
+
+    // Rows
+    std::vector<user> expected_rows{
+        {42, "perico"},
+    };
+    BOOST_TEST_ALL_EQ(users.begin(), users.end(), expected_rows.begin(), expected_rows.end());
+}
+
 }  // namespace
 
 int main()
@@ -222,6 +246,7 @@ int main()
     test_simple_query();
     test_query();
     test_field_match_by_name();
+    test_binary();
 
     return boost::report_errors();
 }

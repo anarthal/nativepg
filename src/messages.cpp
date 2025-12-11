@@ -117,18 +117,19 @@ boost::system::result<any_backend_message> parse_authentication_request(boost::s
     // Parse
     switch (type)
     {
-    case authentication_message_type::ok: return parse_impl<authentication_ok>(from);
-    case authentication_message_type::kerberos_v5: return parse_impl<authentication_kerberos_v5>(from);
-    case authentication_message_type::cleartext_password:
-        return parse_impl<authentication_cleartext_password>(from);
-    case authentication_message_type::md5_password: return parse_impl<authentication_md5_password>(from);
-    case authentication_message_type::gss: return parse_impl<authentication_gss>(from);
-    case authentication_message_type::gss_continue: return parse_impl<authentication_gss_continue>(from);
-    case authentication_message_type::sspi: return parse_impl<authentication_sspi>(from);
-    case authentication_message_type::sasl: return parse_impl<authentication_sasl>(from);
-    case authentication_message_type::sasl_continue: return parse_impl<authentication_sasl_continue>(from);
-    case authentication_message_type::sasl_final: return parse_impl<authentication_sasl_final>(from);
-    default: return nativepg::client_errc::protocol_value_error;
+        case authentication_message_type::ok: return parse_impl<authentication_ok>(from);
+        case authentication_message_type::kerberos_v5: return parse_impl<authentication_kerberos_v5>(from);
+        case authentication_message_type::cleartext_password:
+            return parse_impl<authentication_cleartext_password>(from);
+        case authentication_message_type::md5_password: return parse_impl<authentication_md5_password>(from);
+        case authentication_message_type::gss: return parse_impl<authentication_gss>(from);
+        case authentication_message_type::gss_continue: return parse_impl<authentication_gss_continue>(from);
+        case authentication_message_type::sspi: return parse_impl<authentication_sspi>(from);
+        case authentication_message_type::sasl: return parse_impl<authentication_sasl>(from);
+        case authentication_message_type::sasl_continue:
+            return parse_impl<authentication_sasl_continue>(from);
+        case authentication_message_type::sasl_final: return parse_impl<authentication_sasl_final>(from);
+        default: return nativepg::client_errc::protocol_value_error;
     }
 }
 
@@ -159,25 +160,25 @@ void populate_field(detail::parse_context& ctx, error_field_type type, error_not
 {
     switch (type)
     {
-    case error_field_type::severity_i18n: to.localized_severity = ctx.get_string(); break;
-    case error_field_type::severity: to.severity = ctx.get_string(); break;
-    case error_field_type::sqlstate: to.sqlstate = ctx.get_string(); break;
-    case error_field_type::message: to.message = ctx.get_string(); break;
-    case error_field_type::detail: to.detail = ctx.get_string(); break;
-    case error_field_type::hint: to.hint = ctx.get_string(); break;
-    case error_field_type::position: to.position = ctx.get_string(); break;
-    case error_field_type::internal_position: to.internal_position = ctx.get_string(); break;
-    case error_field_type::internal_query: to.internal_query = ctx.get_string(); break;
-    case error_field_type::where: to.where = ctx.get_string(); break;
-    case error_field_type::schema_name: to.schema_name = ctx.get_string(); break;
-    case error_field_type::table_name: to.table_name = ctx.get_string(); break;
-    case error_field_type::column_name: to.column_name = ctx.get_string(); break;
-    case error_field_type::data_type_name: to.data_type_name = ctx.get_string(); break;
-    case error_field_type::constraint_name: to.constraint_name = ctx.get_string(); break;
-    case error_field_type::file_name: to.file_name = ctx.get_string(); break;
-    case error_field_type::line_number: to.line_number = ctx.get_string(); break;
-    case error_field_type::routine: to.routine = ctx.get_string(); break;
-    default: break;  // Intentionally ignore unknown fields
+        case error_field_type::severity_i18n: to.localized_severity = ctx.get_string(); break;
+        case error_field_type::severity: to.severity = ctx.get_string(); break;
+        case error_field_type::sqlstate: to.sqlstate = ctx.get_string(); break;
+        case error_field_type::message: to.message = ctx.get_string(); break;
+        case error_field_type::detail: to.detail = ctx.get_string(); break;
+        case error_field_type::hint: to.hint = ctx.get_string(); break;
+        case error_field_type::position: to.position = ctx.get_string(); break;
+        case error_field_type::internal_position: to.internal_position = ctx.get_string(); break;
+        case error_field_type::internal_query: to.internal_query = ctx.get_string(); break;
+        case error_field_type::where: to.where = ctx.get_string(); break;
+        case error_field_type::schema_name: to.schema_name = ctx.get_string(); break;
+        case error_field_type::table_name: to.table_name = ctx.get_string(); break;
+        case error_field_type::column_name: to.column_name = ctx.get_string(); break;
+        case error_field_type::data_type_name: to.data_type_name = ctx.get_string(); break;
+        case error_field_type::constraint_name: to.constraint_name = ctx.get_string(); break;
+        case error_field_type::file_name: to.file_name = ctx.get_string(); break;
+        case error_field_type::line_number: to.line_number = ctx.get_string(); break;
+        case error_field_type::routine: to.routine = ctx.get_string(); break;
+        default: break;  // Intentionally ignore unknown fields
     }
 }
 
@@ -207,10 +208,10 @@ bool is_valid_status(transaction_status v)
 {
     switch (v)
     {
-    case transaction_status::idle:
-    case transaction_status::in_transaction:
-    case transaction_status::failed: return true;
-    default: return false;
+        case transaction_status::idle:
+        case transaction_status::in_transaction:
+        case transaction_status::failed: return true;
+        default: return false;
     }
 }
 
@@ -218,9 +219,9 @@ bool is_valid_format_code(format_code v)
 {
     switch (v)
     {
-    case format_code::text:
-    case format_code::binary: return true;
-    default: return false;
+        case format_code::text:
+        case format_code::binary: return true;
+        default: return false;
     }
 }
 
@@ -238,9 +239,9 @@ bool is_valid_format_code(overall_format_code v)
 {
     switch (v)
     {
-    case overall_format_code::text:
-    case overall_format_code::binary: return true;
-    default: return false;
+        case overall_format_code::text:
+        case overall_format_code::binary: return true;
+        default: return false;
     }
 }
 
@@ -644,7 +645,7 @@ nativepg::protocol::field_description nativepg::protocol::detail::forward_traits
         detail::unchecked_get_integral<std::int32_t>(data),  // type_oid
         detail::unchecked_get_integral<std::int16_t>(data),  // type_length
         detail::unchecked_get_integral<std::int32_t>(data),  // type_modifier
-        static_cast<format_code>(detail::unchecked_get_integral<std::uint8_t>(data)),
+        static_cast<format_code>(detail::unchecked_get_integral<std::int16_t>(data)),
     };
 }
 
@@ -709,31 +710,31 @@ boost::system::result<any_backend_message> nativepg::protocol::parse(
 
     switch (t)
     {
-    case backend_message_type::authentication_request: return parse_authentication_request(data);
-    case backend_message_type::backend_key_data: return parse_impl<backend_key_data>(data);
-    case backend_message_type::bind_complete: return parse_impl<bind_complete>(data);
-    case backend_message_type::close_complete: return parse_impl<close_complete>(data);
-    case backend_message_type::command_complete: return parse_impl<command_complete>(data);
-    case backend_message_type::copy_data: return parse_impl<copy_data>(data);
-    case backend_message_type::copy_done: return parse_impl<copy_done>(data);
-    case backend_message_type::copy_in_response: return parse_impl<copy_in_response>(data);
-    case backend_message_type::copy_out_response: return parse_impl<copy_out_response>(data);
-    case backend_message_type::copy_both_response: return parse_impl<copy_both_response>(data);
-    case backend_message_type::data_row: return parse_impl<data_row>(data);
-    case backend_message_type::empty_query_response: return parse_impl<empty_query_response>(data);
-    case backend_message_type::error_response: return parse_impl<error_response>(data);
-    case backend_message_type::negotiate_protocol_version:
-        return parse_impl<negotiate_protocol_version>(data);
-    case backend_message_type::no_data: return parse_impl<no_data>(data);
-    case backend_message_type::notice_response: return parse_impl<notice_response>(data);
-    case backend_message_type::notification_response: return parse_impl<notification_response>(data);
-    case backend_message_type::parameter_description: return parse_impl<parameter_description>(data);
-    case backend_message_type::parameter_status: return parse_impl<parameter_status>(data);
-    case backend_message_type::parse_complete: return parse_impl<parse_complete>(data);
-    case backend_message_type::portal_suspended: return parse_impl<portal_suspended>(data);
-    case backend_message_type::ready_for_query: return parse_impl<ready_for_query>(data);
-    case backend_message_type::row_description: return parse_impl<row_description>(data);
-    default: return nativepg::client_errc::protocol_value_error;
+        case backend_message_type::authentication_request: return parse_authentication_request(data);
+        case backend_message_type::backend_key_data: return parse_impl<backend_key_data>(data);
+        case backend_message_type::bind_complete: return parse_impl<bind_complete>(data);
+        case backend_message_type::close_complete: return parse_impl<close_complete>(data);
+        case backend_message_type::command_complete: return parse_impl<command_complete>(data);
+        case backend_message_type::copy_data: return parse_impl<copy_data>(data);
+        case backend_message_type::copy_done: return parse_impl<copy_done>(data);
+        case backend_message_type::copy_in_response: return parse_impl<copy_in_response>(data);
+        case backend_message_type::copy_out_response: return parse_impl<copy_out_response>(data);
+        case backend_message_type::copy_both_response: return parse_impl<copy_both_response>(data);
+        case backend_message_type::data_row: return parse_impl<data_row>(data);
+        case backend_message_type::empty_query_response: return parse_impl<empty_query_response>(data);
+        case backend_message_type::error_response: return parse_impl<error_response>(data);
+        case backend_message_type::negotiate_protocol_version:
+            return parse_impl<negotiate_protocol_version>(data);
+        case backend_message_type::no_data: return parse_impl<no_data>(data);
+        case backend_message_type::notice_response: return parse_impl<notice_response>(data);
+        case backend_message_type::notification_response: return parse_impl<notification_response>(data);
+        case backend_message_type::parameter_description: return parse_impl<parameter_description>(data);
+        case backend_message_type::parameter_status: return parse_impl<parameter_status>(data);
+        case backend_message_type::parse_complete: return parse_impl<parse_complete>(data);
+        case backend_message_type::portal_suspended: return parse_impl<portal_suspended>(data);
+        case backend_message_type::ready_for_query: return parse_impl<ready_for_query>(data);
+        case backend_message_type::row_description: return parse_impl<row_description>(data);
+        default: return nativepg::client_errc::protocol_value_error;
     }
 }
 

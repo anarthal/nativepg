@@ -120,8 +120,27 @@ struct user
 };
 BOOST_DESCRIBE_STRUCT(user, (), (id, name))
 
-// The usual flow works
-void test_query_returning_data()
+// Simple queries work (vs. extended protocol queries)
+void test_simple_query()
+{
+    // Setup
+    std::vector<user> users;
+    auto cb = into(users);
+    owning_row_description descrs({
+        // clang-format off
+        {.name = "id",   .table_oid = 0, .column_attribute = 1, .type_oid = 23, .type_length = -1, .type_modifier = -1, .fmt_code = format_code::text},
+        {.name = "name", .table_oid = 0, .column_attribute = 1, .type_oid = 25, .type_length = -1, .type_modifier = -1, .fmt_code = format_code::text},
+        // clang-format on
+    });
+
+    // Messages
+    BOOST_TEST_EQ(cb(descrs), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(owning_data_row({"42", "perico"})), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(protocol::command_complete{}), error_code());
+}
+
+// The usual extended query flow works
+void test_query()
 {
     // Setup
     std::vector<user> users;
@@ -140,13 +159,16 @@ void test_query_returning_data()
     BOOST_TEST_EQ(cb(owning_data_row({"42", "perico"})), error_code(client_errc::needs_more));
     BOOST_TEST_EQ(cb(owning_data_row({"50", "pepe"})), error_code(client_errc::needs_more));
     BOOST_TEST_EQ(cb(protocol::command_complete{}), error_code());
+
+    // TODO: check rows
 }
 
 }  // namespace
 
 int main()
 {
-    test_query_returning_data();
+    test_simple_query();
+    test_query();
 
     return boost::report_errors();
 }

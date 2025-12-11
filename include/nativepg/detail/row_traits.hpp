@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_ROW_TRAITS_HPP
-#define NATIVEPG_ROW_TRAITS_HPP
+#ifndef NATIVEPG_DETAIL_ROW_TRAITS_HPP
+#define NATIVEPG_DETAIL_ROW_TRAITS_HPP
 
 #include <boost/describe/members.hpp>
 #include <boost/describe/modifiers.hpp>
@@ -15,7 +15,6 @@
 #include <array>
 #include <string_view>
 
-// TODO: we should allow some customizations at some point
 namespace nativepg::detail {
 
 // TODO: support tuples, Boost.Pfr and C++26 reflection

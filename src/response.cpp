@@ -15,7 +15,7 @@
 #include <span>
 
 #include "nativepg/client_errc.hpp"
-#include "nativepg/field_traits.hpp"
+#include "nativepg/detail/field_traits.hpp"
 #include "nativepg/response.hpp"
 
 using namespace nativepg;

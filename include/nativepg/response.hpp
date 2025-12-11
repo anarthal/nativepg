@@ -16,7 +16,6 @@
 #include <array>
 #include <concepts>
 #include <cstddef>
-#include <functional>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -25,7 +24,8 @@
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
-#include "nativepg/field_traits.hpp"
+#include "nativepg/detail/field_traits.hpp"
+#include "nativepg/detail/row_traits.hpp"
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/close.hpp"
 #include "nativepg/protocol/command_complete.hpp"
@@ -35,7 +35,6 @@
 #include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/parse.hpp"
-#include "nativepg/row_traits.hpp"
 
 namespace nativepg {
 

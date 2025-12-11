@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_FIELD_TRAITS_HPP
-#define NATIVEPG_FIELD_TRAITS_HPP
+#ifndef NATIVEPG_DETAIL_FIELD_TRAITS_HPP
+#define NATIVEPG_DETAIL_FIELD_TRAITS_HPP
 
 #include <boost/system/error_code.hpp>
 
@@ -17,7 +17,7 @@
 #include <string_view>
 
 #include "nativepg/client_errc.hpp"
-#include "protocol/describe.hpp"
+#include "nativepg/protocol/describe.hpp"
 
 // TODO: at some point we will need to expose some customization
 namespace nativepg::detail {

@@ -115,8 +115,17 @@ class resultset_callback_t
         }
 
         // Ignore messages that may or may not appear
-        boost::system::error_code operator()(protocol::parse_complete) const { return {}; }
-        boost::system::error_code operator()(protocol::bind_complete) const { return {}; }
+        boost::system::error_code operator()(protocol::parse_complete) const
+        {
+            // Only allowed before metadata
+            return self.state_ == state_t::parsing_meta ? client_errc::needs_more
+                                                        : client_errc::unexpected_message;
+        }
+        boost::system::error_code operator()(protocol::bind_complete) const
+        {
+            return self.state_ == state_t::parsing_meta ? client_errc::needs_more
+                                                        : client_errc::unexpected_message;
+        }
 
         boost::system::error_code operator()(const protocol::row_description& msg) const
         {

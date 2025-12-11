@@ -12,6 +12,8 @@
 
 #include <concepts>
 #include <cstdint>
+#include <optional>
+#include <span>
 #include <string_view>
 
 #include "nativepg/client_errc.hpp"

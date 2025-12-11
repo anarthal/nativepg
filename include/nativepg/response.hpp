@@ -76,18 +76,6 @@ using any_request_message = boost::variant2::variant<
     protocol::notice_response,
     protocol::parse_complete>;
 
-class vector_response
-{
-    using handler_type = std::function<boost::system::error_code(const any_request_message&)>;
-
-    vector_response() = default;
-
-    void add(handler_type h) { handlers_.push_back(std::move(h)); }
-
-private:
-    std::vector<handler_type> handlers_;
-};
-
 template <class T, std::invocable<T&&> Callback>
 class resultset_callback_t
 {

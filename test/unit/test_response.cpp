@@ -298,7 +298,7 @@ void test_error_field_not_present()
     });
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs), error_code(client_errc::cpp_field_not_found));
+    BOOST_TEST_EQ(cb(descrs), error_code(client_errc::field_not_found));
 }
 
 // If a field has an incompatible type, that's an error
@@ -313,7 +313,7 @@ void test_error_incompatible_field_type()
     });
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs), error_code(client_errc::incompatible_type));
+    BOOST_TEST_EQ(cb(descrs), error_code(client_errc::incompatible_field_type));
 }
 
 // TODO: parsing errors

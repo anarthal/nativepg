@@ -36,7 +36,7 @@ struct field_is_compatible<std::int16_t>
 {
     static inline boost::system::error_code call(const protocol::field_description& desc)
     {
-        return desc.type_oid == int2_oid ? boost::system::error_code() : client_errc::incompatible_type;
+        return desc.type_oid == int2_oid ? boost::system::error_code() : client_errc::incompatible_field_type;
     }
 };
 
@@ -46,7 +46,7 @@ struct field_is_compatible<std::int32_t>
     static inline boost::system::error_code call(const protocol::field_description& desc)
     {
         return desc.type_oid == int2_oid || desc.type_oid == int4_oid ? boost::system::error_code()
-                                                                      : client_errc::incompatible_type;
+                                                                      : client_errc::incompatible_field_type;
     }
 };
 
@@ -57,7 +57,7 @@ struct field_is_compatible<std::int64_t>
     {
         return desc.type_oid == int2_oid || desc.type_oid == int4_oid || desc.type_oid == int8_oid
                    ? boost::system::error_code()
-                   : client_errc::incompatible_type;
+                   : client_errc::incompatible_field_type;
     }
 };
 

@@ -153,7 +153,7 @@ boost::system::error_code detail::compute_pos_map(
             return ent.db_index == invalid_pos;
         }) != output.end())
     {
-        return client_errc::cpp_field_not_found;
+        return client_errc::field_not_found;
     }
 
     return {};

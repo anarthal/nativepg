@@ -41,16 +41,21 @@ enum class client_errc : int
     // authentication in the current version
     mandatory_scram_extension_not_supported,
 
-    // TODO: I don't like this
+    // Used in responses to indicate that we want more messages.
+    // TODO: this should really be in another category, at least, since it's not an error per se
     needs_more,
 
+    // We got a message type that wasn't supposed to appear in the state we are
     unexpected_message,
 
-    incompatible_type,
-
+    // We got a NULL, but the C++ type where we're parsing into doesn't support NULLs
     unexpected_null,
 
-    cpp_field_not_found,
+    // The fields returned by the query are not compatible with the C++ types we're parsing into
+    incompatible_field_type,
+
+    // There was a field defined in a C++ type that wasn't present in the data returned by the query
+    field_not_found,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

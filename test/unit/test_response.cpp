@@ -262,6 +262,31 @@ void test_type_conversions()
     BOOST_TEST_ALL_EQ(users.begin(), users.end(), expected_rows.begin(), expected_rows.end());
 }
 
+// Spotcheck the callback version
+void test_callback()
+{
+    // Setup
+    std::vector<user> users;
+    auto cb = resultset_callback<user>([&users](user&& u) { users.push_back(std::move(u)); });
+    owning_row_description descrs({
+        make_field_descr("id", 23, format_code::text),
+        make_field_descr("name", 25, format_code::text),
+    });
+
+    // Messages
+    BOOST_TEST_EQ(cb(descrs), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(owning_data_row({"42", "perico"})), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(owning_data_row({"50", "pepe"})), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(protocol::command_complete{}), error_code());
+
+    // Rows
+    std::vector<user> expected_rows{
+        {42, "perico"},
+        {50, "pepe"  },
+    };
+    BOOST_TEST_ALL_EQ(users.begin(), users.end(), expected_rows.begin(), expected_rows.end());
+}
+
 // If a field is not present, that's an error
 void test_error_field_not_present()
 {
@@ -291,6 +316,7 @@ void test_error_incompatible_field_type()
     BOOST_TEST_EQ(cb(descrs), error_code(client_errc::incompatible_type));
 }
 
+// TODO: parsing errors
 // TODO: queries with no data
 // TODO: properly test all types and what they support
 // TODO: all error conditions when parsing
@@ -304,6 +330,7 @@ int main()
     test_field_match_by_name();
     test_binary();
     test_type_conversions();
+    test_callback();
 
     test_error_field_not_present();
     test_error_incompatible_field_type();

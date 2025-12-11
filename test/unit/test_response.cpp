@@ -30,7 +30,6 @@
 #include "nativepg/response.hpp"
 
 using namespace nativepg;
-using namespace boost::describe::operators;
 using boost::system::error_code;
 using protocol::format_code;
 
@@ -119,6 +118,8 @@ struct user
     std::string name;
 };
 BOOST_DESCRIBE_STRUCT(user, (), (id, name))
+using boost::describe::operators::operator==;
+using boost::describe::operators::operator<<;
 
 // Simple queries work (vs. extended protocol queries)
 void test_simple_query()
@@ -137,6 +138,12 @@ void test_simple_query()
     BOOST_TEST_EQ(cb(descrs), error_code(client_errc::needs_more));
     BOOST_TEST_EQ(cb(owning_data_row({"42", "perico"})), error_code(client_errc::needs_more));
     BOOST_TEST_EQ(cb(protocol::command_complete{}), error_code());
+
+    // Rows
+    std::vector<user> expected_rows{
+        {42, "perico"}
+    };
+    BOOST_TEST_ALL_EQ(users.begin(), users.end(), expected_rows.begin(), expected_rows.end());
 }
 
 // The usual extended query flow works
@@ -160,7 +167,12 @@ void test_query()
     BOOST_TEST_EQ(cb(owning_data_row({"50", "pepe"})), error_code(client_errc::needs_more));
     BOOST_TEST_EQ(cb(protocol::command_complete{}), error_code());
 
-    // TODO: check rows
+    // Rows
+    std::vector<user> expected_rows{
+        {42, "perico"},
+        {50, "pepe"  },
+    };
+    BOOST_TEST_ALL_EQ(users.begin(), users.end(), expected_rows.begin(), expected_rows.end());
 }
 
 }  // namespace

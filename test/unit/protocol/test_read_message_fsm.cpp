@@ -7,14 +7,17 @@
 
 #include <boost/core/lightweight_test.hpp>
 #include <boost/core/span.hpp>
+#include <boost/system/error_code.hpp>
 #include <boost/variant2/variant.hpp>
 
 #include <ostream>
 
+#include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/command_complete.hpp"
 #include "nativepg/protocol/read_message_fsm.hpp"
 
 using namespace nativepg;
+using boost::system::error_code;
 using boost::variant2::get;
 using protocol::read_message_fsm;
 
@@ -103,12 +106,38 @@ void test_short_reads()
     BOOST_TEST_EQ(get<protocol::command_complete>(act.message()).tag, "SELECT 1");
 }
 
+// Errors
+void test_error_unknown_message_type()
+{
+    // This message type is unknown
+    const unsigned char data[] = {0xff, 0x00, 0x00, 0x00, 0x01, 0x00};
+
+    read_message_fsm fsm;
+    auto act = fsm.resume(data);
+    BOOST_TEST_EQ(act.type(), read_message_fsm::result_type::error);
+    BOOST_TEST_EQ(act.error(), error_code(client_errc::protocol_value_error));
+}
+
+void test_error_invalid_length()
+{
+    // Length -1
+    const unsigned char data[] = {0x43, 0xff, 0xff, 0xff, 0xff};
+
+    read_message_fsm fsm;
+    auto act = fsm.resume(data);
+    BOOST_TEST_EQ(act.type(), read_message_fsm::result_type::error);
+    BOOST_TEST_EQ(act.error(), error_code(client_errc::protocol_value_error));
+}
+
 }  // namespace
 
 int main()
 {
     test_success();
     test_short_reads();
+
+    test_error_unknown_message_type();
+    test_error_invalid_length();
 
     return boost::report_errors();
 }

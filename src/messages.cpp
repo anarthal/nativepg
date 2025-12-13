@@ -310,7 +310,7 @@ boost::system::result<std::array<unsigned char, 5>> nativepg::protocol::serializ
     std::array<unsigned char, 5> res{};
 
     // Range check the length. It should fit an int32, counting the 4 extra bytes in the length field
-    constexpr std::size_t max_size = (std::numeric_limits<std::int32_t>::max)() - 4u;
+    constexpr std::int32_t max_size = (std::numeric_limits<std::int32_t>::max)() - 4u;
     if (header.size > max_size)
         return client_errc::value_too_big;
 
@@ -337,7 +337,7 @@ boost::system::result<message_header> nativepg::protocol::parse_header(
         return client_errc::protocol_value_error;
 
     // Done
-    return message_header{msg_type, size - 4u};
+    return message_header{msg_type, size};
 }
 
 boost::system::error_code nativepg::protocol::parse(

@@ -19,6 +19,7 @@ add_library(nativepg
     # External API
     src/error.cpp
     src/messages.cpp
+    src/fsm.cpp
     src/request.cpp
     src/response.cpp
 )
@@ -49,6 +50,7 @@ if (BUILD_TESTING)
     add_unit_test(protocol          test_scram_sha256_server_first_message)
     add_unit_test(protocol          test_scram_sha256_client_final_message)
     add_unit_test(protocol          test_scram_sha256_server_final_message)
+    add_unit_test(protocol          test_read_message_fsm)
     add_unit_test(""                test_request)
     add_unit_test(""                test_response)
 endif()

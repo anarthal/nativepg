@@ -49,7 +49,7 @@ public:
         result(boost::system::error_code ec) noexcept : type_(result_type::error), ec_(ec) {}
         result(std::size_t hint) noexcept : type_(result_type::needs_more), hint_(hint) {}
         result(const any_backend_message& msg, std::size_t bytes_consumed) noexcept
-            : type_(result_type::message), msg_(msg, bytes_consumed)
+            : type_(result_type::message), msg_{msg, bytes_consumed}
         {
         }
 
@@ -70,21 +70,27 @@ public:
         const any_backend_message& message() const
         {
             BOOST_ASSERT(type_ == result_type::message);
-            return msg_.first;
+            return msg_.msg;
         }
 
         std::size_t bytes_consumed() const
         {
             BOOST_ASSERT(type_ == result_type::message);
-            return msg_.second;
+            return msg_.bytes_consumed;
         }
 
     private:
         result_type type_;
+        struct msg_t
+        {
+            any_backend_message msg;
+            std::size_t bytes_consumed;
+        };
+
         union
         {
             boost::system::error_code ec_;
-            std::pair<any_backend_message, std::size_t> msg_;
+            msg_t msg_;
             std::size_t hint_;
         };
     };

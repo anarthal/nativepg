@@ -129,6 +129,8 @@ void test_error_invalid_length()
     BOOST_TEST_EQ(act.error(), error_code(client_errc::protocol_value_error));
 }
 
+// TODO: error when deserializing message
+
 }  // namespace
 
 int main()

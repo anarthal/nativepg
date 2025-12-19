@@ -11,7 +11,6 @@
 #include <boost/assert.hpp>
 #include <boost/system/error_code.hpp>
 
-#include <cstddef>
 #include <optional>
 #include <span>
 #include <string_view>

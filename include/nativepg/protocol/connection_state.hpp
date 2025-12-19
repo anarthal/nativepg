@@ -17,8 +17,12 @@ namespace nativepg::protocol {
 
 struct connection_state
 {
+    // TODO: I think we should be able to merge this with the read buffer if careful. Separate is easier for
+    // now
+    std::vector<unsigned char> write_buffer;
+
     // TODO: a proper buffer type
-    // Read buffer. Used for serialization during startup, too
+    // Read buffer
     std::vector<unsigned char> read_buffer;
 
     // The ID of the process that is managing our connection (aka connection ID)

@@ -110,20 +110,20 @@ startup_fsm::result startup_fsm::resume(
         NATIVEPG_CORO_INITIAL
 
         // Compose the startup message
-        st.read_buffer.clear();
+        st.write_buffer.clear();
         ec = serialize(
             startup_message{
                 .user = params_->username,
                 .database = params_->database,
                 .params = {},
             },
-            st.read_buffer
+            st.write_buffer
         );
         if (ec)
             return ec;
 
         // Write it
-        NATIVEPG_YIELD(resume_point_, 1, result(st.read_buffer))
+        NATIVEPG_YIELD(resume_point_, 1, result(st.write_buffer))
         if (ec)
             return ec;
 

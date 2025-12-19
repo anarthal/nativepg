@@ -23,31 +23,33 @@
 #include <cstdint>
 #include <iostream>
 #include <memory>
-#include <source_location>
 #include <span>
 #include <string_view>
+#include <tuple>
 #include <type_traits>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/bind.hpp"
+#include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/messages.hpp"
 #include "nativepg/protocol/parse.hpp"
 #include "nativepg/protocol/read_message_fsm.hpp"
 #include "nativepg/protocol/ready_for_query.hpp"
-#include "nativepg/protocol/startup.hpp"
+#include "nativepg/protocol/startup_fsm.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
 
 namespace asio = boost::asio;
 using namespace nativepg;
 
-static void check(boost::system::error_code ec, std::source_location loc = std::source_location::current())
+[[noreturn]]
+static void die(boost::system::error_code ec, boost::source_location loc = BOOST_CURRENT_LOCATION)
 {
-    if (ec)
-        boost::throw_with_location(boost::system::system_error(ec), loc);
+    std::cerr << "Error: " << ec.what() << "\ncalled from " << loc << std::endl;
+    exit(1);
 }
 
 struct myrow
@@ -78,8 +80,7 @@ std::pair<protocol::any_backend_message, std::size_t> read_message(
         {
             case protocol::read_message_fsm::result_type::error:
             {
-                std::cerr << "Error while parsing message: " << res.error() << std::endl;
-                exit(1);
+                die(res.error());
             }
             case protocol::read_message_fsm::result_type::message:
             {
@@ -95,36 +96,53 @@ std::pair<protocol::any_backend_message, std::size_t> read_message(
     }
 }
 
+void startup(protocol::connection_state& st, asio::ip::tcp::socket& sock)
+{
+    protocol::startup_params params{.username = "postgres", .password = "secret", .database = "postgres"};
+    protocol::startup_fsm fsm{params};
+    protocol::any_backend_message msg;
+    boost::system::error_code ec;
+    auto buff = asio::dynamic_buffer(st.read_buffer);
+    std::size_t bytes_consumed = 0u;
+    while (true)
+    {
+        auto act = fsm.resume(st, ec, msg);
+        if (bytes_consumed)
+            buff.consume(bytes_consumed);
+        switch (act.type())
+        {
+            case protocol::startup_fsm::result_type::done:
+            {
+                if (act.error())
+                    die(act.error());
+                return;
+            }
+            case protocol::startup_fsm::result_type::write:
+            {
+                asio::write(sock, act.write_data(), ec);
+                break;
+            }
+            case protocol::startup_fsm::result_type::read:
+            {
+                std::tie(msg, bytes_consumed) = read_message(sock, buff);
+                break;
+            }
+        }
+    }
+}
+
 int main()
 {
     asio::io_context ctx;
     asio::ip::tcp::socket sock(ctx);
+    protocol::connection_state st;
 
     // Connect
     sock.connect(asio::ip::tcp::endpoint(asio::ip::address_v4::loopback(), 5432));
 
-    // Send login request
-    std::vector<unsigned char> buffer;
-    auto ec = protocol::serialize(
-        protocol::startup_message{.user = "postgres", .database = "postgres", .params = {}},
-        buffer
-    );
-    check(ec);
-    asio::write(sock, asio::buffer(buffer));
-
-    // Ignore all messages until a ready for query is received
-    std::vector<unsigned char> buff;
-    auto dynbuff = asio::dynamic_buffer(buff);
-
-    while (true)
-    {
-        auto [msg, bytes_consumed] = read_message(sock, dynbuff);
-        if (boost::variant2::holds_alternative<protocol::ready_for_query>(msg))
-            break;
-        dynbuff.consume(bytes_consumed);
-    }
-
-    std::cout << "Handshake complete\n";
+    // Startup
+    startup(st, sock);
+    std::cout << "Startup complete\n";
 
     // Compose our request
     request req;
@@ -135,7 +153,8 @@ int main()
     // Parse the response
     std::vector<myrow> vec;
     auto cb = into(vec);
-    dynbuff.consume(dynbuff.max_size());
+    st.read_buffer.clear();
+    auto dynbuff = asio::dynamic_buffer(st.read_buffer);
 
     while (true)
     {

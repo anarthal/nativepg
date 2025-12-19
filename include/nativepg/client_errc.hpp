@@ -56,6 +56,27 @@ enum class client_errc : int
 
     // There was a field defined in a C++ type that wasn't present in the data returned by the query
     field_not_found,
+
+    // TODO: this should really use an error category on its own
+    auth_failed,
+
+    // We don't support this authentication method yet
+    auth_kerberos_v5_unsupported,
+
+    // We don't support this authentication method yet
+    auth_cleartext_password_unsupported,
+
+    // We don't support this authentication method yet
+    auth_md5_password_unsupported,
+
+    // We don't support this authentication method yet
+    auth_gss_unsupported,
+
+    // We don't support this authentication method yet
+    auth_sspi_unsupported,
+
+    // We don't support this authentication method yet
+    auth_sasl_unsupported,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

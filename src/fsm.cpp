@@ -5,12 +5,25 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#include <boost/system/system_error.hpp>
+#include <boost/variant2/variant.hpp>
+
+#include "coroutine.hpp"
+#include "nativepg/client_errc.hpp"
+#include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/header.hpp"
+#include "nativepg/protocol/messages.hpp"
+#include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/read_message_fsm.hpp"
+#include "nativepg/protocol/ready_for_query.hpp"
+#include "nativepg/protocol/startup.hpp"
+#include "nativepg/protocol/startup_fsm.hpp"
 
-using namespace nativepg;
+using namespace nativepg::protocol;
+using boost::system::error_code;
+using nativepg::client_errc;
 
-protocol::read_message_fsm::result protocol::read_message_fsm::resume(std::span<const unsigned char> data)
+read_message_fsm::result read_message_fsm::resume(std::span<const unsigned char> data)
 {
     if (msg_size_ == -1)
     {
@@ -42,4 +55,127 @@ protocol::read_message_fsm::result protocol::read_message_fsm::resume(std::span<
     if (msg_result.has_error())
         return msg_result.error();
     return result(*msg_result, expected_size);
+}
+
+namespace {
+
+struct startup_visitor
+{
+    error_code operator()(const error_response&) const
+    {
+        // TODO: string diagnostics
+        return client_errc::auth_failed;
+    }
+
+    error_code operator()(const authentication_ok&) const { return error_code(); }
+
+    error_code operator()(const authentication_kerberos_v5&) const
+    {
+        return client_errc::auth_kerberos_v5_unsupported;
+    }
+
+    error_code operator()(const authentication_cleartext_password&) const
+    {
+        return client_errc::auth_cleartext_password_unsupported;
+    }
+
+    error_code operator()(const authentication_md5_password&) const
+    {
+        return client_errc::auth_md5_password_unsupported;
+    }
+
+    error_code operator()(const authentication_gss&) const { return client_errc::auth_gss_unsupported; }
+
+    error_code operator()(const authentication_sspi&) const { return client_errc::auth_sspi_unsupported; }
+
+    error_code operator()(const authentication_sasl&) const { return client_errc::auth_sasl_unsupported; }
+
+    template <class T>
+    error_code operator()(const T&) const
+    {
+        return client_errc::unexpected_message;
+    }
+};
+
+}  // namespace
+
+startup_fsm::result startup_fsm::resume(
+    connection_state& st,
+    boost::system::error_code ec,
+    const any_backend_message& msg
+)
+{
+    switch (resume_point_)
+    {
+        NATIVEPG_CORO_INITIAL
+
+        // Compose the startup message
+        st.read_buffer.clear();
+        ec = serialize(
+            startup_message{
+                .user = params_->username,
+                .database = params_->database,
+                .params = {},
+            },
+            st.read_buffer
+        );
+        if (ec)
+            return ec;
+
+        // Write it
+        NATIVEPG_YIELD(resume_point_, 1, result(st.read_buffer))
+        if (ec)
+            return ec;
+
+        // Read the server's response
+        NATIVEPG_YIELD(resume_point_, 2, result::read())
+        if (ec)
+            return ec;
+
+        // Act upon the server's message
+        // TODO: this will have to change once we implement SASL
+        ec = boost::variant2::visit(startup_visitor{}, msg);
+        if (ec)
+            return ec;
+
+        // Backend has approved our login request. Now wait until we receive ReadyForQuery
+        while (true)
+        {
+            // Read a message
+            NATIVEPG_YIELD(resume_point_, 3, result::read())
+            if (ec)
+                return ec;
+
+            // Act upon it
+            if (const auto* key = boost::variant2::get_if<backend_key_data>(&msg))
+            {
+                st.backend_process_id = key->process_id;
+                st.backend_secret_key = key->secret_key;
+            }
+            else if (boost::variant2::holds_alternative<parameter_status>(msg))
+            {
+                // TODO: record these somehow
+            }
+            else if (boost::variant2::holds_alternative<error_response>(msg))
+            {
+                return error_code(client_errc::auth_failed);
+            }
+            else if (boost::variant2::holds_alternative<notice_response>(msg))
+            {
+                // TODO: record these somehow
+            }
+            else if (boost::variant2::holds_alternative<ready_for_query>(msg))
+            {
+                return error_code();
+            }
+            else
+            {
+                return error_code(client_errc::unexpected_message);
+            }
+        }
+    }
+
+    // We should never reach here
+    BOOST_ASSERT(false);
+    return error_code();
 }

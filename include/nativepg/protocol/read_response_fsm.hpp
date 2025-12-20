@@ -56,6 +56,8 @@ private:
     bool handler_finished_{};
     std::size_t remaining_syncs_{};
     bool initial_{true};
+
+    struct visitor;
 };
 
 }  // namespace detail

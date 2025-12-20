@@ -11,7 +11,6 @@
 
 #include <cstddef>
 #include <span>
-#include <type_traits>
 
 #include "coroutine.hpp"
 #include "nativepg/client_errc.hpp"
@@ -28,6 +27,7 @@
 #include "nativepg/protocol/startup.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/response.hpp"
 
 using namespace nativepg::protocol;
 using boost::system::error_code;
@@ -317,6 +317,64 @@ std::size_t count_syncs(std::span<const request_msg_type> msgs)
 
 }  // namespace
 
+struct read_response_fsm_impl::visitor
+{
+    read_response_fsm_impl& self;
+
+    result call_handler(const any_request_message& msg) const
+    {
+        auto res = self.handler_(msg);
+        if (res)
+        {
+            return res == client_errc::needs_more ? result(result_type::read) : res;
+        }
+        else
+        {
+            self.handler_finished_ = true;
+            return result_type::read;
+        }
+    }
+
+    // Discard asynchronous messages that might be received at any time
+    // TODO: do something useful with these
+    result operator()(const notice_response&) const { return result_type::read; }
+    result operator()(const notification_response&) const { return result_type::read; }
+    result operator()(const parameter_status&) const { return result_type::read; }
+
+    // If this is a ReadyForQuery, check if we're done
+    result operator()(ready_for_query) const
+    {
+        if (--self.remaining_syncs_ == 0u)
+        {
+            return self.handler_finished_ ? error_code() : client_errc::needs_more;
+        }
+        else
+        {
+            return result_type::read;
+        }
+    }
+
+    // If this is a message for the handler, call it
+    result operator()(bind_complete msg) const { return call_handler(msg); }
+    result operator()(close_complete msg) const { return call_handler(msg); }
+    result operator()(command_complete msg) const { return call_handler(msg); }
+    result operator()(const data_row& msg) const { return call_handler(msg); }
+    result operator()(const parameter_description& msg) const { return call_handler(msg); }
+    result operator()(const row_description& msg) const { return call_handler(msg); }
+    result operator()(no_data msg) const { return call_handler(msg); }
+    result operator()(empty_query_response msg) const { return call_handler(msg); }
+    result operator()(portal_suspended msg) const { return call_handler(msg); }
+    result operator()(const error_response& msg) const { return call_handler(msg); }
+    result operator()(parse_complete msg) const { return call_handler(msg); }
+
+    // This is an unknown message
+    template <class T>
+    result operator()(const T&) const
+    {
+        return error_code(client_errc::unexpected_message);
+    }
+};
+
 read_response_fsm_impl::result read_response_fsm_impl::resume(const any_backend_message& msg)
 {
     // Initial checks
@@ -339,55 +397,5 @@ read_response_fsm_impl::result read_response_fsm_impl::resume(const any_backend_
         initial_ = false;
     }
 
-    // Discard asynchronous messages that might be received at any time
-    // TODO: do something useful with these
-    if (boost::variant2::holds_alternative<notice_response>(msg) ||
-        boost::variant2::holds_alternative<notification_response>(msg) ||
-        boost::variant2::holds_alternative<parameter_status>(msg))
-    {
-        return result_type::read;
-    }
-
-    // If this is a ReadyForQuery, check if we're done
-    if (boost::variant2::holds_alternative<ready_for_query>(msg))
-    {
-        if (--remaining_syncs_ == 0u)
-        {
-            return handler_finished_ ? error_code() : client_errc::needs_more;
-        }
-        else
-        {
-            return result_type::read;
-        }
-    }
-
-    // This is either a message for the handler, or an unknown message
-    return boost::variant2::visit(
-        [this](const auto& typed_msg) -> result {
-            using T = decltype(typed_msg);
-            if constexpr (std::is_same_v<T, bind_complete> || std::is_same_v<T, close_complete> ||
-                          std::is_same_v<T, command_complete> || std::is_same_v<T, data_row> ||
-                          std::is_same_v<T, parameter_description> || std::is_same_v<T, row_description> ||
-                          std::is_same_v<T, no_data> || std::is_same_v<T, empty_query_response> ||
-                          std::is_same_v<T, portal_suspended> || std::is_same_v<T, error_response> ||
-                          std::is_same_v<T, parse_complete>)
-            {
-                auto res = handler_(typed_msg);
-                if (res)
-                {
-                    return res == client_errc::needs_more ? result(result_type::read) : res;
-                }
-                else
-                {
-                    handler_finished_ = true;
-                    return result_type::read;
-                }
-            }
-            else
-            {
-                return error_code(client_errc::unexpected_message);
-            }
-        },
-        msg
-    );
+    return boost::variant2::visit(visitor{*this}, msg);
 }

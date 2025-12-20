@@ -27,10 +27,6 @@ namespace detail {
 
 class read_response_fsm_impl
 {
-    std::size_t remaining_syncs_;
-    response_handler_ref handler_;
-    bool handler_finished_{};
-
 public:
     enum class result_type
     {
@@ -47,9 +43,19 @@ public:
         result(result_type t) noexcept : type(t) {}
     };
 
-    read_response_fsm_impl(const request& req, response_handler_ref handler);
+    read_response_fsm_impl(const request& req, response_handler_ref handler) noexcept
+        : req_(&req), handler_(handler)
+    {
+    }
 
-    result resume(connection_state& st, const any_backend_message& msg);
+    result resume(const any_backend_message& msg);
+
+private:
+    const request* req_;
+    response_handler_ref handler_;
+    bool handler_finished_{};
+    std::size_t remaining_syncs_{};
+    bool initial_{true};
 };
 
 }  // namespace detail

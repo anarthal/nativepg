@@ -9,13 +9,15 @@
 #include <boost/system/system_error.hpp>
 #include <boost/variant2/variant.hpp>
 
-#include <algorithm>
 #include <cstddef>
 #include <span>
+#include <type_traits>
 
 #include "coroutine.hpp"
 #include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/async.hpp"
+#include "nativepg/protocol/bind.hpp"
+#include "nativepg/protocol/close.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/header.hpp"
 #include "nativepg/protocol/messages.hpp"
@@ -26,13 +28,14 @@
 #include "nativepg/protocol/startup.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/response.hpp"
 
 using namespace nativepg::protocol;
 using boost::system::error_code;
 using detail::read_response_fsm_impl;
 using detail::startup_fsm_impl;
 using nativepg::client_errc;
+using nativepg::detail::request_access;
+using nativepg::detail::request_msg_type;
 
 read_message_fsm::result read_message_fsm::resume(std::span<const unsigned char> data)
 {
@@ -302,61 +305,89 @@ startup_fsm::result startup_fsm::resume(
     return error_code();
 }
 
-static std::size_t count_syncs(const nativepg::request& req)
+namespace {
+
+std::size_t count_syncs(std::span<const request_msg_type> msgs)
 {
-    auto msg_types = nativepg::detail::request_access::messages(req);
-    auto res = std::count(msg_types.begin(), msg_types.end(), nativepg::detail::request_msg_type::sync);
-    BOOST_ASSERT(res > 0);  // TODO: this should probably be a runtime error, not an assertion
-    return static_cast<std::size_t>(res);
+    std::size_t res = 0;
+    for (const auto msg : msgs)
+        res += static_cast<std::size_t>(msg == request_msg_type::query || msg == request_msg_type::sync);
+    return res;
 }
 
-read_response_fsm_impl::read_response_fsm_impl(const request& req, response_handler_ref handler)
-    : remaining_syncs_(count_syncs(req)), handler_(handler)
-{
-}
+}  // namespace
 
-read_response_fsm_impl::result read_response_fsm_impl::resume(
-    connection_state& st,
-    const any_backend_message& msg
-)
+read_response_fsm_impl::result read_response_fsm_impl::resume(const any_backend_message& msg)
 {
-    // TODO: we should really check that every received message is legal for the sent request
-    if (boost::variant2::holds_alternative<notice_response>(msg))
+    // Initial checks
+    if (initial_)
     {
-        // TODO: do something useful with notices
+        const auto msg_types = request_access::messages(*req_);
+
+        // Empty requests are not allowed
+        if (msg_types.empty())
+            return error_code(client_errc::empty_request);
+
+        // Currently, all pipelines must end with a sync or a query
+        const auto last_type = msg_types.back();
+        if (last_type != request_msg_type::sync && last_type != request_msg_type::query)
+            return error_code(client_errc::request_ends_without_sync);
+
+        // Count how many syncs are we expecting
+        remaining_syncs_ = count_syncs(msg_types);
+
+        initial_ = false;
     }
-    else if (boost::variant2::holds_alternative<notification_response>(msg))
+
+    // Discard asynchronous messages that might be received at any time
+    // TODO: do something useful with these
+    if (boost::variant2::holds_alternative<notice_response>(msg) ||
+        boost::variant2::holds_alternative<notification_response>(msg) ||
+        boost::variant2::holds_alternative<parameter_status>(msg))
     {
-        // TODO: pass these to the receiver task
+        return result_type::read;
     }
-    else if (boost::variant2::holds_alternative<parameter_status>(msg))
+
+    // If this is a ReadyForQuery, check if we're done
+    if (boost::variant2::holds_alternative<ready_for_query>(msg))
     {
-        // TODO: record these values
-    }
-    else if (boost::variant2::holds_alternative<ready_for_query>(msg))
-    {
-        if (--remaining_syncs_ == 0)
+        if (--remaining_syncs_ == 0u)
         {
-            // TODO: needs more is probably not the best code
             return handler_finished_ ? error_code() : client_errc::needs_more;
-        }
-    }
-    else if (true)
-    {
-        // Compose the message
-        auto handler_res = handler_(any_request_message{});
-        if (handler_res)
-        {
-            return handler_res == client_errc::needs_more ? result(result_type::read) : handler_res;
         }
         else
         {
-            handler_finished_ = true;
             return result_type::read;
         }
     }
-    else
-    {
-        return error_code(client_errc::unexpected_message);
-    }
+
+    // This is either a message for the handler, or an unknown message
+    return boost::variant2::visit(
+        [this](const auto& typed_msg) -> result {
+            using T = decltype(typed_msg);
+            if constexpr (std::is_same_v<T, bind_complete> || std::is_same_v<T, close_complete> ||
+                          std::is_same_v<T, command_complete> || std::is_same_v<T, data_row> ||
+                          std::is_same_v<T, parameter_description> || std::is_same_v<T, row_description> ||
+                          std::is_same_v<T, no_data> || std::is_same_v<T, empty_query_response> ||
+                          std::is_same_v<T, portal_suspended> || std::is_same_v<T, error_response> ||
+                          std::is_same_v<T, parse_complete>)
+            {
+                auto res = handler_(typed_msg);
+                if (res)
+                {
+                    return res == client_errc::needs_more ? result(result_type::read) : res;
+                }
+                else
+                {
+                    handler_finished_ = true;
+                    return result_type::read;
+                }
+            }
+            else
+            {
+                return error_code(client_errc::unexpected_message);
+            }
+        },
+        msg
+    );
 }

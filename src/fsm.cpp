@@ -9,6 +9,7 @@
 #include <boost/system/system_error.hpp>
 #include <boost/variant2/variant.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <span>
 
@@ -20,12 +21,16 @@
 #include "nativepg/protocol/messages.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/read_message_fsm.hpp"
+#include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/protocol/startup.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
+#include "nativepg/request.hpp"
+#include "nativepg/response.hpp"
 
 using namespace nativepg::protocol;
 using boost::system::error_code;
+using detail::read_response_fsm_impl;
 using detail::startup_fsm_impl;
 using nativepg::client_errc;
 
@@ -295,4 +300,63 @@ startup_fsm::result startup_fsm::resume(
 
     BOOST_ASSERT(false);
     return error_code();
+}
+
+static std::size_t count_syncs(const nativepg::request& req)
+{
+    auto msg_types = nativepg::detail::request_access::messages(req);
+    auto res = std::count(msg_types.begin(), msg_types.end(), nativepg::detail::request_msg_type::sync);
+    BOOST_ASSERT(res > 0);  // TODO: this should probably be a runtime error, not an assertion
+    return static_cast<std::size_t>(res);
+}
+
+read_response_fsm_impl::read_response_fsm_impl(const request& req, response_handler_ref handler)
+    : remaining_syncs_(count_syncs(req)), handler_(handler)
+{
+}
+
+read_response_fsm_impl::result read_response_fsm_impl::resume(
+    connection_state& st,
+    const any_backend_message& msg
+)
+{
+    // TODO: we should really check that every received message is legal for the sent request
+    if (boost::variant2::holds_alternative<notice_response>(msg))
+    {
+        // TODO: do something useful with notices
+    }
+    else if (boost::variant2::holds_alternative<notification_response>(msg))
+    {
+        // TODO: pass these to the receiver task
+    }
+    else if (boost::variant2::holds_alternative<parameter_status>(msg))
+    {
+        // TODO: record these values
+    }
+    else if (boost::variant2::holds_alternative<ready_for_query>(msg))
+    {
+        if (--remaining_syncs_ == 0)
+        {
+            // TODO: needs more is probably not the best code
+            return handler_finished_ ? error_code() : client_errc::needs_more;
+        }
+    }
+    else if (true)
+    {
+        // Compose the message
+        auto handler_res = handler_(any_request_message{});
+        if (handler_res)
+        {
+            return handler_res == client_errc::needs_more ? result(result_type::read) : handler_res;
+        }
+        else
+        {
+            handler_finished_ = true;
+            return result_type::read;
+        }
+    }
+    else
+    {
+        return error_code(client_errc::unexpected_message);
+    }
 }

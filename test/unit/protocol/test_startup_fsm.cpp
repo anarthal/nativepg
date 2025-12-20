@@ -6,7 +6,7 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
-#include <boost/system/detail/error_code.hpp>
+#include <boost/system/error_code.hpp>
 
 #include <iterator>
 
@@ -18,8 +18,6 @@
 
 using namespace nativepg;
 using boost::system::error_code;
-using boost::variant2::get;
-using protocol::read_message_fsm;
 using protocol::detail::startup_fsm_impl;
 
 // Operators

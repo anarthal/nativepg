@@ -406,51 +406,31 @@ read_response_fsm::result read_response_fsm::resume(
     std::size_t bytes_read
 )
 {
-    // TODO: this is duplicated from the startup FSM
-    any_backend_message msg;
-    read_response_fsm_impl::result res{error_code()};
-    read_message_stream_fsm::result read_msg_res{error_code()};
-
-    switch (resume_point_)
+    while (true)
     {
-        NATIVEPG_CORO_INITIAL
-
-        while (true)
+        // Attempt to get a new message
+        auto read_msg_res = st.read_msg_stream_fsm.resume(st, io_error, bytes_read);
+        if (read_msg_res.type() == read_message_stream_fsm::result_type::read)
         {
-            // Call the FSM
-            res = impl_.resume(msg);
-            if (res.type == read_response_fsm_impl::result_type::done)
-            {
-                // We're finished
-                return res.ec;
-            }
-            else
-            {
-                BOOST_ASSERT(res.type == read_response_fsm_impl::result_type::read);
+            // We need to read more
+            return result::read(read_msg_res.read_buffer());
+        }
+        else if (read_msg_res.type() == read_message_stream_fsm::result_type::message)
+        {
+            // We have a message, call the FSM
+            auto res = impl_.resume(read_msg_res.message());
 
-                // Read a message
-                while (true)
-                {
-                    read_msg_res = st.read_msg_stream_fsm.resume(st, io_error, bytes_read);
-                    if (read_msg_res.type() == read_message_stream_fsm::result_type::read)
-                    {
-                        NATIVEPG_YIELD(resume_point_, 2, result::read(read_msg_res.read_buffer()));
-                    }
-                    else if (read_msg_res.type() == read_message_stream_fsm::result_type::message)
-                    {
-                        msg = read_msg_res.message();
-                        break;
-                    }
-                    else
-                    {
-                        BOOST_ASSERT(read_msg_res.type() == read_message_stream_fsm::result_type::error);
-                        return read_msg_res.error();
-                    }
-                }
-            }
+            // If we're done, exit
+            if (res.type == read_response_fsm_impl::result_type::done)
+                return res.ec;
+
+            // Otherwise, keep reading
+        }
+        else
+        {
+            // An error is always fatal
+            BOOST_ASSERT(read_msg_res.type() == read_message_stream_fsm::result_type::error);
+            return read_msg_res.error();
         }
     }
-
-    BOOST_ASSERT(false);
-    return error_code();
 }

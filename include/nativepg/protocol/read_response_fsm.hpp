@@ -107,7 +107,6 @@ public:
     result resume(connection_state& st, boost::system::error_code io_error, std::size_t bytes_read);
 
 private:
-    int resume_point_{0};
     detail::read_response_fsm_impl impl_;
 };
 

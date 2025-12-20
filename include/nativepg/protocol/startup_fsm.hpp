@@ -21,13 +21,7 @@
 
 namespace nativepg::protocol {
 
-struct startup_params
-{
-    std::string_view username;
-    std::string_view password;
-    std::optional<std::string_view> database;
-    // TODO: support arbitrary startup params?
-};
+struct startup_params;
 
 namespace detail {
 
@@ -60,6 +54,14 @@ private:
 };
 
 }  // namespace detail
+
+struct startup_params
+{
+    std::string_view username;
+    std::string_view password;
+    std::optional<std::string_view> database;
+    // TODO: support arbitrary startup params?
+};
 
 class startup_fsm
 {

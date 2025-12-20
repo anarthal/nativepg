@@ -62,6 +62,55 @@ private:
 
 }  // namespace detail
 
+class read_response_fsm
+{
+public:
+    enum class result_type
+    {
+        done,
+        read,
+    };
+
+    class result
+    {
+        result_type type_;
+        union
+        {
+            boost::system::error_code ec_;
+            std::span<unsigned char> read_buff_;
+        };
+
+        result(result_type t, std::span<unsigned char> data) noexcept : type_(t), read_buff_(data) {}
+
+    public:
+        result(boost::system::error_code ec) noexcept : type_(result_type::done), ec_(ec) {}
+
+        static result read(std::span<unsigned char> buff) { return {result_type::read, buff}; }
+
+        result_type type() const { return type_; }
+
+        boost::system::error_code error() const
+        {
+            BOOST_ASSERT(type_ == result_type::done);
+            return ec_;
+        }
+
+        std::span<unsigned char> read_buffer() const
+        {
+            BOOST_ASSERT(type_ == result_type::read);
+            return read_buff_;
+        }
+    };
+
+    read_response_fsm(const request& req, response_handler_ref handler) noexcept : impl_(req, handler) {}
+
+    result resume(connection_state& st, boost::system::error_code io_error, std::size_t bytes_read);
+
+private:
+    int resume_point_{0};
+    detail::read_response_fsm_impl impl_;
+};
+
 }  // namespace nativepg::protocol
 
 #endif

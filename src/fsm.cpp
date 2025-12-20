@@ -9,6 +9,7 @@
 #include <boost/system/system_error.hpp>
 #include <boost/variant2/variant.hpp>
 
+#include <cstddef>
 #include <span>
 
 #include "coroutine.hpp"
@@ -25,6 +26,7 @@
 
 using namespace nativepg::protocol;
 using boost::system::error_code;
+using detail::startup_fsm_impl;
 using nativepg::client_errc;
 
 read_message_fsm::result read_message_fsm::resume(std::span<const unsigned char> data)
@@ -158,11 +160,7 @@ struct startup_visitor
 
 }  // namespace
 
-startup_fsm::result startup_fsm::resume(
-    connection_state& st,
-    boost::system::error_code ec,
-    const any_backend_message& msg
-)
+startup_fsm_impl::result startup_fsm_impl::resume(connection_state& st, const any_backend_message& msg)
 {
     switch (resume_point_)
     {
@@ -170,40 +168,36 @@ startup_fsm::result startup_fsm::resume(
 
         // Compose the startup message
         st.write_buffer.clear();
-        ec = serialize(
-            startup_message{
-                .user = params_->username,
-                .database = params_->database,
-                .params = {},
-            },
-            st.write_buffer
-        );
-        if (ec)
+        if (auto ec = serialize(
+                startup_message{
+                    .user = params_->username,
+                    .database = params_->database,
+                    .params = {},
+                },
+                st.write_buffer
+            ))
+        {
             return ec;
+        }
 
         // Write it
-        NATIVEPG_YIELD(resume_point_, 1, result(st.write_buffer))
-        if (ec)
-            return ec;
+        NATIVEPG_YIELD(resume_point_, 1, result_type::write)
 
         // Read the server's response
-        NATIVEPG_YIELD(resume_point_, 2, result::read())
-        if (ec)
-            return ec;
+        NATIVEPG_YIELD(resume_point_, 2, result_type::read)
 
         // Act upon the server's message
         // TODO: this will have to change once we implement SASL
-        ec = boost::variant2::visit(startup_visitor{}, msg);
-        if (ec)
+        if (auto ec = boost::variant2::visit(startup_visitor{}, msg))
+        {
             return ec;
+        }
 
         // Backend has approved our login request. Now wait until we receive ReadyForQuery
         while (true)
         {
             // Read a message
-            NATIVEPG_YIELD(resume_point_, 3, result::read())
-            if (ec)
-                return ec;
+            NATIVEPG_YIELD(resume_point_, 3, result_type::read)
 
             // Act upon it
             if (const auto* key = boost::variant2::get_if<backend_key_data>(&msg))
@@ -235,6 +229,70 @@ startup_fsm::result startup_fsm::resume(
     }
 
     // We should never reach here
+    BOOST_ASSERT(false);
+    return error_code();
+}
+
+startup_fsm::result startup_fsm::resume(
+    connection_state& st,
+    boost::system::error_code io_error,
+    std::size_t bytes_read
+)
+{
+    // TODO: this implementation is improvable, changes in reading messages required
+    any_backend_message msg;
+    startup_fsm_impl::result startup_res{error_code()};
+    read_message_stream_fsm::result read_msg_res{error_code()};
+
+    switch (resume_point_)
+    {
+        NATIVEPG_CORO_INITIAL
+
+        while (true)
+        {
+            // Call the FSM
+            startup_res = impl_.resume(st, msg);
+            if (startup_res.type == startup_fsm_impl::result_type::done)
+            {
+                // We're finished
+                return startup_res.ec;
+            }
+            else if (startup_res.type == startup_fsm_impl::result_type::write)
+            {
+                // Just write the message
+                NATIVEPG_YIELD(resume_point_, 1, result::write(st.write_buffer))
+
+                // Check for errors
+                if (io_error)
+                    return io_error;
+            }
+            else
+            {
+                BOOST_ASSERT(startup_res.type == startup_fsm_impl::result_type::read);
+
+                // Read a message
+                while (true)
+                {
+                    read_msg_res = st.read_msg_stream_fsm.resume(st, io_error, bytes_read);
+                    if (read_msg_res.type() == read_message_stream_fsm::result_type::read)
+                    {
+                        NATIVEPG_YIELD(resume_point_, 2, result::read(read_msg_res.read_buffer()));
+                    }
+                    else if (read_msg_res.type() == read_message_stream_fsm::result_type::message)
+                    {
+                        msg = read_msg_res.message();
+                        break;
+                    }
+                    else
+                    {
+                        BOOST_ASSERT(read_msg_res.type() == read_message_stream_fsm::result_type::error);
+                        return read_msg_res.error();
+                    }
+                }
+            }
+        }
+    }
+
     BOOST_ASSERT(false);
     return error_code();
 }

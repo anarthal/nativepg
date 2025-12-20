@@ -14,6 +14,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "nativepg/protocol/read_message_fsm.hpp"
+
 namespace nativepg::protocol {
 
 struct connection_state
@@ -31,6 +33,9 @@ struct connection_state
 
     // A key that can be used for cancellations
     std::uint32_t backend_secret_key{};
+
+    // TODO: this is kind of a circular dependency
+    read_message_stream_fsm read_msg_stream_fsm{};
 };
 
 }  // namespace nativepg::protocol

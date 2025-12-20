@@ -62,11 +62,7 @@ std::span<const unsigned char> to_span(asio::const_buffer buff)
     return {static_cast<const unsigned char*>(buff.data()), buff.size()};
 }
 
-protocol::any_backend_message read_message(
-    asio::ip::tcp::socket& sock,
-    protocol::connection_state& st,
-    protocol::read_message_stream_fsm& fsm
-)
+protocol::any_backend_message read_message(asio::ip::tcp::socket& sock, protocol::connection_state& st)
 {
     std::size_t bytes_read = 0u;
     boost::system::error_code ec;
@@ -74,7 +70,7 @@ protocol::any_backend_message read_message(
     while (true)
     {
         // Call the FSM
-        auto res = fsm.resume(st, ec, bytes_read);
+        auto res = st.read_msg_stream_fsm.resume(st, ec, bytes_read);
 
         switch (res.type())
         {
@@ -95,20 +91,16 @@ protocol::any_backend_message read_message(
     }
 }
 
-void startup(
-    protocol::connection_state& st,
-    protocol::read_message_stream_fsm& read_fsm,
-    asio::ip::tcp::socket& sock
-)
+void startup(protocol::connection_state& st, asio::ip::tcp::socket& sock)
 {
     protocol::startup_params params{.username = "postgres", .password = "secret", .database = "postgres"};
     protocol::startup_fsm fsm{params};
-    protocol::any_backend_message msg;
     boost::system::error_code ec;
+    std::size_t bytes_transferred = 0u;
 
     while (true)
     {
-        auto act = fsm.resume(st, ec, msg);
+        auto act = fsm.resume(st, ec, bytes_transferred);
         switch (act.type())
         {
             case protocol::startup_fsm::result_type::done:
@@ -119,12 +111,12 @@ void startup(
             }
             case protocol::startup_fsm::result_type::write:
             {
-                asio::write(sock, act.write_data(), ec);
+                bytes_transferred = asio::write(sock, act.write_data(), ec);
                 break;
             }
             case protocol::startup_fsm::result_type::read:
             {
-                msg = read_message(sock, st, read_fsm);
+                bytes_transferred = sock.read_some(act.read_buffer(), ec);
                 break;
             }
         }
@@ -136,13 +128,12 @@ int main()
     asio::io_context ctx;
     asio::ip::tcp::socket sock(ctx);
     protocol::connection_state st;
-    protocol::read_message_stream_fsm read_fsm;
 
     // Connect
     sock.connect(asio::ip::tcp::endpoint(asio::ip::address_v4::loopback(), 5432));
 
     // Startup
-    startup(st, read_fsm, sock);
+    startup(st, sock);
     std::cout << "Startup complete\n";
 
     // Compose our request
@@ -158,7 +149,7 @@ int main()
 
     while (true)
     {
-        auto msg = read_message(sock, st, read_fsm);
+        auto msg = read_message(sock, st);
 
         if (boost::variant2::holds_alternative<protocol::ready_for_query>(msg))
             break;

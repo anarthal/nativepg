@@ -11,6 +11,7 @@
 #include <boost/assert.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <cstddef>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -28,6 +29,38 @@ struct startup_params
     // TODO: support arbitrary startup params?
 };
 
+namespace detail {
+
+class startup_fsm_impl
+{
+public:
+    enum class result_type
+    {
+        done,
+        read,
+        write,
+    };
+
+    struct result
+    {
+        result_type type;
+        boost::system::error_code ec;
+
+        result(boost::system::error_code ec) noexcept : type(result_type::done), ec(ec) {}
+        result(result_type t) noexcept : type(t) {}
+    };
+
+    explicit startup_fsm_impl(const startup_params& params) noexcept : params_(&params) {}
+
+    result resume(connection_state& st, const any_backend_message& msg = {});
+
+private:
+    int resume_point_{0};
+    const startup_params* params_;
+};
+
+}  // namespace detail
+
 class startup_fsm
 {
 public:
@@ -44,20 +77,22 @@ public:
         union
         {
             boost::system::error_code ec_;
-            std::span<const unsigned char> write_data_;
+            std::span<unsigned char> data_;
         };
 
-        explicit result(result_type t) noexcept : type_(t) {}
+        result(result_type t, std::span<unsigned char> data) noexcept : type_(t), data_(data) {}
 
     public:
         result(boost::system::error_code ec) noexcept : type_(result_type::done), ec_(ec) {}
-        result(std::span<const unsigned char> write_data) noexcept
-            : type_(result_type::write), write_data_(write_data)
-        {
-        }
 
-        // TODO: this is asymmetric
-        static result read() { return result{result_type::read}; }
+        static result read(std::span<unsigned char> buff) { return {result_type::read, buff}; }
+        static result write(std::span<const unsigned char> buff)
+        {
+            return {
+                result_type::write,
+                {const_cast<unsigned char*>(buff.data()), buff.size()}
+            };
+        }
 
         result_type type() const { return type_; }
 
@@ -69,21 +104,22 @@ public:
         std::span<const unsigned char> write_data() const
         {
             BOOST_ASSERT(type_ == result_type::write);
-            return write_data_;
+            return data_;
+        }
+        std::span<unsigned char> read_buffer() const
+        {
+            BOOST_ASSERT(type_ == result_type::read);
+            return data_;
         }
     };
 
-    explicit startup_fsm(const startup_params& params) noexcept : params_(&params) {}
+    explicit startup_fsm(const startup_params& params) noexcept : impl_(params) {}
 
-    result resume(
-        connection_state& st,
-        boost::system::error_code io_error,
-        const any_backend_message& msg = {}
-    );
+    result resume(connection_state& st, boost::system::error_code io_error, std::size_t bytes_read);
 
 private:
     int resume_point_{0};
-    const startup_params* params_;
+    detail::startup_fsm_impl impl_;
 };
 
 }  // namespace nativepg::protocol

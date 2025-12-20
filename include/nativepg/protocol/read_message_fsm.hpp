@@ -104,6 +104,7 @@ public:
 
 // This is like read_message_fsm, but has knowledge of connection_state buffers
 // and remembers the bytes consumed from message to message.
+// TODO: unit tests
 class read_message_stream_fsm
 {
 public:

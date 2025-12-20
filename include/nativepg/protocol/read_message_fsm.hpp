@@ -19,6 +19,8 @@
 
 namespace nativepg::protocol {
 
+struct connection_state;
+
 // A finite-state machine type to read messages from the server.
 // resume() returns a variant-like type specifying what to do next.
 // Flow should be:
@@ -98,6 +100,69 @@ public:
     read_message_fsm() = default;
 
     result resume(std::span<const unsigned char> data);
+};
+
+// This is like read_message_fsm, but has knowledge of connection_state buffers
+// and remembers the bytes consumed from message to message.
+// TODO: unit tests
+class read_message_stream_fsm
+{
+public:
+    enum class result_type
+    {
+        read,
+        error,
+        message,
+    };
+
+    class result
+    {
+    public:
+        result(boost::system::error_code ec) noexcept : type_(result_type::error), ec_(ec) {}
+        result(std::span<unsigned char> read_buff) noexcept : type_(result_type::read), read_buff_(read_buff)
+        {
+        }
+        result(const any_backend_message& msg) noexcept : type_(result_type::message), msg_{msg} {}
+
+        result_type type() const { return type_; }
+
+        boost::system::error_code error() const
+        {
+            BOOST_ASSERT(type_ == result_type::error);
+            return ec_;
+        }
+
+        std::span<unsigned char> read_buffer() const
+        {
+            BOOST_ASSERT(type_ == result_type::read);
+            return read_buff_;
+        }
+
+        const any_backend_message& message() const
+        {
+            BOOST_ASSERT(type_ == result_type::message);
+            return msg_;
+        }
+
+    private:
+        result_type type_;
+
+        union
+        {
+            boost::system::error_code ec_;
+            any_backend_message msg_;
+            std::span<unsigned char> read_buff_;
+        };
+    };
+
+    read_message_stream_fsm() = default;
+
+    result resume(connection_state& st, boost::system::error_code io_ec, std::size_t bytes_read);
+
+private:
+    int resume_point_{0};
+    std::size_t bytes_to_consume_{};
+    read_message_fsm fsm_;
 };
 
 }  // namespace nativepg::protocol

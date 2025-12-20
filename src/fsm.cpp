@@ -5,12 +5,16 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#include <boost/asio/buffer.hpp>
 #include <boost/system/system_error.hpp>
 #include <boost/variant2/variant.hpp>
+
+#include <span>
 
 #include "coroutine.hpp"
 #include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/async.hpp"
+#include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/header.hpp"
 #include "nativepg/protocol/messages.hpp"
 #include "nativepg/protocol/notice_error.hpp"
@@ -55,6 +59,61 @@ read_message_fsm::result read_message_fsm::resume(std::span<const unsigned char>
     if (msg_result.has_error())
         return msg_result.error();
     return result(*msg_result, expected_size);
+}
+
+static std::span<unsigned char> to_span(boost::asio::mutable_buffer buff)
+{
+    return {static_cast<unsigned char*>(buff.data()), buff.size()};
+}
+
+read_message_stream_fsm::result read_message_stream_fsm::resume(
+    connection_state& st,
+    boost::system::error_code io_ec,
+    std::size_t bytes_read
+)
+{
+    // TODO: we could likely rearrange this code to avoid these temporaries and have less state
+    read_message_fsm::result res{error_code()};
+    switch (resume_point_)
+    {
+        NATIVEPG_CORO_INITIAL
+
+        while (true)
+        {
+            res = fsm_.resume(to_span(st.read_buffer.data()));
+
+            if (res.type() == read_message_fsm::result_type::error)
+            {
+                // An error is always fatal
+                return res.error();
+            }
+            else if (res.type() == read_message_fsm::result_type::message)
+            {
+                // We have a message. Yield it and then consume the used bytes
+                bytes_to_consume_ = res.bytes_consumed();
+                NATIVEPG_YIELD(resume_point_, 1, res.message());
+                st.read_buffer.consume(bytes_to_consume_);
+                fsm_ = {};
+            }
+            else
+            {
+                BOOST_ASSERT(res.type() == read_message_fsm::result_type::needs_more);
+
+                // Prepare the buffer and tell the caller to read
+                NATIVEPG_YIELD(resume_point_, 2, to_span(st.read_buffer.prepare(res.hint())));
+
+                // Check for read errors
+                if (io_ec)
+                    return io_ec;
+
+                // Commit the data and try again
+                st.read_buffer.commit(bytes_read);
+            }
+        }
+    }
+
+    BOOST_ASSERT(false);
+    return error_code();
 }
 
 namespace {

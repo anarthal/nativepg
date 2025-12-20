@@ -8,6 +8,7 @@
 #ifndef NATIVEPG_PROTOCOL_CONNECTION_STATE_HPP
 #define NATIVEPG_PROTOCOL_CONNECTION_STATE_HPP
 
+#include <boost/beast/core/flat_buffer.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <cstdint>
@@ -21,9 +22,9 @@ struct connection_state
     // now
     std::vector<unsigned char> write_buffer;
 
-    // TODO: a proper buffer type
+    // TODO: don't depend on Beast only for this
     // Read buffer
-    std::vector<unsigned char> read_buffer;
+    boost::beast::flat_buffer read_buffer;
 
     // The ID of the process that is managing our connection (aka connection ID)
     std::uint32_t backend_process_id{};

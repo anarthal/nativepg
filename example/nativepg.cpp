@@ -22,10 +22,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
-#include <memory>
 #include <span>
 #include <string_view>
-#include <tuple>
 #include <type_traits>
 #include <vector>
 
@@ -64,51 +62,53 @@ std::span<const unsigned char> to_span(asio::const_buffer buff)
     return {static_cast<const unsigned char*>(buff.data()), buff.size()};
 }
 
-std::pair<protocol::any_backend_message, std::size_t> read_message(
+protocol::any_backend_message read_message(
     asio::ip::tcp::socket& sock,
-    asio::dynamic_vector_buffer<unsigned char, std::allocator<unsigned char>>& buff
+    protocol::connection_state& st,
+    protocol::read_message_stream_fsm& fsm
 )
 {
-    protocol::read_message_fsm fsm;
+    std::size_t bytes_read = 0u;
+    boost::system::error_code ec;
 
     while (true)
     {
         // Call the FSM
-        auto res = fsm.resume(to_span(buff.data()));
+        auto res = fsm.resume(st, ec, bytes_read);
 
         switch (res.type())
         {
-            case protocol::read_message_fsm::result_type::error:
+            case protocol::read_message_stream_fsm::result_type::error:
             {
                 die(res.error());
             }
-            case protocol::read_message_fsm::result_type::message:
+            case protocol::read_message_stream_fsm::result_type::message:
             {
-                return {res.message(), res.bytes_consumed()};
+                return res.message();
             }
-            case protocol::read_message_fsm::result_type::needs_more:
+            case protocol::read_message_stream_fsm::result_type::read:
             {
-                auto bytes_read = sock.read_some(buff.prepare(res.hint()));
-                buff.commit(bytes_read);
+                bytes_read = sock.read_some(res.read_buffer(), ec);
                 break;
             }
         }
     }
 }
 
-void startup(protocol::connection_state& st, asio::ip::tcp::socket& sock)
+void startup(
+    protocol::connection_state& st,
+    protocol::read_message_stream_fsm& read_fsm,
+    asio::ip::tcp::socket& sock
+)
 {
     protocol::startup_params params{.username = "postgres", .password = "secret", .database = "postgres"};
     protocol::startup_fsm fsm{params};
     protocol::any_backend_message msg;
     boost::system::error_code ec;
-    auto buff = asio::dynamic_buffer(st.read_buffer);
-    std::size_t bytes_consumed = 0u;
+
     while (true)
     {
         auto act = fsm.resume(st, ec, msg);
-        if (bytes_consumed)
-            buff.consume(bytes_consumed);
         switch (act.type())
         {
             case protocol::startup_fsm::result_type::done:
@@ -124,7 +124,7 @@ void startup(protocol::connection_state& st, asio::ip::tcp::socket& sock)
             }
             case protocol::startup_fsm::result_type::read:
             {
-                std::tie(msg, bytes_consumed) = read_message(sock, buff);
+                msg = read_message(sock, st, read_fsm);
                 break;
             }
         }
@@ -136,12 +136,13 @@ int main()
     asio::io_context ctx;
     asio::ip::tcp::socket sock(ctx);
     protocol::connection_state st;
+    protocol::read_message_stream_fsm read_fsm;
 
     // Connect
     sock.connect(asio::ip::tcp::endpoint(asio::ip::address_v4::loopback(), 5432));
 
     // Startup
-    startup(st, sock);
+    startup(st, read_fsm, sock);
     std::cout << "Startup complete\n";
 
     // Compose our request
@@ -154,11 +155,10 @@ int main()
     std::vector<myrow> vec;
     auto cb = into(vec);
     st.read_buffer.clear();
-    auto dynbuff = asio::dynamic_buffer(st.read_buffer);
 
     while (true)
     {
-        auto [msg, bytes_consumed] = read_message(sock, dynbuff);
+        auto msg = read_message(sock, st, read_fsm);
 
         if (boost::variant2::holds_alternative<protocol::ready_for_query>(msg))
             break;
@@ -188,8 +188,6 @@ int main()
 
         if (boost::variant2::holds_alternative<protocol::ready_for_query>(msg))
             break;
-
-        dynbuff.consume(bytes_consumed);
     }
 
     for (const auto& r : vec)

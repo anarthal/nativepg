@@ -20,6 +20,7 @@
 
 #include "nativepg/connect_params.hpp"
 #include "nativepg/protocol/connection_state.hpp"
+#include "nativepg/protocol/detail/exec_fsm.hpp"
 #include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
 #include "nativepg/request.hpp"
@@ -40,6 +41,29 @@ struct connect_op
 {
     connection_impl& impl;
     protocol::startup_fsm fsm_;
+
+    template <class Self>
+    void operator()(Self& self, boost::system::error_code ec = {}, std::size_t bytes_transferred = {})
+    {
+        auto res = fsm_.resume(impl.st, ec, bytes_transferred);
+        switch (res.type())
+        {
+            case protocol::startup_fsm::result_type::write:
+                boost::asio::async_write(impl.sock, res.write_data(), std::move(self));
+                break;
+            case protocol::startup_fsm::result_type::read:
+                impl.sock.async_read_some(res.read_buffer(), std::move(self));
+                break;
+            case protocol::startup_fsm::result_type::done: self.complete(res.error()); break;
+            default: BOOST_ASSERT(false);
+        }
+    }
+};
+
+struct exec_op
+{
+    connection_impl& impl;
+    protocol::detail::exec_fsm fsm_;
 
     template <class Self>
     void operator()(Self& self, boost::system::error_code ec = {}, std::size_t bytes_transferred = {})
@@ -87,7 +111,17 @@ public:
     }
 
     template <boost::asio::completion_token_for<void(boost::system::error_code)> CompletionToken>
-    auto async_exec(const request& req, protocol::response_handler_ref handler);
+    auto async_exec(const request& req, protocol::response_handler_ref handler, CompletionToken&& token)
+    {
+        return boost::asio::async_compose<CompletionToken, void(boost::system::error_code)>(
+            detail::exec_op{
+                *impl_,
+                protocol::detail::exec_fsm{req, handler}
+        },
+            token,
+            *this
+        );
+    }
 };
 
 }  // namespace nativepg

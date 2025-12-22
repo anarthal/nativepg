@@ -5,24 +5,21 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_PROTOCOL_STARTUP_FSM_HPP
-#define NATIVEPG_PROTOCOL_STARTUP_FSM_HPP
+#ifndef NATIVEPG_PROTOCOL_DETAIL_CONNECT_FSM_HPP
+#define NATIVEPG_PROTOCOL_DETAIL_CONNECT_FSM_HPP
 
 #include <boost/assert.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <cstddef>
-#include <span>
 
 #include "nativepg/connect_params.hpp"
-#include "nativepg/protocol/connection_state.hpp"
-#include "nativepg/protocol/messages.hpp"
+#include "nativepg/protocol/startup_fsm.hpp"
 
-namespace nativepg::protocol {
+namespace nativepg::protocol::detail {
 
-namespace detail {
-
-class startup_fsm_impl
+// TODO: test
+class connect_fsm
 {
 public:
     enum class result_type
@@ -30,38 +27,8 @@ public:
         done,
         read,
         write,
-    };
-
-    struct result
-    {
-        result_type type;
-        boost::system::error_code ec;
-
-        result(boost::system::error_code ec) noexcept : type(result_type::done), ec(ec) {}
-        result(result_type t) noexcept : type(t) {}
-    };
-
-    explicit startup_fsm_impl(const connect_params& params) noexcept : params_(&params) {}
-
-    result resume(connection_state& st, const any_backend_message& msg = {});
-
-    const connect_params& params() const { return *params_; }
-
-private:
-    int resume_point_{0};
-    const connect_params* params_;
-};
-
-}  // namespace detail
-
-class startup_fsm
-{
-public:
-    enum class result_type
-    {
-        done,
-        read,
-        write,
+        connect,
+        close,
     };
 
     class result
@@ -73,11 +40,13 @@ public:
             std::span<unsigned char> data_;
         };
 
-        result(result_type t, std::span<unsigned char> data) noexcept : type_(t), data_(data) {}
+        result(result_type t, std::span<unsigned char> data = {}) noexcept : type_(t), data_(data) {}
 
     public:
         result(boost::system::error_code ec) noexcept : type_(result_type::done), ec_(ec) {}
 
+        static result connect() { return {result_type::connect}; }
+        static result close() { return {result_type::close}; }
         static result read(std::span<unsigned char> buff) { return {result_type::read, buff}; }
         static result write(std::span<const unsigned char> buff)
         {
@@ -106,17 +75,18 @@ public:
         }
     };
 
-    explicit startup_fsm(const connect_params& params) noexcept : impl_(params) {}
+    connect_fsm(const connect_params& params) noexcept : startup_(params) {}
 
-    result resume(connection_state& st, boost::system::error_code io_error, std::size_t bytes_read);
+    const connect_params& params() const { return startup_.params(); }
 
-    const connect_params& params() const { return impl_.params(); }
+    result resume(connection_state& st, boost::system::error_code ec, std::size_t bytes_transferred);
 
 private:
     int resume_point_{0};
-    detail::startup_fsm_impl impl_;
+    boost::system::error_code stored_ec_;
+    startup_fsm startup_;
 };
 
-}  // namespace nativepg::protocol
+}  // namespace nativepg::protocol::detail
 
 #endif

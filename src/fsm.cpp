@@ -6,11 +6,13 @@
 //
 
 #include <boost/asio/buffer.hpp>
+#include <boost/system/detail/error_code.hpp>
 #include <boost/system/system_error.hpp>
 #include <boost/variant2/variant.hpp>
 
 #include <cstddef>
 #include <span>
+#include <string_view>
 
 #include "coroutine.hpp"
 #include "nativepg/client_errc.hpp"
@@ -18,6 +20,8 @@
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/close.hpp"
 #include "nativepg/protocol/connection_state.hpp"
+#include "nativepg/protocol/detail/connect_fsm.hpp"
+#include "nativepg/protocol/detail/exec_fsm.hpp"
 #include "nativepg/protocol/header.hpp"
 #include "nativepg/protocol/messages.hpp"
 #include "nativepg/protocol/notice_error.hpp"
@@ -31,6 +35,8 @@
 
 using namespace nativepg::protocol;
 using boost::system::error_code;
+using detail::connect_fsm;
+using detail::exec_fsm;
 using detail::read_response_fsm_impl;
 using detail::startup_fsm_impl;
 using nativepg::client_errc;
@@ -179,7 +185,8 @@ startup_fsm_impl::result startup_fsm_impl::resume(connection_state& st, const an
         if (auto ec = serialize(
                 startup_message{
                     .user = params_->username,
-                    .database = params_->database,
+                    .database = params_->database.empty() ? std::optional<std::string_view>()
+                                                          : std::string_view(params_->database),
                     .params = {},
                 },
                 st.write_buffer
@@ -452,6 +459,90 @@ read_response_fsm::result read_response_fsm::resume(
                 }
             }
         }
+    }
+
+    BOOST_ASSERT(false);
+    return error_code();
+}
+
+exec_fsm::result exec_fsm::resume(
+    connection_state& st,
+    boost::system::error_code ec,
+    std::size_t bytes_transferred
+)
+{
+    if (is_writing_)
+    {
+        is_writing_ = false;
+        return result::write(read_fsm_.get_request().payload());
+    }
+
+    if (ec)
+        return ec;
+
+    // TODO: this is passing a wrong bytes_transferred value the 1st time
+    auto act = read_fsm_.resume(st, ec, bytes_transferred);
+    switch (act.type())
+    {
+        case read_response_fsm::result_type::read: return result::read(act.read_buffer());
+        case read_response_fsm::result_type::done: return act.error();
+        default: BOOST_ASSERT(false); return error_code();
+    }
+}
+
+static connect_fsm::result to_connect_result(const startup_fsm::result& r)
+{
+    switch (r.type())
+    {
+        case startup_fsm::result_type::read: return connect_fsm::result::read(r.read_buffer());
+        case startup_fsm::result_type::write: return connect_fsm::result::write(r.write_data());
+        default: BOOST_ASSERT(false); return error_code();
+    }
+}
+
+connect_fsm::result connect_fsm::resume(
+    connection_state& st,
+    boost::system::error_code ec,
+    std::size_t bytes_transferred
+)
+{
+    startup_fsm::result res{error_code()};
+
+    switch (resume_point_)
+    {
+        NATIVEPG_CORO_INITIAL
+
+        // Physical connect
+        NATIVEPG_YIELD(resume_point_, 1, result::connect())
+
+        // If this failed, try to close. Ignore any errors
+        if (ec)
+        {
+            stored_ec_ = ec;
+            NATIVEPG_YIELD(resume_point_, 2, result::close())
+            return stored_ec_;
+        }
+
+        // Call the startup algorithm
+        while (true)
+        {
+            res = startup_.resume(st, ec, bytes_transferred);
+            if (res.type() == startup_fsm::result_type::done)
+                break;
+            else
+                NATIVEPG_YIELD(resume_point_, 3, to_connect_result(res))
+        }
+
+        // Attempt a close if the startup process failed
+        if (res.error())
+        {
+            stored_ec_ = res.error();
+            NATIVEPG_YIELD(resume_point_, 4, result::close())
+            return stored_ec_;
+        }
+
+        // Success
+        return error_code();
     }
 
     BOOST_ASSERT(false);

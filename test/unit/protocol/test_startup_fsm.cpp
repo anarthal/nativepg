@@ -10,6 +10,7 @@
 
 #include <iterator>
 
+#include "nativepg/connect_params.hpp"
 #include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/ready_for_query.hpp"
@@ -42,7 +43,7 @@ namespace {
 
 void test_success()
 {
-    protocol::startup_params params{.username = "postgres", .password = "", .database = "postgres"};
+    connect_params params{.username = "postgres", .password = "", .database = "postgres"};
     protocol::connection_state st;
     startup_fsm_impl fsm{params};
 

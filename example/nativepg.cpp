@@ -5,37 +5,24 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include <boost/asio/buffer.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/address_v4.hpp>
 #include <boost/asio/ip/tcp.hpp>
-#include <boost/asio/read.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/core/span.hpp>
 #include <boost/describe/class.hpp>
-#include <boost/endian/conversion.hpp>
-#include <boost/system/detail/error_code.hpp>
-#include <boost/system/system_error.hpp>
-#include <boost/throw_exception.hpp>
-#include <boost/variant2/variant.hpp>
 
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <span>
 #include <string_view>
-#include <type_traits>
 #include <vector>
 
-#include "nativepg/client_errc.hpp"
-#include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/connection_state.hpp"
-#include "nativepg/protocol/describe.hpp"
-#include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/messages.hpp"
-#include "nativepg/protocol/parse.hpp"
 #include "nativepg/protocol/read_message_fsm.hpp"
-#include "nativepg/protocol/ready_for_query.hpp"
+#include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
@@ -123,6 +110,37 @@ void startup(protocol::connection_state& st, asio::ip::tcp::socket& sock)
     }
 }
 
+void read_response(
+    protocol::connection_state& st,
+    asio::ip::tcp::socket& sock,
+    const request& req,
+    protocol::response_handler_ref handler
+)
+{
+    protocol::read_response_fsm fsm{req, handler};
+    boost::system::error_code ec;
+    std::size_t bytes_read = 0u;
+
+    while (true)
+    {
+        auto res = fsm.resume(st, ec, bytes_read);
+        switch (res.type())
+        {
+            case protocol::read_response_fsm::result_type::done:
+            {
+                if (res.error())
+                    die(res.error());
+                return;
+            }
+            case protocol::read_response_fsm::result_type::read:
+            {
+                bytes_read = sock.read_some(res.read_buffer(), ec);
+                break;
+            }
+        }
+    }
+}
+
 int main()
 {
     asio::io_context ctx;
@@ -145,41 +163,7 @@ int main()
     // Parse the response
     std::vector<myrow> vec;
     auto cb = into(vec);
-    st.read_buffer.clear();
-
-    while (true)
-    {
-        auto msg = read_message(sock, st);
-
-        if (boost::variant2::holds_alternative<protocol::ready_for_query>(msg))
-            break;
-        boost::variant2::visit(
-            [&cb](auto msg) {
-                using T = decltype(msg);
-                if constexpr (std::is_same_v<T, protocol::bind_complete> ||
-                              std::is_same_v<T, protocol::close_complete> ||
-                              std::is_same_v<T, protocol::command_complete> ||
-                              std::is_same_v<T, protocol::data_row> ||
-                              std::is_same_v<T, protocol::parameter_description> ||
-                              std::is_same_v<T, protocol::row_description> ||
-                              std::is_same_v<T, protocol::no_data> ||
-                              std::is_same_v<T, protocol::empty_query_response> ||
-                              std::is_same_v<T, protocol::portal_suspended> ||
-                              std::is_same_v<T, protocol::error_response> ||
-                              std::is_same_v<T, protocol::notice_response> ||
-                              std::is_same_v<T, protocol::parse_complete>)
-                {
-                    auto ec = cb(any_request_message(msg));
-                    if (ec && ec != client_errc::needs_more)
-                        throw boost::system::system_error(ec, "Error in parser");
-                }
-            },
-            msg
-        );
-
-        if (boost::variant2::holds_alternative<protocol::ready_for_query>(msg))
-            break;
-    }
+    read_response(st, sock, req, cb);
 
     for (const auto& r : vec)
         std::cout << "Got row: " << r.f1 << ", " << r.f3 << std::endl;

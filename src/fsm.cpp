@@ -15,19 +15,27 @@
 #include "coroutine.hpp"
 #include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/async.hpp"
+#include "nativepg/protocol/bind.hpp"
+#include "nativepg/protocol/close.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/header.hpp"
 #include "nativepg/protocol/messages.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/read_message_fsm.hpp"
+#include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/protocol/startup.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
+#include "nativepg/request.hpp"
+#include "nativepg/response.hpp"
 
 using namespace nativepg::protocol;
 using boost::system::error_code;
+using detail::read_response_fsm_impl;
 using detail::startup_fsm_impl;
 using nativepg::client_errc;
+using nativepg::detail::request_access;
+using nativepg::detail::request_msg_type;
 
 read_message_fsm::result read_message_fsm::resume(std::span<const unsigned char> data)
 {
@@ -269,6 +277,159 @@ startup_fsm::result startup_fsm::resume(
             else
             {
                 BOOST_ASSERT(startup_res.type == startup_fsm_impl::result_type::read);
+
+                // Read a message
+                while (true)
+                {
+                    read_msg_res = st.read_msg_stream_fsm.resume(st, io_error, bytes_read);
+                    if (read_msg_res.type() == read_message_stream_fsm::result_type::read)
+                    {
+                        NATIVEPG_YIELD(resume_point_, 2, result::read(read_msg_res.read_buffer()));
+                    }
+                    else if (read_msg_res.type() == read_message_stream_fsm::result_type::message)
+                    {
+                        msg = read_msg_res.message();
+                        break;
+                    }
+                    else
+                    {
+                        BOOST_ASSERT(read_msg_res.type() == read_message_stream_fsm::result_type::error);
+                        return read_msg_res.error();
+                    }
+                }
+            }
+        }
+    }
+
+    BOOST_ASSERT(false);
+    return error_code();
+}
+
+namespace {
+
+std::size_t count_syncs(std::span<const request_msg_type> msgs)
+{
+    std::size_t res = 0;
+    for (const auto msg : msgs)
+        res += static_cast<std::size_t>(msg == request_msg_type::query || msg == request_msg_type::sync);
+    return res;
+}
+
+}  // namespace
+
+struct read_response_fsm_impl::visitor
+{
+    read_response_fsm_impl& self;
+
+    result call_handler(const any_request_message& msg) const
+    {
+        auto res = self.handler_(msg);
+        if (res)
+        {
+            return res == client_errc::needs_more ? result(result_type::read) : res;
+        }
+        else
+        {
+            self.handler_finished_ = true;
+            return result_type::read;
+        }
+    }
+
+    // Discard asynchronous messages that might be received at any time
+    // TODO: do something useful with these
+    result operator()(const notice_response&) const { return result_type::read; }
+    result operator()(const notification_response&) const { return result_type::read; }
+    result operator()(const parameter_status&) const { return result_type::read; }
+
+    // If this is a ReadyForQuery, check if we're done
+    result operator()(ready_for_query) const
+    {
+        if (--self.remaining_syncs_ == 0u)
+        {
+            return self.handler_finished_ ? error_code() : client_errc::needs_more;
+        }
+        else
+        {
+            return result_type::read;
+        }
+    }
+
+    // If this is a message for the handler, call it
+    result operator()(bind_complete msg) const { return call_handler(msg); }
+    result operator()(close_complete msg) const { return call_handler(msg); }
+    result operator()(command_complete msg) const { return call_handler(msg); }
+    result operator()(const data_row& msg) const { return call_handler(msg); }
+    result operator()(const parameter_description& msg) const { return call_handler(msg); }
+    result operator()(const row_description& msg) const { return call_handler(msg); }
+    result operator()(no_data msg) const { return call_handler(msg); }
+    result operator()(empty_query_response msg) const { return call_handler(msg); }
+    result operator()(portal_suspended msg) const { return call_handler(msg); }
+    result operator()(const error_response& msg) const { return call_handler(msg); }
+    result operator()(parse_complete msg) const { return call_handler(msg); }
+
+    // This is an unknown message
+    template <class T>
+    result operator()(const T&) const
+    {
+        return error_code(client_errc::unexpected_message);
+    }
+};
+
+read_response_fsm_impl::result read_response_fsm_impl::resume(const any_backend_message& msg)
+{
+    // Initial checks
+    if (initial_)
+    {
+        const auto msg_types = request_access::messages(*req_);
+
+        // Empty requests are not allowed
+        if (msg_types.empty())
+            return error_code(client_errc::empty_request);
+
+        // Currently, all pipelines must end with a sync or a query
+        const auto last_type = msg_types.back();
+        if (last_type != request_msg_type::sync && last_type != request_msg_type::query)
+            return error_code(client_errc::request_ends_without_sync);
+
+        // Count how many syncs are we expecting
+        remaining_syncs_ = count_syncs(msg_types);
+
+        initial_ = false;
+
+        return result_type::read;
+    }
+
+    return boost::variant2::visit(visitor{*this}, msg);
+}
+
+read_response_fsm::result read_response_fsm::resume(
+    connection_state& st,
+    boost::system::error_code io_error,
+    std::size_t bytes_read
+)
+{
+    // TODO: this implementation is improvable, changes in reading messages required
+    // This is duplicated from startup
+    any_backend_message msg;
+    read_response_fsm_impl::result startup_res{error_code()};
+    read_message_stream_fsm::result read_msg_res{error_code()};
+
+    switch (resume_point_)
+    {
+        NATIVEPG_CORO_INITIAL
+
+        while (true)
+        {
+            // Call the FSM
+            startup_res = impl_.resume(msg);
+            if (startup_res.type == read_response_fsm_impl::result_type::done)
+            {
+                // We're finished
+                return startup_res.ec;
+            }
+            else
+            {
+                BOOST_ASSERT(startup_res.type == read_response_fsm_impl::result_type::read);
 
                 // Read a message
                 while (true)

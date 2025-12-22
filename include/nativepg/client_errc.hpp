@@ -77,6 +77,12 @@ enum class client_errc : int
 
     // We don't support this authentication method yet
     auth_sasl_unsupported,
+
+    // Empty requests are not allowed
+    empty_request,
+
+    // Requests must currently end with a sync. This restriction may be lifted in the future
+    request_ends_without_sync,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

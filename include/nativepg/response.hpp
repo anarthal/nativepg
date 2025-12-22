@@ -72,7 +72,6 @@ using any_request_message = boost::variant2::variant<
     protocol::empty_query_response,
     protocol::portal_suspended,
     protocol::error_response,
-    protocol::notice_response,
     protocol::parse_complete>;
 
 // Handles a resultset (i.e. a row_description + data_rows + command_complete)

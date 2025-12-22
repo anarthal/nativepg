@@ -11,6 +11,7 @@
 #include <iterator>
 
 #include "nativepg/connect_params.hpp"
+#include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/ready_for_query.hpp"
@@ -46,9 +47,10 @@ void test_success()
     connect_params params{.username = "postgres", .password = "", .database = "postgres"};
     protocol::connection_state st;
     startup_fsm_impl fsm{params};
+    diagnostics diag;
 
     // Initiate. The FSM asks us to write the initial message
-    auto res = fsm.resume(st);
+    auto res = fsm.resume(st, diag);
     BOOST_TEST_EQ(res.type, startup_fsm_impl::result_type::write);
     const unsigned char expected_msg[] = {
         0x00, 0x00, 0x00, 0x29, 0x00, 0x03, 0x00, 0x00, 0x75, 0x73, 0x65, 0x72, 0x00, 0x70,
@@ -63,27 +65,27 @@ void test_success()
     );
 
     // Write successful
-    res = fsm.resume(st);
+    res = fsm.resume(st, diag);
     BOOST_TEST_EQ(res.type, startup_fsm_impl::result_type::read);
 
     // Server sends us an authentication success message. We still need to wait until ReadyForQuery
-    res = fsm.resume(st, protocol::authentication_ok{});
+    res = fsm.resume(st, diag, protocol::authentication_ok{});
     BOOST_TEST_EQ(res.type, startup_fsm_impl::result_type::read);
 
     // Server sends us some parameter status messages, which are currently discarded
-    res = fsm.resume(st, protocol::parameter_status{.name = "client_encoding", .value = "utf8"});
+    res = fsm.resume(st, diag, protocol::parameter_status{.name = "client_encoding", .value = "utf8"});
     BOOST_TEST_EQ(res.type, startup_fsm_impl::result_type::read);
-    res = fsm.resume(st, protocol::parameter_status{.name = "in_hot_standby", .value = "off"});
+    res = fsm.resume(st, diag, protocol::parameter_status{.name = "in_hot_standby", .value = "off"});
     BOOST_TEST_EQ(res.type, startup_fsm_impl::result_type::read);
 
     // Server sends us the identifiers for cancellation
-    res = fsm.resume(st, protocol::backend_key_data{.process_id = 10, .secret_key = 42});
+    res = fsm.resume(st, diag, protocol::backend_key_data{.process_id = 10, .secret_key = 42});
     BOOST_TEST_EQ(st.backend_process_id, 10);
     BOOST_TEST_EQ(st.backend_secret_key, 42);
     BOOST_TEST_EQ(res.type, startup_fsm_impl::result_type::read);
 
     // Server sends us ReadyForQuery
-    res = fsm.resume(st, protocol::ready_for_query{.status = protocol::transaction_status::idle});
+    res = fsm.resume(st, diag, protocol::ready_for_query{.status = protocol::transaction_status::idle});
     BOOST_TEST_EQ(res.type, startup_fsm_impl::result_type::done);
     BOOST_TEST_EQ(res.ec, error_code());
 }

@@ -14,6 +14,7 @@
 #include <ostream>
 #include <vector>
 
+#include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/close.hpp"
@@ -343,6 +344,65 @@ void test_impl_several_syncs()
     BOOST_TEST_ALL_EQ(msgs.begin(), msgs.end(), std::begin(expected_msgs), std::end(expected_msgs));
 }
 
+// A handler may return needs_more to signal it wants more messages.
+// No error occurs unless we reach the end of the pipeline
+void test_impl_needs_more_success()
+{
+    request req;
+    req.add(protocol::sync{});
+    std::vector<response_msg_type> msgs;
+
+    read_response_fsm_impl fsm{req, [&msgs](const any_request_message& msg) {
+                                   msgs.push_back(to_type(msg));
+                                   return msgs.size() >= 2u ? error_code()
+                                                            : error_code(client_errc::needs_more);
+                               }};
+
+    // Initiate
+    auto act = fsm.resume({});
+    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+
+    // Server messages
+    act = fsm.resume(protocol::no_data{});
+    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+    act = fsm.resume(protocol::command_complete{});
+    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+    act = fsm.resume(protocol::ready_for_query{});
+    BOOST_TEST_EQ(act, error_code());
+
+    // Check handler messages
+    const response_msg_type expected_msgs[] = {
+        response_msg_type::no_data,
+        response_msg_type::command_complete,
+    };
+    BOOST_TEST_ALL_EQ(msgs.begin(), msgs.end(), std::begin(expected_msgs), std::end(expected_msgs));
+}
+
+// If we reach the end of the pipeline and the handler still needs more, this is an error
+void test_impl_needs_more_error()
+{
+    request req;
+    req.add(protocol::sync{});
+    std::vector<response_msg_type> msgs;
+
+    read_response_fsm_impl fsm{req, [&msgs](const any_request_message& msg) {
+                                   msgs.push_back(to_type(msg));
+                                   return error_code(client_errc::needs_more);
+                               }};
+
+    // Initiate
+    auto act = fsm.resume({});
+    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+
+    // Server messages
+    act = fsm.resume(protocol::no_data{});
+    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+    act = fsm.resume(protocol::command_complete{});
+    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+    act = fsm.resume(protocol::ready_for_query{});
+    BOOST_TEST_EQ(act, error_code(client_errc::needs_more));
+}
+
 }  // namespace
 
 int main()
@@ -352,6 +412,9 @@ int main()
     test_impl_all_msg_types();
     test_impl_async();
     test_impl_several_syncs();
+
+    test_impl_needs_more_success();
+    test_impl_needs_more_error();
 
     return boost::report_errors();
 }

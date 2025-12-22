@@ -14,9 +14,13 @@
 #include <ostream>
 #include <vector>
 
+#include "nativepg/protocol/bind.hpp"
+#include "nativepg/protocol/close.hpp"
 #include "nativepg/protocol/command_complete.hpp"
 #include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
+#include "nativepg/protocol/execute.hpp"
+#include "nativepg/protocol/parse.hpp"
 #include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/request.hpp"
@@ -115,7 +119,7 @@ response_msg_type to_type(const any_request_message& msg)
 }
 
 // Response to a simple query
-void test_impl_query()
+void test_impl_simple_query()
 {
     request req;
     req.add_simple_query("SELECT 1");
@@ -152,11 +156,101 @@ void test_impl_query()
     BOOST_TEST_ALL_EQ(msgs.begin(), msgs.end(), std::begin(expected_msgs), std::end(expected_msgs));
 }
 
+// Response to an extended query
+void test_impl_extended_query()
+{
+    request req;
+    req.add_query("SELECT 1", {});
+    std::vector<response_msg_type> msgs;
+
+    read_response_fsm_impl fsm{req, [&msgs](const any_request_message& msg) {
+                                   msgs.push_back(to_type(msg));
+                                   return error_code();
+                               }};
+
+    // Initiate
+    auto act = fsm.resume({});
+    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+
+    // Server messages
+    act = fsm.resume(protocol::bind_complete{});
+    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+    act = fsm.resume(protocol::parse_complete{});
+    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+    act = fsm.resume(protocol::row_description{});
+    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+    act = fsm.resume(protocol::data_row{});
+    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+    act = fsm.resume(protocol::portal_suspended{});
+    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+    act = fsm.resume(protocol::ready_for_query{});
+    BOOST_TEST_EQ(act, error_code());
+
+    // Check handler messages
+    const response_msg_type expected_msgs[] = {
+        response_msg_type::bind_complete,
+        response_msg_type::parse_complete,
+        response_msg_type::row_description,
+        response_msg_type::data_row,
+        response_msg_type::portal_suspended,
+    };
+    BOOST_TEST_ALL_EQ(msgs.begin(), msgs.end(), std::begin(expected_msgs), std::end(expected_msgs));
+}
+
+// If a request contains several syncs/queries, we read as many messages as these
+void test_impl_several_syncs()
+{
+    request req;
+    req.add_close_statement("abc");
+    req.add_simple_query("SELECT 1");
+    req.add_describe_statement("def");
+    std::vector<response_msg_type> msgs;
+
+    read_response_fsm_impl fsm{req, [&msgs](const any_request_message& msg) {
+                                   msgs.push_back(to_type(msg));
+                                   return error_code();
+                               }};
+
+    // Initiate
+    auto act = fsm.resume({});
+    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+
+    // Server messages
+    act = fsm.resume(protocol::close_complete{});
+    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+    act = fsm.resume(protocol::ready_for_query{});
+    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+    act = fsm.resume(protocol::row_description{});
+    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+    act = fsm.resume(protocol::data_row{});
+    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+    act = fsm.resume(protocol::command_complete{});
+    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+    act = fsm.resume(protocol::ready_for_query{});
+    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+    act = fsm.resume(protocol::parameter_description{});
+    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+    act = fsm.resume(protocol::ready_for_query{});
+    BOOST_TEST_EQ(act, error_code());
+
+    // Check handler messages
+    const response_msg_type expected_msgs[] = {
+        response_msg_type::close_complete,
+        response_msg_type::row_description,
+        response_msg_type::data_row,
+        response_msg_type::command_complete,
+        response_msg_type::parameter_description,
+    };
+    BOOST_TEST_ALL_EQ(msgs.begin(), msgs.end(), std::begin(expected_msgs), std::end(expected_msgs));
+}
+
 }  // namespace
 
 int main()
 {
-    test_impl_query();
+    test_impl_simple_query();
+    test_impl_extended_query();
+    test_impl_several_syncs();
 
     return boost::report_errors();
 }

@@ -8,7 +8,7 @@
 #ifndef NATIVEPG_EXTENDED_ERROR_HPP
 #define NATIVEPG_EXTENDED_ERROR_HPP
 
-#include <boost/system/detail/error_code.hpp>
+#include <boost/system/error_code.hpp>
 
 #include <cstddef>
 #include <string>
@@ -26,7 +26,9 @@ class diagnostics
 public:
     diagnostics() noexcept = default;
 
-    diagnostics(const protocol::error_response& msg);
+    diagnostics(const protocol::error_response& msg) { assign(msg); }
+
+    void assign(const protocol::error_response& msg);
 
     std::string_view message() const { return msg_; }
     std::string_view severity() const { return message().substr(sev_offset_, sev_size_); }

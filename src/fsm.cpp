@@ -395,6 +395,8 @@ read_response_fsm_impl::result read_response_fsm_impl::resume(const any_backend_
         remaining_syncs_ = count_syncs(msg_types);
 
         initial_ = false;
+
+        return result_type::read;
     }
 
     return boost::variant2::visit(visitor{*this}, msg);
@@ -406,31 +408,52 @@ read_response_fsm::result read_response_fsm::resume(
     std::size_t bytes_read
 )
 {
-    while (true)
+    // TODO: this implementation is improvable, changes in reading messages required
+    // This is duplicated from startup
+    any_backend_message msg;
+    read_response_fsm_impl::result startup_res{error_code()};
+    read_message_stream_fsm::result read_msg_res{error_code()};
+
+    switch (resume_point_)
     {
-        // Attempt to get a new message
-        auto read_msg_res = st.read_msg_stream_fsm.resume(st, io_error, bytes_read);
-        if (read_msg_res.type() == read_message_stream_fsm::result_type::read)
-        {
-            // We need to read more
-            return result::read(read_msg_res.read_buffer());
-        }
-        else if (read_msg_res.type() == read_message_stream_fsm::result_type::message)
-        {
-            // We have a message, call the FSM
-            auto res = impl_.resume(read_msg_res.message());
+        NATIVEPG_CORO_INITIAL
 
-            // If we're done, exit
-            if (res.type == read_response_fsm_impl::result_type::done)
-                return res.ec;
-
-            // Otherwise, keep reading
-        }
-        else
+        while (true)
         {
-            // An error is always fatal
-            BOOST_ASSERT(read_msg_res.type() == read_message_stream_fsm::result_type::error);
-            return read_msg_res.error();
+            // Call the FSM
+            startup_res = impl_.resume(msg);
+            if (startup_res.type == read_response_fsm_impl::result_type::done)
+            {
+                // We're finished
+                return startup_res.ec;
+            }
+            else
+            {
+                BOOST_ASSERT(startup_res.type == read_response_fsm_impl::result_type::read);
+
+                // Read a message
+                while (true)
+                {
+                    read_msg_res = st.read_msg_stream_fsm.resume(st, io_error, bytes_read);
+                    if (read_msg_res.type() == read_message_stream_fsm::result_type::read)
+                    {
+                        NATIVEPG_YIELD(resume_point_, 2, result::read(read_msg_res.read_buffer()));
+                    }
+                    else if (read_msg_res.type() == read_message_stream_fsm::result_type::message)
+                    {
+                        msg = read_msg_res.message();
+                        break;
+                    }
+                    else
+                    {
+                        BOOST_ASSERT(read_msg_res.type() == read_message_stream_fsm::result_type::error);
+                        return read_msg_res.error();
+                    }
+                }
+            }
         }
     }
+
+    BOOST_ASSERT(false);
+    return error_code();
 }

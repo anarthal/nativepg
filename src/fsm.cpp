@@ -185,8 +185,8 @@ startup_fsm_impl::result startup_fsm_impl::resume(connection_state& st, const an
         if (auto ec = serialize(
                 startup_message{
                     .user = params_->username,
-                    .database = params_->database.empty() ? std::string_view(params_->database)
-                                                          : std::optional<std::string_view>(),
+                    .database = params_->database.empty() ? std::optional<std::string_view>()
+                                                          : std::string_view(params_->database),
                     .params = {},
                 },
                 st.write_buffer

@@ -511,7 +511,6 @@ static connect_fsm::result to_connect_result(const startup_fsm::result& r)
 
 connect_fsm::result connect_fsm::resume(
     connection_state& st,
-    diagnostics& diag,
     boost::system::error_code ec,
     std::size_t bytes_transferred
 )
@@ -536,7 +535,7 @@ connect_fsm::result connect_fsm::resume(
         // Call the startup algorithm
         while (true)
         {
-            res = startup_.resume(st, diag, ec, bytes_transferred);
+            res = startup_.resume(st, st.shared_diag, ec, bytes_transferred);
             if (res.type() == startup_fsm::result_type::done)
                 break;
             else

@@ -22,6 +22,7 @@
 #include <string>
 
 #include "nativepg/connect_params.hpp"
+#include "nativepg/detail/disposition.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
@@ -93,8 +94,7 @@ struct connect_op
     {
         using protocol::detail::connect_fsm;
 
-        diagnostics diag;
-        auto res = fsm_.resume(impl.st, diag, ec, bytes_transferred);
+        auto res = fsm_.resume(impl.st, ec, bytes_transferred);
         switch (res.type())
         {
             case connect_fsm::result_type::write:
@@ -111,7 +111,7 @@ struct connect_op
                 (*this)(self, ec);
                 break;
             case connect_fsm::result_type::done:
-                self.complete(extended_error{res.error(), std::move(diag)});
+                self.complete(extended_error{res.error(), impl.st.shared_diag});
                 break;
             default: BOOST_ASSERT(false);
         }

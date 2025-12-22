@@ -128,11 +128,12 @@ void test_impl_simple_query()
     request req;
     req.add_simple_query("SELECT 1");
     std::vector<response_msg_type> msgs;
+    auto handler = [&msgs](const any_request_message& msg) {
+        msgs.push_back(to_type(msg));
+        return error_code();
+    };
 
-    read_response_fsm_impl fsm{req, [&msgs](const any_request_message& msg) {
-                                   msgs.push_back(to_type(msg));
-                                   return error_code();
-                               }};
+    read_response_fsm_impl fsm{req, handler};
 
     // Initiate
     auto act = fsm.resume({});
@@ -166,11 +167,12 @@ void test_impl_extended_query()
     request req;
     req.add_query("SELECT 1", {});
     std::vector<response_msg_type> msgs;
+    auto handler = [&msgs](const any_request_message& msg) {
+        msgs.push_back(to_type(msg));
+        return error_code();
+    };
 
-    read_response_fsm_impl fsm{req, [&msgs](const any_request_message& msg) {
-                                   msgs.push_back(to_type(msg));
-                                   return error_code();
-                               }};
+    read_response_fsm_impl fsm{req, handler};
 
     // Initiate
     auto act = fsm.resume({});
@@ -208,11 +210,12 @@ void test_impl_all_msg_types()
     req.add(protocol::sync{});
 
     std::vector<response_msg_type> msgs;
+    auto handler = [&msgs](const any_request_message& msg) {
+        msgs.push_back(to_type(msg));
+        return error_code();
+    };
 
-    read_response_fsm_impl fsm{req, [&msgs](const any_request_message& msg) {
-                                   msgs.push_back(to_type(msg));
-                                   return error_code();
-                               }};
+    read_response_fsm_impl fsm{req, handler};
 
     // Initiate
     auto act = fsm.resume({});
@@ -268,11 +271,12 @@ void test_impl_async()
     req.add(protocol::sync{});
 
     std::vector<response_msg_type> msgs;
+    auto handler = [&msgs](const any_request_message& msg) {
+        msgs.push_back(to_type(msg));
+        return error_code();
+    };
 
-    read_response_fsm_impl fsm{req, [&msgs](const any_request_message& msg) {
-                                   msgs.push_back(to_type(msg));
-                                   return error_code();
-                               }};
+    read_response_fsm_impl fsm{req, handler};
 
     // Initiate
     auto act = fsm.resume({});
@@ -305,11 +309,12 @@ void test_impl_several_syncs()
     req.add_simple_query("SELECT 1");
     req.add_describe_statement("def");
     std::vector<response_msg_type> msgs;
+    auto handler = [&msgs](const any_request_message& msg) {
+        msgs.push_back(to_type(msg));
+        return error_code();
+    };
 
-    read_response_fsm_impl fsm{req, [&msgs](const any_request_message& msg) {
-                                   msgs.push_back(to_type(msg));
-                                   return error_code();
-                               }};
+    read_response_fsm_impl fsm{req, handler};
 
     // Initiate
     auto act = fsm.resume({});
@@ -351,12 +356,12 @@ void test_impl_needs_more_success()
     request req;
     req.add(protocol::sync{});
     std::vector<response_msg_type> msgs;
+    auto handler = [&msgs](const any_request_message& msg) {
+        msgs.push_back(to_type(msg));
+        return msgs.size() >= 2u ? error_code() : error_code(client_errc::needs_more);
+    };
 
-    read_response_fsm_impl fsm{req, [&msgs](const any_request_message& msg) {
-                                   msgs.push_back(to_type(msg));
-                                   return msgs.size() >= 2u ? error_code()
-                                                            : error_code(client_errc::needs_more);
-                               }};
+    read_response_fsm_impl fsm{req, handler};
 
     // Initiate
     auto act = fsm.resume({});
@@ -384,11 +389,12 @@ void test_impl_needs_more_error()
     request req;
     req.add(protocol::sync{});
     std::vector<response_msg_type> msgs;
+    auto handler = [&msgs](const any_request_message& msg) {
+        msgs.push_back(to_type(msg));
+        return error_code(client_errc::needs_more);
+    };
 
-    read_response_fsm_impl fsm{req, [&msgs](const any_request_message& msg) {
-                                   msgs.push_back(to_type(msg));
-                                   return error_code(client_errc::needs_more);
-                               }};
+    read_response_fsm_impl fsm{req, handler};
 
     // Initiate
     auto act = fsm.resume({});

@@ -403,6 +403,9 @@ void test_impl_needs_more_error()
     BOOST_TEST_EQ(act, error_code(client_errc::needs_more));
 }
 
+// TODO: test errors
+// TODO: test the public FSM API
+
 }  // namespace
 
 int main()

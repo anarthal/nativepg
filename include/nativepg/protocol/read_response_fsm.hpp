@@ -48,6 +48,8 @@ public:
     {
     }
 
+    const request& get_request() const { return *req_; }
+
     result resume(const any_backend_message& msg);
 
 private:
@@ -105,6 +107,8 @@ public:
     read_response_fsm(const request& req, response_handler_ref handler) noexcept : impl_(req, handler) {}
 
     result resume(connection_state& st, boost::system::error_code io_error, std::size_t bytes_read);
+
+    const request& get_request() const { return impl_.get_request(); }
 
 private:
     int resume_point_{0};

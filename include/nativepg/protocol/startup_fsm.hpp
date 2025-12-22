@@ -12,16 +12,13 @@
 #include <boost/system/error_code.hpp>
 
 #include <cstddef>
-#include <optional>
 #include <span>
-#include <string_view>
 
+#include "nativepg/connect_params.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/messages.hpp"
 
 namespace nativepg::protocol {
-
-struct startup_params;
 
 namespace detail {
 
@@ -44,24 +41,16 @@ public:
         result(result_type t) noexcept : type(t) {}
     };
 
-    explicit startup_fsm_impl(const startup_params& params) noexcept : params_(&params) {}
+    explicit startup_fsm_impl(const connect_params& params) noexcept : params_(&params) {}
 
     result resume(connection_state& st, const any_backend_message& msg = {});
 
 private:
     int resume_point_{0};
-    const startup_params* params_;
+    const connect_params* params_;
 };
 
 }  // namespace detail
-
-struct startup_params
-{
-    std::string_view username;
-    std::string_view password;
-    std::optional<std::string_view> database;
-    // TODO: support arbitrary startup params?
-};
 
 class startup_fsm
 {
@@ -115,7 +104,7 @@ public:
         }
     };
 
-    explicit startup_fsm(const startup_params& params) noexcept : impl_(params) {}
+    explicit startup_fsm(const connect_params& params) noexcept : impl_(params) {}
 
     result resume(connection_state& st, boost::system::error_code io_error, std::size_t bytes_read);
 

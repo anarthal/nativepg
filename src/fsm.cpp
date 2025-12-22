@@ -6,11 +6,13 @@
 //
 
 #include <boost/asio/buffer.hpp>
+#include <boost/system/detail/error_code.hpp>
 #include <boost/system/system_error.hpp>
 #include <boost/variant2/variant.hpp>
 
 #include <cstddef>
 #include <span>
+#include <string_view>
 
 #include "coroutine.hpp"
 #include "nativepg/client_errc.hpp"
@@ -18,6 +20,7 @@
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/close.hpp"
 #include "nativepg/protocol/connection_state.hpp"
+#include "nativepg/protocol/detail/exec_fsm.hpp"
 #include "nativepg/protocol/header.hpp"
 #include "nativepg/protocol/messages.hpp"
 #include "nativepg/protocol/notice_error.hpp"
@@ -31,6 +34,7 @@
 
 using namespace nativepg::protocol;
 using boost::system::error_code;
+using detail::exec_fsm;
 using detail::read_response_fsm_impl;
 using detail::startup_fsm_impl;
 using nativepg::client_errc;
@@ -179,7 +183,8 @@ startup_fsm_impl::result startup_fsm_impl::resume(connection_state& st, const an
         if (auto ec = serialize(
                 startup_message{
                     .user = params_->username,
-                    .database = params_->database,
+                    .database = params_->database.empty() ? std::string_view(params_->database)
+                                                          : std::optional<std::string_view>(),
                     .params = {},
                 },
                 st.write_buffer
@@ -456,4 +461,29 @@ read_response_fsm::result read_response_fsm::resume(
 
     BOOST_ASSERT(false);
     return error_code();
+}
+
+exec_fsm::result exec_fsm::resume(
+    connection_state& st,
+    boost::system::error_code ec,
+    std::size_t bytes_transferred
+)
+{
+    if (is_writing_)
+    {
+        is_writing_ = false;
+        return result::write(read_fsm_.get_request().payload());
+    }
+
+    if (ec)
+        return ec;
+
+    // TODO: this is passing a wrong bytes_transferred value the 1st time
+    auto act = read_fsm_.resume(st, ec, bytes_transferred);
+    switch (act.type())
+    {
+        case read_response_fsm::result_type::read: return result::read(act.read_buffer());
+        case read_response_fsm::result_type::done: return act.error();
+        default: BOOST_ASSERT(false); return error_code();
+    }
 }

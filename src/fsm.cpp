@@ -336,10 +336,11 @@ std::size_t count_syncs(std::span<const request_msg_type> msgs)
 struct read_response_fsm_impl::visitor
 {
     read_response_fsm_impl& self;
+    diagnostics& diag;
 
     result call_handler(const any_request_message& msg) const
     {
-        auto res = self.handler_(msg);
+        auto res = self.handler_(msg, diag);
         if (res)
         {
             return res == client_errc::needs_more ? result(result_type::read) : res;
@@ -391,7 +392,10 @@ struct read_response_fsm_impl::visitor
     }
 };
 
-read_response_fsm_impl::result read_response_fsm_impl::resume(const any_backend_message& msg)
+read_response_fsm_impl::result read_response_fsm_impl::resume(
+    diagnostics& diag,
+    const any_backend_message& msg
+)
 {
     // Initial checks
     if (initial_)
@@ -415,11 +419,12 @@ read_response_fsm_impl::result read_response_fsm_impl::resume(const any_backend_
         return result_type::read;
     }
 
-    return boost::variant2::visit(visitor{*this}, msg);
+    return boost::variant2::visit(visitor{*this, diag}, msg);
 }
 
 read_response_fsm::result read_response_fsm::resume(
     connection_state& st,
+    diagnostics& diag,
     boost::system::error_code io_error,
     std::size_t bytes_read
 )
@@ -437,7 +442,7 @@ read_response_fsm::result read_response_fsm::resume(
         while (true)
         {
             // Call the FSM
-            startup_res = impl_.resume(msg);
+            startup_res = impl_.resume(diag, msg);
             if (startup_res.type == read_response_fsm_impl::result_type::done)
             {
                 // We're finished
@@ -490,7 +495,7 @@ exec_fsm::result exec_fsm::resume(
         return ec;
 
     // TODO: this is passing a wrong bytes_transferred value the 1st time
-    auto act = read_fsm_.resume(st, ec, bytes_transferred);
+    auto act = read_fsm_.resume(st, st.shared_diag, ec, bytes_transferred);
     switch (act.type())
     {
         case read_response_fsm::result_type::read: return result::read(act.read_buffer());

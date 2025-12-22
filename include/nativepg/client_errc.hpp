@@ -83,6 +83,9 @@ enum class client_errc : int
 
     // Requests must currently end with a sync. This restriction may be lifted in the future
     request_ends_without_sync,
+
+    // The server returned an error during the execution of a request
+    exec_server_error,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

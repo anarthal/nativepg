@@ -13,6 +13,7 @@
 
 #include <cstddef>
 
+#include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/messages.hpp"
 #include "nativepg/request.hpp"
@@ -21,7 +22,7 @@
 namespace nativepg::protocol {
 
 using response_handler_ref = boost::compat::function_ref<
-    boost::system::error_code(const any_request_message&)>;
+    boost::system::error_code(const any_request_message&, diagnostics&)>;
 
 namespace detail {
 
@@ -50,7 +51,7 @@ public:
 
     const request& get_request() const { return *req_; }
 
-    result resume(const any_backend_message& msg);
+    result resume(diagnostics& diag, const any_backend_message& msg);
 
 private:
     const request* req_;
@@ -106,7 +107,12 @@ public:
 
     read_response_fsm(const request& req, response_handler_ref handler) noexcept : impl_(req, handler) {}
 
-    result resume(connection_state& st, boost::system::error_code io_error, std::size_t bytes_read);
+    result resume(
+        connection_state& st,
+        diagnostics& diag,
+        boost::system::error_code io_error,
+        std::size_t bytes_read
+    );
 
     const request& get_request() const { return impl_.get_request(); }
 

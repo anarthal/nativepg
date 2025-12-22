@@ -14,6 +14,7 @@
 #include <cstddef>
 
 #include "nativepg/connect_params.hpp"
+#include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
 
 namespace nativepg::protocol::detail {
@@ -79,7 +80,12 @@ public:
 
     const connect_params& params() const { return startup_.params(); }
 
-    result resume(connection_state& st, boost::system::error_code ec, std::size_t bytes_transferred);
+    result resume(
+        connection_state& st,
+        diagnostics& diag,
+        boost::system::error_code ec,
+        std::size_t bytes_transferred
+    );
 
 private:
     int resume_point_{0};

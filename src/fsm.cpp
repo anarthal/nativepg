@@ -16,6 +16,7 @@
 
 #include "coroutine.hpp"
 #include "nativepg/client_errc.hpp"
+#include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/close.hpp"
@@ -136,9 +137,11 @@ namespace {
 
 struct startup_visitor
 {
-    error_code operator()(const error_response&) const
+    nativepg::diagnostics& diag;
+
+    error_code operator()(const error_response& err) const
     {
-        // TODO: string diagnostics
+        diag.assign(err);
         return client_errc::auth_failed;
     }
 
@@ -174,7 +177,11 @@ struct startup_visitor
 
 }  // namespace
 
-startup_fsm_impl::result startup_fsm_impl::resume(connection_state& st, const any_backend_message& msg)
+startup_fsm_impl::result startup_fsm_impl::resume(
+    connection_state& st,
+    diagnostics& diag,
+    const any_backend_message& msg
+)
 {
     switch (resume_point_)
     {
@@ -203,7 +210,7 @@ startup_fsm_impl::result startup_fsm_impl::resume(connection_state& st, const an
 
         // Act upon the server's message
         // TODO: this will have to change once we implement SASL
-        if (auto ec = boost::variant2::visit(startup_visitor{}, msg))
+        if (auto ec = boost::variant2::visit(startup_visitor{diag}, msg))
         {
             return ec;
         }
@@ -224,8 +231,9 @@ startup_fsm_impl::result startup_fsm_impl::resume(connection_state& st, const an
             {
                 // TODO: record these somehow
             }
-            else if (boost::variant2::holds_alternative<error_response>(msg))
+            else if (const auto* err = boost::variant2::get_if<error_response>(&msg))
             {
+                diag.assign(*err);
                 return error_code(client_errc::auth_failed);
             }
             else if (boost::variant2::holds_alternative<notice_response>(msg))
@@ -250,6 +258,7 @@ startup_fsm_impl::result startup_fsm_impl::resume(connection_state& st, const an
 
 startup_fsm::result startup_fsm::resume(
     connection_state& st,
+    diagnostics& diag,
     boost::system::error_code io_error,
     std::size_t bytes_read
 )
@@ -266,7 +275,7 @@ startup_fsm::result startup_fsm::resume(
         while (true)
         {
             // Call the FSM
-            startup_res = impl_.resume(st, msg);
+            startup_res = impl_.resume(st, diag, msg);
             if (startup_res.type == startup_fsm_impl::result_type::done)
             {
                 // We're finished
@@ -502,6 +511,7 @@ static connect_fsm::result to_connect_result(const startup_fsm::result& r)
 
 connect_fsm::result connect_fsm::resume(
     connection_state& st,
+    diagnostics& diag,
     boost::system::error_code ec,
     std::size_t bytes_transferred
 )
@@ -526,7 +536,7 @@ connect_fsm::result connect_fsm::resume(
         // Call the startup algorithm
         while (true)
         {
-            res = startup_.resume(st, ec, bytes_transferred);
+            res = startup_.resume(st, diag, ec, bytes_transferred);
             if (res.type() == startup_fsm::result_type::done)
                 break;
             else

@@ -22,6 +22,7 @@
 #include <string>
 
 #include "nativepg/connect_params.hpp"
+#include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
 #include "nativepg/protocol/detail/exec_fsm.hpp"
@@ -92,7 +93,8 @@ struct connect_op
     {
         using protocol::detail::connect_fsm;
 
-        auto res = fsm_.resume(impl.st, ec, bytes_transferred);
+        diagnostics diag;
+        auto res = fsm_.resume(impl.st, diag, ec, bytes_transferred);
         switch (res.type())
         {
             case connect_fsm::result_type::write:
@@ -108,7 +110,9 @@ struct connect_op
                 ec = impl.sock.close(ec);
                 (*this)(self, ec);
                 break;
-            case connect_fsm::result_type::done: self.complete(res.error()); break;
+            case connect_fsm::result_type::done:
+                self.complete(extended_error{res.error(), std::move(diag)});
+                break;
             default: BOOST_ASSERT(false);
         }
     }
@@ -152,11 +156,10 @@ public:
     boost::asio::any_io_executor get_executor() { return impl_->sock.get_executor(); }
 
     template <
-        boost::asio::completion_token_for<void(boost::system::error_code)> CompletionToken =
-            boost::asio::deferred_t>
+        boost::asio::completion_token_for<void(extended_error)> CompletionToken = boost::asio::deferred_t>
     auto async_connect(const connect_params& params, CompletionToken&& token = {})
     {
-        return boost::asio::async_compose<CompletionToken, void(boost::system::error_code)>(
+        return boost::asio::async_compose<CompletionToken, void(extended_error)>(
             detail::connect_op{*impl_, protocol::detail::connect_fsm{params}},
             token,
             impl_->sock

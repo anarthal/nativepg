@@ -101,7 +101,9 @@ public:
     // TODO: we shouldn't need this
     boost::asio::ip::tcp::socket& stream() { return impl_->sock; }
 
-    template <boost::asio::completion_token_for<void(boost::system::error_code)> CompletionToken>
+    template <
+        boost::asio::completion_token_for<void(boost::system::error_code)> CompletionToken =
+            boost::asio::deferred_t>
     auto async_connect(const connect_params& params, CompletionToken&& token = boost::asio::deferred)
     {
         return boost::asio::async_compose<CompletionToken, void(boost::system::error_code)>(
@@ -111,7 +113,9 @@ public:
         );
     }
 
-    template <boost::asio::completion_token_for<void(boost::system::error_code)> CompletionToken>
+    template <
+        boost::asio::completion_token_for<void(boost::system::error_code)> CompletionToken =
+            boost::asio::deferred_t>
     auto async_exec(
         const request& req,
         protocol::response_handler_ref handler,

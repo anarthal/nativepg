@@ -8,7 +8,6 @@
 #ifndef NATIVEPG_PROTOCOL_DETAIL_EXEC_FSM_HPP
 #define NATIVEPG_PROTOCOL_DETAIL_EXEC_FSM_HPP
 
-#include <boost/system/detail/error_code.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <cstddef>
@@ -20,6 +19,7 @@
 
 namespace nativepg::protocol::detail {
 
+// TODO: test
 class exec_fsm
 {
 public:

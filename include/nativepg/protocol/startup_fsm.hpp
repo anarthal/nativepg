@@ -45,6 +45,8 @@ public:
 
     result resume(connection_state& st, const any_backend_message& msg = {});
 
+    const connect_params& params() const { return *params_; }
+
 private:
     int resume_point_{0};
     const connect_params* params_;
@@ -107,6 +109,8 @@ public:
     explicit startup_fsm(const connect_params& params) noexcept : impl_(params) {}
 
     result resume(connection_state& st, boost::system::error_code io_error, std::size_t bytes_read);
+
+    const connect_params& params() const { return impl_.params(); }
 
 private:
     int resume_point_{0};

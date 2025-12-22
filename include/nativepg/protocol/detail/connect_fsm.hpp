@@ -77,6 +77,8 @@ public:
 
     connect_fsm(const connect_params& params) noexcept : startup_(params) {}
 
+    const connect_params& params() const { return startup_.params(); }
+
     result resume(connection_state& st, boost::system::error_code ec, std::size_t bytes_transferred);
 
 private:

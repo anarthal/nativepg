@@ -39,10 +39,9 @@ static asio::awaitable<void> co_main()
     connection conn{co_await asio::this_coro::executor};
 
     // Connect
-    co_await conn.stream().async_connect(asio::ip::tcp::endpoint(asio::ip::address_v4::loopback(), 5432));
-
-    // Startup
-    co_await conn.async_connect({.username = "postgres", .password = "", .database = "postgres"});
+    co_await conn.async_connect(
+        {.hostname = "localhost", .username = "postgres", .password = "", .database = "postgres"}
+    );
     std::cout << "Startup complete\n";
 
     // Compose our request

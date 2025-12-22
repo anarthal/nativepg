@@ -14,10 +14,13 @@ namespace nativepg {
 
 struct connect_params
 {
-    // TODO: physical params
-    std::string username;
-    std::string password;
-    std::string database;
+    // TODO: UNIX sockets
+    // TODO: TLS
+    std::string hostname{"localhost"};
+    unsigned short port{5432};
+    std::string username{"postgres"};
+    std::string password{};
+    std::string database{"postgres"};
     // TODO: support arbitrary startup params?
 };
 

@@ -40,7 +40,7 @@ static asio::awaitable<void> co_main()
 
     // Connect
     co_await conn.async_connect(
-        {.hostname = "localhost", .username = "postgres", .password = "", .database = "postgres"}
+        {.hostname = "localhost", .username = "postgres", .password = "", .database = "bad_database"}
     );
     std::cout << "Startup complete\n";
 

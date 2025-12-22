@@ -10,7 +10,6 @@
 
 #include <boost/system/error_code.hpp>
 
-#include <cstddef>
 #include <string>
 #include <string_view>
 
@@ -21,8 +20,7 @@ namespace nativepg {
 class diagnostics
 {
     std::string msg_;
-    std::size_t sev_offset_{}, sev_size_{};
-    // TODO: include all the fields
+    // TODO: consider storing offsets and expose the actual fields in the message (e.g. SQLSTATE, severity...)
 public:
     diagnostics() noexcept = default;
 
@@ -31,7 +29,6 @@ public:
     void assign(const protocol::error_response& msg);
 
     std::string_view message() const { return msg_; }
-    std::string_view severity() const { return message().substr(sev_offset_, sev_size_); }
 };
 
 struct extended_error

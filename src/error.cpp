@@ -49,20 +49,9 @@ const boost::system::error_category& nativepg::get_client_category() { return g_
 
 void diagnostics::assign(const protocol::error_response& err)
 {
-    msg_ = "Server error: ";
-    auto sev = err.severity.value_or("");
-    if (sev.empty())
-    {
-        sev_offset_ = 0u;
-        sev_size_ = 0u;
-        msg_ += "<unknown severity>";
-    }
-    else
-    {
-        sev_offset_ = msg_.size();
-        sev_size_ = sev.size();
-        msg_ += sev;
-    }
+    msg_ = err.severity.value_or("<Server error with unknown severity>");
+    msg_ += ": ";
+    msg_ += err.sqlstate.value_or("<unknown SQLSTATE>");
     msg_ += ": ";
     msg_ += err.message.value_or("<unknown error>");
 }

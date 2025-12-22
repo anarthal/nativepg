@@ -16,6 +16,7 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/detail/disposition.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/protocol/notice_error.hpp"
 
 using namespace nativepg;
 
@@ -45,6 +46,26 @@ static client_category g_clicat;
 }  // namespace
 
 const boost::system::error_category& nativepg::get_client_category() { return g_clicat; }
+
+void diagnostics::assign(const protocol::error_response& err)
+{
+    msg_ = "Server error: ";
+    auto sev = err.severity.value_or("");
+    if (sev.empty())
+    {
+        sev_offset_ = 0u;
+        sev_size_ = 0u;
+        msg_ += "<unknown severity>";
+    }
+    else
+    {
+        sev_offset_ = msg_.size();
+        sev_size_ = sev.size();
+        msg_ += sev;
+    }
+    msg_ += ": ";
+    msg_ += err.message.value_or("<unknown error>");
+}
 
 void boost::asio::disposition_traits<extended_error>::throw_exception(const nativepg::extended_error& d)
 {

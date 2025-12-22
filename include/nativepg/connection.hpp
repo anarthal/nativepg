@@ -11,6 +11,7 @@
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/async_result.hpp>
 #include <boost/asio/compose.hpp>
+#include <boost/asio/deferred.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/system/error_code.hpp>
@@ -101,7 +102,7 @@ public:
     boost::asio::ip::tcp::socket& stream() { return impl_->sock; }
 
     template <boost::asio::completion_token_for<void(boost::system::error_code)> CompletionToken>
-    auto async_connect(const connect_params& params, CompletionToken&& token)
+    auto async_connect(const connect_params& params, CompletionToken&& token = boost::asio::deferred)
     {
         return boost::asio::async_compose<CompletionToken, void(boost::system::error_code)>(
             detail::connect_op{*impl_, protocol::startup_fsm{params}},
@@ -111,7 +112,11 @@ public:
     }
 
     template <boost::asio::completion_token_for<void(boost::system::error_code)> CompletionToken>
-    auto async_exec(const request& req, protocol::response_handler_ref handler, CompletionToken&& token)
+    auto async_exec(
+        const request& req,
+        protocol::response_handler_ref handler,
+        CompletionToken&& token = boost::asio::deferred
+    )
     {
         return boost::asio::async_compose<CompletionToken, void(boost::system::error_code)>(
             detail::exec_op{

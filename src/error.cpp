@@ -54,6 +54,7 @@ void diagnostics::assign(const protocol::error_response& err)
     msg_ += err.sqlstate.value_or("<unknown SQLSTATE>");
     msg_ += ": ";
     msg_ += err.message.value_or("<unknown error>");
+    // TODO: add more info here
 }
 
 void boost::asio::disposition_traits<extended_error>::throw_exception(const nativepg::extended_error& d)

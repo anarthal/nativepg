@@ -104,23 +104,19 @@ public:
     template <
         boost::asio::completion_token_for<void(boost::system::error_code)> CompletionToken =
             boost::asio::deferred_t>
-    auto async_connect(const connect_params& params, CompletionToken&& token = boost::asio::deferred)
+    auto async_connect(const connect_params& params, CompletionToken&& token = {})
     {
         return boost::asio::async_compose<CompletionToken, void(boost::system::error_code)>(
             detail::connect_op{*impl_, protocol::startup_fsm{params}},
             token,
-            *this
+            impl_->sock
         );
     }
 
     template <
         boost::asio::completion_token_for<void(boost::system::error_code)> CompletionToken =
             boost::asio::deferred_t>
-    auto async_exec(
-        const request& req,
-        protocol::response_handler_ref handler,
-        CompletionToken&& token = boost::asio::deferred
-    )
+    auto async_exec(const request& req, protocol::response_handler_ref handler, CompletionToken&& token = {})
     {
         return boost::asio::async_compose<CompletionToken, void(boost::system::error_code)>(
             detail::exec_op{
@@ -128,7 +124,7 @@ public:
                 protocol::detail::exec_fsm{req, handler}
         },
             token,
-            *this
+            impl_->sock
         );
     }
 };

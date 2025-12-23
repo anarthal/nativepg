@@ -47,15 +47,18 @@ static asio::awaitable<void> co_main()
     // Compose our request
     request req;
     req.add_query("SELECT * FROM myt WHERE f1 <> $1", {"value2"});
+    req.add_query("SELECT 42 AS \"f3\", 'abc' AS \"f1\"", {});
 
     // Structures to parse the response into
-    std::vector<myrow> vec;
-    auto cb = into(vec);
+    std::vector<myrow> vec1, vec2;
+    response res{into(vec1), into(vec2)};
 
-    co_await conn.async_exec(req, cb);
+    co_await conn.async_exec(req, res);
 
-    for (const auto& r : vec)
-        std::cout << "Got row: " << r.f1 << ", " << r.f3 << std::endl;
+    for (const auto& r : vec1)
+        std::cout << "Got row (1): " << r.f1 << ", " << r.f3 << std::endl;
+    for (const auto& r : vec2)
+        std::cout << "Got row (2): " << r.f1 << ", " << r.f3 << std::endl;
 
     std::cout << "Done\n";
 }

@@ -10,10 +10,12 @@
 
 #include <iterator>
 
+#include "nativepg/client_errc.hpp"
 #include "nativepg/connect_params.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/connection_state.hpp"
+#include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/protocol/startup.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
@@ -90,6 +92,36 @@ void test_success()
     BOOST_TEST_EQ(res.ec, error_code());
 }
 
+void test_auth_error()
+{
+    connect_params params{.username = "postgres", .password = "", .database = "postgres"};
+    protocol::connection_state st;
+    startup_fsm_impl fsm{params};
+    diagnostics diag;
+
+    // Initiate. The FSM asks us to write the initial message
+    auto res = fsm.resume(st, diag);
+    BOOST_TEST_EQ(res.type, startup_fsm_impl::result_type::write);
+
+    // Write successful
+    res = fsm.resume(st, diag);
+    BOOST_TEST_EQ(res.type, startup_fsm_impl::result_type::read);
+
+    // Server sends us an error message
+    protocol::error_response err{
+        {
+         .severity = "FATAL",
+         .localized_severity = "FATAL",
+         .sqlstate = "42P01",
+         .message = "database does not exist",
+         }
+    };
+    res = fsm.resume(st, diag, err);
+    BOOST_TEST_EQ(res.type, startup_fsm_impl::result_type::done);
+    BOOST_TEST_EQ(res.ec, error_code(client_errc::auth_failed));
+    BOOST_TEST_EQ(diag.message(), "FATAL: 42P01: database does not exist");
+}
+
 // TODO: this needs much more testing once we have a more stable API
 
 }  // namespace
@@ -97,6 +129,7 @@ void test_success()
 int main()
 {
     test_success();
+    test_auth_error();
 
     return boost::report_errors();
 }

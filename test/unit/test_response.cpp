@@ -117,11 +117,32 @@ void test_success_two_handlers()
     BOOST_TEST_ALL_EQ(msgs2.begin(), msgs2.end(), expected2.begin(), expected2.end());
 }
 
+// The deduction guide works correctly
+void test_deduction_guide()
+{
+    struct h1_t
+    {
+        error_code operator()(const any_request_message&, diagnostics&) { return {}; }
+    };
+    struct h2_t
+    {
+        error_code operator()(const any_request_message&, diagnostics&) { return {}; }
+    };
+
+    h1_t h1_lvalue;
+    const h1_t h1_const;
+
+    response res{h1_lvalue, h1_const, h1_t{}, h2_t{}};
+
+    static_assert(std::is_same_v<decltype(res), response<h1_t, h1_t, h1_t, h2_t>>);
+}
+
 }  // namespace
 
 int main()
 {
     test_success_two_handlers();
+    test_deduction_guide();
 
     return boost::report_errors();
 }

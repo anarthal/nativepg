@@ -26,9 +26,9 @@
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
 #include "nativepg/protocol/detail/exec_fsm.hpp"
-#include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/response.hpp"
 
 namespace nativepg {
 
@@ -169,7 +169,7 @@ public:
 
     template <
         boost::asio::completion_token_for<void(extended_error)> CompletionToken = boost::asio::deferred_t>
-    auto async_exec(const request& req, protocol::response_handler_ref handler, CompletionToken&& token = {})
+    auto async_exec(const request& req, response_handler_ref handler, CompletionToken&& token = {})
     {
         return boost::asio::async_compose<CompletionToken, void(extended_error)>(
             detail::exec_op{

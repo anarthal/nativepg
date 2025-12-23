@@ -21,9 +21,6 @@
 
 namespace nativepg::protocol {
 
-using response_handler_ref = boost::compat::function_ref<
-    boost::system::error_code(const any_request_message&, diagnostics&)>;
-
 namespace detail {
 
 class read_response_fsm_impl

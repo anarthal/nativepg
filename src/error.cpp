@@ -66,14 +66,5 @@ std::exception_ptr boost::asio::disposition_traits<extended_error>::to_exception
     const nativepg::extended_error& d
 ) noexcept
 {
-    try
-    {
-        throw_exception(d);
-    }
-    catch (const boost::system::system_error&)
-    {
-        return std::current_exception();
-    }
-    BOOST_ASSERT(false);
-    return {};
+    return std::make_exception_ptr(boost::system::system_error(d.code, std::string(d.diag.message())));
 }

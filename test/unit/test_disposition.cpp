@@ -6,11 +6,16 @@
 //
 
 #include <boost/asio/async_result.hpp>
+#include <boost/asio/awaitable.hpp>
+#include <boost/asio/co_spawn.hpp>
 #include <boost/asio/deferred.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/use_awaitable.hpp>
 #include <boost/asio/use_future.hpp>
 #include <boost/core/lightweight_test.hpp>
 #include <boost/system/system_error.hpp>
 
+#include <exception>
 #include <type_traits>
 
 #include "nativepg/client_errc.hpp"
@@ -65,12 +70,47 @@ void test_error_exception_ptr()
     }
 }
 
+// Same, but for a completion token that uses throw_exception
+void test_error_throw_exception()
+{
+    asio::io_context ctx;
+    std::exception_ptr exc;
+    extended_error err{
+        .code = client_errc::value_too_big,
+        .diag = protocol::error_response{
+            {.severity = "ERROR", .sqlstate = "42P01", .message = "relation does not exist"}
+        }
+    };
+
+    asio::co_spawn(ctx, async_stub(err, asio::use_awaitable), [&exc](std::exception_ptr ptr) {
+        exc = std::move(ptr);
+    });
+
+    ctx.run();
+
+    try
+    {
+        BOOST_TEST(exc != nullptr);
+        std::rethrow_exception(exc);
+        BOOST_TEST(false);
+    }
+    catch (const boost::system::system_error& err)
+    {
+        BOOST_TEST_EQ(err.code(), error_code(client_errc::value_too_big));
+        BOOST_TEST_EQ(
+            std::string_view(err.what()),
+            "ERROR: 42P01: relation does not exist: <unknown nativepg client error> [nativepg.client:4]"
+        );  // TODO: update when we implement proper client_errc to string conversion
+    }
+}
+
 }  // namespace
 
 int main()
 {
     test_success();
     test_error_exception_ptr();
+    test_error_throw_exception();
 
     return boost::report_errors();
 }

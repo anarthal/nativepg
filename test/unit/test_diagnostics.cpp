@@ -71,6 +71,21 @@ void test_assign()
     BOOST_TEST_EQ(diag.message(), "ERROR: 42P01: relation does not exist");
 }
 
+void test_comparison()
+{
+    BOOST_TEST(diagnostics() == diagnostics());
+    BOOST_TEST_NOT(diagnostics() != diagnostics());
+
+    BOOST_TEST(diagnostics("abc") == diagnostics("abc"));
+    BOOST_TEST_NOT(diagnostics("abc") != diagnostics("abc"));
+
+    BOOST_TEST_NOT(diagnostics("abc") == diagnostics("other"));
+    BOOST_TEST(diagnostics("abc") != diagnostics("other"));
+
+    BOOST_TEST_NOT(diagnostics() == diagnostics("other"));
+    BOOST_TEST(diagnostics() != diagnostics("other"));
+}
+
 }  // namespace
 
 int main()
@@ -80,6 +95,7 @@ int main()
 
     test_default_ctor();
     test_assign();
+    test_comparison();
 
     return boost::report_errors();
 }

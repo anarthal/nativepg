@@ -32,12 +32,16 @@ public:
     void assign(const protocol::error_response& msg);
 
     std::string_view message() const { return msg_; }
+
+    friend bool operator==(const diagnostics& lhs, const diagnostics& rhs) noexcept = default;
 };
 
 struct extended_error
 {
     boost::system::error_code code;
     diagnostics diag;
+
+    friend bool operator==(const extended_error& lhs, const extended_error& rhs) noexcept = default;
 };
 
 // Make extended_error interoperable with boost::system::result

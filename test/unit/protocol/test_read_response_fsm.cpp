@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
+#include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/close.hpp"
@@ -128,27 +129,28 @@ void test_impl_simple_query()
     request req;
     req.add_simple_query("SELECT 1");
     std::vector<response_msg_type> msgs;
-    auto handler = [&msgs](const any_request_message& msg) {
+    auto handler = [&msgs](const any_request_message& msg, diagnostics&) {
         msgs.push_back(to_type(msg));
         return error_code();
     };
+    diagnostics diag;
 
     read_response_fsm_impl fsm{req, handler};
 
     // Initiate
-    auto act = fsm.resume({});
+    auto act = fsm.resume(diag, {});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
 
     // Server messages
-    act = fsm.resume(protocol::row_description{});
+    act = fsm.resume(diag, protocol::row_description{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::data_row{});
+    act = fsm.resume(diag, protocol::data_row{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::data_row{});
+    act = fsm.resume(diag, protocol::data_row{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::command_complete{});
+    act = fsm.resume(diag, protocol::command_complete{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::ready_for_query{});
+    act = fsm.resume(diag, protocol::ready_for_query{});
     BOOST_TEST_EQ(act, error_code());
 
     // Check handler messages
@@ -167,29 +169,30 @@ void test_impl_extended_query()
     request req;
     req.add_query("SELECT 1", {});
     std::vector<response_msg_type> msgs;
-    auto handler = [&msgs](const any_request_message& msg) {
+    auto handler = [&msgs](const any_request_message& msg, diagnostics&) {
         msgs.push_back(to_type(msg));
         return error_code();
     };
+    diagnostics diag;
 
     read_response_fsm_impl fsm{req, handler};
 
     // Initiate
-    auto act = fsm.resume({});
+    auto act = fsm.resume(diag, {});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
 
     // Server messages
-    act = fsm.resume(protocol::bind_complete{});
+    act = fsm.resume(diag, protocol::bind_complete{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::parse_complete{});
+    act = fsm.resume(diag, protocol::parse_complete{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::row_description{});
+    act = fsm.resume(diag, protocol::row_description{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::data_row{});
+    act = fsm.resume(diag, protocol::data_row{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::portal_suspended{});
+    act = fsm.resume(diag, protocol::portal_suspended{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::ready_for_query{});
+    act = fsm.resume(diag, protocol::ready_for_query{});
     BOOST_TEST_EQ(act, error_code());
 
     // Check handler messages
@@ -210,41 +213,43 @@ void test_impl_all_msg_types()
     req.add(protocol::sync{});
 
     std::vector<response_msg_type> msgs;
-    auto handler = [&msgs](const any_request_message& msg) {
+    auto handler = [&msgs](const any_request_message& msg, diagnostics&) {
         msgs.push_back(to_type(msg));
         return error_code();
     };
 
+    diagnostics diag;
+
     read_response_fsm_impl fsm{req, handler};
 
     // Initiate
-    auto act = fsm.resume({});
+    auto act = fsm.resume(diag, {});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
 
     // Server messages
-    act = fsm.resume(protocol::bind_complete{});
+    act = fsm.resume(diag, protocol::bind_complete{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::close_complete{});
+    act = fsm.resume(diag, protocol::close_complete{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::command_complete{});
+    act = fsm.resume(diag, protocol::command_complete{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::data_row{});
+    act = fsm.resume(diag, protocol::data_row{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::parameter_description{});
+    act = fsm.resume(diag, protocol::parameter_description{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::row_description{});
+    act = fsm.resume(diag, protocol::row_description{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::no_data{});
+    act = fsm.resume(diag, protocol::no_data{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::empty_query_response{});
+    act = fsm.resume(diag, protocol::empty_query_response{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::portal_suspended{});
+    act = fsm.resume(diag, protocol::portal_suspended{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::error_response{});
+    act = fsm.resume(diag, protocol::error_response{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::parse_complete{});
+    act = fsm.resume(diag, protocol::parse_complete{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::ready_for_query{});
+    act = fsm.resume(diag, protocol::ready_for_query{});
     BOOST_TEST_EQ(act, error_code());
 
     // Check handler messages
@@ -271,27 +276,29 @@ void test_impl_async()
     req.add(protocol::sync{});
 
     std::vector<response_msg_type> msgs;
-    auto handler = [&msgs](const any_request_message& msg) {
+    auto handler = [&msgs](const any_request_message& msg, diagnostics&) {
         msgs.push_back(to_type(msg));
         return error_code();
     };
 
+    diagnostics diag;
+
     read_response_fsm_impl fsm{req, handler};
 
     // Initiate
-    auto act = fsm.resume({});
+    auto act = fsm.resume(diag, {});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
 
     // Server messages
-    act = fsm.resume(protocol::bind_complete{});
+    act = fsm.resume(diag, protocol::bind_complete{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::notice_response{});
+    act = fsm.resume(diag, protocol::notice_response{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::notification_response{});
+    act = fsm.resume(diag, protocol::notification_response{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::parameter_status{});
+    act = fsm.resume(diag, protocol::parameter_status{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::ready_for_query{});
+    act = fsm.resume(diag, protocol::ready_for_query{});
     BOOST_TEST_EQ(act, error_code());
 
     // Check handler messages
@@ -309,33 +316,34 @@ void test_impl_several_syncs()
     req.add_simple_query("SELECT 1");
     req.add_describe_statement("def");
     std::vector<response_msg_type> msgs;
-    auto handler = [&msgs](const any_request_message& msg) {
+    auto handler = [&msgs](const any_request_message& msg, diagnostics&) {
         msgs.push_back(to_type(msg));
         return error_code();
     };
+    diagnostics diag;
 
     read_response_fsm_impl fsm{req, handler};
 
     // Initiate
-    auto act = fsm.resume({});
+    auto act = fsm.resume(diag, {});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
 
     // Server messages
-    act = fsm.resume(protocol::close_complete{});
+    act = fsm.resume(diag, protocol::close_complete{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::ready_for_query{});
+    act = fsm.resume(diag, protocol::ready_for_query{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::row_description{});
+    act = fsm.resume(diag, protocol::row_description{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::data_row{});
+    act = fsm.resume(diag, protocol::data_row{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::command_complete{});
+    act = fsm.resume(diag, protocol::command_complete{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::ready_for_query{});
+    act = fsm.resume(diag, protocol::ready_for_query{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::parameter_description{});
+    act = fsm.resume(diag, protocol::parameter_description{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::ready_for_query{});
+    act = fsm.resume(diag, protocol::ready_for_query{});
     BOOST_TEST_EQ(act, error_code());
 
     // Check handler messages
@@ -356,23 +364,24 @@ void test_impl_needs_more_success()
     request req;
     req.add(protocol::sync{});
     std::vector<response_msg_type> msgs;
-    auto handler = [&msgs](const any_request_message& msg) {
+    auto handler = [&msgs](const any_request_message& msg, diagnostics&) {
         msgs.push_back(to_type(msg));
         return msgs.size() >= 2u ? error_code() : error_code(client_errc::needs_more);
     };
+    diagnostics diag;
 
     read_response_fsm_impl fsm{req, handler};
 
     // Initiate
-    auto act = fsm.resume({});
+    auto act = fsm.resume(diag, {});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
 
     // Server messages
-    act = fsm.resume(protocol::no_data{});
+    act = fsm.resume(diag, protocol::no_data{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::command_complete{});
+    act = fsm.resume(diag, protocol::command_complete{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::ready_for_query{});
+    act = fsm.resume(diag, protocol::ready_for_query{});
     BOOST_TEST_EQ(act, error_code());
 
     // Check handler messages
@@ -389,23 +398,24 @@ void test_impl_needs_more_error()
     request req;
     req.add(protocol::sync{});
     std::vector<response_msg_type> msgs;
-    auto handler = [&msgs](const any_request_message& msg) {
+    auto handler = [&msgs](const any_request_message& msg, diagnostics&) {
         msgs.push_back(to_type(msg));
         return error_code(client_errc::needs_more);
     };
+    diagnostics diag;
 
     read_response_fsm_impl fsm{req, handler};
 
     // Initiate
-    auto act = fsm.resume({});
+    auto act = fsm.resume(diag, {});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
 
     // Server messages
-    act = fsm.resume(protocol::no_data{});
+    act = fsm.resume(diag, protocol::no_data{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::command_complete{});
+    act = fsm.resume(diag, protocol::command_complete{});
     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::ready_for_query{});
+    act = fsm.resume(diag, protocol::ready_for_query{});
     BOOST_TEST_EQ(act, error_code(client_errc::needs_more));
 }
 

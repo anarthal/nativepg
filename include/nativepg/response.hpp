@@ -26,6 +26,7 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/detail/field_traits.hpp"
 #include "nativepg/detail/row_traits.hpp"
+#include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/close.hpp"
 #include "nativepg/protocol/command_complete.hpp"
@@ -94,12 +95,21 @@ class resultset_callback_t
     struct visitor
     {
         resultset_callback_t& self;
+        diagnostics& diag;
 
         // Error on unexpected messages
         template <class Msg>
         boost::system::error_code operator()(const Msg&) const
         {
             return client_errc::unexpected_message;
+        }
+
+        // On error, fail the entire operation.
+        // TODO: this must be reviewed
+        boost::system::error_code operator()(const protocol::error_response& err) const
+        {
+            diag.assign(err);
+            return client_errc::exec_server_error;
         }
 
         // Ignore messages that may or may not appear
@@ -217,9 +227,9 @@ public:
     {
     }
 
-    boost::system::error_code operator()(const any_request_message& msg)
+    boost::system::error_code operator()(const any_request_message& msg, diagnostics& diag)
     {
-        return boost::variant2::visit(visitor{*this}, msg);
+        return boost::variant2::visit(visitor{*this, diag}, msg);
     }
 };
 

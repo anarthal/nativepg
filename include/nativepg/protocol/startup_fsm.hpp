@@ -15,6 +15,7 @@
 #include <span>
 
 #include "nativepg/connect_params.hpp"
+#include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/messages.hpp"
 
@@ -43,7 +44,7 @@ public:
 
     explicit startup_fsm_impl(const connect_params& params) noexcept : params_(&params) {}
 
-    result resume(connection_state& st, const any_backend_message& msg = {});
+    result resume(connection_state& st, diagnostics& diag, const any_backend_message& msg = {});
 
     const connect_params& params() const { return *params_; }
 
@@ -108,7 +109,12 @@ public:
 
     explicit startup_fsm(const connect_params& params) noexcept : impl_(params) {}
 
-    result resume(connection_state& st, boost::system::error_code io_error, std::size_t bytes_read);
+    result resume(
+        connection_state& st,
+        diagnostics& diag,
+        boost::system::error_code io_error,
+        std::size_t bytes_read
+    );
 
     const connect_params& params() const { return impl_.params(); }
 

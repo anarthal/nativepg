@@ -22,6 +22,7 @@
 #include <string>
 
 #include "nativepg/connect_params.hpp"
+#include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
 #include "nativepg/protocol/detail/exec_fsm.hpp"
@@ -108,7 +109,9 @@ struct connect_op
                 ec = impl.sock.close(ec);
                 (*this)(self, ec);
                 break;
-            case connect_fsm::result_type::done: self.complete(res.error()); break;
+            case connect_fsm::result_type::done:
+                self.complete(extended_error{res.error(), impl.st.shared_diag});
+                break;
             default: BOOST_ASSERT(false);
         }
     }
@@ -131,7 +134,9 @@ struct exec_op
             case protocol::startup_fsm::result_type::read:
                 impl.sock.async_read_some(res.read_buffer(), std::move(self));
                 break;
-            case protocol::startup_fsm::result_type::done: self.complete(res.error()); break;
+            case protocol::startup_fsm::result_type::done:
+                self.complete(extended_error{res.error(), impl.st.shared_diag});
+                break;
             default: BOOST_ASSERT(false);
         }
     }
@@ -152,11 +157,10 @@ public:
     boost::asio::any_io_executor get_executor() { return impl_->sock.get_executor(); }
 
     template <
-        boost::asio::completion_token_for<void(boost::system::error_code)> CompletionToken =
-            boost::asio::deferred_t>
+        boost::asio::completion_token_for<void(extended_error)> CompletionToken = boost::asio::deferred_t>
     auto async_connect(const connect_params& params, CompletionToken&& token = {})
     {
-        return boost::asio::async_compose<CompletionToken, void(boost::system::error_code)>(
+        return boost::asio::async_compose<CompletionToken, void(extended_error)>(
             detail::connect_op{*impl_, protocol::detail::connect_fsm{params}},
             token,
             impl_->sock
@@ -164,11 +168,10 @@ public:
     }
 
     template <
-        boost::asio::completion_token_for<void(boost::system::error_code)> CompletionToken =
-            boost::asio::deferred_t>
+        boost::asio::completion_token_for<void(extended_error)> CompletionToken = boost::asio::deferred_t>
     auto async_exec(const request& req, protocol::response_handler_ref handler, CompletionToken&& token = {})
     {
-        return boost::asio::async_compose<CompletionToken, void(boost::system::error_code)>(
+        return boost::asio::async_compose<CompletionToken, void(extended_error)>(
             detail::exec_op{
                 *impl_,
                 protocol::detail::exec_fsm{req, handler}

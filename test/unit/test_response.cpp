@@ -21,6 +21,7 @@
 
 #include "../src/serialization_context.hpp"  // TODO
 #include "nativepg/client_errc.hpp"
+#include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/command_complete.hpp"
 #include "nativepg/protocol/common.hpp"
@@ -149,11 +150,12 @@ void test_simple_query()
         make_field_descr("id", 23, format_code::text),
         make_field_descr("name", 25, format_code::text),
     });
+    diagnostics diag;
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(owning_data_row({"42", "perico"})), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(protocol::command_complete{}), error_code());
+    BOOST_TEST_EQ(cb(descrs, diag), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(owning_data_row({"42", "perico"}), diag), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), error_code());
 
     // Rows
     std::vector<user> expected_rows{
@@ -172,14 +174,15 @@ void test_query()
         make_field_descr("id", 23, format_code::text),
         make_field_descr("name", 25, format_code::text),
     });
+    diagnostics diag;
 
     // Messages
-    BOOST_TEST_EQ(cb(protocol::parse_complete{}), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(protocol::bind_complete{}), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(descrs), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(owning_data_row({"42", "perico"})), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(owning_data_row({"50", "pepe"})), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(protocol::command_complete{}), error_code());
+    BOOST_TEST_EQ(cb(protocol::parse_complete{}, diag), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(protocol::bind_complete{}, diag), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(descrs, diag), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(owning_data_row({"42", "perico"}), diag), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(owning_data_row({"50", "pepe"}), diag), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), error_code());
 
     // Rows
     std::vector<user> expected_rows{
@@ -201,12 +204,19 @@ void test_field_match_by_name()
         make_field_descr("id", 23, format_code::text),
         make_field_descr("yet_another", 50, format_code::text),
     });
+    diagnostics diag;
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(owning_data_row({"juan", "abc", "10", "value"})), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(owning_data_row({"antonio", "def", "21", ""})), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(protocol::command_complete{}), error_code());
+    BOOST_TEST_EQ(cb(descrs, diag), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(
+        cb(owning_data_row({"juan", "abc", "10", "value"}), diag),
+        error_code(client_errc::needs_more)
+    );
+    BOOST_TEST_EQ(
+        cb(owning_data_row({"antonio", "def", "21", ""}), diag),
+        error_code(client_errc::needs_more)
+    );
+    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), error_code());
 
     // Rows
     std::vector<user> expected_rows{
@@ -226,11 +236,12 @@ void test_binary()
         make_field_descr("id", 23, format_code::binary),
         make_field_descr("name", 25, format_code::binary),
     });
+    diagnostics diag;
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(owning_data_row({"\0\0\0\x2a"sv, "perico"})), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(protocol::command_complete{}), error_code());
+    BOOST_TEST_EQ(cb(descrs, diag), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(owning_data_row({"\0\0\0\x2a"sv, "perico"}), diag), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), error_code());
 
     // Rows
     std::vector<user> expected_rows{
@@ -249,11 +260,12 @@ void test_type_conversions()
         make_field_descr("id", 21, format_code::binary),  // int2
         make_field_descr("name", 25, format_code::binary),
     });
+    diagnostics diag;
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(owning_data_row({"\0\x2a"sv, "perico"})), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(protocol::command_complete{}), error_code());
+    BOOST_TEST_EQ(cb(descrs, diag), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(owning_data_row({"\0\x2a"sv, "perico"}), diag), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), error_code());
 
     // Rows
     std::vector<user> expected_rows{
@@ -272,12 +284,13 @@ void test_callback()
         make_field_descr("id", 23, format_code::text),
         make_field_descr("name", 25, format_code::text),
     });
+    diagnostics diag;
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(owning_data_row({"42", "perico"})), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(owning_data_row({"50", "pepe"})), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(protocol::command_complete{}), error_code());
+    BOOST_TEST_EQ(cb(descrs, diag), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(owning_data_row({"42", "perico"}), diag), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(owning_data_row({"50", "pepe"}), diag), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), error_code());
 
     // Rows
     std::vector<user> expected_rows{
@@ -296,9 +309,10 @@ void test_error_field_not_present()
     owning_row_description descrs({
         make_field_descr("id", 23, format_code::text),  // name is missing
     });
+    diagnostics diag;
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs), error_code(client_errc::field_not_found));
+    BOOST_TEST_EQ(cb(descrs, diag), error_code(client_errc::field_not_found));
 }
 
 // If a field has an incompatible type, that's an error
@@ -311,9 +325,10 @@ void test_error_incompatible_field_type()
         make_field_descr("id", 25, format_code::text),  // should be a number rather than text
         make_field_descr("name", 25, format_code::text),
     });
+    diagnostics diag;
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs), error_code(client_errc::incompatible_field_type));
+    BOOST_TEST_EQ(cb(descrs, diag), error_code(client_errc::incompatible_field_type));
 }
 
 // TODO: parsing errors

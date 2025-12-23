@@ -24,6 +24,8 @@ class diagnostics
 public:
     diagnostics() noexcept = default;
 
+    diagnostics(std::string msg) noexcept : msg_(std::move(msg)) {}
+
     diagnostics(const protocol::error_response& msg) { assign(msg); }
 
     void assign(const protocol::error_response& msg);

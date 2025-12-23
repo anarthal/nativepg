@@ -49,10 +49,10 @@ void test_success()
 // that convert an error to an exception_ptr
 void test_error_exception_ptr()
 {
-    protocol::error_response msg{
-        {.severity = "ERROR", .sqlstate = "42P01", .message = "relation does not exist"}
-    };
-    auto fut = async_stub({.code = client_errc::value_too_big, .diag = msg}, asio::use_future);
+    auto fut = async_stub(
+        {.code = client_errc::value_too_big, .diag = std::string("My message")},
+        asio::use_future
+    );
 
     try
     {
@@ -64,7 +64,7 @@ void test_error_exception_ptr()
         BOOST_TEST_EQ(err.code(), error_code(client_errc::value_too_big));
         BOOST_TEST_EQ(
             std::string_view(err.what()),
-            "ERROR: 42P01: relation does not exist: <unknown nativepg client error> [nativepg.client:4]"
+            "My message: <unknown nativepg client error> [nativepg.client:4]"
         );  // TODO: update when we implement proper client_errc to string conversion
     }
 }
@@ -74,12 +74,7 @@ void test_error_throw_exception()
 {
     asio::io_context ctx;
     std::exception_ptr exc;
-    extended_error err{
-        .code = client_errc::value_too_big,
-        .diag = protocol::error_response{
-            {.severity = "ERROR", .sqlstate = "42P01", .message = "relation does not exist"}
-        }
-    };
+    extended_error err{.code = client_errc::value_too_big, .diag = std::string("My message")};
 
     asio::co_spawn(ctx, async_stub(err, asio::use_awaitable), [&exc](std::exception_ptr ptr) {
         exc = std::move(ptr);
@@ -98,7 +93,7 @@ void test_error_throw_exception()
         BOOST_TEST_EQ(err.code(), error_code(client_errc::value_too_big));
         BOOST_TEST_EQ(
             std::string_view(err.what()),
-            "ERROR: 42P01: relation does not exist: <unknown nativepg client error> [nativepg.client:4]"
+            "My message: <unknown nativepg client error> [nativepg.client:4]"
         );  // TODO: update when we implement proper client_errc to string conversion
     }
 }

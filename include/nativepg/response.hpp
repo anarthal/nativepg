@@ -77,6 +77,7 @@ class resultset_callback_t
     state_t state_{state_t::parsing_meta};
     std::array<detail::pos_map_entry, detail::row_size_v<T>> pos_map_;
     std::vector<std::optional<std::span<const unsigned char>>> random_access_data_;
+    extended_error err_;
     Callback cb_;
 
     struct visitor
@@ -216,8 +217,17 @@ public:
 
     boost::system::error_code operator()(const any_request_message& msg, diagnostics& diag)
     {
-        return boost::variant2::visit(visitor{*this, diag}, msg);
+        auto ec = boost::variant2::visit(visitor{*this, diag}, msg);
+        if (ec)
+        {
+            // Store the error
+            err_.code = ec;
+            err_.diag = diag;
+        }
+        return ec;
     }
+
+    const extended_error& error() const { return err_; }
 };
 
 // Helper to create resultset callbacks
@@ -297,6 +307,10 @@ public:
             }
         }
     }
+
+    const auto& handlers() const& { return handlers_; }
+    auto& handlers() & { return handlers_; }
+    auto&& handlers() && { return std::move(handlers_); }
 };
 
 template <class... Args>

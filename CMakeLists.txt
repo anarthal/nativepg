@@ -56,6 +56,7 @@ if (BUILD_TESTING)
     add_unit_test(""                test_request)
     add_unit_test(""                test_response)
     add_unit_test(""                test_diagnostics)
+    add_unit_test(""                test_disposition)
 endif()
 
 # Examples

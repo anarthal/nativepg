@@ -28,7 +28,7 @@
 #include "nativepg/protocol/detail/exec_fsm.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/response.hpp"
+#include "nativepg/response_handler.hpp"
 
 namespace nativepg {
 

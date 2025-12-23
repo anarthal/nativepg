@@ -12,7 +12,7 @@
 
 #include <ostream>
 
-#include "nativepg/response.hpp"
+#include "nativepg/response_handler.hpp"
 
 namespace nativepg::test {
 

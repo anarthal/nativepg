@@ -17,12 +17,9 @@
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/messages.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/response.hpp"
+#include "nativepg/response_handler.hpp"
 
 namespace nativepg::protocol {
-
-using response_handler_ref = boost::compat::function_ref<
-    boost::system::error_code(const any_request_message&, diagnostics&)>;
 
 namespace detail {
 

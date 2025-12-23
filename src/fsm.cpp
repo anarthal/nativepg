@@ -32,7 +32,7 @@
 #include "nativepg/protocol/startup.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/response.hpp"
+#include "nativepg/response_handler.hpp"
 
 using namespace nativepg::protocol;
 using boost::system::error_code;

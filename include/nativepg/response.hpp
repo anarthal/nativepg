@@ -8,6 +8,7 @@
 #ifndef NATIVEPG_RESPONSE_HPP
 #define NATIVEPG_RESPONSE_HPP
 
+#include <boost/compat/function_ref.hpp>
 #include <boost/core/span.hpp>
 #include <boost/mp11/algorithm.hpp>
 #include <boost/system/error_code.hpp>
@@ -19,6 +20,7 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -28,14 +30,13 @@
 #include "nativepg/detail/row_traits.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/bind.hpp"
-#include "nativepg/protocol/close.hpp"
 #include "nativepg/protocol/command_complete.hpp"
 #include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
-#include "nativepg/protocol/empty_query_response.hpp"
 #include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/parse.hpp"
+#include "nativepg/response_handler.hpp"
 
 namespace nativepg {
 
@@ -60,20 +61,6 @@ boost::system::error_code compute_pos_map(
 inline constexpr std::size_t invalid_pos = static_cast<std::size_t>(-1);
 
 }  // namespace detail
-
-// TODO: maybe make this a class
-using any_request_message = boost::variant2::variant<
-    protocol::bind_complete,
-    protocol::close_complete,
-    protocol::command_complete,
-    protocol::data_row,
-    protocol::parameter_description,
-    protocol::row_description,
-    protocol::no_data,
-    protocol::empty_query_response,
-    protocol::portal_suspended,
-    protocol::error_response,
-    protocol::parse_complete>;
 
 // Handles a resultset (i.e. a row_description + data_rows + command_complete)
 // by invoking a user-supplied callback
@@ -258,6 +245,62 @@ resultset_callback_t<T, detail::into_handler<T>> into(std::vector<T>& vec)
 {
     return resultset_callback_t<T, detail::into_handler<T>>{detail::into_handler<T>{vec}};
 }
+
+template <response_handler... Handlers>
+class response
+{
+    static inline constexpr std::size_t N = sizeof...(Handlers);
+
+    std::tuple<Handlers...> handlers_;
+    std::array<response_handler_ref, N> vtable_;
+    std::size_t current_{};
+
+public:
+    template <class... Args>
+        requires std::constructible_from<decltype(handlers_), Args&&...>
+    explicit response(Args&&... args)
+        : handlers_(std::forward<Args>(args)...),
+          vtable_(std::apply([](auto&... h) { return std::array<response_handler_ref, N>{h...}; }, handlers_))
+    {
+    }
+
+    // TODO: implement move, at least
+    response(response&&) = delete;
+    response& operator=(response&&) = delete;
+
+    boost::system::error_code operator()(const any_request_message& msg, diagnostics& diag)
+    {
+        // If we're done and another message is received, that's an error
+        if (current_ >= N)
+            return client_errc::unexpected_message;
+
+        // Call the handler
+        auto ec = vtable_[current_](msg, diag);
+
+        if (ec)
+        {
+            // Both errors and needs_more should just be propagated
+            return ec;
+        }
+        else
+        {
+            // This handler is done
+            if (++current_ == N)
+            {
+                // All handlers are done
+                return {};
+            }
+            else
+            {
+                // There are still more handlers that need messages
+                return client_errc::needs_more;
+            }
+        }
+    }
+};
+
+template <class... Args>
+response(Args&&...) -> response<std::decay_t<Args>...>;
 
 }  // namespace nativepg
 

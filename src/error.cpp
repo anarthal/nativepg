@@ -14,7 +14,6 @@
 #include <exception>
 
 #include "nativepg/client_errc.hpp"
-#include "nativepg/detail/disposition.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 

@@ -22,7 +22,6 @@
 #include <string>
 
 #include "nativepg/connect_params.hpp"
-#include "nativepg/detail/disposition.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"

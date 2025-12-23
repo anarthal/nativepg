@@ -19,7 +19,6 @@
 #include <type_traits>
 
 #include "nativepg/client_errc.hpp"
-#include "nativepg/detail/disposition.hpp"  // disposition traits for extended_error, should always be included (TODO: ODR violation prone)
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 

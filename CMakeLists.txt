@@ -55,6 +55,7 @@ if (BUILD_TESTING)
     add_unit_test(protocol          test_read_response_fsm)
     add_unit_test(""                test_request)
     add_unit_test(""                test_response)
+    add_unit_test(""                test_diagnostics)
 endif()
 
 # Examples

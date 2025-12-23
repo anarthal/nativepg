@@ -8,6 +8,7 @@
 #ifndef NATIVEPG_EXTENDED_ERROR_HPP
 #define NATIVEPG_EXTENDED_ERROR_HPP
 
+#include <boost/assert/source_location.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <string>
@@ -38,6 +39,9 @@ struct extended_error
     boost::system::error_code code;
     diagnostics diag;
 };
+
+// Make extended_error interoperable with boost::system::result
+void throw_exception_from_error(const extended_error& err, boost::source_location loc);
 
 }  // namespace nativepg
 

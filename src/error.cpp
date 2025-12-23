@@ -67,3 +67,11 @@ std::exception_ptr boost::asio::disposition_traits<extended_error>::to_exception
 {
     return std::make_exception_ptr(boost::system::system_error(d.code, std::string(d.diag.message())));
 }
+
+void nativepg::throw_exception_from_error(const extended_error& err, boost::source_location loc)
+{
+    if (err.code)
+    {
+        boost::throw_exception(boost::system::system_error(err.code, std::string(err.diag.message())), loc);
+    }
+}

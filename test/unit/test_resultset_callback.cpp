@@ -29,11 +29,22 @@
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/parse.hpp"
 #include "nativepg/response.hpp"
+#include "nativepg/response_handler.hpp"
 
 using namespace nativepg;
 using boost::system::error_code;
 using protocol::format_code;
 using namespace std::string_view_literals;
+
+// Printing (TODO: duplicated)
+namespace nativepg {
+
+std::ostream& operator<<(std::ostream& os, response_handler_result r)
+{
+    return os << "{ .is_done=" << r.is_done() << ", .error=" << r.error() << " }";
+}
+
+}  // namespace nativepg
 
 namespace {
 
@@ -153,9 +164,9 @@ void test_simple_query()
     diagnostics diag;
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs, diag), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(owning_data_row({"42", "perico"}), diag), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), error_code());
+    BOOST_TEST_EQ(cb(descrs, diag), response_handler_result::needs_more());
+    BOOST_TEST_EQ(cb(owning_data_row({"42", "perico"}), diag), response_handler_result::needs_more());
+    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), response_handler_result::done());
 
     // Rows
     std::vector<user> expected_rows{
@@ -177,12 +188,12 @@ void test_query()
     diagnostics diag;
 
     // Messages
-    BOOST_TEST_EQ(cb(protocol::parse_complete{}, diag), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(protocol::bind_complete{}, diag), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(descrs, diag), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(owning_data_row({"42", "perico"}), diag), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(owning_data_row({"50", "pepe"}), diag), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), error_code());
+    BOOST_TEST_EQ(cb(protocol::parse_complete{}, diag), response_handler_result::needs_more());
+    BOOST_TEST_EQ(cb(protocol::bind_complete{}, diag), response_handler_result::needs_more());
+    BOOST_TEST_EQ(cb(descrs, diag), response_handler_result::needs_more());
+    BOOST_TEST_EQ(cb(owning_data_row({"42", "perico"}), diag), response_handler_result::needs_more());
+    BOOST_TEST_EQ(cb(owning_data_row({"50", "pepe"}), diag), response_handler_result::needs_more());
+    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), response_handler_result::done());
 
     // Rows
     std::vector<user> expected_rows{
@@ -207,16 +218,16 @@ void test_field_match_by_name()
     diagnostics diag;
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs, diag), error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(cb(descrs, diag), response_handler_result::needs_more());
     BOOST_TEST_EQ(
         cb(owning_data_row({"juan", "abc", "10", "value"}), diag),
-        error_code(client_errc::needs_more)
+        response_handler_result::needs_more()
     );
     BOOST_TEST_EQ(
         cb(owning_data_row({"antonio", "def", "21", ""}), diag),
-        error_code(client_errc::needs_more)
+        response_handler_result::needs_more()
     );
-    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), error_code());
+    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), response_handler_result::done());
 
     // Rows
     std::vector<user> expected_rows{
@@ -239,9 +250,12 @@ void test_binary()
     diagnostics diag;
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs, diag), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(owning_data_row({"\0\0\0\x2a"sv, "perico"}), diag), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), error_code());
+    BOOST_TEST_EQ(cb(descrs, diag), response_handler_result::needs_more());
+    BOOST_TEST_EQ(
+        cb(owning_data_row({"\0\0\0\x2a"sv, "perico"}), diag),
+        response_handler_result::needs_more()
+    );
+    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), response_handler_result::done());
 
     // Rows
     std::vector<user> expected_rows{
@@ -263,9 +277,9 @@ void test_type_conversions()
     diagnostics diag;
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs, diag), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(owning_data_row({"\0\x2a"sv, "perico"}), diag), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), error_code());
+    BOOST_TEST_EQ(cb(descrs, diag), response_handler_result::needs_more());
+    BOOST_TEST_EQ(cb(owning_data_row({"\0\x2a"sv, "perico"}), diag), response_handler_result::needs_more());
+    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), response_handler_result::done());
 
     // Rows
     std::vector<user> expected_rows{
@@ -287,10 +301,10 @@ void test_callback()
     diagnostics diag;
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs, diag), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(owning_data_row({"42", "perico"}), diag), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(owning_data_row({"50", "pepe"}), diag), error_code(client_errc::needs_more));
-    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), error_code());
+    BOOST_TEST_EQ(cb(descrs, diag), response_handler_result::needs_more());
+    BOOST_TEST_EQ(cb(owning_data_row({"42", "perico"}), diag), response_handler_result::needs_more());
+    BOOST_TEST_EQ(cb(owning_data_row({"50", "pepe"}), diag), response_handler_result::needs_more());
+    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), response_handler_result::done());
 
     // Rows
     std::vector<user> expected_rows{
@@ -300,7 +314,8 @@ void test_callback()
     BOOST_TEST_ALL_EQ(users.begin(), users.end(), expected_rows.begin(), expected_rows.end());
 }
 
-// If a field is not present, that's an error
+// If a field is not present, that's an error.
+// Since it's a user error, other messages for this resultset are accepted.
 void test_error_field_not_present()
 {
     // Setup
@@ -312,7 +327,8 @@ void test_error_field_not_present()
     diagnostics diag;
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs, diag), error_code(client_errc::field_not_found));
+    BOOST_TEST_EQ(cb(descrs, diag), response_handler_result::needs_more(client_errc::field_not_found));
+    // TODO
 }
 
 // If a field has an incompatible type, that's an error
@@ -328,7 +344,10 @@ void test_error_incompatible_field_type()
     diagnostics diag;
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs, diag), error_code(client_errc::incompatible_field_type));
+    BOOST_TEST_EQ(
+        cb(descrs, diag),
+        response_handler_result::needs_more(client_errc::incompatible_field_type)
+    );
 }
 
 // TODO: parsing errors

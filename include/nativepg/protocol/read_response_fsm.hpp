@@ -58,7 +58,8 @@ private:
     bool handler_finished_{};
     std::size_t remaining_syncs_{};
     bool initial_{true};
-    diagnostics current_diag_{}, stored_diag_{};  // TODO: could we reuse this somehow?
+    boost::system::error_code stored_ec_{};
+    diagnostics stored_diag_{};  // TODO: could we reuse this somehow?
 
     struct visitor;
 };

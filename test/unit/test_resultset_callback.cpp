@@ -356,6 +356,11 @@ void test_error_incompatible_field_type()
         cb(descrs, diag),
         response_handler_result::needs_more(client_errc::incompatible_field_type)
     );
+    BOOST_TEST_EQ(
+        cb(owning_data_row({"42", "perico"}), diag),
+        response_handler_result::needs_more(client_errc::step_skipped)
+    );
+    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), response_handler_result::done());
 }
 
 // TODO: parsing errors

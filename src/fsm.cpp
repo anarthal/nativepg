@@ -340,21 +340,17 @@ struct read_response_fsm_impl::visitor
     result call_handler(const any_request_message& msg) const
     {
         diagnostics diag;  // TODO: could we reuse this?
-        auto ec = self.handler_(msg, diag);
+        auto res = self.handler_(msg, diag);
 
-        if (ec)
+        // If the handler is done, remember this fact
+        if (res.done())
+            self.handler_finished_ = true;
+
+        // If the handler reports an error, keep it as the overall operation result
+        if (res.error() && !self.stored_ec_)
         {
-            if (ec != client_errc::needs_more && !self.stored_ec_)
-            {
-                // If the handler reports an error, keep it as the overall operation result
-                self.stored_ec_ = ec;
-                self.stored_diag_ = diag;
-            }
-            else
-            {
-                // The handler is done
-                self.handler_finished_ = true;
-            }
+            self.stored_ec_ = res.error();
+            self.stored_diag_ = diag;
         }
 
         // In any case, we need to keep reading until all the expected messages are received

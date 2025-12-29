@@ -40,12 +40,28 @@ using any_request_message = boost::variant2::variant<
     protocol::error_response,
     protocol::parse_complete>;
 
+class response_handler_result
+{
+    boost::system::error_code ec_;
+    bool done_{true};
+
+public:
+    // TODO: make this bool more typed
+    response_handler_result() noexcept = default;
+    response_handler_result(boost::system::error_code ec, bool done) noexcept : ec_(ec), done_(done) {}
+
+    static response_handler_result needs_more() { return {{}, false}; }
+
+    boost::system::error_code error() const { return ec_; }
+    bool done() const { return done_; }
+};
+
 using response_handler_ref = boost::compat::function_ref<
-    boost::system::error_code(const any_request_message&, diagnostics&)>;
+    response_handler_result(const any_request_message&, diagnostics&)>;
 
 template <class T>
 concept response_handler = requires(T& handler, const any_request_message& msg, diagnostics& diag) {
-    { handler(msg, diag) } -> std::convertible_to<boost::system::error_code>;
+    { handler(msg, diag) } -> std::convertible_to<response_handler_result>;
 };
 
 }  // namespace nativepg

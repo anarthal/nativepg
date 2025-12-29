@@ -87,42 +87,44 @@ class resultset_callback_t
 
         // Error on unexpected messages
         template <class Msg>
-        boost::system::error_code operator()(const Msg&) const
+        response_handler_result operator()(const Msg&) const
         {
-            return client_errc::unexpected_message;
+            return response_handler_result(client_errc::unexpected_message, true);
         }
 
         // On error, fail the entire operation.
         // TODO: this must be reviewed
-        boost::system::error_code operator()(const protocol::error_response& err) const
+        response_handler_result operator()(const protocol::error_response& err) const
         {
             diag.assign(err);
-            return client_errc::exec_server_error;
+            return response_handler_result(client_errc::exec_server_error, true);
         }
 
         // Ignore messages that may or may not appear
-        boost::system::error_code operator()(protocol::parse_complete) const
+        response_handler_result operator()(protocol::parse_complete) const
         {
             // Only allowed before metadata
-            return self.state_ == state_t::parsing_meta ? client_errc::needs_more
-                                                        : client_errc::unexpected_message;
+            return self.state_ == state_t::parsing_meta
+                       ? response_handler_result::needs_more()
+                       : response_handler_result(client_errc::unexpected_message, true);
         }
-        boost::system::error_code operator()(protocol::bind_complete) const
+        response_handler_result operator()(protocol::bind_complete) const
         {
-            return self.state_ == state_t::parsing_meta ? client_errc::needs_more
-                                                        : client_errc::unexpected_message;
+            return self.state_ == state_t::parsing_meta
+                       ? response_handler_result::needs_more()
+                       : response_handler_result(client_errc::unexpected_message, true);
         }
 
-        boost::system::error_code operator()(const protocol::row_description& msg) const
+        response_handler_result operator()(const protocol::row_description& msg) const
         {
             // State check
             if (self.state_ != state_t::parsing_meta)
-                return client_errc::unexpected_message;
+                return response_handler_result(client_errc::unexpected_message, true);
 
             // Compute the row => C++ map
             auto ec = detail::compute_pos_map(msg, detail::row_name_table_v<T>, self.pos_map_);
             if (ec)
-                return ec;
+                return response_handler_result(ec, false);
 
             // Metadata check
             using type_identities = boost::mp11::
@@ -137,23 +139,23 @@ class resultset_callback_t
                 }
             );
             if (ec)
-                return ec;
+                return response_handler_result(ec, false);
 
             // We now expect the rows and the CommandComplete
             self.state_ = state_t::parsing_data;
-            return client_errc::needs_more;
+            return response_handler_result::needs_more();
         }
 
-        boost::system::error_code operator()(protocol::no_data) const
+        response_handler_result operator()(protocol::no_data) const
         {
             return (*this)(protocol::row_description{});
         }
 
-        boost::system::error_code operator()(const protocol::data_row& msg) const
+        response_handler_result operator()(const protocol::data_row& msg) const
         {
             // State check
             if (self.state_ != state_t::parsing_data)
-                return client_errc::unexpected_message;
+                return response_handler_result(client_errc::unexpected_message, true);
 
             // TODO: check that data_row has the appropriate size
 
@@ -176,36 +178,36 @@ class resultset_callback_t
                     ec = ec2;
             });
             if (ec)
-                return ec;
+                return response_handler_result(ec, false);
 
             // Invoke the user-supplied callback
             self.cb_(std::move(row));
 
             // We still need the CommandComplete message
-            return client_errc::needs_more;
+            return response_handler_result::needs_more();
         }
 
-        boost::system::error_code operator()(protocol::command_complete) const
+        response_handler_result operator()(protocol::command_complete) const
         {
             // State check
             if (self.state_ != state_t::parsing_data)
-                return client_errc::unexpected_message;
+                return response_handler_result(client_errc::unexpected_message, true);
 
             // Done
             self.state_ = state_t::done;
-            return {};
+            return response_handler_result(boost::system::error_code(), true);
         }
 
         // TODO: this should be transmitted to the user somehow
-        boost::system::error_code operator()(protocol::portal_suspended) const
+        response_handler_result operator()(protocol::portal_suspended) const
         {
             // State check
             if (self.state_ != state_t::parsing_data)
-                return client_errc::unexpected_message;
+                return response_handler_result(client_errc::unexpected_message, true);
 
             // Done
             self.state_ = state_t::done;
-            return {};
+            return response_handler_result(boost::system::error_code(), true);
         }
     };
 
@@ -215,16 +217,16 @@ public:
     {
     }
 
-    boost::system::error_code operator()(const any_request_message& msg, diagnostics& diag)
+    response_handler_result operator()(const any_request_message& msg, diagnostics& diag)
     {
-        auto ec = boost::variant2::visit(visitor{*this, diag}, msg);
-        if (ec)
+        response_handler_result res = boost::variant2::visit(visitor{*this, diag}, msg);
+        if (res.error() && !err_.code)
         {
             // Store the error
-            err_.code = ec;
+            err_.code = res.error();
             err_.diag = diag;
         }
-        return ec;
+        return res;
     }
 
     const extended_error& error() const { return err_; }
@@ -278,34 +280,24 @@ public:
     response(response&&) = delete;
     response& operator=(response&&) = delete;
 
-    boost::system::error_code operator()(const any_request_message& msg, diagnostics& diag)
+    response_handler_result operator()(const any_request_message& msg, diagnostics& diag)
     {
         // If we're done and another message is received, that's an error
         if (current_ >= N)
-            return client_errc::unexpected_message;
+            return response_handler_result(client_errc::unexpected_message, true);
 
         // Call the handler
-        auto ec = vtable_[current_](msg, diag);
+        response_handler_result res = vtable_[current_](msg, diag);
 
-        if (ec)
+        // If the handler is done, advance to the next one
+        if (res.done())
         {
-            // Both errors and needs_more should just be propagated
-            return ec;
+            bool all_done = ++current_ == N;
+            return response_handler_result(res.error(), all_done);
         }
-        else
-        {
-            // This handler is done
-            if (++current_ == N)
-            {
-                // All handlers are done
-                return {};
-            }
-            else
-            {
-                // There are still more handlers that need messages
-                return client_errc::needs_more;
-            }
-        }
+
+        // Just propagate the result
+        return res;
     }
 
     const auto& handlers() const& { return handlers_; }

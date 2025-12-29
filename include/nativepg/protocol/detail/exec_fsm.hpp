@@ -12,6 +12,7 @@
 
 #include <cstddef>
 
+#include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
@@ -30,6 +31,8 @@ public:
     exec_fsm(const request& req, response_handler_ref handler) noexcept : read_fsm_(req, handler) {}
 
     result resume(connection_state& st, boost::system::error_code ec, std::size_t bytes_transferred);
+
+    const diagnostics& final_diagnostics() const { return read_fsm_.final_diagnostics(); }
 
 private:
     bool is_writing_{true};

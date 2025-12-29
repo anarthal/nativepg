@@ -48,7 +48,9 @@ public:
 
     const request& get_request() const { return *req_; }
 
-    result resume(diagnostics& diag, const any_backend_message& msg);
+    result resume(const any_backend_message& msg);
+
+    const diagnostics& final_diagnostics() const { return stored_diag_; }
 
 private:
     const request* req_;
@@ -56,6 +58,7 @@ private:
     bool handler_finished_{};
     std::size_t remaining_syncs_{};
     bool initial_{true};
+    diagnostics current_diag_{}, stored_diag_{};  // TODO: could we reuse this somehow?
 
     struct visitor;
 };
@@ -104,14 +107,11 @@ public:
 
     read_response_fsm(const request& req, response_handler_ref handler) noexcept : impl_(req, handler) {}
 
-    result resume(
-        connection_state& st,
-        diagnostics& diag,
-        boost::system::error_code io_error,
-        std::size_t bytes_read
-    );
+    result resume(connection_state& st, boost::system::error_code io_error, std::size_t bytes_read);
 
     const request& get_request() const { return impl_.get_request(); }
+
+    const diagnostics& final_diagnostics() const { return impl_.final_diagnostics(); }
 
 private:
     int resume_point_{0};

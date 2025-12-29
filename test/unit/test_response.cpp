@@ -56,16 +56,16 @@ void test_success_two_handlers()
     diagnostics diag;
 
     // The 1st handler needs 2 messages, the 2nd one just one
-    auto ec = res(protocol::row_description{}, diag);
-    BOOST_TEST_EQ(ec, response_handler_result::needs_more());
-    ec = res(protocol::data_row{}, diag);
-    BOOST_TEST_EQ(ec, response_handler_result::needs_more());
-    ec = res(protocol::row_description{}, diag);
-    BOOST_TEST_EQ(ec, response_handler_result::done({}));  // done
+    auto r = res(protocol::row_description{}, diag);
+    BOOST_TEST_EQ(r, response_handler_result::needs_more());
+    r = res(protocol::data_row{}, diag);
+    BOOST_TEST_EQ(r, response_handler_result::needs_more());
+    r = res(protocol::row_description{}, diag);
+    BOOST_TEST_EQ(r, response_handler_result::done({}));  // done
 
     // Passing another message is an error
-    ec = res(protocol::data_row{}, diag);
-    BOOST_TEST_EQ(ec, response_handler_result::done(client_errc::incompatible_response_length));
+    r = res(protocol::data_row{}, diag);
+    BOOST_TEST_EQ(r, response_handler_result::done(client_errc::incompatible_response_length));
 
     // Check messages
     std::array expected1{response_msg_type::row_description, response_msg_type::data_row};
@@ -99,14 +99,14 @@ void test_errors()
     diagnostics diag;
 
     // h1 needs 2 messages, h2 needs 1, h3 needs 1
-    auto ec = res(protocol::row_description{}, diag);
-    BOOST_TEST_EQ(ec, response_handler_result::needs_more(client_errc::exec_server_error));
-    ec = res(protocol::data_row{}, diag);
-    BOOST_TEST_EQ(ec, response_handler_result::needs_more(client_errc::exec_server_error));
-    ec = res(protocol::parse_complete{}, diag);
-    BOOST_TEST_EQ(ec, response_handler_result::needs_more({}));
-    ec = res(protocol::bind_complete{}, diag);
-    BOOST_TEST_EQ(ec, response_handler_result::done(client_errc::incompatible_field_type));
+    auto r = res(protocol::row_description{}, diag);
+    BOOST_TEST_EQ(r, response_handler_result::needs_more(client_errc::exec_server_error));
+    r = res(protocol::data_row{}, diag);
+    BOOST_TEST_EQ(r, response_handler_result::needs_more(client_errc::exec_server_error));
+    r = res(protocol::parse_complete{}, diag);
+    BOOST_TEST_EQ(r, response_handler_result::needs_more({}));
+    r = res(protocol::bind_complete{}, diag);
+    BOOST_TEST_EQ(r, response_handler_result::done(client_errc::incompatible_field_type));
 
     // Check messages
     std::array expected1{response_msg_type::row_description, response_msg_type::data_row};

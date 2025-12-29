@@ -328,7 +328,15 @@ void test_error_field_not_present()
 
     // Messages
     BOOST_TEST_EQ(cb(descrs, diag), response_handler_result::needs_more(client_errc::field_not_found));
-    // TODO
+    BOOST_TEST_EQ(
+        cb(owning_data_row({"42", "perico"}), diag),
+        response_handler_result::needs_more(client_errc::step_skipped)
+    );
+    BOOST_TEST_EQ(
+        cb(owning_data_row({"50", "pepe"}), diag),
+        response_handler_result::needs_more(client_errc::step_skipped)
+    );
+    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), response_handler_result::done());
 }
 
 // If a field has an incompatible type, that's an error

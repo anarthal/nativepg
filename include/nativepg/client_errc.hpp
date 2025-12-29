@@ -91,6 +91,9 @@ enum class client_errc : int
 
     // The server returned an error during the execution of a request
     exec_server_error,
+
+    // A pipeline step was skipped because of a previous error
+    step_skipped,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

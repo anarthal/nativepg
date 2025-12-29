@@ -121,6 +121,9 @@ class resultset_callback_t
             if (self.state_ != state_t::parsing_meta)
                 return response_handler_result::done(client_errc::incompatible_response_type);
 
+            // We now expect the rows and the CommandComplete
+            self.state_ = state_t::parsing_data;
+
             // Compute the row => C++ map
             auto ec = detail::compute_pos_map(msg, detail::row_name_table_v<T>, self.pos_map_);
             if (ec)
@@ -141,8 +144,6 @@ class resultset_callback_t
             if (ec)
                 return response_handler_result::needs_more(ec);
 
-            // We now expect the rows and the CommandComplete
-            self.state_ = state_t::parsing_data;
             return response_handler_result::needs_more();
         }
 
@@ -156,6 +157,11 @@ class resultset_callback_t
             // State check
             if (self.state_ != state_t::parsing_data)
                 return response_handler_result::done(client_errc::incompatible_response_type);
+
+            // If there was a previous failure, the field descriptions may not be present and
+            // it's not safe to parse
+            if (self.err_.code)
+                return response_handler_result::needs_more(client_errc::step_skipped);
 
             // TODO: check that data_row has the appropriate size
 

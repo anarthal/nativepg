@@ -89,7 +89,7 @@ class resultset_callback_t
         template <class Msg>
         response_handler_result operator()(const Msg&) const
         {
-            return response_handler_result(client_errc::unexpected_message, true);
+            return response_handler_result(client_errc::incompatible_response_type, true);
         }
 
         // On error, fail the entire operation.
@@ -106,20 +106,20 @@ class resultset_callback_t
             // Only allowed before metadata
             return self.state_ == state_t::parsing_meta
                        ? response_handler_result::needs_more()
-                       : response_handler_result(client_errc::unexpected_message, true);
+                       : response_handler_result(client_errc::incompatible_response_type, true);
         }
         response_handler_result operator()(protocol::bind_complete) const
         {
             return self.state_ == state_t::parsing_meta
                        ? response_handler_result::needs_more()
-                       : response_handler_result(client_errc::unexpected_message, true);
+                       : response_handler_result(client_errc::incompatible_response_type, true);
         }
 
         response_handler_result operator()(const protocol::row_description& msg) const
         {
             // State check
             if (self.state_ != state_t::parsing_meta)
-                return response_handler_result(client_errc::unexpected_message, true);
+                return response_handler_result(client_errc::incompatible_response_type, true);
 
             // Compute the row => C++ map
             auto ec = detail::compute_pos_map(msg, detail::row_name_table_v<T>, self.pos_map_);
@@ -155,7 +155,7 @@ class resultset_callback_t
         {
             // State check
             if (self.state_ != state_t::parsing_data)
-                return response_handler_result(client_errc::unexpected_message, true);
+                return response_handler_result(client_errc::incompatible_response_type, true);
 
             // TODO: check that data_row has the appropriate size
 
@@ -191,7 +191,7 @@ class resultset_callback_t
         {
             // State check
             if (self.state_ != state_t::parsing_data)
-                return response_handler_result(client_errc::unexpected_message, true);
+                return response_handler_result(client_errc::incompatible_response_type, true);
 
             // Done
             self.state_ = state_t::done;
@@ -203,7 +203,7 @@ class resultset_callback_t
         {
             // State check
             if (self.state_ != state_t::parsing_data)
-                return response_handler_result(client_errc::unexpected_message, true);
+                return response_handler_result(client_errc::incompatible_response_type, true);
 
             // Done
             self.state_ = state_t::done;
@@ -284,7 +284,7 @@ public:
     {
         // If we're done and another message is received, that's an error
         if (current_ >= N)
-            return response_handler_result(client_errc::unexpected_message, true);
+            return response_handler_result(client_errc::incompatible_response_length, true);
 
         // Call the handler
         response_handler_result res = vtable_[current_](msg, diag);

@@ -41,12 +41,17 @@ enum class client_errc : int
     // authentication in the current version
     mandatory_scram_extension_not_supported,
 
-    // We received a smaller number of responses than required by the pipeline.
-    // This indicates that the response handler is not compatible with the request sent to the server.
-    not_enough_responses,
-
-    // We got a message type that wasn't supposed to appear in the state we are
+    // We got a message type that wasn't supposed to appear in the state we are.
+    // This is a protocol violation.
     unexpected_message,
+
+    // We expected a number of responses different to the one we got.
+    // Review that your request and response types match. This is a user error.
+    incompatible_response_length,
+
+    // The response type is not compatible with the request that was sent to the server.
+    // Review that your request and response types match. This is a user error.
+    incompatible_response_type,
 
     // We got a NULL, but the C++ type where we're parsing into doesn't support NULLs
     unexpected_null,

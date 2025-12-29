@@ -55,6 +55,8 @@ public:
 
     boost::system::error_code error() const { return ec_; }
     bool is_done() const { return done_; }
+
+    friend bool operator==(const response_handler_result&, const response_handler_result&) = default;
 };
 
 using response_handler_ref = boost::compat::function_ref<

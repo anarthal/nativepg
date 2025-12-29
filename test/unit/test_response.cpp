@@ -8,6 +8,7 @@
 #include <boost/core/lightweight_test.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <ostream>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
@@ -15,11 +16,21 @@
 #include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/response.hpp"
+#include "nativepg/response_handler.hpp"
 #include "response_msg_type.hpp"
 
 using namespace nativepg;
 using namespace nativepg::test;
-using boost::system::error_code;
+
+// Printing
+namespace nativepg {
+
+std::ostream& operator<<(std::ostream& os, response_handler_result r)
+{
+    return os << "{ .is_done=" << r.is_done() << ", .error=" << r.error() << " }";
+}
+
+}  // namespace nativepg
 
 namespace {
 
@@ -30,12 +41,12 @@ void test_success_two_handlers()
 
     auto h1 = [&msgs1](const any_request_message& msg, diagnostics&) {
         msgs1.push_back(to_type(msg));
-        return msgs1.size() >= 2u ? error_code() : client_errc::needs_more;
+        return response_handler_result({}, msgs1.size() >= 2u);
     };
 
     auto h2 = [&msgs2](const any_request_message& msg, diagnostics&) {
         msgs2.push_back(to_type(msg));
-        return error_code();
+        return response_handler_result::done({});
     };
 
     response res{h1, h2};
@@ -43,15 +54,15 @@ void test_success_two_handlers()
 
     // The 1st handler needs 2 messages, the 3rd one just one
     auto ec = res(protocol::row_description{}, diag);
-    BOOST_TEST_EQ(ec, error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(ec, response_handler_result::needs_more());
     ec = res(protocol::data_row{}, diag);
-    BOOST_TEST_EQ(ec, error_code(client_errc::needs_more));
+    BOOST_TEST_EQ(ec, response_handler_result::needs_more());
     ec = res(protocol::row_description{}, diag);
-    BOOST_TEST_EQ(ec, error_code());  // done
+    BOOST_TEST_EQ(ec, response_handler_result::done({}));  // done
 
     // Passing another message is an error
     ec = res(protocol::data_row{}, diag);
-    BOOST_TEST_EQ(ec, error_code(client_errc::unexpected_message));
+    BOOST_TEST_EQ(ec, response_handler_result::done(client_errc::incompatible_response_length));
 
     // Check messages
     std::array expected1{response_msg_type::row_description, response_msg_type::data_row};
@@ -65,11 +76,11 @@ void test_deduction_guide()
 {
     struct h1_t
     {
-        error_code operator()(const any_request_message&, diagnostics&) { return {}; }
+        response_handler_result operator()(const any_request_message&, diagnostics&) { return {}; }
     };
     struct h2_t
     {
-        error_code operator()(const any_request_message&, diagnostics&) { return {}; }
+        response_handler_result operator()(const any_request_message&, diagnostics&) { return {}; }
     };
 
     h1_t h1_lvalue;

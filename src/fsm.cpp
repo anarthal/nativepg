@@ -371,7 +371,7 @@ struct read_response_fsm_impl::visitor
             if (self.stored_ec_)
                 return self.stored_ec_;
             else if (!self.handler_finished_)
-                return error_code(client_errc::needs_more);
+                return error_code(client_errc::not_enough_responses);
             else
                 return error_code();
         }

@@ -41,9 +41,9 @@ enum class client_errc : int
     // authentication in the current version
     mandatory_scram_extension_not_supported,
 
-    // Used in responses to indicate that we want more messages.
-    // TODO: this should really be in another category, at least, since it's not an error per se
-    needs_more,
+    // We received a smaller number of responses than required by the pipeline.
+    // This indicates that the response handler is not compatible with the request sent to the server.
+    not_enough_responses,
 
     // We got a message type that wasn't supposed to appear in the state we are
     unexpected_message,

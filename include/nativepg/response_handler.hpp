@@ -50,10 +50,11 @@ public:
     response_handler_result() noexcept = default;
     response_handler_result(boost::system::error_code ec, bool done) noexcept : ec_(ec), done_(done) {}
 
-    static response_handler_result needs_more() { return {{}, false}; }
+    static response_handler_result needs_more(boost::system::error_code ec = {}) { return {ec, false}; }
+    static response_handler_result done(boost::system::error_code ec) { return {ec, true}; }
 
     boost::system::error_code error() const { return ec_; }
-    bool done() const { return done_; }
+    bool is_done() const { return done_; }
 };
 
 using response_handler_ref = boost::compat::function_ref<

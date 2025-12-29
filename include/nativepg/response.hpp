@@ -89,7 +89,7 @@ class resultset_callback_t
         template <class Msg>
         response_handler_result operator()(const Msg&) const
         {
-            return response_handler_result(client_errc::incompatible_response_type, true);
+            return response_handler_result::done(client_errc::incompatible_response_type);
         }
 
         // On error, fail the entire operation.
@@ -97,7 +97,7 @@ class resultset_callback_t
         response_handler_result operator()(const protocol::error_response& err) const
         {
             diag.assign(err);
-            return response_handler_result(client_errc::exec_server_error, true);
+            return response_handler_result::done(client_errc::exec_server_error);
         }
 
         // Ignore messages that may or may not appear
@@ -106,25 +106,25 @@ class resultset_callback_t
             // Only allowed before metadata
             return self.state_ == state_t::parsing_meta
                        ? response_handler_result::needs_more()
-                       : response_handler_result(client_errc::incompatible_response_type, true);
+                       : response_handler_result::done(client_errc::incompatible_response_type);
         }
         response_handler_result operator()(protocol::bind_complete) const
         {
             return self.state_ == state_t::parsing_meta
                        ? response_handler_result::needs_more()
-                       : response_handler_result(client_errc::incompatible_response_type, true);
+                       : response_handler_result::done(client_errc::incompatible_response_type);
         }
 
         response_handler_result operator()(const protocol::row_description& msg) const
         {
             // State check
             if (self.state_ != state_t::parsing_meta)
-                return response_handler_result(client_errc::incompatible_response_type, true);
+                return response_handler_result::done(client_errc::incompatible_response_type);
 
             // Compute the row => C++ map
             auto ec = detail::compute_pos_map(msg, detail::row_name_table_v<T>, self.pos_map_);
             if (ec)
-                return response_handler_result(ec, false);
+                return response_handler_result::needs_more(ec);
 
             // Metadata check
             using type_identities = boost::mp11::
@@ -139,7 +139,7 @@ class resultset_callback_t
                 }
             );
             if (ec)
-                return response_handler_result(ec, false);
+                return response_handler_result::needs_more(ec);
 
             // We now expect the rows and the CommandComplete
             self.state_ = state_t::parsing_data;
@@ -155,7 +155,7 @@ class resultset_callback_t
         {
             // State check
             if (self.state_ != state_t::parsing_data)
-                return response_handler_result(client_errc::incompatible_response_type, true);
+                return response_handler_result::done(client_errc::incompatible_response_type);
 
             // TODO: check that data_row has the appropriate size
 
@@ -178,7 +178,7 @@ class resultset_callback_t
                     ec = ec2;
             });
             if (ec)
-                return response_handler_result(ec, false);
+                return response_handler_result::needs_more(ec);
 
             // Invoke the user-supplied callback
             self.cb_(std::move(row));
@@ -191,11 +191,11 @@ class resultset_callback_t
         {
             // State check
             if (self.state_ != state_t::parsing_data)
-                return response_handler_result(client_errc::incompatible_response_type, true);
+                return response_handler_result::done(client_errc::incompatible_response_type);
 
             // Done
             self.state_ = state_t::done;
-            return response_handler_result(boost::system::error_code(), true);
+            return response_handler_result::done(boost::system::error_code());
         }
 
         // TODO: this should be transmitted to the user somehow
@@ -203,11 +203,11 @@ class resultset_callback_t
         {
             // State check
             if (self.state_ != state_t::parsing_data)
-                return response_handler_result(client_errc::incompatible_response_type, true);
+                return response_handler_result::done(client_errc::incompatible_response_type);
 
             // Done
             self.state_ = state_t::done;
-            return response_handler_result(boost::system::error_code(), true);
+            return response_handler_result::done(boost::system::error_code());
         }
     };
 
@@ -284,13 +284,13 @@ public:
     {
         // If we're done and another message is received, that's an error
         if (current_ >= N)
-            return response_handler_result(client_errc::incompatible_response_length, true);
+            return response_handler_result::done(client_errc::incompatible_response_length);
 
         // Call the handler
         response_handler_result res = vtable_[current_](msg, diag);
 
         // If the handler is done, advance to the next one
-        if (res.done())
+        if (res.is_done())
         {
             bool all_done = ++current_ == N;
             return response_handler_result(res.error(), all_done);

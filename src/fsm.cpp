@@ -343,7 +343,7 @@ struct read_response_fsm_impl::visitor
         auto res = self.handler_(msg, diag);
 
         // If the handler is done, remember this fact
-        if (res.done())
+        if (res.is_done())
             self.handler_finished_ = true;
 
         // If the handler reports an error, keep it as the overall operation result

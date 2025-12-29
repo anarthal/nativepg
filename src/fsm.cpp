@@ -339,19 +339,11 @@ struct read_response_fsm_impl::visitor
 
     result call_handler(const any_request_message& msg) const
     {
-        diagnostics diag;  // TODO: could we reuse this?
-        auto res = self.handler_(msg, diag);
+        handler_status res = self.handler_.on_message(msg);
 
         // If the handler is done, remember this fact
-        if (res.is_done())
+        if (res == handler_status::done)
             self.handler_finished_ = true;
-
-        // If the handler reports an error, keep it as the overall operation result
-        if (res.error() && !self.stored_ec_)
-        {
-            self.stored_ec_ = res.error();
-            self.stored_diag_ = diag;
-        }
 
         // In any case, we need to keep reading until all the expected messages are received
         return result(result_type::read);
@@ -368,12 +360,8 @@ struct read_response_fsm_impl::visitor
     {
         if (--self.remaining_syncs_ == 0u)
         {
-            if (self.stored_ec_)
-                return self.stored_ec_;
-            else if (!self.handler_finished_)
-                return error_code(client_errc::incompatible_response_length);
-            else
-                return error_code();
+            return self.handler_finished_ ? error_code()
+                                          : error_code(client_errc::incompatible_response_length);
         }
         else
         {

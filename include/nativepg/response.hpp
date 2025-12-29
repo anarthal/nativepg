@@ -8,7 +8,6 @@
 #ifndef NATIVEPG_RESPONSE_HPP
 #define NATIVEPG_RESPONSE_HPP
 
-#include <boost/compat/function_ref.hpp>
 #include <boost/core/span.hpp>
 #include <boost/mp11/algorithm.hpp>
 #include <boost/system/error_code.hpp>
@@ -80,46 +79,74 @@ class resultset_callback_t
     extended_error err_;
     Callback cb_;
 
+    void store_error(boost::system::error_code ec)
+    {
+        if (!err_.code)
+        {
+            err_.code = ec;
+            err_.diag = {};
+        }
+    }
+
     struct visitor
     {
         resultset_callback_t& self;
-        diagnostics& diag;
 
         // Error on unexpected messages
         template <class Msg>
-        response_handler_result operator()(const Msg&) const
+        handler_status operator()(const Msg&) const
         {
-            return response_handler_result::done(client_errc::incompatible_response_type);
+            self.store_error(client_errc::incompatible_response_type);
+            return handler_status::done;
         }
 
         // On error, fail the entire operation.
         // TODO: this must be reviewed
-        response_handler_result operator()(const protocol::error_response& err) const
+        handler_status operator()(const protocol::error_response& err) const
         {
-            diag.assign(err);
-            return response_handler_result::done(client_errc::exec_server_error);
+            if (!self.err_.code)
+            {
+                self.err_.code = client_errc::exec_server_error;
+                self.err_.diag.assign(err);
+            }
+            return handler_status::done;
         }
 
         // Ignore messages that may or may not appear
-        response_handler_result operator()(protocol::parse_complete) const
+        handler_status operator()(protocol::parse_complete) const
         {
-            // Only allowed before metadata
-            return self.state_ == state_t::parsing_meta
-                       ? response_handler_result::needs_more()
-                       : response_handler_result::done(client_errc::incompatible_response_type);
+            if (self.state_ == state_t::parsing_meta)
+            {
+                return handler_status::needs_more;
+            }
+            else
+            {
+                self.store_error(client_errc::incompatible_response_type);
+                return handler_status::done;
+            }
         }
-        response_handler_result operator()(protocol::bind_complete) const
+        handler_status operator()(protocol::bind_complete) const
         {
-            return self.state_ == state_t::parsing_meta
-                       ? response_handler_result::needs_more()
-                       : response_handler_result::done(client_errc::incompatible_response_type);
+            if (self.state_ == state_t::parsing_meta)
+            {
+                return handler_status::needs_more;
+            }
+            else
+            {
+                self.store_error(client_errc::incompatible_response_type);
+                return handler_status::done;
+            }
         }
 
-        response_handler_result operator()(const protocol::row_description& msg) const
+        // Metadata
+        handler_status operator()(const protocol::row_description& msg) const
         {
             // State check
             if (self.state_ != state_t::parsing_meta)
-                return response_handler_result::done(client_errc::incompatible_response_type);
+            {
+                self.store_error(client_errc::incompatible_response_type);
+                return handler_status::done;
+            }
 
             // We now expect the rows and the CommandComplete
             self.state_ = state_t::parsing_data;
@@ -127,7 +154,10 @@ class resultset_callback_t
             // Compute the row => C++ map
             auto ec = detail::compute_pos_map(msg, detail::row_name_table_v<T>, self.pos_map_);
             if (ec)
-                return response_handler_result::needs_more(ec);
+            {
+                self.store_error(ec);
+                return handler_status::needs_more;  // we will just ignore rows
+            }
 
             // Metadata check
             using type_identities = boost::mp11::
@@ -142,26 +172,29 @@ class resultset_callback_t
                 }
             );
             if (ec)
-                return response_handler_result::needs_more(ec);
+            {
+                self.store_error(ec);
+                return handler_status::needs_more;
+            }
 
-            return response_handler_result::needs_more();
+            return handler_status::needs_more;
         }
 
-        response_handler_result operator()(protocol::no_data) const
-        {
-            return (*this)(protocol::row_description{});
-        }
+        handler_status operator()(protocol::no_data) const { return (*this)(protocol::row_description{}); }
 
-        response_handler_result operator()(const protocol::data_row& msg) const
+        handler_status operator()(const protocol::data_row& msg) const
         {
             // State check
             if (self.state_ != state_t::parsing_data)
-                return response_handler_result::done(client_errc::incompatible_response_type);
+            {
+                self.store_error(client_errc::incompatible_response_type);
+                return handler_status::done;
+            }
 
             // If there was a previous failure, the field descriptions may not be present and
-            // it's not safe to parse
+            // it's not safe to parse. We still need to get to the CommandComplete message
             if (self.err_.code)
-                return response_handler_result::needs_more(client_errc::step_skipped);
+                return handler_status::needs_more;
 
             // TODO: check that data_row has the appropriate size
 
@@ -184,36 +217,45 @@ class resultset_callback_t
                     ec = ec2;
             });
             if (ec)
-                return response_handler_result::needs_more(ec);
+            {
+                self.store_error(ec);
+                return handler_status::needs_more;
+            }
 
             // Invoke the user-supplied callback
             self.cb_(std::move(row));
 
             // We still need the CommandComplete message
-            return response_handler_result::needs_more();
+            return handler_status::needs_more;
         }
 
-        response_handler_result operator()(protocol::command_complete) const
+        handler_status operator()(protocol::command_complete) const
         {
             // State check
             if (self.state_ != state_t::parsing_data)
-                return response_handler_result::done(client_errc::incompatible_response_type);
+            {
+                self.store_error(client_errc::incompatible_response_type);
+                return handler_status::done;
+            }
 
             // Done
             self.state_ = state_t::done;
-            return response_handler_result::done(boost::system::error_code());
+            return handler_status::done;
         }
 
         // TODO: this should be transmitted to the user somehow
-        response_handler_result operator()(protocol::portal_suspended) const
+        handler_status operator()(protocol::portal_suspended) const
         {
             // State check
             if (self.state_ != state_t::parsing_data)
-                return response_handler_result::done(client_errc::incompatible_response_type);
+            {
+                self.store_error(client_errc::incompatible_response_type);
+                return handler_status::done;
+            }
 
             // Done
             self.state_ = state_t::done;
-            return response_handler_result::done(boost::system::error_code());
+            return handler_status::done;
         }
     };
 
@@ -223,19 +265,12 @@ public:
     {
     }
 
-    response_handler_result operator()(const any_request_message& msg, diagnostics& diag)
+    handler_status on_message(const any_request_message& msg)
     {
-        response_handler_result res = boost::variant2::visit(visitor{*this, diag}, msg);
-        if (res.error() && !err_.code)
-        {
-            // Store the error
-            err_.code = res.error();
-            err_.diag = diag;
-        }
-        return res;
+        return boost::variant2::visit(visitor{*this}, msg);
     }
 
-    const extended_error& error() const { return err_; }
+    const extended_error& result() const { return err_; }
 };
 
 // Helper to create resultset callbacks
@@ -272,6 +307,16 @@ class response
     std::tuple<Handlers...> handlers_;
     std::array<response_handler_ref, N> vtable_;
     std::size_t current_{};
+    extended_error err_{};
+
+    void store_error(boost::system::error_code ec)
+    {
+        if (!err_.code)
+        {
+            err_.code = ec;
+            err_.diag = {};
+        }
+    }
 
 public:
     template <class... Args>
@@ -286,25 +331,36 @@ public:
     response(response&&) = delete;
     response& operator=(response&&) = delete;
 
-    response_handler_result operator()(const any_request_message& msg, diagnostics& diag)
+    handler_status on_message(const any_request_message& msg)
     {
         // If we're done and another message is received, that's an error
         if (current_ >= N)
-            return response_handler_result::done(client_errc::incompatible_response_length);
-
-        // Call the handler
-        response_handler_result res = vtable_[current_](msg, diag);
-
-        // If the handler is done, advance to the next one
-        if (res.is_done())
         {
-            bool all_done = ++current_ == N;
-            return response_handler_result(res.error(), all_done);
+            store_error(client_errc::incompatible_response_length);
+            return handler_status::done;
         }
 
-        // Just propagate the result
-        return res;
+        response_handler_ref cur_ref = vtable_[current_];
+
+        // Call the handler
+        handler_status res = cur_ref.on_message(msg);
+
+        // If the handler is done, advance to the next one
+        if (res == handler_status::done)
+        {
+            // Store the result
+            if (!err_.code)
+                err_ = cur_ref.result();
+
+            // Are we done yet?
+            bool all_done = ++current_ == N;
+            return all_done ? handler_status::done : handler_status::needs_more;
+        }
+
+        return handler_status::needs_more;
     }
+
+    const extended_error& result() const { return err_; }
 
     const auto& handlers() const& { return handlers_; }
     auto& handlers() & { return handlers_; }

@@ -47,10 +47,9 @@ public:
     }
 
     const request& get_request() const { return *req_; }
+    response_handler_ref get_handler() const { return handler_; }
 
     result resume(const any_backend_message& msg);
-
-    const diagnostics& final_diagnostics() const { return stored_diag_; }
 
 private:
     const request* req_;
@@ -58,8 +57,6 @@ private:
     bool handler_finished_{};
     std::size_t remaining_syncs_{};
     bool initial_{true};
-    boost::system::error_code stored_ec_{};
-    diagnostics stored_diag_{};  // TODO: could we reuse this somehow?
 
     struct visitor;
 };
@@ -111,8 +108,7 @@ public:
     result resume(connection_state& st, boost::system::error_code io_error, std::size_t bytes_read);
 
     const request& get_request() const { return impl_.get_request(); }
-
-    const diagnostics& final_diagnostics() const { return impl_.final_diagnostics(); }
+    response_handler_ref get_handler() const { return impl_.get_handler(); }
 
 private:
     int resume_point_{0};

@@ -17,6 +17,7 @@
 #include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/response_handler.hpp"
 
 namespace nativepg::protocol::detail {
 
@@ -32,7 +33,10 @@ public:
 
     result resume(connection_state& st, boost::system::error_code ec, std::size_t bytes_transferred);
 
-    const diagnostics& final_diagnostics() const { return read_fsm_.final_diagnostics(); }
+    extended_error get_result(boost::system::error_code ec) const
+    {
+        return ec ? extended_error{ec, {}} : read_fsm_.get_handler().result();
+    }
 
 private:
     bool is_writing_{true};

@@ -55,10 +55,42 @@ private:
     const request* req_;
     response_handler_ref handler_;
     bool handler_finished_{};
-    std::size_t remaining_syncs_{};
-    bool initial_{true};
+    std::size_t current_{};
+    int resume_point_{0};
 
-    struct visitor;
+    // TODO: move
+    result call_handler(const any_request_message& msg)
+    {
+        handler_status res = handler_.on_message(msg);
+
+        // If the handler is done, remember this fact
+        if (res == handler_status::done)
+            handler_finished_ = true;
+
+        // In any case, we need to keep reading until all the expected messages are received
+        return result(result_type::read);
+    }
+
+    enum resume_point
+    {
+        resume_initial = 0,
+        resume_skipping,
+        resume_msg_first,
+        resume_query_first,
+        resume_query_needs_sync,
+        resume_query_rows,
+    };
+
+    result advance();
+    result handle_bind(const any_backend_message&);
+    result handle_close(const any_backend_message&);
+    result handle_describe(const any_backend_message&);
+    result handle_execute(const any_backend_message&);
+    result handle_parse(const any_backend_message&);
+    result handle_sync(const any_backend_message&);
+    result handle_query(const any_backend_message&);
+
+    struct access;
 };
 
 }  // namespace detail

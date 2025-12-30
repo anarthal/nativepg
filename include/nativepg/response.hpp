@@ -237,6 +237,29 @@ class resultset_callback_t
 
         // TODO: this should be transmitted to the user somehow
         handler_status operator()(protocol::portal_suspended) const { return on_done(); }
+
+        // If any of the messages we expect was skipped due to a previous error,
+        // that's an error
+        handler_status operator()(bind_skipped) const
+        {
+            self.store_error(client_errc::step_skipped);
+            return handler_status::needs_more;
+        }
+        handler_status operator()(parse_skipped) const
+        {
+            self.store_error(client_errc::step_skipped);
+            return handler_status::needs_more;
+        }
+        handler_status operator()(describe_skipped) const
+        {
+            self.store_error(client_errc::step_skipped);
+            return handler_status::needs_more;
+        }
+        handler_status operator()(execute_skipped) const
+        {
+            self.store_error(client_errc::step_skipped);
+            return handler_status::done;
+        }
     };
 
 public:

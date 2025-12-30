@@ -113,7 +113,7 @@ class resultset_callback_t
         }
 
         // Ignore messages that may or may not appear
-        handler_status operator()(protocol::parse_complete) const
+        handler_status on_parse_bind_complete() const
         {
             if (self.state_ == state_t::parsing_meta)
             {
@@ -125,18 +125,8 @@ class resultset_callback_t
                 return handler_status::done;
             }
         }
-        handler_status operator()(protocol::bind_complete) const
-        {
-            if (self.state_ == state_t::parsing_meta)
-            {
-                return handler_status::needs_more;
-            }
-            else
-            {
-                self.store_error(client_errc::incompatible_response_type);
-                return handler_status::done;
-            }
-        }
+        handler_status operator()(protocol::parse_complete) const { return on_parse_bind_complete(); }
+        handler_status operator()(protocol::bind_complete) const { return on_parse_bind_complete(); }
 
         // Metadata
         handler_status operator()(const protocol::row_description& msg) const
@@ -229,7 +219,7 @@ class resultset_callback_t
             return handler_status::needs_more;
         }
 
-        handler_status operator()(protocol::command_complete) const
+        handler_status on_done() const
         {
             // State check
             if (self.state_ != state_t::parsing_data)
@@ -242,21 +232,11 @@ class resultset_callback_t
             self.state_ = state_t::done;
             return handler_status::done;
         }
+
+        handler_status operator()(protocol::command_complete) const { return on_done(); }
 
         // TODO: this should be transmitted to the user somehow
-        handler_status operator()(protocol::portal_suspended) const
-        {
-            // State check
-            if (self.state_ != state_t::parsing_data)
-            {
-                self.store_error(client_errc::incompatible_response_type);
-                return handler_status::done;
-            }
-
-            // Done
-            self.state_ = state_t::done;
-            return handler_status::done;
-        }
+        handler_status operator()(protocol::portal_suspended) const { return on_done(); }
     };
 
 public:

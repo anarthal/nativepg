@@ -42,6 +42,8 @@ using boost::system::error_code;
 using protocol::detail::read_response_fsm_impl;
 using result_type = read_response_fsm_impl::result_type;
 
+// TODO: rename this file when we implement the external API tests
+
 // Operators
 static const char* to_string(result_type t)
 {
@@ -103,7 +105,7 @@ struct fixture
 };
 
 // --- Responses to a simple query ---
-void test_impl_simple_query()
+void test_simple_query()
 {
     fixture fix;
     fix.req.add_simple_query("SELECT 1");
@@ -126,7 +128,7 @@ void test_impl_simple_query()
 
 // Queries that don't return data don't include a row_description.
 // We synthesize an empty row_description for simplicity
-void test_impl_simple_query_no_data()
+void test_simple_query_no_data()
 {
     fixture fix;
     fix.req.add_simple_query("SELECT 1");
@@ -143,7 +145,7 @@ void test_impl_simple_query_no_data()
 }
 
 // Response to an extended query
-void test_impl_extended_query()
+void test_extended_query()
 {
     fixture fix;
     fix.req.add_query("SELECT 1", {});
@@ -167,7 +169,7 @@ void test_impl_extended_query()
 }
 
 // Response to an individual parse
-void test_impl_parse()
+void test_parse()
 {
     fixture fix;
     fix.req.add_prepare("SELECT 1", "mystmt");
@@ -183,7 +185,7 @@ void test_impl_parse()
 }
 
 // Async messages (notices, notifications, parameter descriptions) are ignored
-void test_impl_async()
+void test_async()
 {
     fixture fix;
     fix.req.add_prepare("SELECT 1", "mystmt");
@@ -258,12 +260,12 @@ void test_impl_async()
 
 int main()
 {
-    test_impl_simple_query();
-    test_impl_simple_query_no_data();
+    test_simple_query();
+    test_simple_query_no_data();
 
-    test_impl_extended_query();
-    test_impl_parse();
-    test_impl_async();
+    test_extended_query();
+    test_parse();
+    test_async();
     // test_impl_several_syncs();
 
     return boost::report_errors();

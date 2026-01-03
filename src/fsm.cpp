@@ -20,12 +20,18 @@
 #include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/close.hpp"
+#include "nativepg/protocol/command_complete.hpp"
 #include "nativepg/protocol/connection_state.hpp"
+#include "nativepg/protocol/data_row.hpp"
+#include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
 #include "nativepg/protocol/detail/exec_fsm.hpp"
+#include "nativepg/protocol/empty_query_response.hpp"
+#include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/header.hpp"
 #include "nativepg/protocol/messages.hpp"
 #include "nativepg/protocol/notice_error.hpp"
+#include "nativepg/protocol/parse.hpp"
 #include "nativepg/protocol/read_message_fsm.hpp"
 #include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/protocol/ready_for_query.hpp"
@@ -36,13 +42,13 @@
 
 using namespace nativepg::protocol;
 using boost::system::error_code;
+using boost::variant2::get_if;
+using boost::variant2::holds_alternative;
 using detail::connect_fsm;
 using detail::exec_fsm;
 using detail::read_response_fsm_impl;
 using detail::startup_fsm_impl;
 using nativepg::client_errc;
-using nativepg::detail::request_access;
-using nativepg::detail::request_msg_type;
 
 read_message_fsm::result read_message_fsm::resume(std::span<const unsigned char> data)
 {
@@ -321,161 +327,394 @@ startup_fsm::result startup_fsm::resume(
     return error_code();
 }
 
-namespace {
-
-std::size_t count_syncs(std::span<const request_msg_type> msgs)
+enum class read_response_fsm_impl::state_t
 {
-    std::size_t res = 0;
-    for (const auto msg : msgs)
-        res += static_cast<std::size_t>(msg == request_msg_type::query || msg == request_msg_type::sync);
-    return res;
-}
-
-}  // namespace
-
-struct read_response_fsm_impl::visitor
-{
-    read_response_fsm_impl& self;
-    diagnostics& diag;
-
-    result call_handler(const any_request_message& msg) const
-    {
-        auto res = self.handler_(msg, diag);
-        if (res)
-        {
-            return res == client_errc::needs_more ? result(result_type::read) : res;
-        }
-        else
-        {
-            self.handler_finished_ = true;
-            return result_type::read;
-        }
-    }
-
-    // Discard asynchronous messages that might be received at any time
-    // TODO: do something useful with these
-    result operator()(const notice_response&) const { return result_type::read; }
-    result operator()(const notification_response&) const { return result_type::read; }
-    result operator()(const parameter_status&) const { return result_type::read; }
-
-    // If this is a ReadyForQuery, check if we're done
-    result operator()(ready_for_query) const
-    {
-        if (--self.remaining_syncs_ == 0u)
-        {
-            return self.handler_finished_ ? error_code() : client_errc::needs_more;
-        }
-        else
-        {
-            return result_type::read;
-        }
-    }
-
-    // If this is a message for the handler, call it
-    result operator()(bind_complete msg) const { return call_handler(msg); }
-    result operator()(close_complete msg) const { return call_handler(msg); }
-    result operator()(command_complete msg) const { return call_handler(msg); }
-    result operator()(const data_row& msg) const { return call_handler(msg); }
-    result operator()(const parameter_description& msg) const { return call_handler(msg); }
-    result operator()(const row_description& msg) const { return call_handler(msg); }
-    result operator()(no_data msg) const { return call_handler(msg); }
-    result operator()(empty_query_response msg) const { return call_handler(msg); }
-    result operator()(portal_suspended msg) const { return call_handler(msg); }
-    result operator()(const error_response& msg) const { return call_handler(msg); }
-    result operator()(parse_complete msg) const { return call_handler(msg); }
-
-    // This is an unknown message
-    template <class T>
-    result operator()(const T&) const
-    {
-        return error_code(client_errc::unexpected_message);
-    }
+    msg_first = 0,
+    query_first,
+    query_needs_ready,
+    query_rows,
 };
 
-read_response_fsm_impl::result read_response_fsm_impl::resume(
-    diagnostics& diag,
-    const any_backend_message& msg
-)
+read_response_fsm_impl::result read_response_fsm_impl::handle_error(const error_response& err)
 {
-    // Initial checks
-    if (initial_)
+    // Call the handler with the error
+    call_handler(err);
+    ++current_;
+    state_ = state_t::msg_first;
+
+    // Skip subsequent messages until a sync is found
+    // We should always find one because we check that this is the case
+    // before sending the request
+    for (; current_ < req_->messages().size(); ++current_)
     {
-        const auto msg_types = request_access::messages(*req_);
-
-        // Empty requests are not allowed
-        if (msg_types.empty())
-            return error_code(client_errc::empty_request);
-
-        // Currently, all pipelines must end with a sync or a query
-        const auto last_type = msg_types.back();
-        if (last_type != request_msg_type::sync && last_type != request_msg_type::query)
-            return error_code(client_errc::request_ends_without_sync);
-
-        // Count how many syncs are we expecting
-        remaining_syncs_ = count_syncs(msg_types);
-
-        initial_ = false;
-
-        return result_type::read;
-    }
-
-    return boost::variant2::visit(visitor{*this, diag}, msg);
-}
-
-read_response_fsm::result read_response_fsm::resume(
-    connection_state& st,
-    diagnostics& diag,
-    boost::system::error_code io_error,
-    std::size_t bytes_read
-)
-{
-    // TODO: this implementation is improvable, changes in reading messages required
-    // This is duplicated from startup
-    any_backend_message msg;
-    read_response_fsm_impl::result startup_res{error_code()};
-    read_message_stream_fsm::result read_msg_res{error_code()};
-
-    switch (resume_point_)
-    {
-        NATIVEPG_CORO_INITIAL
-
-        while (true)
+        switch (req_->messages()[current_])
         {
-            // Call the FSM
-            startup_res = impl_.resume(diag, msg);
-            if (startup_res.type == read_response_fsm_impl::result_type::done)
-            {
-                // We're finished
-                return startup_res.ec;
-            }
-            else
-            {
-                BOOST_ASSERT(startup_res.type == read_response_fsm_impl::result_type::read);
-
-                // Read a message
-                while (true)
-                {
-                    read_msg_res = st.read_msg_stream_fsm.resume(st, io_error, bytes_read);
-                    if (read_msg_res.type() == read_message_stream_fsm::result_type::read)
-                    {
-                        NATIVEPG_YIELD(resume_point_, 2, result::read(read_msg_res.read_buffer()));
-                    }
-                    else if (read_msg_res.type() == read_message_stream_fsm::result_type::message)
-                    {
-                        msg = read_msg_res.message();
-                        break;
-                    }
-                    else
-                    {
-                        BOOST_ASSERT(read_msg_res.type() == read_message_stream_fsm::result_type::error);
-                        return read_msg_res.error();
-                    }
-                }
-            }
+            case request_message_type::sync: return result(result_type::read);
+            case request_message_type::flush: break;
+            default: call_handler(message_skipped{}); break;
         }
     }
 
     BOOST_ASSERT(false);
+    return error_code(client_errc::request_ends_without_sync);
+}
+
+read_response_fsm_impl::result read_response_fsm_impl::advance()
+{
+    if (++current_ >= req_->messages().size())
+        return error_code();
+    else
+        return result(result_type::read);
+}
+
+read_response_fsm_impl::result read_response_fsm_impl::handle_bind(const any_backend_message& msg)
+{
+    // bind: either (bind_complete, error_response)
+    BOOST_ASSERT(state_ == state_t::msg_first);
+    if (const auto* err = get_if<error_response>(&msg))
+    {
+        // An error finishes this message and makes the server skip everything until
+        // sync
+        return handle_error(*err);
+    }
+    else if (const auto* complete = get_if<bind_complete>(&msg))
+    {
+        // Finishes the bind phase
+        call_handler(*complete);
+        return advance();
+    }
+    else
+    {
+        return error_code(client_errc::unexpected_message);
+    }
+}
+
+read_response_fsm_impl::result read_response_fsm_impl::handle_close(const any_backend_message& msg)
+{
+    // close: either (close_complete, error_response)
+    BOOST_ASSERT(state_ == state_t::msg_first);
+    if (const auto* err = get_if<error_response>(&msg))
+    {
+        // An error finishes this message and makes the server skip everything until
+        // sync
+        return handle_error(*err);
+    }
+    else if (const auto* complete = get_if<close_complete>(&msg))
+    {
+        // Finishes the bind phase
+        call_handler(*complete);
+        return advance();
+    }
+    else
+    {
+        return error_code(client_errc::unexpected_message);
+    }
+}
+
+// TODO: we need to differentiate between describe statement and portal
+// only the portal version is supported now
+read_response_fsm_impl::result read_response_fsm_impl::handle_describe(const any_backend_message& msg)
+{
+    // describe (portal)
+    //   either: row_description, no_data, error_response
+    // describe (statement) TODO: support this. Either
+    //   parameter_description, then either (row_description, no_data)
+    //   error_response
+    BOOST_ASSERT(state_ == state_t::msg_first);
+    if (const auto* err = get_if<error_response>(&msg))
+    {
+        // An error finishes this message and makes the server skip everything until
+        // sync
+        return handle_error(*err);
+    }
+    else if (const auto* descr = get_if<row_description>(&msg))
+    {
+        // Finishes the describe phase
+        call_handler(*descr);
+        return advance();
+    }
+    else if (holds_alternative<no_data>(msg))
+    {
+        // We transform no_data into an empty row description, for uniformity.
+        // Finishes the describe phase.
+        call_handler(row_description{});
+        return advance();
+    }
+    else
+    {
+        return error_code(client_errc::unexpected_message);
+    }
+}
+
+read_response_fsm_impl::result read_response_fsm_impl::handle_execute(const any_backend_message& msg)
+{
+    // execute: either:
+    //   any number of data_row, then either (command_complete, portal_suspended, error_response)
+    //   empty_query_response
+    BOOST_ASSERT(state_ == state_t::msg_first);
+    if (const auto* err = get_if<error_response>(&msg))
+    {
+        // An error finishes this message and makes the server skip everything
+        // until sync
+        return handle_error(*err);
+    }
+    else if (const auto* complete = get_if<command_complete>(&msg))
+    {
+        // Finishes the execution phase
+        call_handler(*complete);
+        return advance();
+    }
+    else if (const auto* eq = get_if<empty_query_response>(&msg))
+    {
+        // TODO: check that this is the only message
+        // Finishes the execution phase
+        call_handler(*eq);
+        return advance();
+    }
+    else if (const auto* ps = get_if<portal_suspended>(&msg))
+    {
+        // Finishes the execution phase
+        call_handler(*ps);
+        return advance();
+    }
+    else if (const auto* row = get_if<data_row>(&msg))
+    {
+        // We got a row. This doesn't change state
+        call_handler(*row);
+        return result_type::read;
+    }
+    else
+    {
+        return error_code(client_errc::unexpected_message);
+    }
+}
+
+read_response_fsm_impl::result read_response_fsm_impl::handle_parse(const any_backend_message& msg)
+{
+    // parse: either (parse_complete, error_response)
+    BOOST_ASSERT(state_ == state_t::msg_first);
+    if (const auto* err = get_if<error_response>(&msg))
+    {
+        // An error finishes this message and makes the server skip everything until
+        // sync
+        return handle_error(*err);
+    }
+    else if (const auto* complete = get_if<parse_complete>(&msg))
+    {
+        // Finishes the parse phase
+        call_handler(*complete);
+        return advance();
+    }
+    else
+    {
+        return error_code(client_errc::unexpected_message);
+    }
+}
+
+read_response_fsm_impl::result read_response_fsm_impl::handle_sync(const any_backend_message& msg)
+{
+    // sync always returns ReadyForQuery. Getting an error here is a protocol error,
+    // as we don't know whether the connection is healthy or not
+    BOOST_ASSERT(state_ == state_t::msg_first);
+    if (!holds_alternative<ready_for_query>(msg))
+        return error_code(client_errc::unexpected_message);
+    return advance();
+}
+
+read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_backend_message& msg)
+{
+    // either
+    //    at least one
+    //        optional row_description (we synthesize one of not present)
+    //        any number of data_row
+    //        finalizer: command_complete, error_response
+    //    ready_for_query
+    // or empty_query_response
+    switch (state_)
+    {
+        case state_t::msg_first:
+        case state_t::query_first:
+        {
+            if (const auto* err = get_if<error_response>(&msg))
+            {
+                // An error should always be followed by ReadyForQuery
+                state_ = state_t::query_needs_ready;
+                call_handler(*err);
+                return result_type::read;
+            }
+            else if (const auto* desc = get_if<row_description>(&msg))
+            {
+                // Row descriptions are optional, and can only appear at the beginning of
+                // a resultset, but should always precede rows
+                state_ = state_t::query_rows;
+                call_handler(*desc);
+                return result_type::read;
+            }
+            else if (const auto* complete = get_if<command_complete>(&msg))
+            {
+                // Query might return command_complete directly, without NoData.
+                // Synthesize a fake row_description to help handlers
+                state_ = state_t::query_first;
+                call_handler(row_description{});
+                call_handler(*complete);
+                return result_type::read;
+            }
+            else if (const auto* eq = get_if<empty_query_response>(&msg))
+            {
+                // Only allowed as the first and only message. Signals that there was no query to begin with
+                if (state_ != state_t::msg_first)
+                    return error_code(client_errc::unexpected_message);
+                state_ = state_t::query_needs_ready;
+                call_handler(*eq);
+                return result_type::read;
+            }
+            else if (holds_alternative<ready_for_query>(msg) && state_ == state_t::query_first)
+            {
+                // Not allowed as the only response to a query
+                state_ = state_t::msg_first;
+                return advance();
+            }
+            else
+            {
+                return error_code(client_errc::unexpected_message);
+            }
+        }
+        case state_t::query_rows:
+        {
+            if (const auto* err = get_if<error_response>(&msg))
+            {
+                // An error should always be followed by ReadyForQuery
+                state_ = state_t::query_needs_ready;
+                call_handler(*err);
+                return result_type::read;
+            }
+            else if (const auto* row = get_if<data_row>(&msg))
+            {
+                // We got a row. This doesn't change state
+                call_handler(*row);
+                return result_type::read;
+            }
+            else if (const auto* complete = get_if<command_complete>(&msg))
+            {
+                // This resultset is done
+                state_ = state_t::query_first;
+                call_handler(*complete);
+                return result_type::read;
+            }
+            else
+            {
+                return error_code(client_errc::unexpected_message);
+            }
+        }
+        case state_t::query_needs_ready:
+        {
+            // Only a sync is allowed here. Not even an error
+            if (holds_alternative<ready_for_query>(msg))
+            {
+                // We're done with the current message
+                state_ = state_t::msg_first;
+                return advance();
+            }
+            else
+            {
+                return error_code(client_errc::unexpected_message);
+            }
+        }
+        default: BOOST_ASSERT(false); return error_code(client_errc::unexpected_message);
+    }
+}
+
+read_response_fsm_impl::result read_response_fsm_impl::resume(const any_backend_message& msg)
+{
+    // Some messages may be found interleaved with the expected message flow
+    // TODO: actually do something useful with these
+    if (boost::variant2::holds_alternative<notice_response>(msg) ||
+        boost::variant2::holds_alternative<notification_response>(msg) ||
+        boost::variant2::holds_alternative<parameter_status>(msg))
+    {
+        return result_type::read;
+    }
+
+    // The allowed messages depend on the current type
+    while (true)
+    {
+        switch (req_->messages()[current_])
+        {
+            case request_message_type::bind: return handle_bind(msg);
+            case request_message_type::close: return handle_close(msg);
+            case request_message_type::describe: return handle_describe(msg);
+            case request_message_type::execute: return handle_execute(msg);
+            case request_message_type::flush:
+            {
+                ++current_;
+                continue;  // nothing is expected here
+            }
+            case request_message_type::parse: return handle_parse(msg);
+            case request_message_type::query: return handle_query(msg);
+            case request_message_type::sync: return handle_sync(msg);
+        }
+    }
+}
+
+read_response_fsm::result read_response_fsm::resume(
+    connection_state& st,
+    boost::system::error_code io_error,
+    std::size_t bytes_read
+)
+{
+    // Attempt to read a message
+    while (true)
+    {
+        auto read_msg_res = st.read_msg_stream_fsm.resume(st, io_error, bytes_read);
+        if (read_msg_res.type() == read_message_stream_fsm::result_type::read)
+        {
+            return result::read(read_msg_res.read_buffer());
+        }
+        else if (read_msg_res.type() == read_message_stream_fsm::result_type::message)
+        {
+            // We've got a message, invoke the FSM
+            auto res = impl_.resume(read_msg_res.message());
+
+            // If we're done, exit
+            if (res.type == read_response_fsm_impl::result_type::done)
+                return res.ec;
+
+            // Otherwise, keep reading
+            BOOST_ASSERT(res.type == read_response_fsm_impl::result_type::read);
+        }
+        else
+        {
+            BOOST_ASSERT(read_msg_res.type() == read_message_stream_fsm::result_type::error);
+            return read_msg_res.error();
+        }
+    }
+}
+
+static error_code check_request(const nativepg::request& req)
+{
+    // Empty requests are not allowed
+    if (req.messages().empty())
+        return error_code(client_errc::empty_request);
+
+    // To enable appropriate error recovery, requests need to either
+    //   1. End with a sync
+    //   2. Be a sequence of query messages, with nothing in front of it
+    //   3. End with a sequence of query messages, with a sync in front of it
+    // TODO: do we need to support requests ending with flush? is there any use case for this?
+    bool query_seen = false;
+    for (auto it = req.messages().rbegin(); it != req.messages().rend(); ++it)
+    {
+        switch (*it)
+        {
+            case nativepg::request_message_type::query: query_seen = true; continue;
+            case nativepg::request_message_type::sync: return error_code();
+            default:
+                return query_seen ? client_errc::request_mixes_simple_advanced_protocols
+                                  : client_errc::request_ends_without_sync;
+        }
+    }
+
+    // There was nothing but queries
     return error_code();
 }
 
@@ -485,17 +724,37 @@ exec_fsm::result exec_fsm::resume(
     std::size_t bytes_transferred
 )
 {
-    if (is_writing_)
+    if (state_ == state_t::initial)
     {
-        is_writing_ = false;
+        // Check that the request is correctly formed
+        const request& req = read_fsm_.get_request();
+        auto ec = check_request(req);
+        if (ec)
+            return ec;
+
+        // Perform the response setup
+        auto res = read_fsm_.get_handler().setup(req, 0u);
+        if (res.ec)
+            return res.ec;
+        if (res.offset != req.messages().size())
+            return result(client_errc::incompatible_response_length);
+
+        state_ = state_t::writing;
+
+        // Write the request
         return result::write(read_fsm_.get_request().payload());
     }
 
     if (ec)
         return ec;
 
-    // TODO: this is passing a wrong bytes_transferred value the 1st time
-    auto act = read_fsm_.resume(st, st.shared_diag, ec, bytes_transferred);
+    // Don't pass the bytes read to the first FSM invocation
+    if (state_ == state_t::writing)
+    {
+        bytes_transferred = 0u;
+        state_ = state_t::reading;
+    }
+    auto act = read_fsm_.resume(st, ec, bytes_transferred);
     switch (act.type())
     {
         case read_response_fsm::result_type::read: return result::read(act.read_buffer());

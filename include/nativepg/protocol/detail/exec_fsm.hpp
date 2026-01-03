@@ -12,10 +12,12 @@
 
 #include <cstddef>
 
+#include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/response_handler.hpp"
 
 namespace nativepg::protocol::detail {
 
@@ -31,8 +33,20 @@ public:
 
     result resume(connection_state& st, boost::system::error_code ec, std::size_t bytes_transferred);
 
+    extended_error get_result(boost::system::error_code ec) const
+    {
+        return ec ? extended_error{ec, {}} : read_fsm_.get_handler().result();
+    }
+
 private:
-    bool is_writing_{true};
+    enum class state_t
+    {
+        initial,
+        writing,
+        reading
+    };
+
+    state_t state_{state_t::initial};
     read_response_fsm read_fsm_;
 };
 

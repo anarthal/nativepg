@@ -32,7 +32,7 @@ include(CTest)
 enable_testing()
 add_library(nativepg_test_utils STATIC test/test_utils/test_utils.cpp)
 target_include_directories(nativepg_test_utils PUBLIC test/test_utils/)
-target_link_libraries(nativepg_test_utils PUBLIC Boost::headers)
+target_link_libraries(nativepg_test_utils PUBLIC nativepg)
 
 function (add_unit_test TEST_DIR TEST_NAME)
     set(TARGET_NAME "nativepg_${TEST_NAME}")

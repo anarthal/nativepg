@@ -41,12 +41,17 @@ enum class client_errc : int
     // authentication in the current version
     mandatory_scram_extension_not_supported,
 
-    // Used in responses to indicate that we want more messages.
-    // TODO: this should really be in another category, at least, since it's not an error per se
-    needs_more,
-
-    // We got a message type that wasn't supposed to appear in the state we are
+    // We got a message type that wasn't supposed to appear in the state we are.
+    // This is a protocol violation.
     unexpected_message,
+
+    // We expected a number of responses different to the one we got.
+    // Review that your request and response types match. This is a user error.
+    incompatible_response_length,
+
+    // The response type is not compatible with the request that was sent to the server.
+    // Review that your request and response types match. This is a user error.
+    incompatible_response_type,
 
     // We got a NULL, but the C++ type where we're parsing into doesn't support NULLs
     unexpected_null,
@@ -84,8 +89,17 @@ enum class client_errc : int
     // Requests must currently end with a sync. This restriction may be lifted in the future
     request_ends_without_sync,
 
+    // Request violates the restrictions when mixing the simple query and advanced query protocols.
+    // Currently, a request can mix both protocols only if all the advanced query protocol messages
+    // are separated from simple query messages by syncs (this is the default behavior unless you
+    // deactivated request autosync).
+    request_mixes_simple_advanced_protocols,
+
     // The server returned an error during the execution of a request
     exec_server_error,
+
+    // A pipeline step was skipped because of a previous error
+    step_skipped,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

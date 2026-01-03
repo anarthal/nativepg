@@ -158,3 +158,60 @@ boost::system::error_code detail::compute_pos_map(
 
     return {};
 }
+
+handler_setup_result detail::resultset_setup(const request& req, std::size_t offset)
+{
+    const auto msgs = req.messages().subspan(offset);
+    bool describe_found = false, execute_found = false;
+    auto it = msgs.begin();
+
+    // Skip any leading syncs
+    while (it != msgs.end() && (*it == request_message_type::sync || *it == request_message_type::flush))
+        ++it;
+
+    // The original message may be a query. In this case, it must be the only message
+    if (*it == request_message_type::query)
+    {
+        ++it;
+        return {static_cast<std::size_t>(it - req.messages().begin())};
+    }
+
+    // Otherwise, it must be an extended query sequence:
+    //   optional parse
+    //   optional bind
+    //   exactly one describe portal
+    //   exactly one execute
+    // There may be flush messages, but no sync messages in between
+    //   (otherwise, error behavior becomes unreliable)
+    for (; it != msgs.end() && !execute_found; ++it)
+    {
+        switch (*it)
+        {
+            // Ignore parse, bind and flush messages
+            case request_message_type::flush:
+            case request_message_type::parse:
+            case request_message_type::bind: continue;
+            case request_message_type::describe:
+                if (describe_found)
+                    return handler_setup_result(client_errc::incompatible_response_type);
+                else
+                    describe_found = true;
+                break;
+            case request_message_type::execute:
+                if (!describe_found || execute_found)
+                    return handler_setup_result(client_errc::incompatible_response_type);
+                else
+                    execute_found = true;
+                break;
+            default: return handler_setup_result(client_errc::incompatible_response_type);
+        }
+    }
+
+    // Skip any further sync messages
+    while (it != msgs.end() && (*it == request_message_type::sync || *it == request_message_type::flush))
+        ++it;
+
+    // If we got the execute message, we're good
+    return execute_found ? handler_setup_result{static_cast<std::size_t>(it - req.messages().begin())}
+                         : handler_setup_result{client_errc::incompatible_response_type};
+}

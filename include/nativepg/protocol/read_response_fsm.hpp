@@ -13,9 +13,9 @@
 
 #include <cstddef>
 
-#include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/messages.hpp"
+#include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
 
@@ -47,17 +47,28 @@ public:
     }
 
     const request& get_request() const { return *req_; }
+    response_handler_ref get_handler() const { return handler_; }
 
-    result resume(diagnostics& diag, const any_backend_message& msg);
+    result resume(const any_backend_message& msg);
 
 private:
+    enum class state_t;
+
     const request* req_;
     response_handler_ref handler_;
-    bool handler_finished_{};
-    std::size_t remaining_syncs_{};
-    bool initial_{true};
+    std::size_t current_{};
+    state_t state_{static_cast<state_t>(0)};
 
-    struct visitor;
+    inline void call_handler(const any_request_message& msg) { handler_.on_message(msg, current_); }
+    result advance();
+    result handle_bind(const any_backend_message&);
+    result handle_close(const any_backend_message&);
+    result handle_describe(const any_backend_message&);
+    result handle_execute(const any_backend_message&);
+    result handle_parse(const any_backend_message&);
+    result handle_sync(const any_backend_message&);
+    result handle_query(const any_backend_message&);
+    result handle_error(const error_response& err);
 };
 
 }  // namespace detail
@@ -104,17 +115,12 @@ public:
 
     read_response_fsm(const request& req, response_handler_ref handler) noexcept : impl_(req, handler) {}
 
-    result resume(
-        connection_state& st,
-        diagnostics& diag,
-        boost::system::error_code io_error,
-        std::size_t bytes_read
-    );
+    result resume(connection_state& st, boost::system::error_code io_error, std::size_t bytes_read);
 
     const request& get_request() const { return impl_.get_request(); }
+    response_handler_ref get_handler() const { return impl_.get_handler(); }
 
 private:
-    int resume_point_{0};
     detail::read_response_fsm_impl impl_;
 };
 

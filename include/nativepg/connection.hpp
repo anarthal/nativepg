@@ -134,9 +134,7 @@ struct exec_op
             case protocol::startup_fsm::result_type::read:
                 impl.sock.async_read_some(res.read_buffer(), std::move(self));
                 break;
-            case protocol::startup_fsm::result_type::done:
-                self.complete(extended_error{res.error(), impl.st.shared_diag});
-                break;
+            case protocol::startup_fsm::result_type::done: self.complete(fsm_.get_result(res.error())); break;
             default: BOOST_ASSERT(false);
         }
     }

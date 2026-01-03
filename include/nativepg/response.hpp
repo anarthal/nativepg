@@ -8,7 +8,6 @@
 #ifndef NATIVEPG_RESPONSE_HPP
 #define NATIVEPG_RESPONSE_HPP
 
-#include <boost/compat/function_ref.hpp>
 #include <boost/core/span.hpp>
 #include <boost/mp11/algorithm.hpp>
 #include <boost/system/error_code.hpp>
@@ -36,6 +35,8 @@
 #include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/parse.hpp"
+#include "nativepg/protocol/views.hpp"
+#include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
 
 namespace nativepg {
@@ -60,6 +61,8 @@ boost::system::error_code compute_pos_map(
 
 inline constexpr std::size_t invalid_pos = static_cast<std::size_t>(-1);
 
+handler_setup_result resultset_setup(const request& req, std::size_t offset);
+
 }  // namespace detail
 
 // Handles a resultset (i.e. a row_description + data_rows + command_complete)
@@ -77,51 +80,62 @@ class resultset_callback_t
     state_t state_{state_t::parsing_meta};
     std::array<detail::pos_map_entry, detail::row_size_v<T>> pos_map_;
     std::vector<std::optional<std::span<const unsigned char>>> random_access_data_;
+    extended_error err_;
     Callback cb_;
+
+    void store_error(boost::system::error_code ec)
+    {
+        if (!err_.code)
+        {
+            err_.code = ec;
+            err_.diag = {};
+        }
+    }
 
     struct visitor
     {
         resultset_callback_t& self;
-        diagnostics& diag;
 
-        // Error on unexpected messages
+        // We shouldn't get any unexpected messages
         template <class Msg>
-        boost::system::error_code operator()(const Msg&) const
+        void operator()(const Msg&) const
         {
-            return client_errc::unexpected_message;
+            self.store_error(client_errc::incompatible_response_type);  // just in case
+            BOOST_ASSERT(false);
         }
 
-        // On error, fail the entire operation.
-        // TODO: this must be reviewed
-        boost::system::error_code operator()(const protocol::error_response& err) const
+        // If the server sends an error, store it.
+        // We know this is the last message in the sequence.
+        void operator()(const protocol::error_response& err) const
         {
-            diag.assign(err);
-            return client_errc::exec_server_error;
+            if (!self.err_.code)
+            {
+                self.err_.code = client_errc::exec_server_error;
+                self.err_.diag.assign(err);
+            }
         }
 
         // Ignore messages that may or may not appear
-        boost::system::error_code operator()(protocol::parse_complete) const
-        {
-            // Only allowed before metadata
-            return self.state_ == state_t::parsing_meta ? client_errc::needs_more
-                                                        : client_errc::unexpected_message;
-        }
-        boost::system::error_code operator()(protocol::bind_complete) const
-        {
-            return self.state_ == state_t::parsing_meta ? client_errc::needs_more
-                                                        : client_errc::unexpected_message;
-        }
+        void operator()(protocol::parse_complete) const {}
+        void operator()(protocol::bind_complete) const {}
 
-        boost::system::error_code operator()(const protocol::row_description& msg) const
+        // Metadata
+        void operator()(const protocol::row_description& msg) const
         {
             // State check
-            if (self.state_ != state_t::parsing_meta)
-                return client_errc::unexpected_message;
+            // TODO: this can trigger on multi-queries
+            BOOST_ASSERT(self.state_ == state_t::parsing_meta);
+
+            // We now expect the rows and the CommandComplete
+            self.state_ = state_t::parsing_data;
 
             // Compute the row => C++ map
             auto ec = detail::compute_pos_map(msg, detail::row_name_table_v<T>, self.pos_map_);
             if (ec)
-                return ec;
+            {
+                self.store_error(ec);
+                return;  // we will just ignore rows
+            }
 
             // Metadata check
             using type_identities = boost::mp11::
@@ -136,23 +150,21 @@ class resultset_callback_t
                 }
             );
             if (ec)
-                return ec;
-
-            // We now expect the rows and the CommandComplete
-            self.state_ = state_t::parsing_data;
-            return client_errc::needs_more;
+            {
+                self.store_error(ec);
+                return;
+            }
         }
 
-        boost::system::error_code operator()(protocol::no_data) const
-        {
-            return (*this)(protocol::row_description{});
-        }
-
-        boost::system::error_code operator()(const protocol::data_row& msg) const
+        void operator()(const protocol::data_row& msg) const
         {
             // State check
-            if (self.state_ != state_t::parsing_data)
-                return client_errc::unexpected_message;
+            BOOST_ASSERT(self.state_ == state_t::parsing_data);
+
+            // If there was a previous failure, the field descriptions may not be present and
+            // it's not safe to parse. We still need to get to the CommandComplete message
+            if (self.err_.code)
+                return;
 
             // TODO: check that data_row has the appropriate size
 
@@ -175,37 +187,34 @@ class resultset_callback_t
                     ec = ec2;
             });
             if (ec)
-                return ec;
+            {
+                self.store_error(ec);
+                return;
+            }
 
             // Invoke the user-supplied callback
             self.cb_(std::move(row));
 
             // We still need the CommandComplete message
-            return client_errc::needs_more;
         }
 
-        boost::system::error_code operator()(protocol::command_complete) const
+        void on_done() const
         {
             // State check
-            if (self.state_ != state_t::parsing_data)
-                return client_errc::unexpected_message;
+            BOOST_ASSERT(self.state_ == state_t::parsing_data);
 
             // Done
             self.state_ = state_t::done;
-            return {};
         }
+
+        void operator()(protocol::command_complete) const { on_done(); }
 
         // TODO: this should be transmitted to the user somehow
-        boost::system::error_code operator()(protocol::portal_suspended) const
-        {
-            // State check
-            if (self.state_ != state_t::parsing_data)
-                return client_errc::unexpected_message;
+        void operator()(protocol::portal_suspended) const { on_done(); }
 
-            // Done
-            self.state_ = state_t::done;
-            return {};
-        }
+        // If any of the messages we expect was skipped due to a previous error,
+        // that's an error
+        void operator()(message_skipped) const { self.store_error(client_errc::step_skipped); }
     };
 
 public:
@@ -214,10 +223,17 @@ public:
     {
     }
 
-    boost::system::error_code operator()(const any_request_message& msg, diagnostics& diag)
+    handler_setup_result setup(const request& req, std::size_t offset)
     {
-        return boost::variant2::visit(visitor{*this, diag}, msg);
+        return detail::resultset_setup(req, offset);
     }
+
+    void on_message(const any_request_message& msg, std::size_t)
+    {
+        boost::variant2::visit(visitor{*this}, msg);
+    }
+
+    const extended_error& result() const { return err_; }
 };
 
 // Helper to create resultset callbacks
@@ -253,6 +269,7 @@ class response
 
     std::tuple<Handlers...> handlers_;
     std::array<response_handler_ref, N> vtable_;
+    std::array<std::size_t, N> offsets_{};
     std::size_t current_{};
 
 public:
@@ -268,35 +285,45 @@ public:
     response(response&&) = delete;
     response& operator=(response&&) = delete;
 
-    boost::system::error_code operator()(const any_request_message& msg, diagnostics& diag)
+    handler_setup_result setup(const request& req, std::size_t offset)
     {
-        // If we're done and another message is received, that's an error
-        if (current_ >= N)
-            return client_errc::unexpected_message;
-
-        // Call the handler
-        auto ec = vtable_[current_](msg, diag);
-
-        if (ec)
+        for (std::size_t i = 0u; i < N; ++i)
         {
-            // Both errors and needs_more should just be propagated
-            return ec;
+            handler_setup_result res = vtable_[i].setup(req, offset);
+            if (res.ec)
+                return res;
+            offsets_[i] = res.offset;
+            offset = res.offset;
         }
-        else
-        {
-            // This handler is done
-            if (++current_ == N)
-            {
-                // All handlers are done
-                return {};
-            }
-            else
-            {
-                // There are still more handlers that need messages
-                return client_errc::needs_more;
-            }
-        }
+        return {offset};
     }
+
+    void on_message(const any_request_message& msg, std::size_t offset)
+    {
+        // Advance to the next element, if required
+        if (offset >= offsets_[current_])
+            ++current_;
+        BOOST_ASSERT(offset < offsets_[current_]);
+
+        // Hand the message to the appropriate handler
+        vtable_[current_].on_message(msg, offset);
+    }
+
+    const extended_error& result() const
+    {
+        static_assert(N > 0);
+        for (auto& elm : vtable_)
+        {
+            const auto& res = elm.result();
+            if (res.code)
+                return res;
+        }
+        return vtable_[0].result();
+    }
+
+    const auto& handlers() const& { return handlers_; }
+    auto& handlers() & { return handlers_; }
+    auto&& handlers() && { return std::move(handlers_); }
 };
 
 template <class... Args>

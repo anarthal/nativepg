@@ -21,27 +21,26 @@
 #include "test_utils.hpp"
 
 using namespace nativepg;
-using detail::request_msg_type;
 
-namespace nativepg::detail {
+namespace nativepg {
 
-std::ostream& operator<<(std::ostream& os, request_msg_type type)
+std::ostream& operator<<(std::ostream& os, request_message_type type)
 {
     switch (type)
     {
-    case request_msg_type::bind: return os << "bind";
-    case request_msg_type::close: return os << "close";
-    case request_msg_type::describe: return os << "describe";
-    case request_msg_type::execute: return os << "execute";
-    case request_msg_type::flush: return os << "flush";
-    case request_msg_type::parse: return os << "parse";
-    case request_msg_type::query: return os << "query";
-    case request_msg_type::sync: return os << "sync";
-    default: return os << "<unknown request_msg_type>";
+        case request_message_type::bind: return os << "bind";
+        case request_message_type::close: return os << "close";
+        case request_message_type::describe: return os << "describe";
+        case request_message_type::execute: return os << "execute";
+        case request_message_type::flush: return os << "flush";
+        case request_message_type::parse: return os << "parse";
+        case request_message_type::query: return os << "query";
+        case request_message_type::sync: return os << "sync";
+        default: return os << "<unknown request_message_type>";
     }
 }
 
-}  // namespace nativepg::detail
+}  // namespace nativepg
 
 namespace {
 
@@ -57,12 +56,12 @@ void check_payload(
 
 void check_messages(
     const request& req,
-    std::initializer_list<request_msg_type> expected,
+    std::initializer_list<request_message_type> expected,
     std::source_location loc = std::source_location::current()
 )
 {
     test::context_frame frame{loc};
-    NATIVEPG_TEST_CONT_EQ(detail::request_access::messages(req), expected);
+    NATIVEPG_TEST_CONT_EQ(req.messages(), expected);
 }
 
 // Simple query
@@ -75,7 +74,7 @@ void test_simple_query()
         req,
         {0x51, 0x00, 0x00, 0x00, 0x0e, 0x73, 0x65, 0x6c, 0x65, 0x63, 0x74, 0x20, 0x31, 0x3b, 0x00}
     );
-    check_messages(req, {request_msg_type::query});
+    check_messages(req, {request_message_type::query});
 }
 
 // Query with parameters
@@ -111,11 +110,11 @@ void test_query()
     check_messages(
         req,
         {
-            request_msg_type::parse,
-            request_msg_type::bind,
-            request_msg_type::describe,
-            request_msg_type::execute,
-            request_msg_type::sync,
+            request_message_type::parse,
+            request_message_type::bind,
+            request_message_type::describe,
+            request_message_type::execute,
+            request_message_type::sync,
         }
     );
 }
@@ -151,11 +150,11 @@ void test_query_text()
     check_messages(
         req,
         {
-            request_msg_type::parse,
-            request_msg_type::bind,
-            request_msg_type::describe,
-            request_msg_type::execute,
-            request_msg_type::sync,
+            request_message_type::parse,
+            request_message_type::bind,
+            request_message_type::describe,
+            request_message_type::execute,
+            request_message_type::sync,
         }
     );
 }
@@ -181,7 +180,7 @@ void test_prepare_untyped()
     });
     // clang-format on
 
-    check_messages(req, {request_msg_type::parse, request_msg_type::sync});
+    check_messages(req, {request_message_type::parse, request_message_type::sync});
 }
 
 void test_prepare_typed()
@@ -203,7 +202,7 @@ void test_prepare_typed()
     });
     // clang-format on
 
-    check_messages(req, {request_msg_type::parse, request_msg_type::sync});
+    check_messages(req, {request_message_type::parse, request_message_type::sync});
 }
 
 // Execute
@@ -234,10 +233,10 @@ void test_execute_untyped()
     check_messages(
         req,
         {
-            request_msg_type::bind,
-            request_msg_type::describe,
-            request_msg_type::execute,
-            request_msg_type::sync,
+            request_message_type::bind,
+            request_message_type::describe,
+            request_message_type::execute,
+            request_message_type::sync,
         }
     );
 }
@@ -270,10 +269,10 @@ void test_execute_typed()
     check_messages(
         req,
         {
-            request_msg_type::bind,
-            request_msg_type::describe,
-            request_msg_type::execute,
-            request_msg_type::sync,
+            request_message_type::bind,
+            request_message_type::describe,
+            request_message_type::execute,
+            request_message_type::sync,
         }
     );
 }
@@ -311,10 +310,10 @@ void test_execute_typed_optional_args()
     check_messages(
         req,
         {
-            request_msg_type::bind,
-            request_msg_type::describe,
-            request_msg_type::execute,
-            request_msg_type::sync,
+            request_message_type::bind,
+            request_message_type::describe,
+            request_message_type::execute,
+            request_message_type::sync,
         }
     );
 }
@@ -335,7 +334,7 @@ void test_describe_statement()
     });
     // clang-format on
 
-    check_messages(req, {request_msg_type::describe, request_msg_type::sync});
+    check_messages(req, {request_message_type::describe, request_message_type::sync});
 }
 
 void test_describe_portal()
@@ -353,7 +352,7 @@ void test_describe_portal()
     });
     // clang-format on
 
-    check_messages(req, {request_msg_type::describe, request_msg_type::sync});
+    check_messages(req, {request_message_type::describe, request_message_type::sync});
 }
 
 // Close
@@ -372,7 +371,7 @@ void test_close_statement()
     });
     // clang-format on
 
-    check_messages(req, {request_msg_type::close, request_msg_type::sync});
+    check_messages(req, {request_message_type::close, request_message_type::sync});
 }
 
 void test_close_portal()
@@ -390,7 +389,7 @@ void test_close_portal()
     });
     // clang-format on
 
-    check_messages(req, {request_msg_type::close, request_msg_type::sync});
+    check_messages(req, {request_message_type::close, request_message_type::sync});
 }
 
 // Low-level
@@ -409,7 +408,7 @@ void test_bind_untyped()
     });
     // clang-format on
 
-    check_messages(req, {request_msg_type::bind});
+    check_messages(req, {request_message_type::bind});
 }
 
 void test_bind_typed()
@@ -428,7 +427,7 @@ void test_bind_typed()
     });
     // clang-format on
 
-    check_messages(req, {request_msg_type::bind});
+    check_messages(req, {request_message_type::bind});
 }
 
 // TODO: add with individual protocol messages
@@ -460,7 +459,10 @@ void test_prepare_batch()
     });
     // clang-format on
 
-    check_messages(req, {request_msg_type::parse, request_msg_type::parse, request_msg_type::sync});
+    check_messages(
+        req,
+        {request_message_type::parse, request_message_type::parse, request_message_type::sync}
+    );
 }
 
 void test_execute_batch()
@@ -501,13 +503,13 @@ void test_execute_batch()
     check_messages(
         req,
         {
-            request_msg_type::bind,
-            request_msg_type::describe,
-            request_msg_type::execute,
-            request_msg_type::bind,
-            request_msg_type::describe,
-            request_msg_type::execute,
-            request_msg_type::sync,
+            request_message_type::bind,
+            request_message_type::describe,
+            request_message_type::execute,
+            request_message_type::bind,
+            request_message_type::describe,
+            request_message_type::execute,
+            request_message_type::sync,
         }
     );
 }

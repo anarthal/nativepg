@@ -244,10 +244,12 @@ void test_parse()
 }
 
 // Parse might return an error
+// Parse errors trigger skipping of subsequent messages
 void test_parse_error()
 {
     fixture fix;
-    fix.req.add_prepare("SELECT 1", "mystmt");
+    fix.req.set_autosync(false);
+    fix.req.add_prepare("SELECT 1", "mystmt").add_prepare("SELECT 2", "stmt").add(protocol::sync{});
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::error_response{}), result_type::read);
@@ -255,16 +257,32 @@ void test_parse_error()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::error_response, 0u},
+        {response_msg_type::error_response,  0u},
+        {response_msg_type::message_skipped, 1u},
     });
 }
 
-// Parse errors trigger skipping of subsequent messages
-void test_parse_error_skipping()
+// --- Responses to bind ---
+void test_bind()
 {
     fixture fix;
-    fix.req.set_autosync(false);
-    fix.req.add_prepare("SELECT 1", "mystmt").add_prepare("SELECT 2", "stmt").add(protocol::sync{});
+    fix.req.add_bind("stmt", {}).add(protocol::sync{});
+
+    // Run the FSM
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::bind_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    // Check handler messages
+    fix.check({
+        {response_msg_type::bind_complete, 0u},
+    });
+}
+
+// Bind might return an error, triggering skipping
+void test_bind_error()
+{
+    fixture fix;
+    fix.req.add_bind("stmt", {}).add(protocol::close{}).add(protocol::sync{});
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::error_response{}), result_type::read);
@@ -386,7 +404,9 @@ int main()
 
     test_parse();
     test_parse_error();
-    test_parse_error_skipping();
+
+    test_bind();
+    test_bind_error();
 
     test_extended_query();
     test_async();

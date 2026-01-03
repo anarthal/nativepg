@@ -7,18 +7,15 @@
 
 #include <boost/assert/source_location.hpp>
 #include <boost/core/lightweight_test.hpp>
-#include <boost/system/detail/error_code.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/variant2/variant.hpp>
 
 #include <cstddef>
 #include <initializer_list>
 #include <iostream>
-#include <iterator>
 #include <ostream>
 #include <vector>
 
-#include "nativepg/client_errc.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/bind.hpp"

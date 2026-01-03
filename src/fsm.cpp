@@ -326,9 +326,32 @@ startup_fsm::result startup_fsm::resume(
     return error_code();
 }
 
+read_response_fsm_impl::result read_response_fsm_impl::handle_error(const error_response& err)
+{
+    // Call the handler with the error
+    call_handler(err);
+    ++current_;
+    resume_point_ = resume_msg_first;
+
+    // Skip subsequent messages until a sync is found
+    // TODO: we could have trouble here mixing query and advanced protocol
+    for (; current_ < req_->messages().size(); ++current_)
+    {
+        switch (req_->messages()[current_])
+        {
+            case request_message_type::sync: return result(result_type::read);
+            case request_message_type::flush: break;
+            default: call_handler(message_skipped{}); break;
+        }
+    }
+
+    BOOST_ASSERT(false);
+    return result(error_code());
+}
+
 read_response_fsm_impl::result read_response_fsm_impl::advance()
 {
-    if (++current_ == req_->messages().size())
+    if (++current_ >= req_->messages().size())
         return error_code();
     else
         return result(result_type::read);
@@ -339,20 +362,13 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_bind(const any_bac
     // bind: either (bind_complete, error_response, bind_skipped)
     switch (resume_point_)
     {
-        case resume_skipping:
-        {
-            call_handler(bind_skipped{});
-            return advance();
-        }
         case resume_msg_first:
         {
             if (const auto* err = get_if<error_response>(&msg))
             {
                 // An error finishes this message and makes the server skip everything until
                 // sync
-                resume_point_ = resume_skipping;
-                call_handler(*err);
-                return advance();
+                return handle_error(*err);
             }
             else if (const auto* complete = get_if<bind_complete>(&msg))
             {
@@ -374,20 +390,13 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_close(const any_ba
     // close: either (close_complete, error_response, close_skipped)
     switch (resume_point_)
     {
-        case resume_skipping:
-        {
-            call_handler(close_skipped{});
-            return advance();
-        }
         case resume_msg_first:
         {
             if (const auto* err = get_if<error_response>(&msg))
             {
                 // An error finishes this message and makes the server skip everything until
                 // sync
-                resume_point_ = resume_skipping;
-                call_handler(*err);
-                return advance();
+                return handle_error(*err);
             }
             else if (const auto* complete = get_if<close_complete>(&msg))
             {
@@ -416,20 +425,13 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_describe(const any
     //   describe_skipped
     switch (resume_point_)
     {
-        case resume_skipping:
-        {
-            call_handler(describe_skipped{});
-            return advance();
-        }
         case resume_msg_first:
         {
             if (const auto* err = get_if<error_response>(&msg))
             {
                 // An error finishes this message and makes the server skip everything until
                 // sync
-                resume_point_ = resume_skipping;
-                call_handler(*err);
-                return advance();
+                return handle_error(*err);
             }
             else if (const auto* descr = get_if<row_description>(&msg))
             {
@@ -461,20 +463,13 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_execute(const any_
         //   either:
         //      any number of data_row, then either (command_complete,
         //      empty_query_response, portal_suspended, error_response) execute_skipped
-        case resume_skipping:
-        {
-            call_handler(execute_skipped{});
-            return advance();
-        }
         case resume_msg_first:
         {
             if (const auto* err = get_if<error_response>(&msg))
             {
                 // An error finishes this message and makes the server skip everything
                 // until sync
-                resume_point_ = resume_skipping;
-                call_handler(*err);
-                return advance();
+                return handle_error(*err);
             }
             else if (const auto* complete = get_if<command_complete>(&msg))
             {
@@ -507,20 +502,13 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_parse(const any_ba
     // parse: either (parse_complete, error_response, parse_skipped)
     switch (resume_point_)
     {
-        case resume_skipping:
-        {
-            call_handler(parse_skipped{});
-            return advance();
-        }
         case resume_msg_first:
         {
             if (const auto* err = get_if<error_response>(&msg))
             {
                 // An error finishes this message and makes the server skip everything until
                 // sync
-                resume_point_ = resume_skipping;
-                call_handler(*err);
-                return advance();
+                return handle_error(*err);
             }
             else if (const auto* complete = get_if<parse_complete>(&msg))
             {
@@ -541,10 +529,9 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_sync(const any_bac
 {
     // sync always returns ReadyForQuery. Getting an error here is a protocol error,
     // as we don't know whether the connection is healthy or not
-    BOOST_ASSERT(resume_point_ == resume_skipping || resume_point_ == resume_msg_first);
+    BOOST_ASSERT(resume_point_ == resume_msg_first);
     if (!holds_alternative<ready_for_query>(msg))
         return error_code(client_errc::unexpected_message);
-    resume_point_ = resume_msg_first;  // we're no longer skipping messages
     return advance();
 }
 
@@ -559,19 +546,13 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
     // or query_skipped (synthesized by us)
     switch (resume_point_)
     {
-        case resume_skipping:
-        {
-            // If we're in an error in the extended protocol, nothing gets returned
-            call_handler(execute_skipped{});
-            return advance();
-        }
         case resume_msg_first:
         case resume_query_first:
         {
             if (const auto* err = get_if<error_response>(&msg))
             {
                 // An error should always be followed by ReadyForQuery
-                resume_point_ = resume_query_needs_sync;
+                resume_point_ = resume_query_needs_ready;
                 return call_handler(*err);
             }
             else if (const auto* desc = get_if<row_description>(&msg))
@@ -612,7 +593,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
             if (const auto* err = get_if<error_response>(&msg))
             {
                 // An error should always be followed by ReadyForQuery
-                resume_point_ = resume_query_needs_sync;
+                resume_point_ = resume_query_needs_ready;
                 return call_handler(*err);
             }
             else if (const auto* row = get_if<data_row>(&msg))
@@ -637,7 +618,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
                 return error_code(client_errc::unexpected_message);
             }
         }
-        case resume_query_needs_sync:
+        case resume_query_needs_ready:
         {
             // Only a sync is allowed here. Not even an error
             if (holds_alternative<ready_for_query>(msg))

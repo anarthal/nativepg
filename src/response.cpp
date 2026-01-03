@@ -173,7 +173,7 @@ handler_setup_result detail::resultset_setup(const request& req, std::size_t off
     if (*it == request_message_type::query)
     {
         ++it;
-        return {static_cast<std::size_t>(it - msgs.begin())};
+        return {static_cast<std::size_t>(it - req.messages().begin())};
     }
 
     // Otherwise, it must be an extended query sequence:
@@ -212,6 +212,6 @@ handler_setup_result detail::resultset_setup(const request& req, std::size_t off
         ++it;
 
     // If we got the execute message, we're good
-    return execute_found ? handler_setup_result{static_cast<std::size_t>(it - msgs.begin())}
+    return execute_found ? handler_setup_result{static_cast<std::size_t>(it - req.messages().begin())}
                          : handler_setup_result{client_errc::incompatible_response_type};
 }

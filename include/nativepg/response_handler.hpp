@@ -30,15 +30,10 @@ namespace nativepg {
 
 class diagnostics;
 
-// These are not actual messages, but a placeholder type to signal
+// Not an actual message, but a placeholder type to signal
 // that the corresponding message was skipped due to a previous error
-// TODO: make this a single type
 // clang-format off
-struct parse_skipped {};
-struct bind_skipped {};
-struct close_skipped {};
-struct execute_skipped {};
-struct describe_skipped {};
+struct message_skipped {};
 // clang-format on
 
 // TODO: maybe make this a class
@@ -53,11 +48,7 @@ using any_request_message = boost::variant2::variant<
     protocol::portal_suspended,
     protocol::error_response,
     protocol::parse_complete,
-    parse_skipped,
-    bind_skipped,
-    close_skipped,
-    execute_skipped,
-    describe_skipped>;
+    message_skipped>;
 
 // TODO: improve API
 struct handler_setup_result

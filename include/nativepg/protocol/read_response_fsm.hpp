@@ -16,6 +16,7 @@
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/messages.hpp"
+#include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
 
@@ -67,10 +68,9 @@ private:
     enum resume_point
     {
         resume_initial = 0,
-        resume_skipping,
         resume_msg_first,
         resume_query_first,
-        resume_query_needs_sync,
+        resume_query_needs_ready,
         resume_query_rows,
     };
 
@@ -82,6 +82,7 @@ private:
     result handle_parse(const any_backend_message&);
     result handle_sync(const any_backend_message&);
     result handle_query(const any_backend_message&);
+    result handle_error(const error_response& err);
 
     struct access;
 };

@@ -213,10 +213,7 @@ class resultset_callback_t
 
         // If any of the messages we expect was skipped due to a previous error,
         // that's an error
-        void operator()(bind_skipped) const { self.store_error(client_errc::step_skipped); }
-        void operator()(parse_skipped) const { self.store_error(client_errc::step_skipped); }
-        void operator()(describe_skipped) const { self.store_error(client_errc::step_skipped); }
-        void operator()(execute_skipped) const { self.store_error(client_errc::step_skipped); }
+        void operator()(message_skipped) const { self.store_error(client_errc::step_skipped); }
     };
 
 public:

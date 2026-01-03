@@ -482,7 +482,8 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_execute(const any_
     else if (const auto* row = get_if<data_row>(&msg))
     {
         // We got a row. This doesn't change state
-        return call_handler(*row);
+        call_handler(*row);
+        return result_type::read;
     }
     else
     {
@@ -541,14 +542,16 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
             {
                 // An error should always be followed by ReadyForQuery
                 state_ = state_t::query_needs_ready;
-                return call_handler(*err);
+                call_handler(*err);
+                return result_type::read;
             }
             else if (const auto* desc = get_if<row_description>(&msg))
             {
                 // Row descriptions are optional, and can only appear at the beginning of
                 // a resultset, but should always precede rows
                 state_ = state_t::query_rows;
-                return call_handler(*desc);
+                call_handler(*desc);
+                return result_type::read;
             }
             else if (const auto* complete = get_if<command_complete>(&msg))
             {
@@ -556,7 +559,8 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
                 // Synthesize a fake row_description to help handlers
                 state_ = state_t::query_first;
                 call_handler(row_description{});
-                return call_handler(*complete);
+                call_handler(*complete);
+                return result_type::read;
             }
             else if (const auto* eq = get_if<empty_query_response>(&msg))
             {
@@ -564,7 +568,8 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
                 if (state_ != state_t::msg_first)
                     return error_code(client_errc::unexpected_message);
                 state_ = state_t::query_needs_ready;
-                return call_handler(*eq);
+                call_handler(*eq);
+                return result_type::read;
             }
             else if (holds_alternative<ready_for_query>(msg) && state_ == state_t::query_first)
             {
@@ -583,18 +588,21 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
             {
                 // An error should always be followed by ReadyForQuery
                 state_ = state_t::query_needs_ready;
-                return call_handler(*err);
+                call_handler(*err);
+                return result_type::read;
             }
             else if (const auto* row = get_if<data_row>(&msg))
             {
                 // We got a row. This doesn't change state
-                return call_handler(*row);
+                call_handler(*row);
+                return result_type::read;
             }
             else if (const auto* complete = get_if<command_complete>(&msg))
             {
                 // This resultset is done
                 state_ = state_t::query_first;
-                return call_handler(*complete);
+                call_handler(*complete);
+                return result_type::read;
             }
             else
             {

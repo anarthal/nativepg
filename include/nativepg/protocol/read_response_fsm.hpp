@@ -59,13 +59,7 @@ private:
     std::size_t current_{};
     state_t state_{static_cast<state_t>(0)};
 
-    // TODO: move
-    result call_handler(const any_request_message& msg)
-    {
-        handler_.on_message(msg, current_);
-        return result(result_type::read);
-    }
-
+    inline void call_handler(const any_request_message& msg) { handler_.on_message(msg, current_); }
     result advance();
     result handle_bind(const any_backend_message&);
     result handle_close(const any_backend_message&);
@@ -75,8 +69,6 @@ private:
     result handle_sync(const any_backend_message&);
     result handle_query(const any_backend_message&);
     result handle_error(const error_response& err);
-
-    struct access;
 };
 
 }  // namespace detail

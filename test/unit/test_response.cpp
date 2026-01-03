@@ -8,133 +8,102 @@
 #include <boost/core/lightweight_test.hpp>
 #include <boost/system/error_code.hpp>
 
-#include <ostream>
+#include <cstddef>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/bind.hpp"
+#include "nativepg/protocol/command_complete.hpp"
 #include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/parse.hpp"
+#include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
 #include "nativepg/response_handler.hpp"
+#include "printing.hpp"
 #include "response_msg_type.hpp"
+#include "test_utils.hpp"
 
 using namespace nativepg;
 using namespace nativepg::test;
 
-// Printing
-namespace nativepg {
-
-std::ostream& operator<<(std::ostream& os, response_handler_result r)
-{
-    return os << "{ .is_done=" << r.is_done() << ", .error=" << r.error() << " }";
-}
-
-}  // namespace nativepg
-
 namespace {
+
+// Templating on num_msgs tests that we support heterogeneous types
+template <std::size_t num_msgs>
+struct mock_handler
+{
+    std::vector<on_msg_args> msgs;
+    extended_error err;
+
+    handler_setup_result setup(const request&, std::size_t offset) { return {offset + num_msgs}; }
+    void on_message(const any_request_message& msg, std::size_t offset)
+    {
+        msgs.push_back({to_type(msg), offset});
+    }
+    const extended_error& result() const { return err; }
+};
 
 // Success case
 void test_success_two_handlers()
 {
-    // Setup
-    std::vector<response_msg_type> msgs1, msgs2;
+    // Test setup
+    request req;
+    req.add_query("SELECT 1", {});
+    response res{mock_handler<2>{}, mock_handler<3>{}};
 
-    auto h1 = [&msgs1](const any_request_message& msg, diagnostics&) {
-        msgs1.push_back(to_type(msg));
-        return response_handler_result({}, msgs1.size() >= 2u);
-    };
+    // Handler setup
+    BOOST_TEST_EQ(res.setup(req, 0u), handler_setup_result(5u));
 
-    auto h2 = [&msgs2](const any_request_message& msg, diagnostics&) {
-        msgs2.push_back(to_type(msg));
-        return response_handler_result::done({});
-    };
+    // The 1st handler manages the first 2 request messages, the 2nd the other ones
+    res.on_message(protocol::parse_complete{}, 0u);
+    res.on_message(protocol::bind_complete{}, 1u);
+    res.on_message(protocol::row_description{}, 2u);
+    res.on_message(protocol::data_row{}, 3u);
+    res.on_message(protocol::command_complete{}, 3u);
 
-    response res{h1, h2};
-    diagnostics diag;
-
-    // The 1st handler needs 2 messages, the 2nd one just one
-    auto r = res(protocol::row_description{}, diag);
-    BOOST_TEST_EQ(r, response_handler_result::needs_more());
-    r = res(protocol::data_row{}, diag);
-    BOOST_TEST_EQ(r, response_handler_result::needs_more());
-    r = res(protocol::row_description{}, diag);
-    BOOST_TEST_EQ(r, response_handler_result::done({}));  // done
-
-    // Passing another message is an error
-    r = res(protocol::data_row{}, diag);
-    BOOST_TEST_EQ(r, response_handler_result::done(client_errc::incompatible_response_length));
+    // Result
+    BOOST_TEST_EQ(res.result(), extended_error{});
 
     // Check messages
-    std::array expected1{response_msg_type::row_description, response_msg_type::data_row};
-    std::array expected2{response_msg_type::row_description};
-    BOOST_TEST_ALL_EQ(msgs1.begin(), msgs1.end(), expected1.begin(), expected1.end());
-    BOOST_TEST_ALL_EQ(msgs2.begin(), msgs2.end(), expected2.begin(), expected2.end());
+    const on_msg_args expected1[] = {
+        {response_msg_type::parse_complete, 0u},
+        {response_msg_type::bind_complete,  1u},
+    };
+    const on_msg_args expected2[] = {
+        {response_msg_type::row_description,  2u},
+        {response_msg_type::data_row,         3u},
+        {response_msg_type::command_complete, 3u},
+    };
+    NATIVEPG_TEST_CONT_EQ(std::get<0>(res.handlers()).msgs, expected1);
+    NATIVEPG_TEST_CONT_EQ(std::get<1>(res.handlers()).msgs, expected2);
 }
 
-// Errors are propagated, and are independent of whether the handler needs more or not
+// The 1st handler that returns an error is chosen as the overall error
 void test_errors()
 {
     // Setup
-    std::vector<response_msg_type> msgs1, msgs2, msgs3;
+    response res{mock_handler<1>{}, mock_handler<1>{}, mock_handler<1>{}, mock_handler<1>{}};
+    std::get<1>(res.handlers()).err = {client_errc::field_not_found, std::string("error")};
+    std::get<2>(res.handlers()).err = {client_errc::incompatible_field_type, std::string("other")};
 
-    auto h1 = [&msgs1](const any_request_message& msg, diagnostics&) {
-        msgs1.push_back(to_type(msg));
-        return response_handler_result(client_errc::exec_server_error, msgs1.size() >= 2u);
-    };
-
-    auto h2 = [&msgs2](const any_request_message& msg, diagnostics&) {
-        msgs2.push_back(to_type(msg));
-        return response_handler_result::done({});
-    };
-
-    auto h3 = [&msgs3](const any_request_message& msg, diagnostics&) {
-        msgs3.push_back(to_type(msg));
-        return response_handler_result::done(client_errc::incompatible_field_type);
-    };
-
-    response res{h1, h2, h3};
-    diagnostics diag;
-
-    // h1 needs 2 messages, h2 needs 1, h3 needs 1
-    auto r = res(protocol::row_description{}, diag);
-    BOOST_TEST_EQ(r, response_handler_result::needs_more(client_errc::exec_server_error));
-    r = res(protocol::data_row{}, diag);
-    BOOST_TEST_EQ(r, response_handler_result::needs_more(client_errc::exec_server_error));
-    r = res(protocol::parse_complete{}, diag);
-    BOOST_TEST_EQ(r, response_handler_result::needs_more({}));
-    r = res(protocol::bind_complete{}, diag);
-    BOOST_TEST_EQ(r, response_handler_result::done(client_errc::incompatible_field_type));
-
-    // Check messages
-    std::array expected1{response_msg_type::row_description, response_msg_type::data_row};
-    std::array expected2{response_msg_type::parse_complete};
-    std::array expected3{response_msg_type::bind_complete};
-    BOOST_TEST_ALL_EQ(msgs1.begin(), msgs1.end(), expected1.begin(), expected1.end());
-    BOOST_TEST_ALL_EQ(msgs2.begin(), msgs2.end(), expected2.begin(), expected2.end());
-    BOOST_TEST_ALL_EQ(msgs3.begin(), msgs3.end(), expected3.begin(), expected3.end());
+    const extended_error expected{client_errc::field_not_found, std::string("error")};
+    BOOST_TEST_EQ(res.result(), expected);
 }
 
 // The deduction guide works correctly
 void test_deduction_guide()
 {
-    struct h1_t
-    {
-        response_handler_result operator()(const any_request_message&, diagnostics&) { return {}; }
-    };
-    struct h2_t
-    {
-        response_handler_result operator()(const any_request_message&, diagnostics&) { return {}; }
-    };
+    using h1 = mock_handler<1>;
+    using h2 = mock_handler<2>;
 
-    h1_t h1_lvalue;
-    const h1_t h1_const;
+    h1 h1_lvalue;
+    const h1 h1_const;
 
-    response res{h1_lvalue, h1_const, h1_t{}, h2_t{}};
+    response res{h1_lvalue, h1_const, h1{}, h2{}};
 
-    static_assert(std::is_same_v<decltype(res), response<h1_t, h1_t, h1_t, h2_t>>);
+    static_assert(std::is_same_v<decltype(res), response<h1, h1, h1, h2>>);
 }
 
 }  // namespace

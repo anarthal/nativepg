@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "nativepg/extended_error.hpp"
+#include "nativepg/response_handler.hpp"
 #include "printing.hpp"
 #include "test_utils.hpp"
 
@@ -50,4 +51,12 @@ void nativepg::test::print_context()
 std::ostream& nativepg::operator<<(std::ostream& os, const extended_error& err)
 {
     return os << "{ .code=" << err.code << ", .diag=" << err.diag.message() << "}";
+}
+
+std::ostream& nativepg::operator<<(std::ostream& os, const handler_setup_result& value)
+{
+    if (value.ec)
+        return os << "{ .ec=" << value.ec << " }";
+    else
+        return os << "{ .offset=" << value.offset << " }";
 }

@@ -69,18 +69,6 @@ std::ostream& operator<<(std::ostream& os, const read_response_fsm_impl::result&
 namespace {
 
 // A handler that just stores its arguments
-struct on_msg_args
-{
-    response_msg_type type;
-    std::size_t offset;
-
-    friend bool operator==(const on_msg_args&, const on_msg_args&) = default;
-    friend std::ostream& operator<<(std::ostream& os, const on_msg_args& v)
-    {
-        return os << "{ " << to_string(v.type) << ", " << v.offset << " }";
-    }
-};
-
 struct mock_handler
 {
     std::vector<on_msg_args> msgs;

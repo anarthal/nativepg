@@ -37,19 +37,6 @@ using boost::system::error_code;
 using protocol::format_code;
 using namespace std::string_view_literals;
 
-// Printing
-namespace nativepg {
-
-std::ostream& operator<<(std::ostream& os, handler_setup_result r)
-{
-    if (r.ec)
-        return os << "{ .ec=" << r.ec << " }";
-    else
-        return os << "{ .offset=" << r.offset << " }";
-}
-
-}  // namespace nativepg
-
 namespace {
 
 struct owning_row_description

@@ -13,8 +13,10 @@
 namespace nativepg {
 
 struct extended_error;
-
 std::ostream& operator<<(std::ostream&, const extended_error&);
+
+struct handler_setup_result;
+std::ostream& operator<<(std::ostream& os, const handler_setup_result&);
 
 }  // namespace nativepg
 

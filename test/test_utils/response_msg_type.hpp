@@ -75,6 +75,18 @@ inline response_msg_type to_type(const any_request_message& msg)
     return boost::variant2::visit(visitor{}, msg);
 }
 
+struct on_msg_args
+{
+    response_msg_type type;
+    std::size_t offset;
+
+    friend bool operator==(const on_msg_args&, const on_msg_args&) = default;
+    friend std::ostream& operator<<(std::ostream& os, const on_msg_args& v)
+    {
+        return os << "{ " << to_string(v.type) << ", " << v.offset << " }";
+    }
+};
+
 }  // namespace nativepg::test
 
 #endif

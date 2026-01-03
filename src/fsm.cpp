@@ -369,7 +369,7 @@ read_response_fsm_impl::result read_response_fsm_impl::advance()
 
 read_response_fsm_impl::result read_response_fsm_impl::handle_bind(const any_backend_message& msg)
 {
-    // bind: either (bind_complete, error_response, bind_skipped)
+    // bind: either (bind_complete, error_response)
     BOOST_ASSERT(state_ == state_t::msg_first);
     if (const auto* err = get_if<error_response>(&msg))
     {
@@ -391,7 +391,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_bind(const any_bac
 
 read_response_fsm_impl::result read_response_fsm_impl::handle_close(const any_backend_message& msg)
 {
-    // close: either (close_complete, error_response, close_skipped)
+    // close: either (close_complete, error_response)
     BOOST_ASSERT(state_ == state_t::msg_first);
     if (const auto* err = get_if<error_response>(&msg))
     {
@@ -416,11 +416,10 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_close(const any_ba
 read_response_fsm_impl::result read_response_fsm_impl::handle_describe(const any_backend_message& msg)
 {
     // describe (portal)
-    //   either: row_description, no_data, error_response, describe_skipped
+    //   either: row_description, no_data, error_response
     // describe (statement) TODO: support this. Either
     //   parameter_description, then either (row_description, no_data)
     //   error_response
-    //   describe_skipped
     BOOST_ASSERT(state_ == state_t::msg_first);
     if (const auto* err = get_if<error_response>(&msg))
     {
@@ -449,10 +448,9 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_describe(const any
 
 read_response_fsm_impl::result read_response_fsm_impl::handle_execute(const any_backend_message& msg)
 {
-    // execute
-    //   either:
-    //      any number of data_row, then either (command_complete,
-    //      empty_query_response, portal_suspended, error_response) execute_skipped
+    // execute: either:
+    //   any number of data_row, then either (command_complete, portal_suspended, error_response)
+    //   empty_query_response
     BOOST_ASSERT(state_ == state_t::msg_first);
     if (const auto* err = get_if<error_response>(&msg))
     {
@@ -493,7 +491,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_execute(const any_
 
 read_response_fsm_impl::result read_response_fsm_impl::handle_parse(const any_backend_message& msg)
 {
-    // parse: either (parse_complete, error_response, parse_skipped)
+    // parse: either (parse_complete, error_response)
     BOOST_ASSERT(state_ == state_t::msg_first);
     if (const auto* err = get_if<error_response>(&msg))
     {
@@ -529,10 +527,9 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
     //    at least one
     //        optional row_description (we synthesize one of not present)
     //        any number of data_row
-    //        finalizer: command_complete, empty_query_response, error_response
+    //        finalizer: command_complete, error_response
     //    ready_for_query
     // or empty_query_response
-    // or message_skipped (synthesized by us)
     switch (state_)
     {
         case state_t::msg_first:

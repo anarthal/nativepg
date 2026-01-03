@@ -12,6 +12,8 @@
 #include <string_view>
 #include <vector>
 
+#include "nativepg/extended_error.hpp"
+#include "printing.hpp"
 #include "test_utils.hpp"
 
 namespace {
@@ -42,4 +44,10 @@ void nativepg::test::print_context()
     BOOST_LIGHTWEIGHT_TEST_OSTREAM << "Failure occurred in the following context:\n";
     for (auto it = context.rbegin(); it != context.rend(); ++it)
         BOOST_LIGHTWEIGHT_TEST_OSTREAM << "  " << it->loc << ": " << it->message << '\n';
+}
+
+// --- Printing ---
+std::ostream& nativepg::operator<<(std::ostream& os, const extended_error& err)
+{
+    return os << "{ .code=" << err.code << ", .diag=" << err.diag.message() << "}";
 }

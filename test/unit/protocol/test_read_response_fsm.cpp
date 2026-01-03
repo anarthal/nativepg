@@ -564,6 +564,34 @@ void test_several_syncs()
     });
 }
 
+// Error skipping ends when we encounter a sync
+void test_error_recovery()
+{
+    fixture fix;
+    fix.req.add_close_statement("abc");
+    fix.req.add_query("SELECT 1", {});
+    fix.req.add_describe_portal("def");
+
+    // Run the FSM
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::close_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::parse_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::error_response{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    // Check handler messages
+    fix.check({
+        {response_msg_type::close_complete,  0u},
+        {response_msg_type::parse_complete,  2u},
+        {response_msg_type::error_response,  3u},
+        {response_msg_type::message_skipped, 4u},
+        {response_msg_type::message_skipped, 5u},
+        {response_msg_type::row_description, 7u},
+    });
+}
+
 // TODO: test combining simple queries and extended queries
 // TODO: test flush
 
@@ -601,6 +629,7 @@ int main()
     test_extended_query();
     test_async();
     test_several_syncs();
+    test_error_recovery();
 
     return boost::report_errors();
 }

@@ -383,6 +383,7 @@ void test_error_incompatible_field_type()
 // TODO: queries with no data
 // TODO: properly test all types and what they support
 // TODO: all error conditions when parsing
+// TODO: test the setup() function
 
 }  // namespace
 

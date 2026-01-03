@@ -327,12 +327,20 @@ startup_fsm::result startup_fsm::resume(
     return error_code();
 }
 
+enum class read_response_fsm_impl::state_t
+{
+    resume_msg_first = 0,
+    resume_query_first,
+    resume_query_needs_ready,
+    resume_query_rows,
+};
+
 read_response_fsm_impl::result read_response_fsm_impl::handle_error(const error_response& err)
 {
     // Call the handler with the error
     call_handler(err);
     ++current_;
-    resume_point_ = resume_msg_first;
+    state_ = state_t::resume_msg_first;
 
     // Skip subsequent messages until a sync is found
     // We should always find one because we check that this is the case
@@ -362,7 +370,7 @@ read_response_fsm_impl::result read_response_fsm_impl::advance()
 read_response_fsm_impl::result read_response_fsm_impl::handle_bind(const any_backend_message& msg)
 {
     // bind: either (bind_complete, error_response, bind_skipped)
-    BOOST_ASSERT(resume_point_ == resume_msg_first);
+    BOOST_ASSERT(state_ == state_t::resume_msg_first);
     if (const auto* err = get_if<error_response>(&msg))
     {
         // An error finishes this message and makes the server skip everything until
@@ -384,7 +392,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_bind(const any_bac
 read_response_fsm_impl::result read_response_fsm_impl::handle_close(const any_backend_message& msg)
 {
     // close: either (close_complete, error_response, close_skipped)
-    BOOST_ASSERT(resume_point_ == resume_msg_first);
+    BOOST_ASSERT(state_ == state_t::resume_msg_first);
     if (const auto* err = get_if<error_response>(&msg))
     {
         // An error finishes this message and makes the server skip everything until
@@ -413,7 +421,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_describe(const any
     //   parameter_description, then either (row_description, no_data)
     //   error_response
     //   describe_skipped
-    BOOST_ASSERT(resume_point_ == resume_msg_first);
+    BOOST_ASSERT(state_ == state_t::resume_msg_first);
     if (const auto* err = get_if<error_response>(&msg))
     {
         // An error finishes this message and makes the server skip everything until
@@ -445,7 +453,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_execute(const any_
     //   either:
     //      any number of data_row, then either (command_complete,
     //      empty_query_response, portal_suspended, error_response) execute_skipped
-    BOOST_ASSERT(resume_point_ == resume_msg_first);
+    BOOST_ASSERT(state_ == state_t::resume_msg_first);
     if (const auto* err = get_if<error_response>(&msg))
     {
         // An error finishes this message and makes the server skip everything
@@ -485,7 +493,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_execute(const any_
 read_response_fsm_impl::result read_response_fsm_impl::handle_parse(const any_backend_message& msg)
 {
     // parse: either (parse_complete, error_response, parse_skipped)
-    BOOST_ASSERT(resume_point_ == resume_msg_first);
+    BOOST_ASSERT(state_ == state_t::resume_msg_first);
     if (const auto* err = get_if<error_response>(&msg))
     {
         // An error finishes this message and makes the server skip everything until
@@ -508,7 +516,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_sync(const any_bac
 {
     // sync always returns ReadyForQuery. Getting an error here is a protocol error,
     // as we don't know whether the connection is healthy or not
-    BOOST_ASSERT(resume_point_ == resume_msg_first);
+    BOOST_ASSERT(state_ == state_t::resume_msg_first);
     if (!holds_alternative<ready_for_query>(msg))
         return error_code(client_errc::unexpected_message);
     return advance();
@@ -524,44 +532,44 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
     //    ready_for_query
     // or empty_query_response
     // or message_skipped (synthesized by us)
-    switch (resume_point_)
+    switch (state_)
     {
-        case resume_msg_first:
-        case resume_query_first:
+        case state_t::resume_msg_first:
+        case state_t::resume_query_first:
         {
             if (const auto* err = get_if<error_response>(&msg))
             {
                 // An error should always be followed by ReadyForQuery
-                resume_point_ = resume_query_needs_ready;
+                state_ = state_t::resume_query_needs_ready;
                 return call_handler(*err);
             }
             else if (const auto* desc = get_if<row_description>(&msg))
             {
                 // Row descriptions are optional, and can only appear at the beginning of
                 // a resultset, but should always precede rows
-                resume_point_ = resume_query_rows;
+                state_ = state_t::resume_query_rows;
                 return call_handler(*desc);
             }
             else if (const auto* complete = get_if<command_complete>(&msg))
             {
                 // Query might return command_complete directly, without NoData.
                 // Synthesize a fake row_description to help handlers
-                resume_point_ = resume_query_first;
+                state_ = state_t::resume_query_first;
                 call_handler(row_description{});
                 return call_handler(*complete);
             }
             else if (const auto* eq = get_if<empty_query_response>(&msg))
             {
                 // Only allowed as the first and only message. Signals that there was no query to begin with
-                if (resume_point_ != resume_msg_first)
+                if (state_ != state_t::resume_msg_first)
                     return error_code(client_errc::unexpected_message);
-                resume_point_ = resume_query_needs_ready;
+                state_ = state_t::resume_query_needs_ready;
                 return call_handler(*eq);
             }
-            else if (holds_alternative<ready_for_query>(msg) && resume_point_ == resume_query_first)
+            else if (holds_alternative<ready_for_query>(msg) && state_ == state_t::resume_query_first)
             {
                 // Not allowed as the only response to a query
-                resume_point_ = resume_msg_first;
+                state_ = state_t::resume_msg_first;
                 return advance();
             }
             else
@@ -569,12 +577,12 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
                 return error_code(client_errc::unexpected_message);
             }
         }
-        case resume_query_rows:
+        case state_t::resume_query_rows:
         {
             if (const auto* err = get_if<error_response>(&msg))
             {
                 // An error should always be followed by ReadyForQuery
-                resume_point_ = resume_query_needs_ready;
+                state_ = state_t::resume_query_needs_ready;
                 return call_handler(*err);
             }
             else if (const auto* row = get_if<data_row>(&msg))
@@ -585,7 +593,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
             else if (const auto* complete = get_if<command_complete>(&msg))
             {
                 // This resultset is done
-                resume_point_ = resume_query_first;
+                state_ = state_t::resume_query_first;
                 return call_handler(*complete);
             }
             else
@@ -593,13 +601,13 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
                 return error_code(client_errc::unexpected_message);
             }
         }
-        case resume_query_needs_ready:
+        case state_t::resume_query_needs_ready:
         {
             // Only a sync is allowed here. Not even an error
             if (holds_alternative<ready_for_query>(msg))
             {
                 // We're done with the current message
-                resume_point_ = resume_msg_first;
+                state_ = state_t::resume_msg_first;
                 return advance();
             }
             else

@@ -52,10 +52,12 @@ public:
     result resume(const any_backend_message& msg);
 
 private:
+    enum class state_t;
+
     const request* req_;
     response_handler_ref handler_;
     std::size_t current_{};
-    int resume_point_{0};
+    state_t state_{static_cast<state_t>(0)};
 
     // TODO: move
     result call_handler(const any_request_message& msg)
@@ -63,14 +65,6 @@ private:
         handler_.on_message(msg, current_);
         return result(result_type::read);
     }
-
-    enum resume_point
-    {
-        resume_msg_first,
-        resume_query_first,
-        resume_query_needs_ready,
-        resume_query_rows,
-    };
 
     result advance();
     result handle_bind(const any_backend_message&);

@@ -12,6 +12,7 @@
 #include <boost/variant2/variant.hpp>
 
 #include <concepts>
+#include <cstddef>
 
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/bind.hpp"
@@ -23,6 +24,7 @@
 #include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/parse.hpp"
+#include "nativepg/request.hpp"
 
 namespace nativepg {
 
@@ -30,6 +32,7 @@ class diagnostics;
 
 // These are not actual messages, but a placeholder type to signal
 // that the corresponding message was skipped due to a previous error
+// TODO: make this a single type
 // clang-format off
 struct parse_skipped {};
 struct bind_skipped {};
@@ -56,36 +59,55 @@ using any_request_message = boost::variant2::variant<
     execute_skipped,
     describe_skipped>;
 
-template <class T>
-concept response_handler = requires(T& handler, const any_request_message& msg, diagnostics& diag) {
-    { handler.on_message(msg) };
-    { handler.result() } -> std::convertible_to<extended_error>;
+// TODO: improve API
+struct handler_setup_result
+{
+    boost::system::error_code ec;
+    std::size_t offset{};
+
+    handler_setup_result(boost::system::error_code ec) noexcept : ec(ec) {}
+    handler_setup_result(std::size_t offset) noexcept : offset(offset) {}
 };
 
-enum class handler_status
-{
-    needs_more,
-    done,
+template <class T>
+concept response_handler = requires(
+    T& handler,
+    const request& req,
+    const any_request_message& msg,
+    diagnostics& diag,
+    std::size_t offset
+) {
+    { handler.setup(req, offset) } -> std::convertible_to<handler_setup_result>;
+    { handler.on_message(msg, offset) };
+    { handler.result() } -> std::same_as<const extended_error&>;
 };
 
 // Type-erased reference to a response handler
 class response_handler_ref
 {
-    using on_message_fn = handler_status (*)(void*, const any_request_message&);
-    using result_fn = extended_error (*)(const void*);
+    using setup_fn = handler_setup_result (*)(void*, const request&, std::size_t);
+    using on_message_fn = void (*)(void*, const any_request_message&, std::size_t);
+    using result_fn = const extended_error& (*)(const void*);
 
     void* obj_;
+    setup_fn setup_;
     on_message_fn on_message_;
     result_fn result_;
 
     template <class T>
-    static handler_status do_on_message(void* obj, const any_request_message& msg)
+    static handler_setup_result do_setup(void* obj, const request& req, std::size_t offset)
     {
-        return static_cast<T*>(obj)->on_message(msg);
+        return static_cast<T*>(obj)->setup(req, offset);
     }
 
     template <class T>
-    static extended_error do_result(const void* obj)
+    static void do_on_message(void* obj, const any_request_message& msg, std::size_t offset)
+    {
+        static_cast<T*>(obj)->on_message(msg, offset);
+    }
+
+    template <class T>
+    static const extended_error& do_result(const void* obj)
     {
         return static_cast<const T*>(obj)->result();
     }
@@ -93,12 +115,17 @@ class response_handler_ref
 public:
     template <response_handler T>
         requires(!std::same_as<T, response_handler_ref>)
-    response_handler_ref(T& obj) noexcept : obj_(&obj), on_message_(&do_on_message<T>), result_(&do_result<T>)
+    response_handler_ref(T& obj) noexcept
+        : obj_(&obj), setup_(&do_setup<T>), on_message_(&do_on_message<T>), result_(&do_result<T>)
     {
     }
 
-    handler_status on_message(const any_request_message& req) { return on_message_(obj_, req); }
-    extended_error result() const { return result_(obj_); }
+    handler_setup_result setup(const request& req, std::size_t offset) { return setup_(obj_, req, offset); }
+    void on_message(const any_request_message& req, std::size_t offset)
+    {
+        return on_message_(obj_, req, offset);
+    }
+    const extended_error& result() const { return result_(obj_); }
 };
 
 }  // namespace nativepg

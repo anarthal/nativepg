@@ -54,20 +54,13 @@ public:
 private:
     const request* req_;
     response_handler_ref handler_;
-    bool handler_finished_{};
     std::size_t current_{};
     int resume_point_{0};
 
     // TODO: move
     result call_handler(const any_request_message& msg)
     {
-        handler_status res = handler_.on_message(msg);
-
-        // If the handler is done, remember this fact
-        if (res == handler_status::done)
-            handler_finished_ = true;
-
-        // In any case, we need to keep reading until all the expected messages are received
+        handler_.on_message(msg, current_);
         return result(result_type::read);
     }
 

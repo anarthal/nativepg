@@ -35,6 +35,8 @@
 #include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/parse.hpp"
+#include "nativepg/protocol/views.hpp"
+#include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
 
 namespace nativepg {
@@ -92,51 +94,34 @@ class resultset_callback_t
     {
         resultset_callback_t& self;
 
-        // Error on unexpected messages
+        // We shouldn't get any unexpected messages
         template <class Msg>
-        handler_status operator()(const Msg&) const
+        void operator()(const Msg&) const
         {
-            self.store_error(client_errc::incompatible_response_type);
-            return handler_status::done;
+            BOOST_ASSERT(false);
         }
 
-        // On error, fail the entire operation.
+        // If the server sends an error, store it.
+        // We know this is the last message in the sequence.
         // TODO: this must be reviewed
-        handler_status operator()(const protocol::error_response& err) const
+        void operator()(const protocol::error_response& err) const
         {
             if (!self.err_.code)
             {
                 self.err_.code = client_errc::exec_server_error;
                 self.err_.diag.assign(err);
             }
-            return handler_status::done;
         }
 
         // Ignore messages that may or may not appear
-        handler_status on_parse_bind_complete() const
-        {
-            if (self.state_ == state_t::parsing_meta)
-            {
-                return handler_status::needs_more;
-            }
-            else
-            {
-                self.store_error(client_errc::incompatible_response_type);
-                return handler_status::done;
-            }
-        }
-        handler_status operator()(protocol::parse_complete) const { return on_parse_bind_complete(); }
-        handler_status operator()(protocol::bind_complete) const { return on_parse_bind_complete(); }
+        void operator()(protocol::parse_complete) const {}
+        void operator()(protocol::bind_complete) const {}
 
         // Metadata
-        handler_status operator()(const protocol::row_description& msg) const
+        void operator()(const protocol::row_description& msg) const
         {
             // State check
-            if (self.state_ != state_t::parsing_meta)
-            {
-                self.store_error(client_errc::incompatible_response_type);
-                return handler_status::done;
-            }
+            BOOST_ASSERT(self.state_ == state_t::parsing_meta);
 
             // We now expect the rows and the CommandComplete
             self.state_ = state_t::parsing_data;
@@ -146,7 +131,7 @@ class resultset_callback_t
             if (ec)
             {
                 self.store_error(ec);
-                return handler_status::needs_more;  // we will just ignore rows
+                return;  // we will just ignore rows
             }
 
             // Metadata check
@@ -164,25 +149,19 @@ class resultset_callback_t
             if (ec)
             {
                 self.store_error(ec);
-                return handler_status::needs_more;
+                return;
             }
-
-            return handler_status::needs_more;
         }
 
-        handler_status operator()(const protocol::data_row& msg) const
+        void operator()(const protocol::data_row& msg) const
         {
             // State check
-            if (self.state_ != state_t::parsing_data)
-            {
-                self.store_error(client_errc::incompatible_response_type);
-                return handler_status::done;
-            }
+            BOOST_ASSERT(self.state_ == state_t::parsing_data);
 
             // If there was a previous failure, the field descriptions may not be present and
             // it's not safe to parse. We still need to get to the CommandComplete message
             if (self.err_.code)
-                return handler_status::needs_more;
+                return;
 
             // TODO: check that data_row has the appropriate size
 
@@ -207,57 +186,35 @@ class resultset_callback_t
             if (ec)
             {
                 self.store_error(ec);
-                return handler_status::needs_more;
+                return;
             }
 
             // Invoke the user-supplied callback
             self.cb_(std::move(row));
 
             // We still need the CommandComplete message
-            return handler_status::needs_more;
         }
 
-        handler_status on_done() const
+        void on_done() const
         {
             // State check
-            if (self.state_ != state_t::parsing_data)
-            {
-                self.store_error(client_errc::incompatible_response_type);
-                return handler_status::done;
-            }
+            BOOST_ASSERT(self.state_ == state_t::parsing_data);
 
             // Done
             self.state_ = state_t::done;
-            return handler_status::done;
         }
 
-        handler_status operator()(protocol::command_complete) const { return on_done(); }
+        void operator()(protocol::command_complete) const { return on_done(); }
 
         // TODO: this should be transmitted to the user somehow
-        handler_status operator()(protocol::portal_suspended) const { return on_done(); }
+        void operator()(protocol::portal_suspended) const { return on_done(); }
 
         // If any of the messages we expect was skipped due to a previous error,
         // that's an error
-        handler_status operator()(bind_skipped) const
-        {
-            self.store_error(client_errc::step_skipped);
-            return handler_status::needs_more;
-        }
-        handler_status operator()(parse_skipped) const
-        {
-            self.store_error(client_errc::step_skipped);
-            return handler_status::needs_more;
-        }
-        handler_status operator()(describe_skipped) const
-        {
-            self.store_error(client_errc::step_skipped);
-            return handler_status::needs_more;
-        }
-        handler_status operator()(execute_skipped) const
-        {
-            self.store_error(client_errc::step_skipped);
-            return handler_status::done;
-        }
+        void operator()(bind_skipped) const { self.store_error(client_errc::step_skipped); }
+        void operator()(parse_skipped) const { self.store_error(client_errc::step_skipped); }
+        void operator()(describe_skipped) const { self.store_error(client_errc::step_skipped); }
+        void operator()(execute_skipped) const { self.store_error(client_errc::step_skipped); }
     };
 
 public:
@@ -266,9 +223,67 @@ public:
     {
     }
 
-    handler_status on_message(const any_request_message& msg)
+    // TODO: move to compiled
+    handler_setup_result setup(const request& req, std::size_t offset)
     {
-        return boost::variant2::visit(visitor{*this}, msg);
+        const auto msgs = req.messages().subspan(offset);
+        bool describe_found = false, execute_found = false;
+        auto it = msgs.begin();
+
+        // Skip any leading syncs
+        while (it != msgs.end() && (*it == request_message_type::sync || *it == request_message_type::flush))
+            ++it;
+
+        // The original message may be a query. In this case, it must be the only message
+        if (*it == request_message_type::query)
+        {
+            ++it;
+            return {static_cast<std::size_t>(it - msgs.begin())};
+        }
+
+        // Otherwise, it must be an extended query sequence:
+        //   optional parse
+        //   optional bind
+        //   exactly one describe portal
+        //   exactly one execute
+        // There may be flush messages, but no sync messages in between
+        //   (otherwise, error behavior becomes unreliable)
+        for (; it != msgs.end() && !execute_found; ++it)
+        {
+            switch (*it)
+            {
+                // Ignore parse, bind and flush messages
+                case request_message_type::flush:
+                case request_message_type::parse:
+                case request_message_type::bind: continue;
+                case request_message_type::describe:
+                    if (describe_found)
+                        return handler_setup_result(client_errc::incompatible_response_type);
+                    else
+                        describe_found = true;
+                    break;
+                case request_message_type::execute:
+                    if (!describe_found || execute_found)
+                        return handler_setup_result(client_errc::incompatible_response_type);
+                    else
+                        execute_found = true;
+                    break;
+                default: return handler_setup_result(client_errc::incompatible_response_type);
+            }
+        }
+
+        // Skip any further sync messages
+        while (it != msgs.end() && (*it == request_message_type::sync || *it == request_message_type::flush))
+            ++it;
+
+        // If we got the execute message, we're good
+        return execute_found ? handler_setup_result{static_cast<std::size_t>(it - msgs.begin())}
+                             : handler_setup_result{client_errc::incompatible_response_type};
+    }
+
+    void on_message(const any_request_message& msg, std::size_t)
+    {
+        boost::variant2::visit(visitor{*this}, msg);
     }
 
     const extended_error& result() const { return err_; }
@@ -307,6 +322,7 @@ class response
 
     std::tuple<Handlers...> handlers_;
     std::array<response_handler_ref, N> vtable_;
+    std::array<std::size_t, N> offsets_{};
     std::size_t current_{};
     extended_error err_{};
 
@@ -332,36 +348,41 @@ public:
     response(response&&) = delete;
     response& operator=(response&&) = delete;
 
-    handler_status on_message(const any_request_message& msg)
+    handler_setup_result setup(const request& req, std::size_t offset)
     {
-        // If we're done and another message is received, that's an error
-        if (current_ >= N)
+        for (std::size_t i = 0u; i < N; ++i)
         {
-            store_error(client_errc::incompatible_response_length);
-            return handler_status::done;
+            handler_setup_result res = vtable_[i].setup(req, offset);
+            if (res.ec)
+                return res;
+            offsets_[i] = res.offset;
+            offset = res.offset;
         }
-
-        response_handler_ref cur_ref = vtable_[current_];
-
-        // Call the handler
-        handler_status res = cur_ref.on_message(msg);
-
-        // If the handler is done, advance to the next one
-        if (res == handler_status::done)
-        {
-            // Store the result
-            if (!err_.code)
-                err_ = cur_ref.result();
-
-            // Are we done yet?
-            bool all_done = ++current_ == N;
-            return all_done ? handler_status::done : handler_status::needs_more;
-        }
-
-        return handler_status::needs_more;
+        return {offset};
     }
 
-    const extended_error& result() const { return err_; }
+    void on_message(const any_request_message& msg, std::size_t offset)
+    {
+        // Advance to the next element, if required
+        if (offset >= offsets_[current_])
+            ++current_;
+        BOOST_ASSERT(offset < offsets_[current_]);
+
+        // Hand the message to the appropriate handler
+        vtable_[current_].on_message(msg, offset);
+    }
+
+    const extended_error& result() const
+    {
+        static_assert(N > 0);
+        for (auto& elm : vtable_)
+        {
+            const auto& res = elm.result();
+            if (res.code)
+                return res;
+        }
+        return vtable_[0].result();
+    }
 
     const auto& handlers() const& { return handlers_; }
     auto& handlers() & { return handlers_; }

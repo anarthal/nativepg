@@ -329,13 +329,9 @@ startup_fsm::result startup_fsm::resume(
 read_response_fsm_impl::result read_response_fsm_impl::advance()
 {
     if (++current_ == req_->messages().size())
-    {
-        return handler_finished_ ? error_code() : error_code(client_errc::incompatible_response_length);
-    }
+        return error_code();
     else
-    {
         return result(result_type::read);
-    }
 }
 
 read_response_fsm_impl::result read_response_fsm_impl::handle_bind(const any_backend_message& msg)
@@ -773,9 +769,19 @@ exec_fsm::result exec_fsm::resume(
     std::size_t bytes_transferred
 )
 {
-    if (is_writing_)
+    if (initial_)
     {
-        is_writing_ = false;
+        initial_ = false;
+
+        // Perform the response setup
+        const request& req = read_fsm_.get_request();
+        auto res = read_fsm_.get_handler().setup(req, 0u);
+        if (res.ec)
+            return result(res.ec);
+        if (res.offset != req.messages().size())
+            return result(client_errc::incompatible_response_length);
+
+        // Write the request
         return result::write(read_fsm_.get_request().payload());
     }
 

@@ -39,7 +39,7 @@ public:
     }
 
 private:
-    bool is_writing_{true};
+    bool initial_{true};
     read_response_fsm read_fsm_;
 };
 

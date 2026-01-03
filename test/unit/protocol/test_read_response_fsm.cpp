@@ -488,7 +488,8 @@ void test_close_error()
     });
 }
 
-// Response to an extended query
+// --- Pipeline cases ---
+// The usual extended query flow works
 void test_extended_query()
 {
     fixture fix;
@@ -531,58 +532,40 @@ void test_async()
     });
 }
 
-// TODO: recover this
-// // If a request contains several syncs/queries, we read as many messages as these
-// void test_impl_several_syncs()
-// {
-//     request req;
-//     req.add_close_statement("abc");
-//     req.add_simple_query("SELECT 1");
-//     req.add_describe_statement("def");
-//     std::vector<response_msg_type> msgs;
-//     auto handler = [&msgs](const any_request_message& msg, diagnostics&) {
-//         msgs.push_back(to_type(msg));
-//         return response_handler_result::done();
-//     };
-//     diagnostics diag;
+// Pipeline that contains several syncs
+void test_several_syncs()
+{
+    fixture fix;
+    fix.req.add_close_statement("abc");
+    fix.req.add_query("SELECT 1", {});
+    fix.req.add_describe_portal("def");
 
-//     read_response_fsm_impl fsm{req, handler};
+    // Run the FSM
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::close_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::parse_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::bind_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
 
-//     // Initiate
-//     auto act = fsm.resume({});
-//     BOOST_TEST_EQ(act, result_type::read);
+    // Check handler messages
+    fix.check({
+        {response_msg_type::close_complete,   0u},
+        {response_msg_type::parse_complete,   2u},
+        {response_msg_type::bind_complete,    3u},
+        {response_msg_type::row_description,  4u},
+        {response_msg_type::data_row,         5u},
+        {response_msg_type::command_complete, 5u},
+        {response_msg_type::row_description,  7u},
+    });
+}
 
-//     // Server messages
-//     act = fsm.resume(protocol::close_complete{});
-//     BOOST_TEST_EQ(act, result_type::read);
-//     act = fsm.resume(protocol::ready_for_query{});
-//     BOOST_TEST_EQ(act, result_type::read);
-//     act = fsm.resume(protocol::row_description{});
-//     BOOST_TEST_EQ(act, result_type::read);
-//     act = fsm.resume(protocol::data_row{});
-//     BOOST_TEST_EQ(act, result_type::read);
-//     act = fsm.resume(protocol::command_complete{});
-//     BOOST_TEST_EQ(act, result_type::read);
-//     act = fsm.resume(protocol::ready_for_query{});
-//     BOOST_TEST_EQ(act, result_type::read);
-//     act = fsm.resume(protocol::parameter_description{});
-//     BOOST_TEST_EQ(act, result_type::read);
-//     act = fsm.resume(protocol::ready_for_query{});
-//     BOOST_TEST_EQ(act, error_code());
-
-//     // Check handler messages
-//     const response_msg_type expected_msgs[] = {
-//         response_msg_type::close_complete,
-//         response_msg_type::row_description,
-//         response_msg_type::data_row,
-//         response_msg_type::command_complete,
-//         response_msg_type::parameter_description,
-//     };
-//     BOOST_TEST_ALL_EQ(msgs.begin(), msgs.end(), std::begin(expected_msgs), std::end(expected_msgs));
-// }
-
-// TODO: test errors
-// TODO: test the public FSM API
+// TODO: test combining simple queries and extended queries
+// TODO: test flush
 
 }  // namespace
 
@@ -617,7 +600,7 @@ int main()
 
     test_extended_query();
     test_async();
-    // test_impl_several_syncs();
+    test_several_syncs();
 
     return boost::report_errors();
 }

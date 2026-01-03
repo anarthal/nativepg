@@ -66,7 +66,6 @@ private:
 
     enum resume_point
     {
-        resume_initial = 0,
         resume_msg_first,
         resume_query_first,
         resume_query_needs_ready,
@@ -136,7 +135,6 @@ public:
     response_handler_ref get_handler() const { return impl_.get_handler(); }
 
 private:
-    int resume_point_{0};
     detail::read_response_fsm_impl impl_;
 };
 

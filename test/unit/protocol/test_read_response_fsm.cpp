@@ -104,7 +104,6 @@ void test_impl_simple_query()
     read_response_fsm_impl fsm{req, handler};
 
     // Run the FSM
-    BOOST_TEST_EQ(fsm.resume({}), result_type::read);
     BOOST_TEST_EQ(fsm.resume(protocol::row_description{}), result_type::read);
     BOOST_TEST_EQ(fsm.resume(protocol::data_row{}), result_type::read);
     BOOST_TEST_EQ(fsm.resume(protocol::data_row{}), result_type::read);
@@ -129,7 +128,6 @@ void test_impl_extended_query()
     read_response_fsm_impl fsm{req, handler};
 
     // Run the FSM
-    BOOST_TEST_EQ(fsm.resume({}), result_type::read);
     BOOST_TEST_EQ(fsm.resume(protocol::parse_complete{}), result_type::read);
     BOOST_TEST_EQ(fsm.resume(protocol::bind_complete{}), result_type::read);
     BOOST_TEST_EQ(fsm.resume(protocol::row_description{}), result_type::read);
@@ -156,7 +154,6 @@ void test_impl_parse()
     read_response_fsm_impl fsm{req, handler};
 
     // Ru the FSM
-    BOOST_TEST_EQ(fsm.resume({}), result_type::read);
     BOOST_TEST_EQ(fsm.resume(protocol::parse_complete{}), result_type::read);
     BOOST_TEST_EQ(fsm.resume(protocol::ready_for_query{}), error_code());
 
@@ -174,11 +171,7 @@ void test_impl_async()
     mock_handler handler;
     read_response_fsm_impl fsm{req, handler};
 
-    // Initiate
-    auto act = fsm.resume({});
-    BOOST_TEST_EQ(act, result_type::read);
-
-    // Server messages
+    // Run the FSM
     BOOST_TEST_EQ(fsm.resume(protocol::parse_complete{}), result_type::read);
     BOOST_TEST_EQ(fsm.resume(protocol::notice_response{}), result_type::read);
     BOOST_TEST_EQ(fsm.resume(protocol::notification_response{}), result_type::read);

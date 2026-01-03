@@ -39,7 +39,14 @@ public:
     }
 
 private:
-    bool initial_{true};
+    enum class state_t
+    {
+        initial,
+        writing,
+        reading
+    };
+
+    state_t state_{state_t::initial};
     read_response_fsm read_fsm_;
 };
 

@@ -639,41 +639,32 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
 
 read_response_fsm_impl::result read_response_fsm_impl::resume(const any_backend_message& msg)
 {
-    if (resume_point_ == resume_initial)
+    // Some messages may be found interleaved with the expected message flow
+    // TODO: actually do something useful with these
+    if (boost::variant2::holds_alternative<notice_response>(msg) ||
+        boost::variant2::holds_alternative<notification_response>(msg) ||
+        boost::variant2::holds_alternative<parameter_status>(msg))
     {
-        // TODO: there is not much point in this
-        resume_point_ = resume_msg_first;
         return result_type::read;
     }
-    else
-    {
-        // Some messages may be found interleaved with the expected message flow
-        // TODO: actually do something useful with these
-        if (boost::variant2::holds_alternative<notice_response>(msg) ||
-            boost::variant2::holds_alternative<notification_response>(msg) ||
-            boost::variant2::holds_alternative<parameter_status>(msg))
-        {
-            return result_type::read;
-        }
 
-        // The allowed messages depend on the current type
-        while (true)
+    // The allowed messages depend on the current type
+    while (true)
+    {
+        switch (req_->messages()[current_])
         {
-            switch (req_->messages()[current_])
+            case request_message_type::bind: return handle_bind(msg);
+            case request_message_type::close: return handle_close(msg);
+            case request_message_type::describe: return handle_describe(msg);
+            case request_message_type::execute: return handle_execute(msg);
+            case request_message_type::flush:
             {
-                case request_message_type::bind: return handle_bind(msg);
-                case request_message_type::close: return handle_close(msg);
-                case request_message_type::describe: return handle_describe(msg);
-                case request_message_type::execute: return handle_execute(msg);
-                case request_message_type::flush:
-                {
-                    ++current_;
-                    continue;  // nothing is expected here
-                }
-                case request_message_type::parse: return handle_parse(msg);
-                case request_message_type::query: return handle_query(msg);
-                case request_message_type::sync: return handle_sync(msg);
+                ++current_;
+                continue;  // nothing is expected here
             }
+            case request_message_type::parse: return handle_parse(msg);
+            case request_message_type::query: return handle_query(msg);
+            case request_message_type::sync: return handle_sync(msg);
         }
     }
 }
@@ -684,54 +675,32 @@ read_response_fsm::result read_response_fsm::resume(
     std::size_t bytes_read
 )
 {
-    // TODO: this implementation is improvable, changes in reading messages required
-    // This is duplicated from startup
-    any_backend_message msg;
-    read_response_fsm_impl::result startup_res{error_code()};
-    read_message_stream_fsm::result read_msg_res{error_code()};
-
-    switch (resume_point_)
+    // Attempt to read a message
+    while (true)
     {
-        NATIVEPG_CORO_INITIAL
-
-        while (true)
+        auto read_msg_res = st.read_msg_stream_fsm.resume(st, io_error, bytes_read);
+        if (read_msg_res.type() == read_message_stream_fsm::result_type::read)
         {
-            // Call the FSM
-            startup_res = impl_.resume(msg);
-            if (startup_res.type == read_response_fsm_impl::result_type::done)
-            {
-                // We're finished
-                return startup_res.ec;
-            }
-            else
-            {
-                BOOST_ASSERT(startup_res.type == read_response_fsm_impl::result_type::read);
+            return result::read(read_msg_res.read_buffer());
+        }
+        else if (read_msg_res.type() == read_message_stream_fsm::result_type::message)
+        {
+            // We've got a message, invoke the FSM
+            auto res = impl_.resume(read_msg_res.message());
 
-                // Read a message
-                while (true)
-                {
-                    read_msg_res = st.read_msg_stream_fsm.resume(st, io_error, bytes_read);
-                    if (read_msg_res.type() == read_message_stream_fsm::result_type::read)
-                    {
-                        NATIVEPG_YIELD(resume_point_, 2, result::read(read_msg_res.read_buffer()));
-                    }
-                    else if (read_msg_res.type() == read_message_stream_fsm::result_type::message)
-                    {
-                        msg = read_msg_res.message();
-                        break;
-                    }
-                    else
-                    {
-                        BOOST_ASSERT(read_msg_res.type() == read_message_stream_fsm::result_type::error);
-                        return read_msg_res.error();
-                    }
-                }
-            }
+            // If we're done, exit
+            if (res.type == read_response_fsm_impl::result_type::done)
+                return res.ec;
+
+            // Otherwise, keep reading
+            BOOST_ASSERT(res.type == read_response_fsm_impl::result_type::read);
+        }
+        else
+        {
+            BOOST_ASSERT(read_msg_res.type() == read_message_stream_fsm::result_type::error);
+            return read_msg_res.error();
         }
     }
-
-    BOOST_ASSERT(false);
-    return error_code();
 }
 
 static error_code check_request(const nativepg::request& req)
@@ -768,7 +737,7 @@ exec_fsm::result exec_fsm::resume(
     std::size_t bytes_transferred
 )
 {
-    if (initial_)
+    if (state_ == state_t::initial)
     {
         // Check that the request is correctly formed
         const request& req = read_fsm_.get_request();
@@ -783,7 +752,7 @@ exec_fsm::result exec_fsm::resume(
         if (res.offset != req.messages().size())
             return result(client_errc::incompatible_response_length);
 
-        initial_ = false;
+        state_ = state_t::writing;
 
         // Write the request
         return result::write(read_fsm_.get_request().payload());
@@ -792,7 +761,12 @@ exec_fsm::result exec_fsm::resume(
     if (ec)
         return ec;
 
-    // TODO: this is passing a wrong bytes_transferred value the 1st time
+    // Don't pass the bytes read to the first FSM invocation
+    if (state_ == state_t::writing)
+    {
+        bytes_transferred = 0u;
+        state_ = state_t::reading;
+    }
     auto act = read_fsm_.resume(st, ec, bytes_transferred);
     switch (act.type())
     {

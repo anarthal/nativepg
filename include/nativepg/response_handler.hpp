@@ -46,7 +46,6 @@ using any_request_message = boost::variant2::variant<
     protocol::data_row,
     protocol::parameter_description,
     protocol::row_description,
-    protocol::no_data,
     protocol::empty_query_response,
     protocol::portal_suspended,
     protocol::error_response,

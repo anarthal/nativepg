@@ -170,8 +170,6 @@ class resultset_callback_t
             return handler_status::needs_more;
         }
 
-        handler_status operator()(protocol::no_data) const { return (*this)(protocol::row_description{}); }
-
         handler_status operator()(const protocol::data_row& msg) const
         {
             // State check

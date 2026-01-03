@@ -412,7 +412,6 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_close(const any_ba
 
 // TODO: we need to differentiate between describe statement and portal
 // only the portal version is supported now
-// TODO: translate no_data to an empty row_description, for simplicity
 read_response_fsm_impl::result read_response_fsm_impl::handle_describe(const any_backend_message& msg)
 {
     // describe (portal)
@@ -444,10 +443,11 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_describe(const any
                 call_handler(*descr);
                 return advance();
             }
-            else if (const auto* nd = get_if<no_data>(&msg))
+            else if (holds_alternative<no_data>(msg))
             {
-                // Finishes the describe phase
-                call_handler(*nd);
+                // We transform no_data into an empty row description, for uniformity.
+                // Finishes the describe phase.
+                call_handler(row_description{});
                 return advance();
             }
             else
@@ -637,6 +637,10 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
                 // Equivalent behavior to the above
                 resume_point_ = resume_query_first;
                 return call_handler(*eq);
+            }
+            else
+            {
+                return error_code(client_errc::unexpected_message);
             }
         }
         case resume_query_needs_sync:

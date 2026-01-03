@@ -123,6 +123,7 @@ class resultset_callback_t
         void operator()(const protocol::row_description& msg) const
         {
             // State check
+            // TODO: this can trigger on multi-queries
             BOOST_ASSERT(self.state_ == state_t::parsing_meta);
 
             // We now expect the rows and the CommandComplete

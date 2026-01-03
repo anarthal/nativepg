@@ -126,6 +126,24 @@ void test_simple_query()
     });
 }
 
+// Queries may return no rows
+void test_simple_query_no_rows()
+{
+    fixture fix;
+    fix.req.add_simple_query("SELECT 1");
+
+    // Run the FSM
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    // Check handler messages
+    fix.check({
+        {response_msg_type::row_description,  0u},
+        {response_msg_type::command_complete, 0u},
+    });
+}
+
 // Queries that don't return data don't include a row_description.
 // We synthesize an empty row_description for simplicity
 void test_simple_query_no_data()
@@ -139,6 +157,35 @@ void test_simple_query_no_data()
 
     // Check handler messages
     fix.check({
+        {response_msg_type::row_description,  0u},
+        {response_msg_type::command_complete, 0u},
+    });
+}
+
+// Queries may contain an arbitrary number of resultsets, some of them empty
+void test_simple_query_multi()
+{
+    fixture fix;
+    fix.req.add_simple_query("SELECT 1");
+
+    // Run the FSM
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    // Check handler messages
+    fix.check({
+        {response_msg_type::row_description,  0u},
+        {response_msg_type::data_row,         0u},
+        {response_msg_type::data_row,         0u},
+        {response_msg_type::command_complete, 0u},
+        {response_msg_type::row_description,  0u},
+        {response_msg_type::command_complete, 0u},
         {response_msg_type::row_description,  0u},
         {response_msg_type::command_complete, 0u},
     });
@@ -261,7 +308,9 @@ void test_async()
 int main()
 {
     test_simple_query();
+    test_simple_query_no_rows();
     test_simple_query_no_data();
+    test_simple_query_multi();
 
     test_extended_query();
     test_parse();

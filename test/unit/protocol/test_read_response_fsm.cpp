@@ -37,15 +37,16 @@ using namespace nativepg;
 using namespace nativepg::test;
 using boost::system::error_code;
 using protocol::detail::read_response_fsm_impl;
+using result_type = read_response_fsm_impl::result_type;
 
 // Operators
-static const char* to_string(read_response_fsm_impl::result_type t)
+static const char* to_string(result_type t)
 {
     switch (t)
     {
-        case read_response_fsm_impl::result_type::done: return "done";
-        case read_response_fsm_impl::result_type::read: return "read";
-        default: return "<unknown read_response_fsm_impl::result_type>";
+        case result_type::done: return "done";
+        case result_type::read: return "read";
+        default: return "<unknown result_type>";
     }
 }
 
@@ -59,7 +60,7 @@ bool operator==(const read_response_fsm_impl::result& lhs, const read_response_f
 std::ostream& operator<<(std::ostream& os, const read_response_fsm_impl::result& value)
 {
     os << "read_response_fsm_impl::result{ .type=" << to_string(value.type);
-    if (value.type == read_response_fsm_impl::result_type::done)
+    if (value.type == result_type::done)
         os << ", .ec=" << value.ec;
     return os << " }";
 }
@@ -92,19 +93,14 @@ void test_impl_simple_query()
 
     // Initiate
     auto act = fsm.resume({});
-    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+    BOOST_TEST_EQ(act, result_type::read);
 
     // Server messages
-    act = fsm.resume(protocol::row_description{});
-    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::data_row{});
-    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::data_row{});
-    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::command_complete{});
-    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::ready_for_query{});
-    BOOST_TEST_EQ(act, error_code());
+    BOOST_TEST_EQ(fsm.resume(protocol::row_description{}), result_type::read);
+    BOOST_TEST_EQ(fsm.resume(protocol::data_row{}), result_type::read);
+    BOOST_TEST_EQ(fsm.resume(protocol::data_row{}), result_type::read);
+    BOOST_TEST_EQ(fsm.resume(protocol::command_complete{}), result_type::read);
+    BOOST_TEST_EQ(fsm.resume(protocol::ready_for_query{}), error_code());
 
     // Check handler messages
     const on_msg_args expected_msgs[] = {
@@ -131,21 +127,15 @@ void test_impl_extended_query()
 
     // Initiate
     auto act = fsm.resume({});
-    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+    BOOST_TEST_EQ(act, result_type::read);
 
     // Server messages
-    act = fsm.resume(protocol::parse_complete{});
-    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::bind_complete{});
-    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::row_description{});
-    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::data_row{});
-    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::command_complete{});
-    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::ready_for_query{});
-    BOOST_TEST_EQ(act, error_code());
+    BOOST_TEST_EQ(fsm.resume(protocol::parse_complete{}), result_type::read);
+    BOOST_TEST_EQ(fsm.resume(protocol::bind_complete{}), result_type::read);
+    BOOST_TEST_EQ(fsm.resume(protocol::row_description{}), result_type::read);
+    BOOST_TEST_EQ(fsm.resume(protocol::data_row{}), result_type::read);
+    BOOST_TEST_EQ(fsm.resume(protocol::command_complete{}), result_type::read);
+    BOOST_TEST_EQ(fsm.resume(protocol::ready_for_query{}), error_code());
 
     // Check handler messages
     const on_msg_args expected_msgs[] = {
@@ -173,19 +163,14 @@ void test_impl_async()
 
     // Initiate
     auto act = fsm.resume({});
-    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+    BOOST_TEST_EQ(act, result_type::read);
 
     // Server messages
-    act = fsm.resume(protocol::parse_complete{});
-    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::notice_response{});
-    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::notification_response{});
-    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::parameter_status{});
-    BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
-    act = fsm.resume(protocol::ready_for_query{});
-    BOOST_TEST_EQ(act, error_code());
+    BOOST_TEST_EQ(fsm.resume(protocol::parse_complete{}), result_type::read);
+    BOOST_TEST_EQ(fsm.resume(protocol::notice_response{}), result_type::read);
+    BOOST_TEST_EQ(fsm.resume(protocol::notification_response{}), result_type::read);
+    BOOST_TEST_EQ(fsm.resume(protocol::parameter_status{}), result_type::read);
+    BOOST_TEST_EQ(fsm.resume(protocol::ready_for_query{}), error_code());
 
     // Check handler messages
     const on_msg_args expected_msgs[] = {
@@ -218,31 +203,31 @@ void test_impl_async()
 
 //     // Initiate
 //     auto act = fsm.resume({});
-//     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+//     BOOST_TEST_EQ(act, result_type::read);
 
 //     // Server messages
 //     act = fsm.resume(protocol::bind_complete{});
-//     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+//     BOOST_TEST_EQ(act, result_type::read);
 //     act = fsm.resume(protocol::close_complete{});
-//     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+//     BOOST_TEST_EQ(act, result_type::read);
 //     act = fsm.resume(protocol::command_complete{});
-//     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+//     BOOST_TEST_EQ(act, result_type::read);
 //     act = fsm.resume(protocol::data_row{});
-//     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+//     BOOST_TEST_EQ(act, result_type::read);
 //     act = fsm.resume(protocol::parameter_description{});
-//     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+//     BOOST_TEST_EQ(act, result_type::read);
 //     act = fsm.resume(protocol::row_description{});
-//     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+//     BOOST_TEST_EQ(act, result_type::read);
 //     act = fsm.resume(protocol::no_data{});
-//     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+//     BOOST_TEST_EQ(act, result_type::read);
 //     act = fsm.resume(protocol::empty_query_response{});
-//     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+//     BOOST_TEST_EQ(act, result_type::read);
 //     act = fsm.resume(protocol::portal_suspended{});
-//     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+//     BOOST_TEST_EQ(act, result_type::read);
 //     act = fsm.resume(protocol::error_response{});
-//     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+//     BOOST_TEST_EQ(act, result_type::read);
 //     act = fsm.resume(protocol::parse_complete{});
-//     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+//     BOOST_TEST_EQ(act, result_type::read);
 //     act = fsm.resume(protocol::ready_for_query{});
 //     BOOST_TEST_EQ(act, error_code());
 
@@ -281,23 +266,23 @@ void test_impl_async()
 
 //     // Initiate
 //     auto act = fsm.resume({});
-//     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+//     BOOST_TEST_EQ(act, result_type::read);
 
 //     // Server messages
 //     act = fsm.resume(protocol::close_complete{});
-//     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+//     BOOST_TEST_EQ(act, result_type::read);
 //     act = fsm.resume(protocol::ready_for_query{});
-//     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+//     BOOST_TEST_EQ(act, result_type::read);
 //     act = fsm.resume(protocol::row_description{});
-//     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+//     BOOST_TEST_EQ(act, result_type::read);
 //     act = fsm.resume(protocol::data_row{});
-//     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+//     BOOST_TEST_EQ(act, result_type::read);
 //     act = fsm.resume(protocol::command_complete{});
-//     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+//     BOOST_TEST_EQ(act, result_type::read);
 //     act = fsm.resume(protocol::ready_for_query{});
-//     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+//     BOOST_TEST_EQ(act, result_type::read);
 //     act = fsm.resume(protocol::parameter_description{});
-//     BOOST_TEST_EQ(act, read_response_fsm_impl::result_type::read);
+//     BOOST_TEST_EQ(act, result_type::read);
 //     act = fsm.resume(protocol::ready_for_query{});
 //     BOOST_TEST_EQ(act, error_code());
 

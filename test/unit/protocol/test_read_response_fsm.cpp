@@ -26,6 +26,7 @@
 #include "nativepg/protocol/command_complete.hpp"
 #include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
+#include "nativepg/protocol/empty_query_response.hpp"
 #include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/parse.hpp"
@@ -191,6 +192,22 @@ void test_simple_query_multi()
     });
 }
 
+// A query might return a single EmptyQueryResponse, finishing the query sequence
+void test_simple_query_empty()
+{
+    fixture fix;
+    fix.req.add_simple_query("");
+
+    // Run the FSM
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::empty_query_response{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    // Check handler messages
+    fix.check({
+        {response_msg_type::empty_query_response, 0u},
+    });
+}
+
 // A query might return an error
 void test_simple_query_error()
 {
@@ -226,6 +243,8 @@ void test_simple_query_error_skipping()
         {response_msg_type::command_complete, 1u},
     });
 }
+
+// TODO: test more combinations here
 
 // --- Responses to parse ---
 void test_parse()
@@ -338,12 +357,32 @@ void test_execute_portal_suspended()
     fix.req.add(protocol::execute{}).add(protocol::sync{});
 
     // Run the FSM
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), result_type::read);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::portal_suspended{}), result_type::read);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
 
     // Check handler messages
     fix.check({
+        {response_msg_type::data_row,         0u},
+        {response_msg_type::data_row,         0u},
         {response_msg_type::portal_suspended, 0u},
+    });
+}
+
+// Execute might return EmptyQueryResponse to signal that we passed an empty query
+void test_execute_empty()
+{
+    fixture fix;
+    fix.req.add(protocol::execute{}).add(protocol::sync{});
+
+    // Run the FSM
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::empty_query_response{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    // Check handler messages
+    fix.check({
+        {response_msg_type::empty_query_response, 0u},
     });
 }
 
@@ -468,6 +507,7 @@ int main()
     test_simple_query_no_rows();
     test_simple_query_no_data();
     test_simple_query_multi();
+    test_simple_query_empty();
     test_simple_query_error();
     test_simple_query_error_skipping();
 
@@ -479,6 +519,7 @@ int main()
 
     test_execute();
     test_execute_no_rows();
+    test_execute_empty();
     test_execute_portal_suspended();
     test_execute_error();
 

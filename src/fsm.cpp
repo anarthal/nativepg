@@ -27,6 +27,7 @@
 #include "nativepg/protocol/detail/connect_fsm.hpp"
 #include "nativepg/protocol/detail/exec_fsm.hpp"
 #include "nativepg/protocol/empty_query_response.hpp"
+#include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/header.hpp"
 #include "nativepg/protocol/messages.hpp"
 #include "nativepg/protocol/notice_error.hpp"
@@ -459,8 +460,15 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_execute(const any_
     }
     else if (const auto* eq = get_if<empty_query_response>(&msg))
     {
+        // TODO: check that this is the only message
         // Finishes the execution phase
         call_handler(*eq);
+        return advance();
+    }
+    else if (const auto* ps = get_if<portal_suspended>(&msg))
+    {
+        // Finishes the execution phase
+        call_handler(*ps);
         return advance();
     }
     else if (const auto* row = get_if<data_row>(&msg))
@@ -514,7 +522,8 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
     //        any number of data_row
     //        finalizer: command_complete, empty_query_response, error_response
     //    ready_for_query
-    // or query_skipped (synthesized by us)
+    // or empty_query_response
+    // or message_skipped (synthesized by us)
     switch (resume_point_)
     {
         case resume_msg_first:
@@ -543,9 +552,10 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
             }
             else if (const auto* eq = get_if<empty_query_response>(&msg))
             {
-                // Equivalent behavior to the above
-                resume_point_ = resume_query_first;
-                call_handler(row_description{});
+                // Only allowed as the first and only message. Signals that there was no query to begin with
+                if (resume_point_ != resume_msg_first)
+                    return error_code(client_errc::unexpected_message);
+                resume_point_ = resume_query_needs_ready;
                 return call_handler(*eq);
             }
             else if (holds_alternative<ready_for_query>(msg) && resume_point_ == resume_query_first)
@@ -577,12 +587,6 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
                 // This resultset is done
                 resume_point_ = resume_query_first;
                 return call_handler(*complete);
-            }
-            else if (const auto* eq = get_if<empty_query_response>(&msg))
-            {
-                // Equivalent behavior to the above
-                resume_point_ = resume_query_first;
-                return call_handler(*eq);
             }
             else
             {

@@ -5,12 +5,15 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#include <boost/assert/source_location.hpp>
 #include <boost/core/lightweight_test.hpp>
 #include <boost/system/detail/error_code.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/variant2/variant.hpp>
 
 #include <cstddef>
+#include <initializer_list>
+#include <iostream>
 #include <iterator>
 #include <ostream>
 #include <vector>
@@ -81,6 +84,15 @@ struct mock_handler
         msgs.push_back({to_type(msg), offset});
     }
     const extended_error& result() const { return err; }
+
+    void check(
+        std::initializer_list<on_msg_args> expected,
+        boost::source_location loc = BOOST_CURRENT_LOCATION
+    )
+    {
+        if (!BOOST_TEST_ALL_EQ(msgs.begin(), msgs.end(), expected.begin(), expected.end()))
+            std::cerr << "Called from " << loc << std::endl;
+    }
 };
 
 // Response to a simple query
@@ -103,18 +115,12 @@ void test_impl_simple_query()
     BOOST_TEST_EQ(fsm.resume(protocol::ready_for_query{}), error_code());
 
     // Check handler messages
-    const on_msg_args expected_msgs[] = {
+    handler.check({
         {response_msg_type::row_description,  0u},
         {response_msg_type::data_row,         0u},
         {response_msg_type::data_row,         0u},
         {response_msg_type::command_complete, 0u},
-    };
-    BOOST_TEST_ALL_EQ(
-        handler.msgs.begin(),
-        handler.msgs.end(),
-        std::begin(expected_msgs),
-        std::end(expected_msgs)
-    );
+    });
 }
 
 // Response to an extended query
@@ -138,19 +144,13 @@ void test_impl_extended_query()
     BOOST_TEST_EQ(fsm.resume(protocol::ready_for_query{}), error_code());
 
     // Check handler messages
-    const on_msg_args expected_msgs[] = {
+    handler.check({
         {response_msg_type::parse_complete,   0u},
         {response_msg_type::bind_complete,    1u},
         {response_msg_type::row_description,  2u},
         {response_msg_type::data_row,         3u},
         {response_msg_type::command_complete, 3u},
-    };
-    BOOST_TEST_ALL_EQ(
-        handler.msgs.begin(),
-        handler.msgs.end(),
-        std::begin(expected_msgs),
-        std::end(expected_msgs)
-    );
+    });
 }
 
 // Async messages (notices, notifications, parameter descriptions) are ignored
@@ -173,15 +173,9 @@ void test_impl_async()
     BOOST_TEST_EQ(fsm.resume(protocol::ready_for_query{}), error_code());
 
     // Check handler messages
-    const on_msg_args expected_msgs[] = {
+    handler.check({
         {response_msg_type::parse_complete, 0u}
-    };
-    BOOST_TEST_ALL_EQ(
-        handler.msgs.begin(),
-        handler.msgs.end(),
-        std::begin(expected_msgs),
-        std::end(expected_msgs)
-    );
+    });
 }
 
 // TODO: recover this

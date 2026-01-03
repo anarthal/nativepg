@@ -403,6 +403,57 @@ void test_execute_error()
     });
 }
 
+// --- Responses to describe portal ---
+void test_describe_portal()
+{
+    fixture fix;
+    fix.req.add_describe_portal("abc");
+
+    // Run the FSM
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    // Check handler messages
+    fix.check({
+        {response_msg_type::row_description, 0u},
+    });
+}
+
+// Describe portal might return no_data to indicate that the query returns no data.
+// We translate this into an empty row_description
+void test_describe_portal_no_data()
+{
+    fixture fix;
+    fix.req.add_describe_portal("abc");
+
+    // Run the FSM
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::no_data{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    // Check handler messages
+    fix.check({
+        {response_msg_type::row_description, 0u},
+    });
+}
+
+// Describe portal might return an error, triggering skipping
+void test_describe_portal_error()
+{
+    fixture fix;
+    fix.req.set_autosync(false);
+    fix.req.add_describe_portal("abc").add_describe_portal("def").add(protocol::sync{});
+
+    // Run the FSM
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::error_response{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    // Check handler messages
+    fix.check({
+        {response_msg_type::error_response,  0u},
+        {response_msg_type::message_skipped, 1u},
+    });
+}
+
 // Response to an extended query
 void test_extended_query()
 {
@@ -522,6 +573,10 @@ int main()
     test_execute_empty();
     test_execute_portal_suspended();
     test_execute_error();
+
+    test_describe_portal();
+    test_describe_portal_no_data();
+    test_describe_portal_error();
 
     test_extended_query();
     test_async();

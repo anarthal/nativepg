@@ -89,6 +89,12 @@ enum class client_errc : int
     // Requests must currently end with a sync. This restriction may be lifted in the future
     request_ends_without_sync,
 
+    // Request violates the restrictions when mixing the simple query and advanced query protocols.
+    // Currently, a request can mix both protocols only if all the advanced query protocol messages
+    // are separated from simple query messages by syncs (this is the default behavior unless you
+    // deactivated request autosync).
+    request_mixes_simple_advanced_protocols,
+
     // The server returned an error during the execution of a request
     exec_server_error,
 

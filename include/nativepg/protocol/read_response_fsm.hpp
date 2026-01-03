@@ -13,7 +13,6 @@
 
 #include <cstddef>
 
-#include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/messages.hpp"
 #include "nativepg/protocol/notice_error.hpp"

@@ -334,7 +334,8 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_error(const error_
     resume_point_ = resume_msg_first;
 
     // Skip subsequent messages until a sync is found
-    // TODO: we could have trouble here mixing query and advanced protocol
+    // We should always find one because we check that this is the case
+    // before sending the request
     for (; current_ < req_->messages().size(); ++current_)
     {
         switch (req_->messages()[current_])
@@ -346,7 +347,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_error(const error_
     }
 
     BOOST_ASSERT(false);
-    return result(error_code());
+    return error_code(client_errc::request_ends_without_sync);
 }
 
 read_response_fsm_impl::result read_response_fsm_impl::advance()
@@ -640,19 +641,8 @@ read_response_fsm_impl::result read_response_fsm_impl::resume(const any_backend_
 {
     if (resume_point_ == resume_initial)
     {
-        const auto msg_types = req_->messages();
-
-        // Empty requests are not allowed
-        if (msg_types.empty())
-            return error_code(client_errc::empty_request);
-
-        // Currently, all pipelines must end with a sync or a query
-        const auto last_type = msg_types.back();
-        if (last_type != request_message_type::sync && last_type != request_message_type::query)
-            return error_code(client_errc::request_ends_without_sync);
-
+        // TODO: there is not much point in this
         resume_point_ = resume_msg_first;
-
         return result_type::read;
     }
     else
@@ -744,6 +734,34 @@ read_response_fsm::result read_response_fsm::resume(
     return error_code();
 }
 
+static error_code check_request(const nativepg::request& req)
+{
+    // Empty requests are not allowed
+    if (req.messages().empty())
+        return error_code(client_errc::empty_request);
+
+    // To enable appropriate error recovery, requests need to either
+    //   1. End with a sync
+    //   2. Be a sequence of query messages, with nothing in front of it
+    //   3. End with a sequence of query messages, with a sync in front of it
+    // TODO: do we need to support requests ending with flush? is there any use case for this?
+    bool query_seen = false;
+    for (auto it = req.messages().rbegin(); it != req.messages().rend(); ++it)
+    {
+        switch (*it)
+        {
+            case nativepg::request_message_type::query: query_seen = true; continue;
+            case nativepg::request_message_type::sync: return error_code();
+            default:
+                return query_seen ? client_errc::request_mixes_simple_advanced_protocols
+                                  : client_errc::request_ends_without_sync;
+        }
+    }
+
+    // There was nothing but queries
+    return error_code();
+}
+
 exec_fsm::result exec_fsm::resume(
     connection_state& st,
     boost::system::error_code ec,
@@ -752,15 +770,20 @@ exec_fsm::result exec_fsm::resume(
 {
     if (initial_)
     {
-        initial_ = false;
+        // Check that the request is correctly formed
+        const request& req = read_fsm_.get_request();
+        auto ec = check_request(req);
+        if (ec)
+            return ec;
 
         // Perform the response setup
-        const request& req = read_fsm_.get_request();
         auto res = read_fsm_.get_handler().setup(req, 0u);
         if (res.ec)
-            return result(res.ec);
+            return res.ec;
         if (res.offset != req.messages().size())
             return result(client_errc::incompatible_response_length);
+
+        initial_ = false;
 
         // Write the request
         return result::write(read_fsm_.get_request().payload());

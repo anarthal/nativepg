@@ -84,13 +84,20 @@ struct mock_handler
         msgs.push_back({to_type(msg), offset});
     }
     const extended_error& result() const { return err; }
+};
+
+struct fixture
+{
+    request req;
+    mock_handler handler;
+    read_response_fsm_impl fsm{req, handler};
 
     void check(
         std::initializer_list<on_msg_args> expected,
         boost::source_location loc = BOOST_CURRENT_LOCATION
     )
     {
-        if (!BOOST_TEST_ALL_EQ(msgs.begin(), msgs.end(), expected.begin(), expected.end()))
+        if (!BOOST_TEST_ALL_EQ(handler.msgs.begin(), handler.msgs.end(), expected.begin(), expected.end()))
             std::cerr << "Called from " << loc << std::endl;
     }
 };
@@ -98,20 +105,18 @@ struct mock_handler
 // --- Responses to a simple query ---
 void test_impl_simple_query()
 {
-    request req;
-    req.add_simple_query("SELECT 1");
-    mock_handler handler;
-    read_response_fsm_impl fsm{req, handler};
+    fixture fix;
+    fix.req.add_simple_query("SELECT 1");
 
     // Run the FSM
-    BOOST_TEST_EQ(fsm.resume(protocol::row_description{}), result_type::read);
-    BOOST_TEST_EQ(fsm.resume(protocol::data_row{}), result_type::read);
-    BOOST_TEST_EQ(fsm.resume(protocol::data_row{}), result_type::read);
-    BOOST_TEST_EQ(fsm.resume(protocol::command_complete{}), result_type::read);
-    BOOST_TEST_EQ(fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
 
     // Check handler messages
-    handler.check({
+    fix.check({
         {response_msg_type::row_description,  0u},
         {response_msg_type::data_row,         0u},
         {response_msg_type::data_row,         0u},
@@ -123,17 +128,15 @@ void test_impl_simple_query()
 // We synthesize an empty row_description for simplicity
 void test_impl_simple_query_no_data()
 {
-    request req;
-    req.add_simple_query("SELECT 1");
-    mock_handler handler;
-    read_response_fsm_impl fsm{req, handler};
+    fixture fix;
+    fix.req.add_simple_query("SELECT 1");
 
     // Run the FSM
-    BOOST_TEST_EQ(fsm.resume(protocol::command_complete{}), result_type::read);
-    BOOST_TEST_EQ(fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
 
     // Check handler messages
-    handler.check({
+    fix.check({
         {response_msg_type::row_description,  0u},
         {response_msg_type::command_complete, 0u},
     });
@@ -142,21 +145,19 @@ void test_impl_simple_query_no_data()
 // Response to an extended query
 void test_impl_extended_query()
 {
-    request req;
-    req.add_query("SELECT 1", {});
-    mock_handler handler;
-    read_response_fsm_impl fsm{req, handler};
+    fixture fix;
+    fix.req.add_query("SELECT 1", {});
 
     // Run the FSM
-    BOOST_TEST_EQ(fsm.resume(protocol::parse_complete{}), result_type::read);
-    BOOST_TEST_EQ(fsm.resume(protocol::bind_complete{}), result_type::read);
-    BOOST_TEST_EQ(fsm.resume(protocol::row_description{}), result_type::read);
-    BOOST_TEST_EQ(fsm.resume(protocol::data_row{}), result_type::read);
-    BOOST_TEST_EQ(fsm.resume(protocol::command_complete{}), result_type::read);
-    BOOST_TEST_EQ(fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::parse_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::bind_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
 
     // Check handler messages
-    handler.check({
+    fix.check({
         {response_msg_type::parse_complete,   0u},
         {response_msg_type::bind_complete,    1u},
         {response_msg_type::row_description,  2u},
@@ -168,17 +169,15 @@ void test_impl_extended_query()
 // Response to an individual parse
 void test_impl_parse()
 {
-    request req;
-    req.add_prepare("SELECT 1", "mystmt");
-    mock_handler handler;
-    read_response_fsm_impl fsm{req, handler};
+    fixture fix;
+    fix.req.add_prepare("SELECT 1", "mystmt");
 
     // Ru the FSM
-    BOOST_TEST_EQ(fsm.resume(protocol::parse_complete{}), result_type::read);
-    BOOST_TEST_EQ(fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::parse_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
 
     // Check handler messages
-    handler.check({
+    fix.check({
         {response_msg_type::parse_complete, 0u},
     });
 }
@@ -186,20 +185,18 @@ void test_impl_parse()
 // Async messages (notices, notifications, parameter descriptions) are ignored
 void test_impl_async()
 {
-    request req;
-    req.add_prepare("SELECT 1", "mystmt");
-    mock_handler handler;
-    read_response_fsm_impl fsm{req, handler};
+    fixture fix;
+    fix.req.add_prepare("SELECT 1", "mystmt");
 
     // Run the FSM
-    BOOST_TEST_EQ(fsm.resume(protocol::parse_complete{}), result_type::read);
-    BOOST_TEST_EQ(fsm.resume(protocol::notice_response{}), result_type::read);
-    BOOST_TEST_EQ(fsm.resume(protocol::notification_response{}), result_type::read);
-    BOOST_TEST_EQ(fsm.resume(protocol::parameter_status{}), result_type::read);
-    BOOST_TEST_EQ(fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::parse_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::notice_response{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::notification_response{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::parameter_status{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
 
     // Check handler messages
-    handler.check({
+    fix.check({
         {response_msg_type::parse_complete, 0u}
     });
 }

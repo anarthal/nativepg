@@ -10,7 +10,6 @@
 #include <boost/core/span.hpp>
 #include <boost/describe/class.hpp>
 #include <boost/describe/operators.hpp>
-#include <boost/system/detail/error_code.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <cstdint>
@@ -28,20 +27,25 @@
 #include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/parse.hpp"
+#include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
 #include "nativepg/response_handler.hpp"
+#include "printing.hpp"
 
 using namespace nativepg;
 using boost::system::error_code;
 using protocol::format_code;
 using namespace std::string_view_literals;
 
-// Printing (TODO: duplicated)
+// Printing
 namespace nativepg {
 
-std::ostream& operator<<(std::ostream& os, response_handler_result r)
+std::ostream& operator<<(std::ostream& os, handler_setup_result r)
 {
-    return os << "{ .is_done=" << r.is_done() << ", .error=" << r.error() << " }";
+    if (r.ec)
+        return os << "{ .ec=" << r.ec << " }";
+    else
+        return os << "{ .offset=" << r.offset << " }";
 }
 
 }  // namespace nativepg
@@ -154,19 +158,26 @@ using boost::describe::operators::operator<<;
 // Simple queries work (vs. extended protocol queries)
 void test_simple_query()
 {
-    // Setup
+    // Test setup
     std::vector<user> users;
     auto cb = into(users);
     owning_row_description descrs({
         make_field_descr("id", 23, format_code::text),
         make_field_descr("name", 25, format_code::text),
     });
-    diagnostics diag;
+    request req;
+    req.add_simple_query("SELECT 1");
+
+    // Handler setup
+    BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs, diag), response_handler_result::needs_more());
-    BOOST_TEST_EQ(cb(owning_data_row({"42", "perico"}), diag), response_handler_result::needs_more());
-    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), response_handler_result::done());
+    cb.on_message(descrs, 0u);
+    cb.on_message(owning_data_row({"42", "perico"}), 0u);
+    cb.on_message(protocol::command_complete{}, 0u);
+
+    // Check result
+    BOOST_TEST_EQ(cb.result(), extended_error{});
 
     // Rows
     std::vector<user> expected_rows{
@@ -178,22 +189,29 @@ void test_simple_query()
 // The usual extended query flow works
 void test_query()
 {
-    // Setup
+    // Test setup
     std::vector<user> users;
     auto cb = into(users);
     owning_row_description descrs({
         make_field_descr("id", 23, format_code::text),
         make_field_descr("name", 25, format_code::text),
     });
-    diagnostics diag;
+    request req;
+    req.add_query("SELECT $1", {42});
+
+    // Handler setup
+    BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(5u));
 
     // Messages
-    BOOST_TEST_EQ(cb(protocol::parse_complete{}, diag), response_handler_result::needs_more());
-    BOOST_TEST_EQ(cb(protocol::bind_complete{}, diag), response_handler_result::needs_more());
-    BOOST_TEST_EQ(cb(descrs, diag), response_handler_result::needs_more());
-    BOOST_TEST_EQ(cb(owning_data_row({"42", "perico"}), diag), response_handler_result::needs_more());
-    BOOST_TEST_EQ(cb(owning_data_row({"50", "pepe"}), diag), response_handler_result::needs_more());
-    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), response_handler_result::done());
+    cb.on_message(protocol::parse_complete{}, 0u);
+    cb.on_message(protocol::bind_complete{}, 1u);
+    cb.on_message(descrs, 2u);
+    cb.on_message(owning_data_row({"42", "perico"}), 3u);
+    cb.on_message(owning_data_row({"50", "pepe"}), 3u);
+    cb.on_message(protocol::command_complete{}, 3u);
+
+    // Check result
+    BOOST_TEST_EQ(cb.result(), extended_error{});
 
     // Rows
     std::vector<user> expected_rows{
@@ -206,7 +224,7 @@ void test_query()
 // Having excess fields or out of order fields work
 void test_field_match_by_name()
 {
-    // Setup
+    // Test setup
     std::vector<user> users;
     auto cb = into(users);
     owning_row_description descrs({
@@ -215,19 +233,18 @@ void test_field_match_by_name()
         make_field_descr("id", 23, format_code::text),
         make_field_descr("yet_another", 50, format_code::text),
     });
-    diagnostics diag;
+    request req;
+    req.add_simple_query("SELECT 1");
+    BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs, diag), response_handler_result::needs_more());
-    BOOST_TEST_EQ(
-        cb(owning_data_row({"juan", "abc", "10", "value"}), diag),
-        response_handler_result::needs_more()
-    );
-    BOOST_TEST_EQ(
-        cb(owning_data_row({"antonio", "def", "21", ""}), diag),
-        response_handler_result::needs_more()
-    );
-    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), response_handler_result::done());
+    cb.on_message(descrs, 0u);
+    cb.on_message(owning_data_row({"juan", "abc", "10", "value"}), 0u);
+    cb.on_message(owning_data_row({"antonio", "def", "21", ""}), 0u);
+    cb.on_message(protocol::command_complete{}, 0u);
+
+    // Check result
+    BOOST_TEST_EQ(cb.result(), extended_error{});
 
     // Rows
     std::vector<user> expected_rows{
@@ -247,15 +264,17 @@ void test_binary()
         make_field_descr("id", 23, format_code::binary),
         make_field_descr("name", 25, format_code::binary),
     });
-    diagnostics diag;
+    request req;
+    req.add_simple_query("SELECT 1");
+    BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs, diag), response_handler_result::needs_more());
-    BOOST_TEST_EQ(
-        cb(owning_data_row({"\0\0\0\x2a"sv, "perico"}), diag),
-        response_handler_result::needs_more()
-    );
-    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), response_handler_result::done());
+    cb.on_message(descrs, 0u);
+    cb.on_message(owning_data_row({"\0\0\0\x2a"sv, "perico"}), 0u);
+    cb.on_message(protocol::command_complete{}, 0u);
+
+    // Check result
+    BOOST_TEST_EQ(cb.result(), extended_error{});
 
     // Rows
     std::vector<user> expected_rows{
@@ -274,12 +293,17 @@ void test_type_conversions()
         make_field_descr("id", 21, format_code::binary),  // int2
         make_field_descr("name", 25, format_code::binary),
     });
-    diagnostics diag;
+    request req;
+    req.add_simple_query("SELECT 1");
+    BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs, diag), response_handler_result::needs_more());
-    BOOST_TEST_EQ(cb(owning_data_row({"\0\x2a"sv, "perico"}), diag), response_handler_result::needs_more());
-    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), response_handler_result::done());
+    cb.on_message(descrs, 0u);
+    cb.on_message(owning_data_row({"\0\x2a"sv, "perico"}), 0u);
+    cb.on_message(protocol::command_complete{}, 0u);
+
+    // Check result
+    BOOST_TEST_EQ(cb.result(), extended_error{});
 
     // Rows
     std::vector<user> expected_rows{
@@ -291,20 +315,27 @@ void test_type_conversions()
 // Spotcheck the callback version
 void test_callback()
 {
-    // Setup
+    // Test setup
     std::vector<user> users;
     auto cb = resultset_callback<user>([&users](user&& u) { users.push_back(std::move(u)); });
     owning_row_description descrs({
         make_field_descr("id", 23, format_code::text),
         make_field_descr("name", 25, format_code::text),
     });
-    diagnostics diag;
+    request req;
+    req.add_simple_query("SELECT 1");
+
+    // Handler setup
+    BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs, diag), response_handler_result::needs_more());
-    BOOST_TEST_EQ(cb(owning_data_row({"42", "perico"}), diag), response_handler_result::needs_more());
-    BOOST_TEST_EQ(cb(owning_data_row({"50", "pepe"}), diag), response_handler_result::needs_more());
-    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), response_handler_result::done());
+    cb.on_message(descrs, 0u);
+    cb.on_message(owning_data_row({"42", "perico"}), 0u);
+    cb.on_message(owning_data_row({"50", "pepe"}), 0u);
+    cb.on_message(protocol::command_complete{}, 0u);
+
+    // Check result
+    BOOST_TEST_EQ(cb.result(), extended_error{});
 
     // Rows
     std::vector<user> expected_rows{
@@ -324,19 +355,18 @@ void test_error_field_not_present()
     owning_row_description descrs({
         make_field_descr("id", 23, format_code::text),  // name is missing
     });
-    diagnostics diag;
+    request req;
+    req.add_simple_query("SELECT 1");
+    BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
 
     // Messages
-    BOOST_TEST_EQ(cb(descrs, diag), response_handler_result::needs_more(client_errc::field_not_found));
-    BOOST_TEST_EQ(
-        cb(owning_data_row({"42", "perico"}), diag),
-        response_handler_result::needs_more(client_errc::step_skipped)
-    );
-    BOOST_TEST_EQ(
-        cb(owning_data_row({"50", "pepe"}), diag),
-        response_handler_result::needs_more(client_errc::step_skipped)
-    );
-    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), response_handler_result::done());
+    cb.on_message(descrs, 0u);
+    cb.on_message(owning_data_row({"42", "perico"}), 0u);
+    cb.on_message(owning_data_row({"50", "pepe"}), 0u);
+    cb.on_message(protocol::command_complete{}, 0u);
+
+    // Check result
+    BOOST_TEST_EQ(cb.result(), extended_error{client_errc::field_not_found});
 }
 
 // If a field has an incompatible type, that's an error
@@ -349,18 +379,17 @@ void test_error_incompatible_field_type()
         make_field_descr("id", 25, format_code::text),  // should be a number rather than text
         make_field_descr("name", 25, format_code::text),
     });
-    diagnostics diag;
+    request req;
+    req.add_simple_query("SELECT 1");
+    BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
 
     // Messages
-    BOOST_TEST_EQ(
-        cb(descrs, diag),
-        response_handler_result::needs_more(client_errc::incompatible_field_type)
-    );
-    BOOST_TEST_EQ(
-        cb(owning_data_row({"42", "perico"}), diag),
-        response_handler_result::needs_more(client_errc::step_skipped)
-    );
-    BOOST_TEST_EQ(cb(protocol::command_complete{}, diag), response_handler_result::done());
+    cb.on_message(descrs, 0u);
+    cb.on_message(owning_data_row({"42", "perico"}), 0u);
+    cb.on_message(protocol::command_complete{}, 0u);
+
+    // Check result
+    BOOST_TEST_EQ(cb.result(), extended_error{client_errc::incompatible_field_type});
 }
 
 // TODO: parsing errors

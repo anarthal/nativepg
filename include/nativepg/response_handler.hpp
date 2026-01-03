@@ -58,6 +58,8 @@ struct handler_setup_result
 
     handler_setup_result(boost::system::error_code ec) noexcept : ec(ec) {}
     handler_setup_result(std::size_t offset) noexcept : offset(offset) {}
+
+    friend bool operator==(const handler_setup_result&, const handler_setup_result&) = default;
 };
 
 template <class T>

@@ -39,7 +39,7 @@ public:
 struct extended_error
 {
     boost::system::error_code code;
-    diagnostics diag;
+    diagnostics diag{};
 
     friend bool operator==(const extended_error& lhs, const extended_error& rhs) noexcept = default;
 };

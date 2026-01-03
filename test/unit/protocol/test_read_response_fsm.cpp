@@ -191,6 +191,42 @@ void test_simple_query_multi()
     });
 }
 
+// A query might return an error
+void test_simple_query_error()
+{
+    fixture fix;
+    fix.req.add_simple_query("SELECT 1");
+
+    // Run the FSM
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::error_response{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    // Check handler messages
+    fix.check({
+        {response_msg_type::error_response, 0u},
+    });
+}
+
+// Query errors don't trigger any skipping
+void test_simple_query_error_skipping()
+{
+    fixture fix;
+    fix.req.add_simple_query("SELECT 1").add_simple_query("SELECT 2");
+
+    // Run the FSM
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::error_response{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    // Check handler messages
+    fix.check({
+        {response_msg_type::error_response,   0u},
+        {response_msg_type::row_description,  1u},
+        {response_msg_type::command_complete, 1u},
+    });
+}
+
 // Response to an extended query
 void test_extended_query()
 {
@@ -311,6 +347,8 @@ int main()
     test_simple_query_no_rows();
     test_simple_query_no_data();
     test_simple_query_multi();
+    test_simple_query_error();
+    test_simple_query_error_skipping();
 
     test_extended_query();
     test_parse();

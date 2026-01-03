@@ -295,6 +295,75 @@ void test_bind_error()
     });
 }
 
+// --- Responses to execute ---
+void test_execute()
+{
+    fixture fix;
+    fix.req.add(protocol::execute{}).add(protocol::sync{});
+
+    // Run the FSM
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    // Check handler messages
+    fix.check({
+        {response_msg_type::data_row,         0u},
+        {response_msg_type::data_row,         0u},
+        {response_msg_type::command_complete, 0u},
+    });
+}
+
+// Execute might return no rows
+void test_execute_no_rows()
+{
+    fixture fix;
+    fix.req.add(protocol::execute{}).add(protocol::sync{});
+
+    // Run the FSM
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    // Check handler messages
+    fix.check({
+        {response_msg_type::command_complete, 0u},
+    });
+}
+
+// Execute might return portal_suspended to signal that we have more rows to read
+void test_execute_portal_suspended()
+{
+    fixture fix;
+    fix.req.add(protocol::execute{}).add(protocol::sync{});
+
+    // Run the FSM
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::portal_suspended{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    // Check handler messages
+    fix.check({
+        {response_msg_type::portal_suspended, 0u},
+    });
+}
+
+// Execute might return an error, triggering skipping
+void test_execute_error()
+{
+    fixture fix;
+    fix.req.add(protocol::execute{}).add(protocol::execute{}).add(protocol::sync{});
+
+    // Run the FSM
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::error_response{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    // Check handler messages
+    fix.check({
+        {response_msg_type::error_response,  0u},
+        {response_msg_type::message_skipped, 1u},
+    });
+}
+
 // Response to an extended query
 void test_extended_query()
 {
@@ -407,6 +476,11 @@ int main()
 
     test_bind();
     test_bind_error();
+
+    test_execute();
+    test_execute_no_rows();
+    test_execute_portal_suspended();
+    test_execute_error();
 
     test_extended_query();
     test_async();

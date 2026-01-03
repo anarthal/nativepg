@@ -34,7 +34,6 @@
 
 namespace nativepg {
 
-namespace detail {
 enum class request_message_type
 {
     bind,
@@ -46,8 +45,6 @@ enum class request_message_type
     query,
     sync,
 };
-struct request_access;
-}  // namespace detail
 
 template <std::size_t N>
 struct bound_statement
@@ -67,10 +64,8 @@ struct statement
 class request
 {
     std::vector<unsigned char> buffer_;
-    std::vector<detail::request_message_type> types_;
+    std::vector<request_message_type> types_;
     bool autosync_;
-
-    friend struct detail::request_access;
 
     void check(boost::system::error_code ec)
     {
@@ -81,7 +76,7 @@ class request
     }
 
     template <class T>
-    request& add_advanced_impl(const T& value, detail::request_message_type type)
+    request& add_advanced_impl(const T& value, request_message_type type)
     {
         types_.reserve(types_.size() + 1u);  // strong guarantee
         check(protocol::serialize(value, buffer_));
@@ -112,7 +107,8 @@ public:
     void set_autosync(bool value) { autosync_ = value; }
 
     // Returns the serialized payload
-    boost::span<const unsigned char> payload() const { return buffer_; }
+    std::span<const unsigned char> payload() const { return buffer_; }
+    std::span<const request_message_type> messages() const { return types_; }
 
     // Adds a simple query (PQsendQuery)
     request& add_simple_query(std::string_view q) { return add(protocol::query{q}); }
@@ -270,53 +266,34 @@ public:
         return add_bind(stmt.name, stmt.params, fmt, portal_name, result_codes);
     }
 
-    request& add(const protocol::bind& value)
-    {
-        return add_advanced_impl(value, detail::request_message_type::bind);
-    }
+    request& add(const protocol::bind& value) { return add_advanced_impl(value, request_message_type::bind); }
 
     request& add(const protocol::close& value)
     {
-        return add_advanced_impl(value, detail::request_message_type::close);
+        return add_advanced_impl(value, request_message_type::close);
     }
 
     request& add(const protocol::describe& value)
     {
-        return add_advanced_impl(value, detail::request_message_type::describe);
+        return add_advanced_impl(value, request_message_type::describe);
     }
 
     request& add(const protocol::execute& value)
     {
-        return add_advanced_impl(value, detail::request_message_type::execute);
+        return add_advanced_impl(value, request_message_type::execute);
     }
 
-    request& add(protocol::flush value)
-    {
-        return add_advanced_impl(value, detail::request_message_type::flush);
-    }
+    request& add(protocol::flush value) { return add_advanced_impl(value, request_message_type::flush); }
 
     request& add(const protocol::parse_t& value)
     {
-        return add_advanced_impl(value, detail::request_message_type::parse);
+        return add_advanced_impl(value, request_message_type::parse);
     }
 
-    request& add(protocol::query value)
-    {
-        return add_advanced_impl(value, detail::request_message_type::query);
-    }
+    request& add(protocol::query value) { return add_advanced_impl(value, request_message_type::query); }
 
-    request& add(protocol::sync value)
-    {
-        return add_advanced_impl(value, detail::request_message_type::sync);
-    }
+    request& add(protocol::sync value) { return add_advanced_impl(value, request_message_type::sync); }
 };
-
-namespace detail {
-struct request_access
-{
-    static boost::span<const request_message_type> messages(const request& r) { return r.types_; }
-};
-}  // namespace detail
 
 }  // namespace nativepg
 

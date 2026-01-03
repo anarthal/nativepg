@@ -48,8 +48,6 @@ using detail::exec_fsm;
 using detail::read_response_fsm_impl;
 using detail::startup_fsm_impl;
 using nativepg::client_errc;
-using nativepg::detail::request_access;
-using nativepg::detail::request_message_type;
 
 read_message_fsm::result read_message_fsm::resume(std::span<const unsigned char> data)
 {
@@ -330,7 +328,7 @@ startup_fsm::result startup_fsm::resume(
 
 read_response_fsm_impl::result read_response_fsm_impl::advance()
 {
-    if (++current_ == request_access::messages(*req_).size())
+    if (++current_ == req_->messages().size())
     {
         return handler_finished_ ? error_code() : error_code(client_errc::incompatible_response_length);
     }
@@ -665,7 +663,7 @@ read_response_fsm_impl::result read_response_fsm_impl::resume(const any_backend_
 {
     if (resume_point_ == resume_initial)
     {
-        const auto msg_types = request_access::messages(*req_);
+        const auto msg_types = req_->messages();
 
         // Empty requests are not allowed
         if (msg_types.empty())
@@ -673,7 +671,7 @@ read_response_fsm_impl::result read_response_fsm_impl::resume(const any_backend_
 
         // Currently, all pipelines must end with a sync or a query
         const auto last_type = msg_types.back();
-        if (last_type != request_msg_type::sync && last_type != request_msg_type::query)
+        if (last_type != request_message_type::sync && last_type != request_message_type::query)
             return error_code(client_errc::request_ends_without_sync);
 
         resume_point_ = resume_msg_first;
@@ -694,20 +692,20 @@ read_response_fsm_impl::result read_response_fsm_impl::resume(const any_backend_
         // The allowed messages depend on the current type
         while (true)
         {
-            switch (request_access::messages(*req_)[current_])
+            switch (req_->messages()[current_])
             {
-                case request_msg_type::bind: return handle_bind(msg);
-                case request_msg_type::close: return handle_close(msg);
-                case request_msg_type::describe: return handle_describe(msg);
-                case request_msg_type::execute: return handle_execute(msg);
-                case request_msg_type::flush:
+                case request_message_type::bind: return handle_bind(msg);
+                case request_message_type::close: return handle_close(msg);
+                case request_message_type::describe: return handle_describe(msg);
+                case request_message_type::execute: return handle_execute(msg);
+                case request_message_type::flush:
                 {
                     ++current_;
                     continue;  // nothing is expected here
                 }
-                case request_msg_type::parse: return handle_parse(msg);
-                case request_msg_type::query: return handle_query(msg);
-                case request_msg_type::sync: return handle_sync(msg);
+                case request_message_type::parse: return handle_parse(msg);
+                case request_message_type::query: return handle_query(msg);
+                case request_message_type::sync: return handle_sync(msg);
             }
         }
     }

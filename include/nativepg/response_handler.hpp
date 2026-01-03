@@ -32,9 +32,9 @@ class diagnostics;
 
 // Not an actual message, but a placeholder type to signal
 // that the corresponding message was skipped due to a previous error
-// clang-format off
-struct message_skipped {};
-// clang-format on
+struct message_skipped
+{
+};
 
 // TODO: maybe make this a class
 using any_request_message = boost::variant2::variant<
@@ -67,7 +67,6 @@ concept response_handler = requires(
     T& handler,
     const request& req,
     const any_request_message& msg,
-    diagnostics& diag,
     std::size_t offset
 ) {
     { handler.setup(req, offset) } -> std::convertible_to<handler_setup_result>;

@@ -5,6 +5,7 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#include <boost/asio/as_tuple.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/io_context.hpp>
@@ -20,6 +21,7 @@
 #include <vector>
 
 #include "nativepg/connection.hpp"
+#include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
 
@@ -32,6 +34,11 @@ struct myrow
     std::string f1;
 };
 BOOST_DESCRIBE_STRUCT(myrow, (), (f3, f1))
+
+static void print_err(const char* prefix, const extended_error& err)
+{
+    std::cout << prefix << err.code.what() << ": " << err.diag.message() << '\n';
+}
 
 static asio::awaitable<void> co_main()
 {
@@ -46,14 +53,17 @@ static asio::awaitable<void> co_main()
 
     // Compose our request
     request req;
-    req.add_query("SELECT * FROM myt WHERE f1 <> $1", {"value2"});
-    req.add_query("SELECT 42 AS \"f3\", 'abc' AS \"f1\"", {});
+    req.add_query("SELECT * FROM myt' WHERE f1 <> $1", {"abc"});
+    req.add_query("SELECT * FROM myt WHERE f1 <> 'abc'", {});
 
     // Structures to parse the response into
     std::vector<myrow> vec1, vec2;
     response res{into(vec1), into(vec2)};
 
-    co_await conn.async_exec(req, res);
+    auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
+    print_err("Operation result: ", err);
+    print_err("Q1 result: ", std::get<0>(res.handlers()).result());
+    print_err("Q2 result: ", std::get<1>(res.handlers()).result());
 
     for (const auto& r : vec1)
         std::cout << "Got row (1): " << r.f1 << ", " << r.f3 << std::endl;

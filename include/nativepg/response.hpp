@@ -100,12 +100,12 @@ class resultset_callback_t
         template <class Msg>
         void operator()(const Msg&) const
         {
+            self.store_error(client_errc::incompatible_response_type);  // just in case
             BOOST_ASSERT(false);
         }
 
         // If the server sends an error, store it.
         // We know this is the last message in the sequence.
-        // TODO: this must be reviewed
         void operator()(const protocol::error_response& err) const
         {
             if (!self.err_.code)
@@ -207,10 +207,10 @@ class resultset_callback_t
             self.state_ = state_t::done;
         }
 
-        void operator()(protocol::command_complete) const { return on_done(); }
+        void operator()(protocol::command_complete) const { on_done(); }
 
         // TODO: this should be transmitted to the user somehow
-        void operator()(protocol::portal_suspended) const { return on_done(); }
+        void operator()(protocol::portal_suspended) const { on_done(); }
 
         // If any of the messages we expect was skipped due to a previous error,
         // that's an error
@@ -271,16 +271,6 @@ class response
     std::array<response_handler_ref, N> vtable_;
     std::array<std::size_t, N> offsets_{};
     std::size_t current_{};
-    extended_error err_{};
-
-    void store_error(boost::system::error_code ec)
-    {
-        if (!err_.code)
-        {
-            err_.code = ec;
-            err_.diag = {};
-        }
-    }
 
 public:
     template <class... Args>

@@ -227,6 +227,56 @@ void test_simple_query_error_skipping()
     });
 }
 
+// --- Responses to parse ---
+void test_parse()
+{
+    fixture fix;
+    fix.req.add_prepare("SELECT 1", "mystmt");
+
+    // Run the FSM
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::parse_complete{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    // Check handler messages
+    fix.check({
+        {response_msg_type::parse_complete, 0u},
+    });
+}
+
+// Parse might return an error
+void test_parse_error()
+{
+    fixture fix;
+    fix.req.add_prepare("SELECT 1", "mystmt");
+
+    // Run the FSM
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::error_response{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    // Check handler messages
+    fix.check({
+        {response_msg_type::error_response, 0u},
+    });
+}
+
+// Parse errors trigger skipping of subsequent messages
+void test_parse_error_skipping()
+{
+    fixture fix;
+    fix.req.set_autosync(false);
+    fix.req.add_prepare("SELECT 1", "mystmt").add_prepare("SELECT 2", "stmt").add(protocol::sync{});
+
+    // Run the FSM
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::error_response{}), result_type::read);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    // Check handler messages
+    fix.check({
+        {response_msg_type::error_response,  0u},
+        {response_msg_type::message_skipped, 1u},
+    });
+}
+
 // Response to an extended query
 void test_extended_query()
 {
@@ -248,22 +298,6 @@ void test_extended_query()
         {response_msg_type::row_description,  2u},
         {response_msg_type::data_row,         3u},
         {response_msg_type::command_complete, 3u},
-    });
-}
-
-// Response to an individual parse
-void test_parse()
-{
-    fixture fix;
-    fix.req.add_prepare("SELECT 1", "mystmt");
-
-    // Ru the FSM
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::parse_complete{}), result_type::read);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
-
-    // Check handler messages
-    fix.check({
-        {response_msg_type::parse_complete, 0u},
     });
 }
 
@@ -350,8 +384,11 @@ int main()
     test_simple_query_error();
     test_simple_query_error_skipping();
 
-    test_extended_query();
     test_parse();
+    test_parse_error();
+    test_parse_error_skipping();
+
+    test_extended_query();
     test_async();
     // test_impl_several_syncs();
 

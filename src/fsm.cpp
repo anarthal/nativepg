@@ -361,56 +361,44 @@ read_response_fsm_impl::result read_response_fsm_impl::advance()
 read_response_fsm_impl::result read_response_fsm_impl::handle_bind(const any_backend_message& msg)
 {
     // bind: either (bind_complete, error_response, bind_skipped)
-    switch (resume_point_)
+    BOOST_ASSERT(resume_point_ == resume_msg_first);
+    if (const auto* err = get_if<error_response>(&msg))
     {
-        case resume_msg_first:
-        {
-            if (const auto* err = get_if<error_response>(&msg))
-            {
-                // An error finishes this message and makes the server skip everything until
-                // sync
-                return handle_error(*err);
-            }
-            else if (const auto* complete = get_if<bind_complete>(&msg))
-            {
-                // Finishes the bind phase
-                call_handler(*complete);
-                return advance();
-            }
-            else
-            {
-                return error_code(client_errc::unexpected_message);
-            }
-        }
-        default: BOOST_ASSERT(false); return error_code(client_errc::unexpected_message);
+        // An error finishes this message and makes the server skip everything until
+        // sync
+        return handle_error(*err);
+    }
+    else if (const auto* complete = get_if<bind_complete>(&msg))
+    {
+        // Finishes the bind phase
+        call_handler(*complete);
+        return advance();
+    }
+    else
+    {
+        return error_code(client_errc::unexpected_message);
     }
 }
 
 read_response_fsm_impl::result read_response_fsm_impl::handle_close(const any_backend_message& msg)
 {
     // close: either (close_complete, error_response, close_skipped)
-    switch (resume_point_)
+    BOOST_ASSERT(resume_point_ == resume_msg_first);
+    if (const auto* err = get_if<error_response>(&msg))
     {
-        case resume_msg_first:
-        {
-            if (const auto* err = get_if<error_response>(&msg))
-            {
-                // An error finishes this message and makes the server skip everything until
-                // sync
-                return handle_error(*err);
-            }
-            else if (const auto* complete = get_if<close_complete>(&msg))
-            {
-                // Finishes the bind phase
-                call_handler(*complete);
-                return advance();
-            }
-            else
-            {
-                return error_code(client_errc::unexpected_message);
-            }
-        }
-        default: BOOST_ASSERT(false); return error_code(client_errc::unexpected_message);
+        // An error finishes this message and makes the server skip everything until
+        // sync
+        return handle_error(*err);
+    }
+    else if (const auto* complete = get_if<close_complete>(&msg))
+    {
+        // Finishes the bind phase
+        call_handler(*complete);
+        return advance();
+    }
+    else
+    {
+        return error_code(client_errc::unexpected_message);
     }
 }
 
@@ -424,105 +412,87 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_describe(const any
     //   parameter_description, then either (row_description, no_data)
     //   error_response
     //   describe_skipped
-    switch (resume_point_)
+    BOOST_ASSERT(resume_point_ == resume_msg_first);
+    if (const auto* err = get_if<error_response>(&msg))
     {
-        case resume_msg_first:
-        {
-            if (const auto* err = get_if<error_response>(&msg))
-            {
-                // An error finishes this message and makes the server skip everything until
-                // sync
-                return handle_error(*err);
-            }
-            else if (const auto* descr = get_if<row_description>(&msg))
-            {
-                // Finishes the describe phase
-                call_handler(*descr);
-                return advance();
-            }
-            else if (holds_alternative<no_data>(msg))
-            {
-                // We transform no_data into an empty row description, for uniformity.
-                // Finishes the describe phase.
-                call_handler(row_description{});
-                return advance();
-            }
-            else
-            {
-                return error_code(client_errc::unexpected_message);
-            }
-        }
-        default: BOOST_ASSERT(false); return error_code(client_errc::unexpected_message);
+        // An error finishes this message and makes the server skip everything until
+        // sync
+        return handle_error(*err);
+    }
+    else if (const auto* descr = get_if<row_description>(&msg))
+    {
+        // Finishes the describe phase
+        call_handler(*descr);
+        return advance();
+    }
+    else if (holds_alternative<no_data>(msg))
+    {
+        // We transform no_data into an empty row description, for uniformity.
+        // Finishes the describe phase.
+        call_handler(row_description{});
+        return advance();
+    }
+    else
+    {
+        return error_code(client_errc::unexpected_message);
     }
 }
 
 read_response_fsm_impl::result read_response_fsm_impl::handle_execute(const any_backend_message& msg)
 {
-    switch (resume_point_)
+    // execute
+    //   either:
+    //      any number of data_row, then either (command_complete,
+    //      empty_query_response, portal_suspended, error_response) execute_skipped
+    BOOST_ASSERT(resume_point_ == resume_msg_first);
+    if (const auto* err = get_if<error_response>(&msg))
     {
-        // execute
-        //   either:
-        //      any number of data_row, then either (command_complete,
-        //      empty_query_response, portal_suspended, error_response) execute_skipped
-        case resume_msg_first:
-        {
-            if (const auto* err = get_if<error_response>(&msg))
-            {
-                // An error finishes this message and makes the server skip everything
-                // until sync
-                return handle_error(*err);
-            }
-            else if (const auto* complete = get_if<command_complete>(&msg))
-            {
-                // Finishes the execution phase
-                call_handler(*complete);
-                return advance();
-            }
-            else if (const auto* eq = get_if<empty_query_response>(&msg))
-            {
-                // Finishes the execution phase
-                call_handler(*eq);
-                return advance();
-            }
-            else if (const auto* row = get_if<data_row>(&msg))
-            {
-                // We got a row. This doesn't change state
-                return call_handler(*row);
-            }
-            else
-            {
-                return error_code(client_errc::unexpected_message);
-            }
-        }
-        default: BOOST_ASSERT(false); return error_code(client_errc::unexpected_message);
+        // An error finishes this message and makes the server skip everything
+        // until sync
+        return handle_error(*err);
+    }
+    else if (const auto* complete = get_if<command_complete>(&msg))
+    {
+        // Finishes the execution phase
+        call_handler(*complete);
+        return advance();
+    }
+    else if (const auto* eq = get_if<empty_query_response>(&msg))
+    {
+        // Finishes the execution phase
+        call_handler(*eq);
+        return advance();
+    }
+    else if (const auto* row = get_if<data_row>(&msg))
+    {
+        // We got a row. This doesn't change state
+        return call_handler(*row);
+    }
+    else
+    {
+        return error_code(client_errc::unexpected_message);
     }
 }
 
 read_response_fsm_impl::result read_response_fsm_impl::handle_parse(const any_backend_message& msg)
 {
     // parse: either (parse_complete, error_response, parse_skipped)
-    switch (resume_point_)
+    BOOST_ASSERT(resume_point_ == resume_msg_first);
+    if (const auto* err = get_if<error_response>(&msg))
     {
-        case resume_msg_first:
-        {
-            if (const auto* err = get_if<error_response>(&msg))
-            {
-                // An error finishes this message and makes the server skip everything until
-                // sync
-                return handle_error(*err);
-            }
-            else if (const auto* complete = get_if<parse_complete>(&msg))
-            {
-                // Finishes the parse phase
-                call_handler(*complete);
-                return advance();
-            }
-            else
-            {
-                return error_code(client_errc::unexpected_message);
-            }
-        }
-        default: BOOST_ASSERT(false); return error_code(client_errc::unexpected_message);
+        // An error finishes this message and makes the server skip everything until
+        // sync
+        return handle_error(*err);
+    }
+    else if (const auto* complete = get_if<parse_complete>(&msg))
+    {
+        // Finishes the parse phase
+        call_handler(*complete);
+        return advance();
+    }
+    else
+    {
+        return error_code(client_errc::unexpected_message);
     }
 }
 

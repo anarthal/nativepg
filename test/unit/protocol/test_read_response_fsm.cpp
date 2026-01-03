@@ -95,7 +95,7 @@ struct mock_handler
     }
 };
 
-// Response to a simple query
+// --- Responses to a simple query ---
 void test_impl_simple_query()
 {
     request req;
@@ -103,11 +103,8 @@ void test_impl_simple_query()
     mock_handler handler;
     read_response_fsm_impl fsm{req, handler};
 
-    // Initiate
-    auto act = fsm.resume({});
-    BOOST_TEST_EQ(act, result_type::read);
-
-    // Server messages
+    // Run the FSM
+    BOOST_TEST_EQ(fsm.resume({}), result_type::read);
     BOOST_TEST_EQ(fsm.resume(protocol::row_description{}), result_type::read);
     BOOST_TEST_EQ(fsm.resume(protocol::data_row{}), result_type::read);
     BOOST_TEST_EQ(fsm.resume(protocol::data_row{}), result_type::read);
@@ -131,11 +128,8 @@ void test_impl_extended_query()
     mock_handler handler;
     read_response_fsm_impl fsm{req, handler};
 
-    // Initiate
-    auto act = fsm.resume({});
-    BOOST_TEST_EQ(act, result_type::read);
-
-    // Server messages
+    // Run the FSM
+    BOOST_TEST_EQ(fsm.resume({}), result_type::read);
     BOOST_TEST_EQ(fsm.resume(protocol::parse_complete{}), result_type::read);
     BOOST_TEST_EQ(fsm.resume(protocol::bind_complete{}), result_type::read);
     BOOST_TEST_EQ(fsm.resume(protocol::row_description{}), result_type::read);
@@ -150,6 +144,25 @@ void test_impl_extended_query()
         {response_msg_type::row_description,  2u},
         {response_msg_type::data_row,         3u},
         {response_msg_type::command_complete, 3u},
+    });
+}
+
+// Response to an individual parse
+void test_impl_parse()
+{
+    request req;
+    req.add_prepare("SELECT 1", "mystmt");
+    mock_handler handler;
+    read_response_fsm_impl fsm{req, handler};
+
+    // Ru the FSM
+    BOOST_TEST_EQ(fsm.resume({}), result_type::read);
+    BOOST_TEST_EQ(fsm.resume(protocol::parse_complete{}), result_type::read);
+    BOOST_TEST_EQ(fsm.resume(protocol::ready_for_query{}), error_code());
+
+    // Check handler messages
+    handler.check({
+        {response_msg_type::parse_complete, 0u},
     });
 }
 
@@ -300,6 +313,7 @@ int main()
 {
     test_impl_simple_query();
     test_impl_extended_query();
+    test_impl_parse();
     // test_impl_all_msg_types();
     test_impl_async();
     // test_impl_several_syncs();

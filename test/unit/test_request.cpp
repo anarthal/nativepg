@@ -21,23 +21,23 @@
 #include "test_utils.hpp"
 
 using namespace nativepg;
-using detail::request_msg_type;
+using detail::request_message_type;
 
 namespace nativepg::detail {
 
-std::ostream& operator<<(std::ostream& os, request_msg_type type)
+std::ostream& operator<<(std::ostream& os, request_message_type type)
 {
     switch (type)
     {
-    case request_msg_type::bind: return os << "bind";
-    case request_msg_type::close: return os << "close";
-    case request_msg_type::describe: return os << "describe";
-    case request_msg_type::execute: return os << "execute";
-    case request_msg_type::flush: return os << "flush";
-    case request_msg_type::parse: return os << "parse";
-    case request_msg_type::query: return os << "query";
-    case request_msg_type::sync: return os << "sync";
-    default: return os << "<unknown request_msg_type>";
+        case request_message_type::bind: return os << "bind";
+        case request_message_type::close: return os << "close";
+        case request_message_type::describe: return os << "describe";
+        case request_message_type::execute: return os << "execute";
+        case request_message_type::flush: return os << "flush";
+        case request_message_type::parse: return os << "parse";
+        case request_message_type::query: return os << "query";
+        case request_message_type::sync: return os << "sync";
+        default: return os << "<unknown request_msg_type>";
     }
 }
 

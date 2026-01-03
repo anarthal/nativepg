@@ -35,7 +35,7 @@
 namespace nativepg {
 
 namespace detail {
-enum class request_msg_type
+enum class request_message_type
 {
     bind,
     close,
@@ -67,7 +67,7 @@ struct statement
 class request
 {
     std::vector<unsigned char> buffer_;
-    std::vector<detail::request_msg_type> types_;
+    std::vector<detail::request_message_type> types_;
     bool autosync_;
 
     friend struct detail::request_access;
@@ -81,7 +81,7 @@ class request
     }
 
     template <class T>
-    request& add_advanced_impl(const T& value, detail::request_msg_type type)
+    request& add_advanced_impl(const T& value, detail::request_message_type type)
     {
         types_.reserve(types_.size() + 1u);  // strong guarantee
         check(protocol::serialize(value, buffer_));
@@ -272,40 +272,49 @@ public:
 
     request& add(const protocol::bind& value)
     {
-        return add_advanced_impl(value, detail::request_msg_type::bind);
+        return add_advanced_impl(value, detail::request_message_type::bind);
     }
 
     request& add(const protocol::close& value)
     {
-        return add_advanced_impl(value, detail::request_msg_type::close);
+        return add_advanced_impl(value, detail::request_message_type::close);
     }
 
     request& add(const protocol::describe& value)
     {
-        return add_advanced_impl(value, detail::request_msg_type::describe);
+        return add_advanced_impl(value, detail::request_message_type::describe);
     }
 
     request& add(const protocol::execute& value)
     {
-        return add_advanced_impl(value, detail::request_msg_type::execute);
+        return add_advanced_impl(value, detail::request_message_type::execute);
     }
 
-    request& add(protocol::flush value) { return add_advanced_impl(value, detail::request_msg_type::flush); }
+    request& add(protocol::flush value)
+    {
+        return add_advanced_impl(value, detail::request_message_type::flush);
+    }
 
     request& add(const protocol::parse_t& value)
     {
-        return add_advanced_impl(value, detail::request_msg_type::parse);
+        return add_advanced_impl(value, detail::request_message_type::parse);
     }
 
-    request& add(protocol::query value) { return add_advanced_impl(value, detail::request_msg_type::query); }
+    request& add(protocol::query value)
+    {
+        return add_advanced_impl(value, detail::request_message_type::query);
+    }
 
-    request& add(protocol::sync value) { return add_advanced_impl(value, detail::request_msg_type::sync); }
+    request& add(protocol::sync value)
+    {
+        return add_advanced_impl(value, detail::request_message_type::sync);
+    }
 };
 
 namespace detail {
 struct request_access
 {
-    static boost::span<const request_msg_type> messages(const request& r) { return r.types_; }
+    static boost::span<const request_message_type> messages(const request& r) { return r.types_; }
 };
 }  // namespace detail
 

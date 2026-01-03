@@ -49,7 +49,7 @@ using detail::read_response_fsm_impl;
 using detail::startup_fsm_impl;
 using nativepg::client_errc;
 using nativepg::detail::request_access;
-using nativepg::detail::request_msg_type;
+using nativepg::detail::request_message_type;
 
 read_message_fsm::result read_message_fsm::resume(std::span<const unsigned char> data)
 {

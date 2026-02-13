@@ -106,7 +106,7 @@ class response_handler_ref
 
 public:
     template <response_handler T>
-        requires(!std::same_as<T, response_handler_ref>)
+        requires(!std::same_as<std::remove_cvref_t<T>, response_handler_ref>)
     response_handler_ref(T& obj) noexcept
         : obj_(&obj), setup_(&do_setup<T>), on_message_(&do_on_message<T>), result_(&do_result<T>)
     {
@@ -119,6 +119,9 @@ public:
     }
     const extended_error& result() const { return result_(obj_); }
 };
+
+
+
 
 }  // namespace nativepg
 

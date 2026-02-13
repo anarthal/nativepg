@@ -106,6 +106,16 @@ void test_deduction_guide()
     static_assert(std::is_same_v<decltype(res), response<h1, h1, h1, h2>>);
 }
 
+void test_ignore_resultset()
+{
+    using h1 = errors_only_handler;
+    using h2 = mock_handler<2>;
+
+    response res{eo, h2{}};
+
+    static_assert(std::is_same_v<decltype(res), response<h1, h2>>);
+}
+
 }  // namespace
 
 int main()
@@ -113,6 +123,7 @@ int main()
     test_success_two_handlers();
     test_errors();
     test_deduction_guide();
+    test_ignore_resultset();
 
     return boost::report_errors();
 }

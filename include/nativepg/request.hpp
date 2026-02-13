@@ -116,7 +116,7 @@ public:
     // Adds a query with parameters using the extended protocol (PQsendQueryParams)
     request& add_query(
         std::string_view q,
-        std::initializer_list<parameter_ref> params,
+        std::initializer_list<parameter_ref> params = {},
         param_format fmt = param_format::select_best,
         protocol::format_code result_codes = protocol::format_code::text,
         std::int32_t max_num_rows = 0

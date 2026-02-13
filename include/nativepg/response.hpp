@@ -9,6 +9,7 @@
 #define NATIVEPG_RESPONSE_HPP
 
 #include <boost/core/span.hpp>
+#include <boost/describe/class.hpp>
 #include <boost/mp11/algorithm.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/variant2/variant.hpp>
@@ -62,6 +63,13 @@ boost::system::error_code compute_pos_map(
 inline constexpr std::size_t invalid_pos = static_cast<std::size_t>(-1);
 
 handler_setup_result resultset_setup(const request& req, std::size_t offset);
+
+struct empty
+{
+};
+BOOST_DESCRIBE_STRUCT(empty, (), ());
+
+inline std::vector<empty> empty_vec{};
 
 }  // namespace detail
 
@@ -281,9 +289,22 @@ public:
     {
     }
 
-    // TODO: implement move, at least
-    response(response&&) = delete;
-    response& operator=(response&&) = delete;
+    // move constructor
+    response(response&& other) noexcept
+        :   handlers_(std::move(other.handlers_)),
+            vtable_(std::move(other.vtable_)),
+            offsets_(std::move(other.offsets_)),
+            current_(other.current_)
+    {}
+
+    // move assignment
+    response& operator=(response&& other) noexcept {
+        handlers_ = std::move(other.handlers_);
+        vtable_ = std::move(other.vtable_);
+        offsets_ = std::move(other.offsets_);
+        current_ = other.current_;
+        return *this;
+    }
 
     handler_setup_result setup(const request& req, std::size_t offset)
     {
@@ -328,6 +349,18 @@ public:
 
 template <class... Args>
 response(Args&&...) -> response<std::decay_t<Args>...>;
+
+
+struct errors_only_handler
+{
+    extended_error err;
+    handler_setup_result setup(const request& req, std::size_t offset) { return detail::resultset_setup(req, offset); }
+    void on_message(const any_request_message&, std::size_t) {}
+    const extended_error& result() const { return err; }
+};
+
+const errors_only_handler eo{};
+inline response eo_response{eo};
 
 }  // namespace nativepg
 

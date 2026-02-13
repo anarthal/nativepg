@@ -31,6 +31,8 @@ public:
 
     exec_fsm(const request& req, response_handler_ref handler) noexcept : read_fsm_(req, handler) {}
 
+    const request& get_request() const { return read_fsm_.get_request(); }
+
     result resume(connection_state& st, boost::system::error_code ec, std::size_t bytes_transferred);
 
     extended_error get_result(boost::system::error_code ec) const

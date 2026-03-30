@@ -13,17 +13,24 @@
 #include <charconv>
 #include <cstdint>
 #include <span>
+#include <chrono>
+#include <iostream>
+#include <locale>
+#include <sstream>
+#include <cstring>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/detail/field_traits.hpp"
+#include "nativepg/types.hpp"
 #include "nativepg/response.hpp"
 
 using namespace nativepg;
+using namespace nativepg::types;
 using boost::system::error_code;
 
 // Parsing concrete fields
-
 namespace {
+
 
 template <class T>
 error_code parse_text_int(std::span<const unsigned char> from, T& to)
@@ -47,9 +54,10 @@ error_code parse_binary_int(std::span<const unsigned char> from, T& to)
     return {};
 }
 
+
 }  // namespace
 
-boost::system::error_code detail::field_parse<std::int16_t>::call(
+boost::system::error_code nativepg::detail::field_parse<std::int16_t>::call(
     std::optional<std::span<const unsigned char>> from,
     const protocol::field_description& desc,
     std::int16_t& to
@@ -62,7 +70,7 @@ boost::system::error_code detail::field_parse<std::int16_t>::call(
                                                         : parse_binary_int(*from, to);
 }
 
-boost::system::error_code detail::field_parse<std::int32_t>::call(
+boost::system::error_code nativepg::detail::field_parse<std::int32_t>::call(
     std::optional<std::span<const unsigned char>> from,
     const protocol::field_description& desc,
     std::int32_t& to
@@ -88,7 +96,7 @@ boost::system::error_code detail::field_parse<std::int32_t>::call(
     }
 }
 
-boost::system::error_code detail::field_parse<std::int64_t>::call(
+boost::system::error_code nativepg::detail::field_parse<std::int64_t>::call(
     std::optional<std::span<const unsigned char>> from,
     const protocol::field_description& desc,
     std::int64_t& to
@@ -122,7 +130,98 @@ boost::system::error_code detail::field_parse<std::int64_t>::call(
     }
 }
 
-boost::system::error_code detail::compute_pos_map(
+
+// DATE => std::chrono::sys_days
+boost::system::error_code nativepg::detail::field_parse<std::chrono::sys_days>::call(
+    std::optional<std::span<const unsigned char>> from,
+    const protocol::field_description& desc,
+    std::chrono::sys_days& to
+)
+{
+    if (!from.has_value())
+        return client_errc::unexpected_null;
+    BOOST_ASSERT(desc.type_oid == 1082);
+    return desc.fmt_code == protocol::format_code::text ?
+        parse_text_date(*from, to) :
+        parse_binary_date(*from, to);
+}
+
+// TIME => std::chrono::microseconds
+boost::system::error_code nativepg::detail::field_parse<std::chrono::microseconds>::call(
+    std::optional<std::span<const unsigned char>> from,
+    const protocol::field_description& desc,
+    std::chrono::microseconds& to
+)
+{
+    if (!from.has_value())
+        return client_errc::unexpected_null;
+    BOOST_ASSERT(desc.type_oid == 1083);
+    return desc.fmt_code == protocol::format_code::text ?
+        parse_text_time(*from, to) :
+        parse_binary_time(*from, to);
+}
+
+// TIMETZ => pg_timetz
+boost::system::error_code nativepg::detail::field_parse<types::pg_timetz>::call(
+    std::optional<std::span<const unsigned char>> from,
+    const protocol::field_description& desc,
+    types::pg_timetz& to
+)
+{
+    if (!from.has_value())
+        return client_errc::unexpected_null;
+    BOOST_ASSERT(desc.type_oid == 1266);
+    return desc.fmt_code == protocol::format_code::text ?
+        parse_text_timetz(*from, to) :
+        parse_binary_timetz(*from, to);
+}
+
+// TIMESTAMP => pg_timestamp
+boost::system::error_code nativepg::detail::field_parse<types::pg_timestamp>::call(
+    std::optional<std::span<const unsigned char>> from,
+    const protocol::field_description& desc,
+    types::pg_timestamp& to
+)
+{
+    if (!from.has_value())
+        return client_errc::unexpected_null;
+    BOOST_ASSERT(desc.type_oid == 1114);
+    return desc.fmt_code == protocol::format_code::text ?
+        parse_text_timestamp(*from, to) :
+        parse_binary_timestamp(*from, to);
+}
+
+// TIMESTAMPTZ => pg_timestamptz
+boost::system::error_code nativepg::detail::field_parse<types::pg_timestamptz>::call(
+    std::optional<std::span<const unsigned char>> from,
+    const protocol::field_description& desc,
+    types::pg_timestamptz& to
+)
+{
+    if (!from.has_value())
+        return client_errc::unexpected_null;
+    BOOST_ASSERT(desc.type_oid == 1184);
+    return desc.fmt_code == protocol::format_code::text ?
+        parse_text_timestamptz(*from, to) :
+        parse_binary_timestamptz(*from, to);
+}
+
+// INTERVAL => pg_interval
+boost::system::error_code nativepg::detail::field_parse<types::pg_interval>::call(
+    std::optional<std::span<const unsigned char>> from,
+    const protocol::field_description& desc,
+    types::pg_interval& to
+)
+{
+    if (!from.has_value())
+        return client_errc::unexpected_null;
+    BOOST_ASSERT(desc.type_oid == 1186);
+    return desc.fmt_code == protocol::format_code::text ?
+        parse_text_interval(*from, to) :
+        parse_binary_interval(*from, to);
+}
+
+boost::system::error_code nativepg::detail::compute_pos_map(
     const protocol::row_description& meta,
     std::span<const std::string_view> name_table,
     std::span<pos_map_entry> output
@@ -159,7 +258,7 @@ boost::system::error_code detail::compute_pos_map(
     return {};
 }
 
-handler_setup_result detail::resultset_setup(const request& req, std::size_t offset)
+handler_setup_result nativepg::detail::resultset_setup(const request& req, std::size_t offset)
 {
     const auto msgs = req.messages().subspan(offset);
     bool describe_found = false, execute_found = false;
@@ -188,6 +287,7 @@ handler_setup_result detail::resultset_setup(const request& req, std::size_t off
         switch (*it)
         {
             // Ignore parse, bind and flush messages
+            case request_message_type::sync: continue;
             case request_message_type::flush:
             case request_message_type::parse:
             case request_message_type::bind: continue;

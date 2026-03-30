@@ -31,6 +31,9 @@ struct parse_t
     // The query string to be parsed.
     std::string_view query;
 
+    // Optional protocol format preference. Default text.
+    format_code fmt = format_code::text;
+
     // Expected parameter data types, as OIDs. A zero OID leaves the type unspecified.
     boost::span<const std::int32_t> parameter_type_oids;
 };

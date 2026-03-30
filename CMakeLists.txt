@@ -59,8 +59,12 @@ if (BUILD_TESTING)
     add_unit_test(""                test_diagnostics)
     add_unit_test(""                test_extended_error_disposition)
     add_unit_test(""                test_extended_error_boost_system)
+    add_unit_test(types             test_datetime)
 endif()
 
 # Examples
 add_executable(nativepg_example example/nativepg.cpp)
 target_link_libraries(nativepg_example PRIVATE nativepg)
+
+add_executable(nativepg_datetime_example example/datetime.cpp)
+target_link_libraries(nativepg_datetime_example PRIVATE nativepg)

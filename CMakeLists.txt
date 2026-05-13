@@ -21,6 +21,7 @@ add_library(nativepg
     src/messages.cpp
     src/startup_fsm.cpp
     src/read_response_fsm.cpp
+    src/read_message_fsm.cpp
     src/fsm.cpp
     src/request.cpp
     src/response.cpp

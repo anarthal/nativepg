@@ -110,7 +110,7 @@ void test__parse_binary_time__success()
 void test__parse_text_timetz__success()
 {
     // Arrange
-    types::pg_timetz tz;
+    types::pg_timetz tz {};
     std::string str = "21:06:19+07:00";
     boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     std::stringstream ss;

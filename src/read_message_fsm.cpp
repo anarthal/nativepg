@@ -5,8 +5,7 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include <boost/system/system_error.hpp>
-#include <boost/variant2/variant.hpp>
+#include <boost/system/error_code.hpp>
 
 #include <cstddef>
 #include <span>

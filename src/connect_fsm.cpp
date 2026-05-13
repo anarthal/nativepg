@@ -5,23 +5,14 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include <boost/asio/buffer.hpp>
-#include <boost/system/detail/error_code.hpp>
-#include <boost/system/system_error.hpp>
-#include <boost/variant2/variant.hpp>
+#include <boost/system/error_code.hpp>
 
 #include <cstddef>
-#include <span>
 
 #include "coroutine.hpp"
-#include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
-#include "nativepg/protocol/detail/exec_fsm.hpp"
-#include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
-#include "nativepg/request.hpp"
-#include "nativepg/response_handler.hpp"
 
 using namespace nativepg::protocol;
 using boost::system::error_code;

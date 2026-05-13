@@ -6,11 +6,9 @@
 //
 
 #include <boost/system/error_code.hpp>
-#include <boost/system/system_error.hpp>
 #include <boost/variant2/variant.hpp>
 
 #include <cstddef>
-#include <span>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/async.hpp"
@@ -28,7 +26,6 @@
 #include "nativepg/protocol/read_message_fsm.hpp"
 #include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/protocol/ready_for_query.hpp"
-#include "nativepg/protocol/startup_fsm.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
 

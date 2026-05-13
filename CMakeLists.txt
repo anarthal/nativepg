@@ -19,7 +19,11 @@ add_library(nativepg
     # External API
     src/error.cpp
     src/messages.cpp
-    src/fsm.cpp
+    src/startup_fsm.cpp
+    src/read_response_fsm.cpp
+    src/read_message_fsm.cpp
+    src/exec_fsm.cpp
+    src/connect_fsm.cpp
     src/request.cpp
     src/response.cpp
 )

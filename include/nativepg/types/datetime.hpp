@@ -618,7 +618,7 @@ constexpr error_code parse_text_interval(std::span<const unsigned char> from, T&
             if (sv[pos] == '-') { sign = -1; ++pos; has_sign = true; }
             else if (sv[pos] == '+') { ++pos; has_sign = true; }
 
-            microseconds time_part;
+            microseconds time_part {};
             // The time part is what remains in 'part' after potentially skipping the sign
             size_t sign_offset = has_sign ? 1 : 0;
             auto ec = parse_text_time(

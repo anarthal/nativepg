@@ -18,7 +18,6 @@
 #include <string_view>
 #include <vector>
 
-#include "../src/serialization_context.hpp"  // TODO
 #include "nativepg/client_errc.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/bind.hpp"
@@ -26,6 +25,7 @@
 #include "nativepg/protocol/common.hpp"
 #include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
+#include "nativepg/protocol/detail/serialization_context.hpp"
 #include "nativepg/protocol/parse.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response.hpp"

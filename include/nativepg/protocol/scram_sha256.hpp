@@ -13,8 +13,11 @@
 #include <boost/system/result.hpp>
 
 #include <cstdint>
+#include <span>
 #include <string_view>
 #include <vector>
+
+#include "nativepg/protocol/detail/serialization_context.hpp"
 
 namespace nativepg {
 namespace protocol {
@@ -50,21 +53,24 @@ struct scram_sha256_server_first_message
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, scram_sha256_server_first_message&);
 
-// This is a password message. serialize serializes the entire message,
-// including the header. Returns the client-final-message-without-proof part of the serialized
-// message, required by the SCRAM algorithm
-struct scram_sha256_client_final_message
+// client_final_message is a password message. It needs to be serialized in two parts.
+//   * serialize_without_proof serializes the header, and all the message except for the proof.
+//     It returns client-final-message-without-proof, required by the SCRAM algorithm.
+//   * serialize_proof serializes the proof and adjusts the header.
+//     Computing proof needs client-final-message-without-proof. This is why we need to split serialization.
+class scram_sha256_client_final_message_serializer
 {
-    // The nonce sent to the server
-    std::string_view nonce;
+    detail::serialization_context ctx_;
 
-    // Proof that we have the password, to be b64 encoded
-    boost::span<const unsigned char> proof;
+public:
+    scram_sha256_client_final_message_serializer(std::vector<unsigned char>& to) noexcept : ctx_(to) {}
+
+    // Should be called once, first
+    boost::system::result<std::span<const unsigned char>> serialize_without_proof(std::string_view nonce);
+
+    // Should be called once, after serialize_without_proof
+    boost::system::error_code serialize_proof(std::span<const unsigned char> proof);
 };
-boost::system::result<boost::span<const unsigned char>> serialize(
-    const scram_sha256_client_final_message& msg,
-    std::vector<unsigned char>& to
-);
 
 // This is an authentication_sasl_final message. parse does not parse the type
 struct scram_sha256_server_final_message

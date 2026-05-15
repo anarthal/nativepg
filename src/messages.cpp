@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <span>
 #include <string_view>
 #include <system_error>
 #include <vector>
@@ -35,6 +36,7 @@
 #include "nativepg/protocol/copy.hpp"
 #include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
+#include "nativepg/protocol/detail/serialization_context.hpp"
 #include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/flush.hpp"
 #include "nativepg/protocol/header.hpp"
@@ -49,7 +51,6 @@
 #include "nativepg/protocol/terminate.hpp"
 #include "nativepg_internal/base64.hpp"
 #include "parse_context.hpp"
-#include "serialization_context.hpp"
 
 using namespace nativepg::protocol;
 
@@ -1145,7 +1146,7 @@ boost::system::error_code nativepg::protocol::parse(
 {
     // server-first-message = [reserved-mext ","] nonce "," salt "," iteration-count ["," extensions]
     // reserved-mext  = "m=" 1*(value-char) ;; if this is present, we're missing extensions and should fail
-    // parsing nonce          = "r=" c-nonce [s-nonce] ;; these are equal to printable
+    // nonce          = "r=" c-nonce [s-nonce] ;; these are equal to printable
     // printable       =%x21-2B / %x2D-7E
     // salt            = "s=" base64
     // iteration-count = "i=" posit-number
@@ -1218,15 +1219,11 @@ boost::system::error_code nativepg::protocol::parse(
     return {};
 }
 
-boost::system::result<boost::span<const unsigned char>> nativepg::protocol::serialize(
-    const scram_sha256_client_final_message& msg,
-    std::vector<unsigned char>& to
-)
+boost::system::result<std::span<const unsigned char>> nativepg::protocol::
+    scram_sha256_client_final_message_serializer::serialize_without_proof(std::string_view nonce)
 {
-    detail::serialization_context ctx(to);
-
     // Header
-    ctx.add_header('p');
+    ctx_.add_header('p');
 
     // client-final-message = client-final-message-without-proof "," proof
     // client-final-message-without-proof = channel-binding "," nonce ["," extensions]
@@ -1239,27 +1236,38 @@ boost::system::result<boost::span<const unsigned char>> nativepg::protocol::seri
     // proof           = "p=" base64
 
     // client-final-message-without-proof starts here
-    std::size_t offset_first = to.size();
+    std::size_t offset_first = ctx_.buffer().size();
 
     // gs2-header is always "n,," when no channel binding is present
     // this makes channel-binding always equals to "c=biws"
     // nonce ("r=") comes next
-    ctx.add_bytes("c=biws,r=");
-    ctx.add_bytes(msg.nonce);
+    ctx_.add_bytes("c=biws,r=");
+    ctx_.add_bytes(nonce);
 
     // client-final-message-without-proof ends here
-    std::size_t offset_last = to.size();
+    std::size_t offset_last = ctx_.buffer().size();
 
-    // proof
-    ctx.add_bytes(",p=");
-    detail::base64_encode(msg.proof, to);
+    // proof depends on client-final-message-without-proof, so it's serialized by a downstream function
 
-    // Finalize message
-    if (auto ec = ctx.finalize_message())
+    // Check for errors
+    if (auto ec = ctx_.error())
         return ec;
 
     // Done
-    return boost::span<const unsigned char>(to.data() + offset_first, to.data() + offset_last);
+    const auto* data = ctx_.buffer().data();
+    return std::span<const unsigned char>(data + offset_first, data + offset_last);
+}
+
+boost::system::error_code nativepg::protocol::scram_sha256_client_final_message_serializer::serialize_proof(
+    std::span<const unsigned char> proof
+)
+{
+    // proof
+    ctx_.add_bytes(",p=");
+    detail::base64_encode(proof, ctx_.buffer());
+
+    // Finalize message
+    return ctx_.finalize_message();
 }
 
 boost::system::error_code nativepg::protocol::parse(

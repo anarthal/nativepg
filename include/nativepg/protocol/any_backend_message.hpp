@@ -30,9 +30,9 @@
 namespace nativepg {
 namespace protocol {
 
-//
-// Messages that we may receive from the backend.
+// Contains any of the messages that we may receive from the backend.
 // Hand-rolled variant-like type.
+// All getters require checking kind() first
 class any_backend_message
 {
 public:
@@ -75,92 +75,119 @@ public:
         row_description,
     };
 
+    // Default constructor: constructs an invalid message
     any_backend_message() noexcept : kind_(kind::none), none_{} {}
 
-    any_backend_message(authentication_ok v) noexcept : kind_(kind::authentication_ok), authentication_ok_(v)
+    // Constructors from types (intentionally non-explicit)
+    any_backend_message(const authentication_ok& v) noexcept
+        : kind_(kind::authentication_ok), authentication_ok_(v)
     {
     }
-    any_backend_message(authentication_kerberos_v5 v) noexcept
+    any_backend_message(const authentication_kerberos_v5& v) noexcept
         : kind_(kind::authentication_kerberos_v5), authentication_kerberos_v5_(v)
     {
     }
-    any_backend_message(authentication_cleartext_password v) noexcept
+    any_backend_message(const authentication_cleartext_password& v) noexcept
         : kind_(kind::authentication_cleartext_password), authentication_cleartext_password_(v)
     {
     }
-    any_backend_message(authentication_md5_password v) noexcept
+    any_backend_message(const authentication_md5_password& v) noexcept
         : kind_(kind::authentication_md5_password), authentication_md5_password_(v)
     {
     }
-    any_backend_message(authentication_gss v) noexcept
+    any_backend_message(const authentication_gss& v) noexcept
         : kind_(kind::authentication_gss), authentication_gss_(v)
     {
     }
-    any_backend_message(authentication_gss_continue v) noexcept
+    any_backend_message(const authentication_gss_continue& v) noexcept
         : kind_(kind::authentication_gss_continue), authentication_gss_continue_(v)
     {
     }
-    any_backend_message(authentication_sspi v) noexcept
+    any_backend_message(const authentication_sspi& v) noexcept
         : kind_(kind::authentication_sspi), authentication_sspi_(v)
     {
     }
-    any_backend_message(authentication_sasl v) noexcept
+    any_backend_message(const authentication_sasl& v) noexcept
         : kind_(kind::authentication_sasl), authentication_sasl_(v)
     {
     }
-    any_backend_message(authentication_sasl_continue v) noexcept
+    any_backend_message(const authentication_sasl_continue& v) noexcept
         : kind_(kind::authentication_sasl_continue), authentication_sasl_continue_(v)
     {
     }
-    any_backend_message(authentication_sasl_final v) noexcept
+    any_backend_message(const authentication_sasl_final& v) noexcept
         : kind_(kind::authentication_sasl_final), authentication_sasl_final_(v)
     {
     }
-    any_backend_message(backend_key_data v) noexcept : kind_(kind::backend_key_data), backend_key_data_(v) {}
-    any_backend_message(bind_complete v) noexcept : kind_(kind::bind_complete), bind_complete_(v) {}
-    any_backend_message(close_complete v) noexcept : kind_(kind::close_complete), close_complete_(v) {}
-    any_backend_message(command_complete v) noexcept : kind_(kind::command_complete), command_complete_(v) {}
-    any_backend_message(copy_data v) noexcept : kind_(kind::copy_data), copy_data_(v) {}
-    any_backend_message(copy_done v) noexcept : kind_(kind::copy_done), copy_done_(v) {}
-    any_backend_message(copy_fail v) noexcept : kind_(kind::copy_fail), copy_fail_(v) {}
-    any_backend_message(copy_in_response v) noexcept : kind_(kind::copy_in_response), copy_in_response_(v) {}
-    any_backend_message(copy_out_response v) noexcept : kind_(kind::copy_out_response), copy_out_response_(v)
+    any_backend_message(const backend_key_data& v) noexcept
+        : kind_(kind::backend_key_data), backend_key_data_(v)
     {
     }
-    any_backend_message(copy_both_response v) noexcept
+    any_backend_message(const bind_complete& v) noexcept : kind_(kind::bind_complete), bind_complete_(v) {}
+    any_backend_message(const close_complete& v) noexcept : kind_(kind::close_complete), close_complete_(v) {}
+    any_backend_message(const command_complete& v) noexcept
+        : kind_(kind::command_complete), command_complete_(v)
+    {
+    }
+    any_backend_message(const copy_data& v) noexcept : kind_(kind::copy_data), copy_data_(v) {}
+    any_backend_message(const copy_done& v) noexcept : kind_(kind::copy_done), copy_done_(v) {}
+    any_backend_message(const copy_fail& v) noexcept : kind_(kind::copy_fail), copy_fail_(v) {}
+    any_backend_message(const copy_in_response& v) noexcept
+        : kind_(kind::copy_in_response), copy_in_response_(v)
+    {
+    }
+    any_backend_message(const copy_out_response& v) noexcept
+        : kind_(kind::copy_out_response), copy_out_response_(v)
+    {
+    }
+    any_backend_message(const copy_both_response& v) noexcept
         : kind_(kind::copy_both_response), copy_both_response_(v)
     {
     }
-    any_backend_message(data_row v) noexcept : kind_(kind::data_row), data_row_(v) {}
-    any_backend_message(empty_query_response v) noexcept
+    any_backend_message(const data_row& v) noexcept : kind_(kind::data_row), data_row_(v) {}
+    any_backend_message(const empty_query_response& v) noexcept
         : kind_(kind::empty_query_response), empty_query_response_(v)
     {
     }
-    any_backend_message(error_response v) noexcept : kind_(kind::error_response), error_response_(v) {}
-    any_backend_message(negotiate_protocol_version v) noexcept
+    any_backend_message(const error_response& v) noexcept : kind_(kind::error_response), error_response_(v) {}
+    any_backend_message(const negotiate_protocol_version& v) noexcept
         : kind_(kind::negotiate_protocol_version), negotiate_protocol_version_(v)
     {
     }
-    any_backend_message(no_data v) noexcept : kind_(kind::no_data), no_data_(v) {}
-    any_backend_message(notice_response v) noexcept : kind_(kind::notice_response), notice_response_(v) {}
-    any_backend_message(notification_response v) noexcept
+    any_backend_message(const no_data& v) noexcept : kind_(kind::no_data), no_data_(v) {}
+    any_backend_message(const notice_response& v) noexcept : kind_(kind::notice_response), notice_response_(v)
+    {
+    }
+    any_backend_message(const notification_response& v) noexcept
         : kind_(kind::notification_response), notification_response_(v)
     {
     }
-    any_backend_message(parameter_description v) noexcept
+    any_backend_message(const parameter_description& v) noexcept
         : kind_(kind::parameter_description), parameter_description_(v)
     {
     }
-    any_backend_message(parameter_status v) noexcept : kind_(kind::parameter_status), parameter_status_(v) {}
-    any_backend_message(parse_complete v) noexcept : kind_(kind::parse_complete), parse_complete_(v) {}
-    any_backend_message(portal_suspended v) noexcept : kind_(kind::portal_suspended), portal_suspended_(v) {}
-    any_backend_message(ready_for_query v) noexcept : kind_(kind::ready_for_query), ready_for_query_(v) {}
-    any_backend_message(field_description v) noexcept : kind_(kind::field_description), field_description_(v)
+    any_backend_message(const parameter_status& v) noexcept
+        : kind_(kind::parameter_status), parameter_status_(v)
     {
     }
-    any_backend_message(row_description v) noexcept : kind_(kind::row_description), row_description_(v) {}
+    any_backend_message(const parse_complete& v) noexcept : kind_(kind::parse_complete), parse_complete_(v) {}
+    any_backend_message(const portal_suspended& v) noexcept
+        : kind_(kind::portal_suspended), portal_suspended_(v)
+    {
+    }
+    any_backend_message(const ready_for_query& v) noexcept : kind_(kind::ready_for_query), ready_for_query_(v)
+    {
+    }
+    any_backend_message(const field_description& v) noexcept
+        : kind_(kind::field_description), field_description_(v)
+    {
+    }
+    any_backend_message(const row_description& v) noexcept : kind_(kind::row_description), row_description_(v)
+    {
+    }
 
-    kind get_kind() const noexcept { return kind_; }
+    // Gets the kind
+    kind type() const noexcept { return kind_; }
 
     const authentication_ok& get_authentication_ok() const noexcept { return authentication_ok_; }
     const authentication_kerberos_v5& get_authentication_kerberos_v5() const noexcept

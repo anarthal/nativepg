@@ -24,11 +24,9 @@ namespace {
 
 error_code handle_startup_response(const any_backend_message& msg, nativepg::diagnostics& diag)
 {
-    switch (msg.get_kind())
+    switch (msg.type())
     {
-        case kind::error_response:
-            diag.assign(msg.get_error_response());
-            return client_errc::auth_failed;
+        case kind::error_response: diag.assign(msg.get_error_response()); return client_errc::auth_failed;
         case kind::authentication_ok: return error_code();
         case kind::authentication_kerberos_v5: return client_errc::auth_kerberos_v5_unsupported;
         case kind::authentication_cleartext_password: return client_errc::auth_cleartext_password_unsupported;
@@ -87,7 +85,7 @@ startup_fsm_impl::result startup_fsm_impl::resume(
             NATIVEPG_YIELD(resume_point_, 3, result_type::read)
 
             // Act upon it
-            switch (msg.get_kind())
+            switch (msg.type())
             {
                 case kind::backend_key_data:
                 {

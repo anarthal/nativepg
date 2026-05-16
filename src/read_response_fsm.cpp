@@ -10,9 +10,9 @@
 #include <cstddef>
 
 #include "nativepg/client_errc.hpp"
+#include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/describe.hpp"
-#include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/read_message_fsm.hpp"
 #include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/request.hpp"
@@ -68,7 +68,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_bind(const any_bac
 {
     // bind: either (bind_complete, error_response)
     BOOST_ASSERT(state_ == state_t::msg_first);
-    switch (msg.get_kind())
+    switch (msg.type())
     {
         case kind::error_response:
             // An error finishes this message and makes the server skip everything until sync
@@ -85,7 +85,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_close(const any_ba
 {
     // close: either (close_complete, error_response)
     BOOST_ASSERT(state_ == state_t::msg_first);
-    switch (msg.get_kind())
+    switch (msg.type())
     {
         case kind::error_response:
             // An error finishes this message and makes the server skip everything until sync
@@ -108,7 +108,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_describe(const any
     //   parameter_description, then either (row_description, no_data)
     //   error_response
     BOOST_ASSERT(state_ == state_t::msg_first);
-    switch (msg.get_kind())
+    switch (msg.type())
     {
         case kind::error_response:
             // An error finishes this message and makes the server skip everything until sync
@@ -132,7 +132,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_execute(const any_
     //   any number of data_row, then either (command_complete, portal_suspended, error_response)
     //   empty_query_response
     BOOST_ASSERT(state_ == state_t::msg_first);
-    switch (msg.get_kind())
+    switch (msg.type())
     {
         case kind::error_response:
             // An error finishes this message and makes the server skip everything until sync
@@ -162,7 +162,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_parse(const any_ba
 {
     // parse: either (parse_complete, error_response)
     BOOST_ASSERT(state_ == state_t::msg_first);
-    switch (msg.get_kind())
+    switch (msg.type())
     {
         case kind::error_response:
             // An error finishes this message and makes the server skip everything until sync
@@ -180,7 +180,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_sync(const any_bac
     // sync always returns ReadyForQuery. Getting an error here is a protocol error,
     // as we don't know whether the connection is healthy or not
     BOOST_ASSERT(state_ == state_t::msg_first);
-    if (msg.get_kind() != kind::ready_for_query)
+    if (msg.type() != kind::ready_for_query)
         return error_code(client_errc::unexpected_message);
     return advance();
 }
@@ -199,7 +199,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
         case state_t::msg_first:
         case state_t::query_first:
         {
-            switch (msg.get_kind())
+            switch (msg.type())
             {
                 case kind::error_response:
                     // An error should always be followed by ReadyForQuery
@@ -238,7 +238,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
         }
         case state_t::query_rows:
         {
-            switch (msg.get_kind())
+            switch (msg.type())
             {
                 case kind::error_response:
                     // An error should always be followed by ReadyForQuery
@@ -259,7 +259,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
         }
         case state_t::query_needs_ready:
             // Only a sync is allowed here. Not even an error
-            if (msg.get_kind() == kind::ready_for_query)
+            if (msg.type() == kind::ready_for_query)
             {
                 // We're done with the current message
                 state_ = state_t::msg_first;
@@ -274,7 +274,7 @@ read_response_fsm_impl::result read_response_fsm_impl::resume(const any_backend_
 {
     // Some messages may be found interleaved with the expected message flow
     // TODO: actually do something useful with these
-    switch (msg.get_kind())
+    switch (msg.type())
     {
         case kind::notice_response:
         case kind::notification_response:

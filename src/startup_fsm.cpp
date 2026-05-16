@@ -8,7 +8,6 @@
 #include <boost/system/detail/error_code.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/system/result.hpp>
-#include <boost/variant2/variant.hpp>
 
 #include <algorithm>
 #include <string_view>
@@ -17,6 +16,7 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/connect_params.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/scram_sha256.hpp"
 #include "nativepg/protocol/startup.hpp"
@@ -25,9 +25,6 @@
 
 using namespace nativepg::protocol;
 using boost::system::error_code;
-using boost::variant2::get;
-using boost::variant2::get_if;
-using boost::variant2::holds_alternative;
 using detail::startup_fsm_impl;
 using nativepg::client_errc;
 using kind = any_backend_message::kind;
@@ -99,11 +96,11 @@ startup_fsm_impl::result startup_fsm_impl::resume(
         NATIVEPG_YIELD(resume_point_, 2, result_type::read)
 
         // Act upon the server's message
-        if (holds_alternative<authentication_sasl>(msg))
+        if (msg.type() == any_backend_message::kind::authentication_sasl)
         {
             {
                 // SASL authentication was requested. Check the mechanisms
-                if (!supports_scram_sha256(boost::variant2::get<authentication_sasl>(msg)))
+                if (!supports_scram_sha256(msg.get_authentication_sasl()))
                     return error_code(client_errc::scram_mechanisms_unsupported);
 
                 // Compose the client initial message
@@ -129,11 +126,29 @@ startup_fsm_impl::result startup_fsm_impl::resume(
             // Read the server's response
             NATIVEPG_YIELD(resume_point_, 51, result_type::read)
 
-            if (const auto* err_msg = get_if<error_response>(&msg))
+            switch (msg.type())
             {
-                diag.assign(*err_msg);
-                // return
+                // TODO: can notices be received here?
+                case any_backend_message::kind::error_response:
+                    diag.assign(msg.get_error_response());
+                    return error_code(client_errc::auth_failed);
+                case any_backend_message::kind::authentication_sasl_continue: break;
+                default: return error_code(client_errc::unexpected_message);
             }
+
+            // Process it
+            scram_sha256_server_first_message server_msg{};
+            if (auto ec = parse(msg.get_authentication_sasl_continue().data, server_msg))
+                return ec;
+
+            // Check the nonce. If it does start with our nonce, that's an error
+            if (!server_msg.nonce.starts_with(scram_nonce_))
+                return error_code(client_errc::scram_invalid_nonce);
+
+            // Store the server's nonce for later (TODO: do we need this?)
+            scram_nonce_ = server_msg.nonce;
+
+            // Store the server's message, as it's part of what we need for the proof
         }
 
         // TODO: this will have to change once we implement SASL

@@ -35,7 +35,7 @@ enum class client_errc : int
     invalid_base64,
 
     // Parsing a SCRAM message failed
-    invalid_scram_message,
+    invalid_scram_message,  // TODO: rename these to start with scram_
 
     // We found a mandatory SCRAM extension ('m'), which requires us to fail
     // authentication in the current version
@@ -43,6 +43,9 @@ enum class client_errc : int
 
     // We don't support any of the SCRAM authentication mechanisms that the server does.
     scram_mechanisms_unsupported,
+
+    // The server sent us a nonce that didn't match what we generated
+    scram_invalid_nonce,
 
     // We got a message type that wasn't supposed to appear in the state we are.
     // This is a protocol violation.

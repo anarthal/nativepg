@@ -8,6 +8,7 @@
 #ifndef NATIVEPG_SRC_NATIVEPG_INTERNAL_SCRAM_SHA256_CRYPT_HPP
 #define NATIVEPG_SRC_NATIVEPG_INTERNAL_SCRAM_SHA256_CRYPT_HPP
 
+#include <boost/system/detail/error_code.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <array>
@@ -16,6 +17,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 // Functions to compute the values used by SCRAM-SHA256
 //  SaltedPassword  := Hi(Normalize(password), salt, i)
@@ -31,7 +33,7 @@
 
 namespace nativepg::protocol::scram_sha256 {
 
-using sha256_digest = std::array<std::byte, 32u>;
+using sha256_digest = std::array<unsigned char, 32u>;
 
 // Tries to apply the StringPrep algorithm with the SASLPrep profile to input.
 boost::system::error_code sasl_prep(std::string_view input, std::string& output);
@@ -42,7 +44,7 @@ void normalize_password(std::string_view input, std::string& output);
 // SaltedPassword
 sha256_digest salt_password(
     std::string_view normalized_password,
-    std::span<const std::byte> salt,
+    std::span<const unsigned char> salt,
     std::uint32_t iteration_count
 );
 
@@ -53,7 +55,10 @@ sha256_digest compute_client_key(const sha256_digest& salted_password);
 sha256_digest compute_stored_key(const sha256_digest& client_key);
 
 // ClientSignature
-sha256_digest compute_client_signature(const sha256_digest& stored_key, std::span<const std::byte> auth_msg);
+sha256_digest compute_client_signature(
+    const sha256_digest& stored_key,
+    std::span<const unsigned char> auth_msg
+);
 
 // ClientProof
 sha256_digest compute_client_proof(const sha256_digest& client_key, const sha256_digest& client_signature);
@@ -62,7 +67,13 @@ sha256_digest compute_client_proof(const sha256_digest& client_key, const sha256
 sha256_digest compute_server_key(const sha256_digest& salted_password);
 
 // ServerSignature
-sha256_digest compute_server_signature(const sha256_digest& server_key, std::span<const std::byte> auth_msg);
+sha256_digest compute_server_signature(
+    const sha256_digest& server_key,
+    std::span<const unsigned char> auth_msg
+);
+
+// Nonces are 18 bytes of binary output, then base64 encoded
+boost::system::error_code generate_nonce(std::string& to);
 
 }  // namespace nativepg::protocol::scram_sha256
 

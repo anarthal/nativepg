@@ -13,6 +13,8 @@
 
 #include <cstddef>
 #include <span>
+#include <string>
+#include <vector>
 
 #include "nativepg/connect_params.hpp"
 #include "nativepg/extended_error.hpp"
@@ -51,6 +53,8 @@ public:
 private:
     int resume_point_{0};
     const connect_params* params_;
+    std::string scram_nonce_;
+    std::vector<unsigned char> scram_auth_msg_;
 };
 
 }  // namespace detail

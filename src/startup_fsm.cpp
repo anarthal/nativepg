@@ -5,18 +5,30 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#include <boost/system/detail/error_code.hpp>
 #include <boost/system/error_code.hpp>
+#include <boost/system/result.hpp>
+#include <boost/variant2/variant.hpp>
+
+#include <algorithm>
+#include <string_view>
 
 #include "coroutine.hpp"
 #include "nativepg/client_errc.hpp"
+#include "nativepg/connect_params.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/notice_error.hpp"
+#include "nativepg/protocol/scram_sha256.hpp"
 #include "nativepg/protocol/startup.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
+#include "nativepg_internal/scram_sha256_crypt.hpp"
 
 using namespace nativepg::protocol;
 using boost::system::error_code;
+using boost::variant2::get;
+using boost::variant2::get_if;
+using boost::variant2::holds_alternative;
 using detail::startup_fsm_impl;
 using nativepg::client_errc;
 
@@ -62,6 +74,25 @@ struct startup_visitor
     }
 };
 
+startup_message make_startup_message(const nativepg::connect_params& params)
+{
+    return {
+        .user = params.username,
+        .database = params.database.empty() ? std::optional<std::string_view>()
+                                            : std::string_view(params.database),
+        .params = {},
+    };
+}
+
+// Mechanism name
+constexpr std::string_view scram_sha256_name = "SCRAM-SHA-256";
+
+// Does the server support SCRAM-SHA-256?
+bool supports_scram_sha256(const authentication_sasl& msg)
+{
+    return std::find(msg.mechanisms.begin(), msg.mechanisms.end(), scram_sha256_name) != msg.mechanisms.end();
+}
+
 }  // namespace
 
 startup_fsm_impl::result startup_fsm_impl::resume(
@@ -74,17 +105,13 @@ startup_fsm_impl::result startup_fsm_impl::resume(
     {
         NATIVEPG_CORO_INITIAL
 
+        // Cleanup prior state
+        scram_nonce_.clear();
+        scram_auth_msg_.clear();
+
         // Compose the startup message
         st.write_buffer.clear();
-        if (auto ec = serialize(
-                startup_message{
-                    .user = params_->username,
-                    .database = params_->database.empty() ? std::optional<std::string_view>()
-                                                          : std::string_view(params_->database),
-                    .params = {},
-                },
-                st.write_buffer
-            ))
+        if (auto ec = serialize(make_startup_message(*params_), st.write_buffer))
         {
             return ec;
         }
@@ -96,6 +123,43 @@ startup_fsm_impl::result startup_fsm_impl::resume(
         NATIVEPG_YIELD(resume_point_, 2, result_type::read)
 
         // Act upon the server's message
+        if (holds_alternative<authentication_sasl>(msg))
+        {
+            {
+                // SASL authentication was requested. Check the mechanisms
+                if (!supports_scram_sha256(boost::variant2::get<authentication_sasl>(msg)))
+                    return error_code(client_errc::scram_mechanisms_unsupported);
+
+                // Compose the client initial message
+                if (auto ec = scram_sha256::generate_nonce(scram_nonce_))
+                    return ec;
+
+                st.write_buffer.clear();
+                auto res = serialize(
+                    scram_sha256_client_first_message{.mechanism = scram_sha256_name, .nonce = scram_nonce_},
+                    st.write_buffer
+                );
+                if (res.has_error())
+                    return res.error();
+
+                // Save the initial message. Required to compute the client proof
+                scram_auth_msg_.insert(scram_auth_msg_.end(), res->begin(), res->end());
+                scram_auth_msg_.push_back(static_cast<unsigned char>(','));
+            }
+
+            // Write the message
+            NATIVEPG_YIELD(resume_point_, 50, result_type::write)
+
+            // Read the server's response
+            NATIVEPG_YIELD(resume_point_, 51, result_type::read)
+
+            if (const auto* err_msg = get_if<error_response>(&msg))
+            {
+                diag.assign(*err_msg);
+                // return
+            }
+        }
+
         // TODO: this will have to change once we implement SASL
         if (auto ec = boost::variant2::visit(startup_visitor{diag}, msg))
         {

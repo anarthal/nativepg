@@ -41,6 +41,9 @@ enum class client_errc : int
     // authentication in the current version
     mandatory_scram_extension_not_supported,
 
+    // We don't support any of the SCRAM authentication mechanisms that the server does.
+    scram_mechanisms_unsupported,
+
     // We got a message type that wasn't supposed to appear in the state we are.
     // This is a protocol violation.
     unexpected_message,

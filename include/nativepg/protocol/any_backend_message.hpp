@@ -33,9 +33,10 @@ namespace protocol {
 
 // Contains any of the messages that we may receive from the backend.
 // Hand-rolled variant-like type.
-// All getters require checking kind() first
 class any_backend_message
 {
+    [[noreturn]] static void throw_invalid_argument();
+
 public:
     enum class kind
     {
@@ -359,6 +360,212 @@ public:
     const row_description& get_row_description() const noexcept
     {
         BOOST_ASSERT(kind_ == kind::row_description);
+        return row_description_;
+    }
+
+    // Checked getters. Throw if the actual kind doesn't match.
+    const authentication_ok& as_authentication_ok() const
+    {
+        if (kind_ != kind::authentication_ok)
+            throw_invalid_argument();
+        return authentication_ok_;
+    }
+    const authentication_kerberos_v5& as_authentication_kerberos_v5() const
+    {
+        if (kind_ != kind::authentication_kerberos_v5)
+            throw_invalid_argument();
+        return authentication_kerberos_v5_;
+    }
+    const authentication_cleartext_password& as_authentication_cleartext_password() const
+    {
+        if (kind_ != kind::authentication_cleartext_password)
+            throw_invalid_argument();
+        return authentication_cleartext_password_;
+    }
+    const authentication_md5_password& as_authentication_md5_password() const
+    {
+        if (kind_ != kind::authentication_md5_password)
+            throw_invalid_argument();
+        return authentication_md5_password_;
+    }
+    const authentication_gss& as_authentication_gss() const
+    {
+        if (kind_ != kind::authentication_gss)
+            throw_invalid_argument();
+        return authentication_gss_;
+    }
+    const authentication_gss_continue& as_authentication_gss_continue() const
+    {
+        if (kind_ != kind::authentication_gss_continue)
+            throw_invalid_argument();
+        return authentication_gss_continue_;
+    }
+    const authentication_sspi& as_authentication_sspi() const
+    {
+        if (kind_ != kind::authentication_sspi)
+            throw_invalid_argument();
+        return authentication_sspi_;
+    }
+    const authentication_sasl& as_authentication_sasl() const
+    {
+        if (kind_ != kind::authentication_sasl)
+            throw_invalid_argument();
+        return authentication_sasl_;
+    }
+    const authentication_sasl_continue& as_authentication_sasl_continue() const
+    {
+        if (kind_ != kind::authentication_sasl_continue)
+            throw_invalid_argument();
+        return authentication_sasl_continue_;
+    }
+    const authentication_sasl_final& as_authentication_sasl_final() const
+    {
+        if (kind_ != kind::authentication_sasl_final)
+            throw_invalid_argument();
+        return authentication_sasl_final_;
+    }
+    const backend_key_data& as_backend_key_data() const
+    {
+        if (kind_ != kind::backend_key_data)
+            throw_invalid_argument();
+        return backend_key_data_;
+    }
+    const bind_complete& as_bind_complete() const
+    {
+        if (kind_ != kind::bind_complete)
+            throw_invalid_argument();
+        return bind_complete_;
+    }
+    const close_complete& as_close_complete() const
+    {
+        if (kind_ != kind::close_complete)
+            throw_invalid_argument();
+        return close_complete_;
+    }
+    const command_complete& as_command_complete() const
+    {
+        if (kind_ != kind::command_complete)
+            throw_invalid_argument();
+        return command_complete_;
+    }
+    const copy_data& as_copy_data() const
+    {
+        if (kind_ != kind::copy_data)
+            throw_invalid_argument();
+        return copy_data_;
+    }
+    const copy_done& as_copy_done() const
+    {
+        if (kind_ != kind::copy_done)
+            throw_invalid_argument();
+        return copy_done_;
+    }
+    const copy_fail& as_copy_fail() const
+    {
+        if (kind_ != kind::copy_fail)
+            throw_invalid_argument();
+        return copy_fail_;
+    }
+    const copy_in_response& as_copy_in_response() const
+    {
+        if (kind_ != kind::copy_in_response)
+            throw_invalid_argument();
+        return copy_in_response_;
+    }
+    const copy_out_response& as_copy_out_response() const
+    {
+        if (kind_ != kind::copy_out_response)
+            throw_invalid_argument();
+        return copy_out_response_;
+    }
+    const copy_both_response& as_copy_both_response() const
+    {
+        if (kind_ != kind::copy_both_response)
+            throw_invalid_argument();
+        return copy_both_response_;
+    }
+    const data_row& as_data_row() const
+    {
+        if (kind_ != kind::data_row)
+            throw_invalid_argument();
+        return data_row_;
+    }
+    const empty_query_response& as_empty_query_response() const
+    {
+        if (kind_ != kind::empty_query_response)
+            throw_invalid_argument();
+        return empty_query_response_;
+    }
+    const error_response& as_error_response() const
+    {
+        if (kind_ != kind::error_response)
+            throw_invalid_argument();
+        return error_response_;
+    }
+    const negotiate_protocol_version& as_negotiate_protocol_version() const
+    {
+        if (kind_ != kind::negotiate_protocol_version)
+            throw_invalid_argument();
+        return negotiate_protocol_version_;
+    }
+    const no_data& as_no_data() const
+    {
+        if (kind_ != kind::no_data)
+            throw_invalid_argument();
+        return no_data_;
+    }
+    const notice_response& as_notice_response() const
+    {
+        if (kind_ != kind::notice_response)
+            throw_invalid_argument();
+        return notice_response_;
+    }
+    const notification_response& as_notification_response() const
+    {
+        if (kind_ != kind::notification_response)
+            throw_invalid_argument();
+        return notification_response_;
+    }
+    const parameter_description& as_parameter_description() const
+    {
+        if (kind_ != kind::parameter_description)
+            throw_invalid_argument();
+        return parameter_description_;
+    }
+    const parameter_status& as_parameter_status() const
+    {
+        if (kind_ != kind::parameter_status)
+            throw_invalid_argument();
+        return parameter_status_;
+    }
+    const parse_complete& as_parse_complete() const
+    {
+        if (kind_ != kind::parse_complete)
+            throw_invalid_argument();
+        return parse_complete_;
+    }
+    const portal_suspended& as_portal_suspended() const
+    {
+        if (kind_ != kind::portal_suspended)
+            throw_invalid_argument();
+        return portal_suspended_;
+    }
+    const ready_for_query& as_ready_for_query() const
+    {
+        if (kind_ != kind::ready_for_query)
+            throw_invalid_argument();
+        return ready_for_query_;
+    }
+    const field_description& as_field_description() const
+    {
+        if (kind_ != kind::field_description)
+            throw_invalid_argument();
+        return field_description_;
+    }
+    const row_description& as_row_description() const
+    {
+        if (kind_ != kind::row_description)
+            throw_invalid_argument();
         return row_description_;
     }
 

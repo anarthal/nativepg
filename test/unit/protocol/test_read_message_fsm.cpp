@@ -8,17 +8,16 @@
 #include <boost/core/lightweight_test.hpp>
 #include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
-#include <boost/variant2/variant.hpp>
 
 #include <ostream>
 
 #include "nativepg/client_errc.hpp"
+#include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/command_complete.hpp"
 #include "nativepg/protocol/read_message_fsm.hpp"
 
 using namespace nativepg;
 using boost::system::error_code;
-using boost::variant2::get;
 using protocol::read_message_fsm;
 
 // Operators
@@ -56,7 +55,7 @@ void test_success()
 
     // Check
     BOOST_TEST_EQ(act.type(), read_message_fsm::result_type::message);
-    BOOST_TEST_EQ(get<protocol::command_complete>(act.message()).tag, "SELECT 1");
+    BOOST_TEST_EQ(act.message().as_command_complete().tag, "SELECT 1");
 }
 
 // Short reads are correctly handled
@@ -103,7 +102,7 @@ void test_short_reads()
     // Last byte
     act = fsm.resume(msg);
     BOOST_TEST_EQ(act.type(), read_message_fsm::result_type::message);
-    BOOST_TEST_EQ(get<protocol::command_complete>(act.message()).tag, "SELECT 1");
+    BOOST_TEST_EQ(act.message().as_command_complete().tag, "SELECT 1");
 }
 
 // Errors

@@ -14,7 +14,7 @@
 #include <cstddef>
 
 #include "nativepg/protocol/connection_state.hpp"
-#include "nativepg/protocol/messages.hpp"
+#include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"

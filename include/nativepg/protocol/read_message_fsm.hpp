@@ -14,7 +14,7 @@
 #include <cstdint>
 #include <span>
 
-#include "nativepg/protocol/messages.hpp"
+#include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/views.hpp"
 
 namespace nativepg::protocol {

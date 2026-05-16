@@ -21,11 +21,13 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <stdexcept>
 #include <string_view>
 #include <system_error>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
+#include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/cancel_request.hpp"
@@ -38,7 +40,6 @@
 #include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/flush.hpp"
 #include "nativepg/protocol/header.hpp"
-#include "nativepg/protocol/messages.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/parse.hpp"
 #include "nativepg/protocol/query.hpp"
@@ -736,6 +737,11 @@ boost::system::result<any_backend_message> nativepg::protocol::parse(
         case backend_message_type::row_description: return parse_impl<row_description>(data);
         default: return nativepg::client_errc::protocol_value_error;
     }
+}
+
+void nativepg::protocol::any_backend_message::throw_invalid_argument()
+{
+    BOOST_THROW_EXCEPTION(std::invalid_argument("any_backend_message: kind mismatch"));
 }
 
 struct nativepg::protocol::detail::bind_context_access

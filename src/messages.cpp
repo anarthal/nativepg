@@ -38,7 +38,7 @@
 #include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/flush.hpp"
 #include "nativepg/protocol/header.hpp"
-#include "nativepg/protocol/messages.hpp"
+#include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/parse.hpp"
 #include "nativepg/protocol/query.hpp"

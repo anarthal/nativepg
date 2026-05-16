@@ -13,7 +13,7 @@
 #include "coroutine.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/header.hpp"
-#include "nativepg/protocol/messages.hpp"
+#include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/read_message_fsm.hpp"
 
 using namespace nativepg::protocol;

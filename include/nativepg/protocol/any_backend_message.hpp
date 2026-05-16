@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_PROTOCOL_MESSAGES_HPP
-#define NATIVEPG_PROTOCOL_MESSAGES_HPP
+#ifndef NATIVEPG_PROTOCOL_ANY_BACKEND_MESSAGE_HPP
+#define NATIVEPG_PROTOCOL_ANY_BACKEND_MESSAGE_HPP
 
 #include <boost/core/span.hpp>
 #include <boost/system/result.hpp>
@@ -24,7 +24,6 @@
 #include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/parse.hpp"
-#include "nativepg/protocol/query.hpp"
 #include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/protocol/startup.hpp"
 

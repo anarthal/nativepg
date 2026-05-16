@@ -12,7 +12,7 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/describe.hpp"
-#include "nativepg/protocol/messages.hpp"
+#include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/read_message_fsm.hpp"
 #include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/request.hpp"

@@ -17,7 +17,7 @@
 #include "nativepg/connect_params.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
-#include "nativepg/protocol/messages.hpp"
+#include "nativepg/protocol/any_backend_message.hpp"
 
 namespace nativepg::protocol {
 

@@ -18,7 +18,6 @@
 #include "nativepg/connect_params.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
-#include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/scram_sha256.hpp"
 #include "nativepg/protocol/startup.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
@@ -31,48 +30,25 @@ using boost::variant2::get_if;
 using boost::variant2::holds_alternative;
 using detail::startup_fsm_impl;
 using nativepg::client_errc;
+using kind = any_backend_message::kind;
 
 namespace {
 
-struct startup_visitor
+error_code handle_startup_response(const any_backend_message& msg, nativepg::diagnostics& diag)
 {
-    nativepg::diagnostics& diag;
-
-    error_code operator()(const error_response& err) const
+    switch (msg.type())
     {
-        diag.assign(err);
-        return client_errc::auth_failed;
+        case kind::error_response: diag.assign(msg.get_error_response()); return client_errc::auth_failed;
+        case kind::authentication_ok: return error_code();
+        case kind::authentication_kerberos_v5: return client_errc::auth_kerberos_v5_unsupported;
+        case kind::authentication_cleartext_password: return client_errc::auth_cleartext_password_unsupported;
+        case kind::authentication_md5_password: return client_errc::auth_md5_password_unsupported;
+        case kind::authentication_gss: return client_errc::auth_gss_unsupported;
+        case kind::authentication_sspi: return client_errc::auth_sspi_unsupported;
+        case kind::authentication_sasl: return client_errc::auth_sasl_unsupported;
+        default: return client_errc::unexpected_message;
     }
-
-    error_code operator()(const authentication_ok&) const { return error_code(); }
-
-    error_code operator()(const authentication_kerberos_v5&) const
-    {
-        return client_errc::auth_kerberos_v5_unsupported;
-    }
-
-    error_code operator()(const authentication_cleartext_password&) const
-    {
-        return client_errc::auth_cleartext_password_unsupported;
-    }
-
-    error_code operator()(const authentication_md5_password&) const
-    {
-        return client_errc::auth_md5_password_unsupported;
-    }
-
-    error_code operator()(const authentication_gss&) const { return client_errc::auth_gss_unsupported; }
-
-    error_code operator()(const authentication_sspi&) const { return client_errc::auth_sspi_unsupported; }
-
-    error_code operator()(const authentication_sasl&) const { return client_errc::auth_sasl_unsupported; }
-
-    template <class T>
-    error_code operator()(const T&) const
-    {
-        return client_errc::unexpected_message;
-    }
-};
+}
 
 startup_message make_startup_message(const nativepg::connect_params& params)
 {
@@ -161,7 +137,7 @@ startup_fsm_impl::result startup_fsm_impl::resume(
         }
 
         // TODO: this will have to change once we implement SASL
-        if (auto ec = boost::variant2::visit(startup_visitor{diag}, msg))
+        if (auto ec = handle_startup_response(msg, diag))
         {
             return ec;
         }
@@ -173,31 +149,26 @@ startup_fsm_impl::result startup_fsm_impl::resume(
             NATIVEPG_YIELD(resume_point_, 3, result_type::read)
 
             // Act upon it
-            if (const auto* key = boost::variant2::get_if<backend_key_data>(&msg))
+            switch (msg.type())
             {
-                st.backend_process_id = key->process_id;
-                st.backend_secret_key = key->secret_key;
-            }
-            else if (boost::variant2::holds_alternative<parameter_status>(msg))
-            {
-                // TODO: record these somehow
-            }
-            else if (const auto* err = boost::variant2::get_if<error_response>(&msg))
-            {
-                diag.assign(*err);
-                return error_code(client_errc::auth_failed);
-            }
-            else if (boost::variant2::holds_alternative<notice_response>(msg))
-            {
-                // TODO: record these somehow
-            }
-            else if (boost::variant2::holds_alternative<ready_for_query>(msg))
-            {
-                return error_code();
-            }
-            else
-            {
-                return error_code(client_errc::unexpected_message);
+                case kind::backend_key_data:
+                {
+                    const auto& key = msg.get_backend_key_data();
+                    st.backend_process_id = key.process_id;
+                    st.backend_secret_key = key.secret_key;
+                    break;
+                }
+                case kind::parameter_status:
+                    // TODO: record these somehow
+                    break;
+                case kind::error_response:
+                    diag.assign(msg.get_error_response());
+                    return error_code(client_errc::auth_failed);
+                case kind::notice_response:
+                    // TODO: record these somehow
+                    break;
+                case kind::ready_for_query: return error_code();
+                default: return error_code(client_errc::unexpected_message);
             }
         }
     }

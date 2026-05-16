@@ -8,6 +8,7 @@
 #ifndef NATIVEPG_PROTOCOL_ANY_BACKEND_MESSAGE_HPP
 #define NATIVEPG_PROTOCOL_ANY_BACKEND_MESSAGE_HPP
 
+#include <boost/assert.hpp>
 #include <boost/core/span.hpp>
 #include <boost/system/result.hpp>
 
@@ -189,61 +190,177 @@ public:
     // Gets the kind
     kind type() const noexcept { return kind_; }
 
-    const authentication_ok& get_authentication_ok() const noexcept { return authentication_ok_; }
+    // Getters. Precondition: type() should match
+    const authentication_ok& get_authentication_ok() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::authentication_ok);
+        return authentication_ok_;
+    }
     const authentication_kerberos_v5& get_authentication_kerberos_v5() const noexcept
     {
+        BOOST_ASSERT(kind_ == kind::authentication_kerberos_v5);
         return authentication_kerberos_v5_;
     }
     const authentication_cleartext_password& get_authentication_cleartext_password() const noexcept
     {
+        BOOST_ASSERT(kind_ == kind::authentication_cleartext_password);
         return authentication_cleartext_password_;
     }
     const authentication_md5_password& get_authentication_md5_password() const noexcept
     {
+        BOOST_ASSERT(kind_ == kind::authentication_md5_password);
         return authentication_md5_password_;
     }
-    const authentication_gss& get_authentication_gss() const noexcept { return authentication_gss_; }
+    const authentication_gss& get_authentication_gss() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::authentication_gss);
+        return authentication_gss_;
+    }
     const authentication_gss_continue& get_authentication_gss_continue() const noexcept
     {
+        BOOST_ASSERT(kind_ == kind::authentication_gss_continue);
         return authentication_gss_continue_;
     }
-    const authentication_sspi& get_authentication_sspi() const noexcept { return authentication_sspi_; }
-    const authentication_sasl& get_authentication_sasl() const noexcept { return authentication_sasl_; }
+    const authentication_sspi& get_authentication_sspi() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::authentication_sspi);
+        return authentication_sspi_;
+    }
+    const authentication_sasl& get_authentication_sasl() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::authentication_sasl);
+        return authentication_sasl_;
+    }
     const authentication_sasl_continue& get_authentication_sasl_continue() const noexcept
     {
+        BOOST_ASSERT(kind_ == kind::authentication_sasl_continue);
         return authentication_sasl_continue_;
     }
     const authentication_sasl_final& get_authentication_sasl_final() const noexcept
     {
+        BOOST_ASSERT(kind_ == kind::authentication_sasl_final);
         return authentication_sasl_final_;
     }
-    const backend_key_data& get_backend_key_data() const noexcept { return backend_key_data_; }
-    const bind_complete& get_bind_complete() const noexcept { return bind_complete_; }
-    const close_complete& get_close_complete() const noexcept { return close_complete_; }
-    const command_complete& get_command_complete() const noexcept { return command_complete_; }
-    const copy_data& get_copy_data() const noexcept { return copy_data_; }
-    const copy_done& get_copy_done() const noexcept { return copy_done_; }
-    const copy_fail& get_copy_fail() const noexcept { return copy_fail_; }
-    const copy_in_response& get_copy_in_response() const noexcept { return copy_in_response_; }
-    const copy_out_response& get_copy_out_response() const noexcept { return copy_out_response_; }
-    const copy_both_response& get_copy_both_response() const noexcept { return copy_both_response_; }
-    const data_row& get_data_row() const noexcept { return data_row_; }
-    const empty_query_response& get_empty_query_response() const noexcept { return empty_query_response_; }
-    const error_response& get_error_response() const noexcept { return error_response_; }
+    const backend_key_data& get_backend_key_data() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::backend_key_data);
+        return backend_key_data_;
+    }
+    const bind_complete& get_bind_complete() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::bind_complete);
+        return bind_complete_;
+    }
+    const close_complete& get_close_complete() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::close_complete);
+        return close_complete_;
+    }
+    const command_complete& get_command_complete() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::command_complete);
+        return command_complete_;
+    }
+    const copy_data& get_copy_data() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::copy_data);
+        return copy_data_;
+    }
+    const copy_done& get_copy_done() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::copy_done);
+        return copy_done_;
+    }
+    const copy_fail& get_copy_fail() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::copy_fail);
+        return copy_fail_;
+    }
+    const copy_in_response& get_copy_in_response() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::copy_in_response);
+        return copy_in_response_;
+    }
+    const copy_out_response& get_copy_out_response() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::copy_out_response);
+        return copy_out_response_;
+    }
+    const copy_both_response& get_copy_both_response() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::copy_both_response);
+        return copy_both_response_;
+    }
+    const data_row& get_data_row() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::data_row);
+        return data_row_;
+    }
+    const empty_query_response& get_empty_query_response() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::empty_query_response);
+        return empty_query_response_;
+    }
+    const error_response& get_error_response() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::error_response);
+        return error_response_;
+    }
     const negotiate_protocol_version& get_negotiate_protocol_version() const noexcept
     {
+        BOOST_ASSERT(kind_ == kind::negotiate_protocol_version);
         return negotiate_protocol_version_;
     }
-    const no_data& get_no_data() const noexcept { return no_data_; }
-    const notice_response& get_notice_response() const noexcept { return notice_response_; }
-    const notification_response& get_notification_response() const noexcept { return notification_response_; }
-    const parameter_description& get_parameter_description() const noexcept { return parameter_description_; }
-    const parameter_status& get_parameter_status() const noexcept { return parameter_status_; }
-    const parse_complete& get_parse_complete() const noexcept { return parse_complete_; }
-    const portal_suspended& get_portal_suspended() const noexcept { return portal_suspended_; }
-    const ready_for_query& get_ready_for_query() const noexcept { return ready_for_query_; }
-    const field_description& get_field_description() const noexcept { return field_description_; }
-    const row_description& get_row_description() const noexcept { return row_description_; }
+    const no_data& get_no_data() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::no_data);
+        return no_data_;
+    }
+    const notice_response& get_notice_response() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::notice_response);
+        return notice_response_;
+    }
+    const notification_response& get_notification_response() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::notification_response);
+        return notification_response_;
+    }
+    const parameter_description& get_parameter_description() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::parameter_description);
+        return parameter_description_;
+    }
+    const parameter_status& get_parameter_status() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::parameter_status);
+        return parameter_status_;
+    }
+    const parse_complete& get_parse_complete() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::parse_complete);
+        return parse_complete_;
+    }
+    const portal_suspended& get_portal_suspended() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::portal_suspended);
+        return portal_suspended_;
+    }
+    const ready_for_query& get_ready_for_query() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::ready_for_query);
+        return ready_for_query_;
+    }
+    const field_description& get_field_description() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::field_description);
+        return field_description_;
+    }
+    const row_description& get_row_description() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::row_description);
+        return row_description_;
+    }
 
 private:
     kind kind_;

@@ -36,44 +36,47 @@ namespace nativepg::protocol::scram_sha256 {
 using sha256_digest = std::array<unsigned char, 32u>;
 
 // Tries to apply the StringPrep algorithm with the SASLPrep profile to input.
-boost::system::error_code sasl_prep(std::string_view input, std::string& output);
+[[nodiscard]] boost::system::error_code sasl_prep(std::string_view input, std::string& output);
 
 // Prepares a password by either applying sasl_prep, or leaving it as-is
 void normalize_password(std::string_view input, std::string& output);
 
 // SaltedPassword
-sha256_digest salt_password(
+[[nodiscard]] sha256_digest salt_password(
     std::string_view normalized_password,
     std::span<const unsigned char> salt,
     std::uint32_t iteration_count
 );
 
 // ClientKey
-sha256_digest compute_client_key(const sha256_digest& salted_password);
+[[nodiscard]] sha256_digest compute_client_key(const sha256_digest& salted_password);
 
 // StoredKey
-sha256_digest compute_stored_key(const sha256_digest& client_key);
+[[nodiscard]] sha256_digest compute_stored_key(const sha256_digest& client_key);
 
 // ClientSignature
-sha256_digest compute_client_signature(
+[[nodiscard]] sha256_digest compute_client_signature(
     const sha256_digest& stored_key,
     std::span<const unsigned char> auth_msg
 );
 
 // ClientProof
-sha256_digest compute_client_proof(const sha256_digest& client_key, const sha256_digest& client_signature);
+[[nodiscard]] sha256_digest compute_client_proof(
+    const sha256_digest& client_key,
+    const sha256_digest& client_signature
+);
 
 // ServerKey
-sha256_digest compute_server_key(const sha256_digest& salted_password);
+[[nodiscard]] sha256_digest compute_server_key(const sha256_digest& salted_password);
 
 // ServerSignature
-sha256_digest compute_server_signature(
+[[nodiscard]] sha256_digest compute_server_signature(
     const sha256_digest& server_key,
     std::span<const unsigned char> auth_msg
 );
 
 // Nonces are 18 bytes of binary output, then base64 encoded
-boost::system::error_code generate_nonce(std::string& to);
+[[nodiscard]] boost::system::error_code generate_nonce(std::string& to);
 
 }  // namespace nativepg::protocol::scram_sha256
 

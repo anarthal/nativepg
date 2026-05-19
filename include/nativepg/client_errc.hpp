@@ -47,6 +47,9 @@ enum class client_errc : int
     // The server sent us a nonce that didn't match what we generated
     scram_invalid_nonce,
 
+    // The server signature check failed
+    scram_invalid_server_signature,
+
     // We got a message type that wasn't supposed to appear in the state we are.
     // This is a protocol violation.
     unexpected_message,
@@ -85,9 +88,6 @@ enum class client_errc : int
 
     // We don't support this authentication method yet
     auth_sspi_unsupported,
-
-    // We don't support this authentication method yet
-    auth_sasl_unsupported,
 
     // Empty requests are not allowed
     empty_request,

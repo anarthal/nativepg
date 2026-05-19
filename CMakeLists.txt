@@ -20,6 +20,7 @@ add_library(nativepg
     src/error.cpp
     src/messages.cpp
     src/startup_fsm.cpp
+    src/scram_sha256_fsm.cpp
     src/read_response_fsm.cpp
     src/read_message_fsm.cpp
     src/exec_fsm.cpp

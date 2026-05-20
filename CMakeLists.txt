@@ -15,6 +15,7 @@ find_package(OpenSSL REQUIRED)
 add_library(nativepg
     # Internal functions
     src/nativepg_internal/base64.cpp
+    src/nativepg_internal/openssl_error.cpp
 
     # External API
     src/error.cpp

@@ -65,6 +65,37 @@ inline void normalize_password(std::string_view input, std::string& output)
         output = input;
 }
 
+// One-shot HMAC computation, but re-using a context.
+// The context must have been properly configured.
+[[nodiscard]] inline boost::system::error_code compute_hmac(
+    EVP_MAC_CTX* ctx,
+    std::span<const unsigned char> key,
+    std::span<const unsigned char> data,
+    sha256_digest& output
+)
+{
+    // (Re)initialize the context with the key
+    if (!EVP_MAC_init(ctx, key.data(), key.size(), nullptr))
+        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
+
+    // Supply data
+    if (!EVP_MAC_update(ctx, data.data(), data.size()))
+        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
+
+    // Finalize. The output digest is fixed size
+    std::size_t outlen = 0;
+    if (!EVP_MAC_final(ctx, output.data(), &outlen, output.size()))
+        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
+    BOOST_ASSERT(outlen == output.size());
+
+    return {};
+}
+
+inline std::span<const unsigned char> to_span(std::string_view from)
+{
+    return {reinterpret_cast<const unsigned char*>(from.data()), from.size()};
+}
+
 //  SaltedPassword  := Hi(Normalize(password), salt, i)
 [[nodiscard]] inline boost::system::result<sha256_digest> salt_password(
     std::string_view normalized_password,
@@ -72,6 +103,14 @@ inline void normalize_password(std::string_view input, std::string& output)
     std::uint32_t iteration_count
 )
 {
+    // Hi(str, salt, i):
+    //   U1   := HMAC(str, salt + INT(1))
+    //   U2   := HMAC(str, U1)
+    //   ...
+    //   Ui-1 := HMAC(str, Ui-2)
+    //   Ui   := HMAC(str, Ui-1)
+    //   Hi := U1 XOR U2 XOR ... XOR Ui
+
     // Fetch the PBKDF2 KDF
     std::unique_ptr<EVP_KDF, decltype(&EVP_KDF_free)> kdf(
         EVP_KDF_fetch(nullptr, "PBKDF2", nullptr),
@@ -116,23 +155,9 @@ inline void normalize_password(std::string_view input, std::string& output)
     const sha256_digest& salted_password
 )
 {
-    constexpr std::string_view msg_str = "Client Key";
-
-    // (Re)initialize the context
-    if (!EVP_MAC_init(ctx, salted_password.data(), salted_password.size(), nullptr))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
-    // Supply data
-    if (!EVP_MAC_update(ctx, reinterpret_cast<const unsigned char*>(msg_str.data()), msg_str.size()))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
-    // Finalize. This digest is fixed size
     sha256_digest result{};
-    std::size_t outlen = 0;
-    if (!EVP_MAC_final(ctx, result.data(), &outlen, result.size()))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-    BOOST_ASSERT(outlen == result.size());
-
+    if (auto ec = compute_hmac(ctx, salted_password, to_span("Client Key"), result))
+        return ec;
     return result;
 }
 
@@ -180,21 +205,9 @@ inline void normalize_password(std::string_view input, std::string& output)
     std::span<const unsigned char> auth_msg
 )
 {
-    // (Re)initialize the context, setting the key
-    if (!EVP_MAC_init(ctx, stored_key.data(), stored_key.size(), nullptr))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
-    // Add the data
-    if (!EVP_MAC_update(ctx, auth_msg.data(), auth_msg.size()))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
-    // The result is fixed-size
     sha256_digest result{};
-    std::size_t outlen = 0;
-    if (!EVP_MAC_final(ctx, result.data(), &outlen, result.size()))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-    BOOST_ASSERT(outlen == result.size());
-
+    if (auto ec = compute_hmac(ctx, stored_key, auth_msg, result))
+        return ec;
     return result;
 }
 
@@ -216,23 +229,9 @@ inline void normalize_password(std::string_view input, std::string& output)
     const sha256_digest& salted_password
 )
 {
-    constexpr std::string_view msg_str = "Server Key";
-
-    // (Re)initialize the context, setting the key
-    if (!EVP_MAC_init(ctx, salted_password.data(), salted_password.size(), nullptr))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
-    // Add the data
-    if (!EVP_MAC_update(ctx, reinterpret_cast<const unsigned char*>(msg_str.data()), msg_str.size()))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
-    // The result is fixed size
     sha256_digest result{};
-    std::size_t outlen = 0;
-    if (!EVP_MAC_final(ctx, result.data(), &outlen, result.size()))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-    BOOST_ASSERT(outlen == result.size());
-
+    if (auto ec = compute_hmac(ctx, salted_password, to_span("Server Key"), result))
+        return ec;
     return result;
 }
 
@@ -243,21 +242,9 @@ inline void normalize_password(std::string_view input, std::string& output)
     std::span<const unsigned char> auth_msg
 )
 {
-    // (Re)initialize the context, setting the key
-    if (!EVP_MAC_init(ctx, server_key.data(), server_key.size(), nullptr))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
-    // Add the data
-    if (!EVP_MAC_update(ctx, auth_msg.data(), auth_msg.size()))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
-    // The result is fixed size
     sha256_digest result{};
-    std::size_t outlen = 0;
-    if (!EVP_MAC_final(ctx, result.data(), &outlen, result.size()))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-    BOOST_ASSERT(outlen == result.size());
-
+    if (auto ec = compute_hmac(ctx, server_key, auth_msg, result))
+        return ec;
     return result;
 }
 

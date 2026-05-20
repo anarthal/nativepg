@@ -140,7 +140,7 @@ inline void normalize_password(std::string_view input, std::string& output)
     sha256_digest hi = ucurrent;
     for (std::size_t i = 1u; i < iteration_count; ++i)
     {
-        sha256_digest unext;
+        sha256_digest unext{};
         if (auto ec = compute_hmac(ctx, str, ucurrent, unext))
             return ec;
         hi = compute_xor(hi, unext);
@@ -248,7 +248,7 @@ inline void normalize_password(std::string_view input, std::string& output)
 
     //  ClientSignature := HMAC(StoredKey, AuthMessage)
     sha256_digest client_signature{};
-    if (auto ec = compute_hmac(ctx.get(), stored_key, auth_message, client_key))
+    if (auto ec = compute_hmac(ctx.get(), stored_key, auth_message, client_signature))
         return ec;
 
     //  ClientProof     := ClientKey XOR ClientSignature

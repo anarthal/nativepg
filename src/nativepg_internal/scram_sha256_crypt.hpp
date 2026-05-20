@@ -21,12 +21,11 @@
 #include <openssl/evp.h>
 #include <openssl/kdf.h>
 #include <openssl/params.h>
+#include <openssl/types.h>
 #include <span>
 #include <string>
 #include <string_view>
-#include <vector>
 
-#include "nativepg/protocol/detail/serialization_context.hpp"
 #include "nativepg_internal/openssl_error.hpp"
 
 // Functions to compute the values used by SCRAM-SHA256
@@ -123,40 +122,24 @@ inline void normalize_password(std::string_view input, std::string& output)
 
 // ClientKey
 [[nodiscard]] inline boost::system::result<sha256_digest> compute_client_key(
+    EVP_MAC_CTX* ctx,
     const sha256_digest& salted_password
 )
 {
     constexpr std::string_view msg_str = "Client Key";
 
-    // Fetch the HMAC algorithm
-    std::unique_ptr<EVP_MAC, decltype(&EVP_MAC_free)> mac(
-        EVP_MAC_fetch(nullptr, "HMAC", nullptr),
-        &EVP_MAC_free
-    );
-    if (!mac)
+    // (Re)initialize the context
+    if (!EVP_MAC_init(ctx, salted_password.data(), salted_password.size(), nullptr))
         return ::nativepg::detail::translate_openssl_error(ERR_get_error());
 
-    std::unique_ptr<EVP_MAC_CTX, decltype(&EVP_MAC_CTX_free)> ctx(
-        EVP_MAC_CTX_new(mac.get()),
-        &EVP_MAC_CTX_free
-    );
-    if (!ctx)
+    // Supply data
+    if (!EVP_MAC_update(ctx, reinterpret_cast<const unsigned char*>(msg_str.data()), msg_str.size()))
         return ::nativepg::detail::translate_openssl_error(ERR_get_error());
 
-    OSSL_PARAM params[2];
-    char digest_name[] = "SHA256";
-    params[0] = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, digest_name, 0);
-    params[1] = OSSL_PARAM_construct_end();
-
-    if (!EVP_MAC_init(ctx.get(), salted_password.data(), salted_password.size(), params))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
-    if (!EVP_MAC_update(ctx.get(), reinterpret_cast<const unsigned char*>(msg_str.data()), msg_str.size()))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
+    // Finalize. This digest is fixed size
     sha256_digest result{};
     std::size_t outlen = 0;
-    if (!EVP_MAC_final(ctx.get(), result.data(), &outlen, result.size()))
+    if (!EVP_MAC_final(ctx, result.data(), &outlen, result.size()))
         return ::nativepg::detail::translate_openssl_error(ERR_get_error());
     BOOST_ASSERT(outlen == result.size());
 
@@ -339,6 +322,23 @@ inline void normalize_password(std::string_view input, std::string& output)
     sha256_digest& server_signature
 )
 {
+    // Create a MAC ctx
+    unique_evp_mac mac{EVP_MAC_fetch(nullptr, "HMAC", nullptr)};
+    if (!mac)
+        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
+
+    unique_evp_mac_ctx ctx{EVP_MAC_CTX_new(mac.get())};
+    if (!ctx)
+        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
+
+    char digest_name[] = "SHA256";
+    OSSL_PARAM params[] = {
+        OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, digest_name, 0),
+        OSSL_PARAM_construct_end(),
+    };
+    if (!EVP_MAC_CTX_set_params(ctx.get(), params))
+        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
+
     //  SaltedPassword  := Hi(Normalize(password), salt, i)
     std::string normal_pass;
     normalize_password(password, normal_pass);
@@ -348,7 +348,7 @@ inline void normalize_password(std::string_view input, std::string& output)
     const auto& salted_password = *salted_password_res;
 
     //  ClientKey       := HMAC(SaltedPassword, "Client Key")
-    auto client_key_res = compute_client_key(salted_password);
+    auto client_key_res = compute_client_key(ctx.get(), salted_password);
     if (client_key_res.has_error())
         return client_key_res.error();
     const auto& client_key = *client_key_res;

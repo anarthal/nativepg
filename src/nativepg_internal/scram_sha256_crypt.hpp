@@ -316,6 +316,60 @@ inline void normalize_password(std::string_view input, std::string& output)
     return result;
 }
 
+// Performs the entire proof computation process
+[[nodiscard]] inline boost::system::error_code compute_proofs(
+    std::string_view password,
+    std::span<const unsigned char> salt,
+    std::uint32_t iteration_count,
+    std::span<const unsigned char> auth_message,
+    sha256_digest& client_proof,
+    sha256_digest& server_signature
+)
+{
+    //  SaltedPassword  := Hi(Normalize(password), salt, i)
+    std::string normal_pass;
+    normalize_password(password, normal_pass);
+    auto salted_password_res = salt_password(normal_pass, salt, iteration_count);
+    if (salted_password_res.has_error())
+        return salted_password_res.error();
+    const auto& salted_password = *salted_password_res;
+
+    //  ClientKey       := HMAC(SaltedPassword, "Client Key")
+    auto client_key_res = compute_client_key(salted_password);
+    if (client_key_res.has_error())
+        return client_key_res.error();
+    const auto& client_key = *client_key_res;
+
+    //  StoredKey       := H(ClientKey)
+    auto stored_key_res = compute_stored_key(client_key);
+    if (stored_key_res.has_error())
+        return stored_key_res.error();
+    const auto& stored_key = *stored_key_res;
+
+    //  ClientSignature := HMAC(StoredKey, AuthMessage)
+    auto client_signature_res = compute_client_signature(stored_key, auth_message);
+    if (client_signature_res.has_error())
+        return client_signature_res.error();
+    auto& client_signature = *client_signature_res;
+
+    //  ClientProof     := ClientKey XOR ClientSignature
+    client_proof = compute_client_proof(client_key, client_signature);
+
+    //  ServerKey       := HMAC(SaltedPassword, "Server Key")
+    auto server_key_res = compute_server_key(salted_password);
+    if (server_key_res.has_error())
+        return server_key_res.error();
+    const auto& server_key = *server_key_res;
+
+    //  ServerSignature := HMAC(ServerKey, AuthMessage)
+    auto server_signature_res = compute_server_signature(server_key, auth_message);
+    if (server_signature_res.has_error())
+        return server_signature_res.error();
+    server_signature = *server_signature_res;
+
+    return {};
+}
+
 // Nonces are 18 bytes of binary output, then base64 encoded
 [[nodiscard]] boost::system::error_code generate_nonce(std::string& to);
 

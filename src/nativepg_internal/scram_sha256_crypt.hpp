@@ -30,16 +30,6 @@
 
 // Functions to compute the values used by SCRAM-SHA256
 
-//  ClientKey       := HMAC(SaltedPassword, "Client Key")
-//  StoredKey       := H(ClientKey)
-//  AuthMessage     := client-first-message-bare + "," +
-//                     server-first-message + "," +
-//                     client-final-message-without-proof
-//  ClientSignature := HMAC(StoredKey, AuthMessage)
-//  ClientProof     := ClientKey XOR ClientSignature
-//  ServerKey       := HMAC(SaltedPassword, "Server Key")
-//  ServerSignature := HMAC(ServerKey, AuthMessage)
-
 namespace nativepg::protocol::scram_sha256 {
 
 using sha256_digest = std::array<unsigned char, 32u>;
@@ -120,7 +110,7 @@ inline void normalize_password(std::string_view input, std::string& output)
     return result;
 }
 
-// ClientKey
+//  ClientKey       := HMAC(SaltedPassword, "Client Key")
 [[nodiscard]] inline boost::system::result<sha256_digest> compute_client_key(
     EVP_MAC_CTX* ctx,
     const sha256_digest& salted_password
@@ -146,7 +136,7 @@ inline void normalize_password(std::string_view input, std::string& output)
     return result;
 }
 
-// StoredKey
+//  StoredKey       := H(ClientKey)
 [[nodiscard]] inline boost::system::result<sha256_digest> compute_stored_key(const sha256_digest& client_key)
 {
     // Fetch the SHA256 message digest
@@ -176,7 +166,7 @@ inline void normalize_password(std::string_view input, std::string& output)
     return result;
 }
 
-// ClientSignature
+//  ClientSignature := HMAC(StoredKey, AuthMessage)
 [[nodiscard]] inline boost::system::result<sha256_digest> compute_client_signature(
     const sha256_digest& stored_key,
     std::span<const unsigned char> auth_msg
@@ -217,7 +207,7 @@ inline void normalize_password(std::string_view input, std::string& output)
     return result;
 }
 
-// ClientProof
+//  ClientProof     := ClientKey XOR ClientSignature
 [[nodiscard]] inline sha256_digest compute_client_proof(
     const sha256_digest& client_key,
     const sha256_digest& client_signature
@@ -229,7 +219,7 @@ inline void normalize_password(std::string_view input, std::string& output)
     return result;
 }
 
-// ServerKey
+//  ServerKey       := HMAC(SaltedPassword, "Server Key")
 [[nodiscard]] inline boost::system::result<sha256_digest> compute_server_key(
     const sha256_digest& salted_password
 )
@@ -271,7 +261,7 @@ inline void normalize_password(std::string_view input, std::string& output)
     return result;
 }
 
-// ServerSignature
+//  ServerSignature := HMAC(ServerKey, AuthMessage)
 [[nodiscard]] inline boost::system::result<sha256_digest> compute_server_signature(
     const sha256_digest& server_key,
     std::span<const unsigned char> auth_msg

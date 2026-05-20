@@ -82,7 +82,10 @@ boost::system::error_code scram_sha256_fsm::on_server_first(
     auto salted_password = salt_password(normal_pass, server_msg.salt, server_msg.iteration_count);
 
     //  ClientKey       := HMAC(SaltedPassword, "Client Key")
-    auto client_key = compute_client_key(salted_password);
+    auto client_key_res = compute_client_key(salted_password);
+    if (client_key_res.has_error())
+        return client_key_res.error();
+    auto& client_key = *client_key_res;
 
     //  StoredKey       := H(ClientKey)
     auto stored_key = compute_stored_key(client_key);

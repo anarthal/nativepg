@@ -106,6 +106,9 @@ enum class client_errc : int
 
     // A pipeline step was skipped because of a previous error
     step_skipped,
+
+    // TODO: I don't like this
+    unknown_openssl_error,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

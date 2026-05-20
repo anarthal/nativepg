@@ -21,16 +21,19 @@
 #include <openssl/evp.h>
 #include <openssl/kdf.h>
 #include <openssl/params.h>
+#include <openssl/rand.h>
 #include <openssl/types.h>
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
+#include "nativepg_internal/base64.hpp"
 #include "nativepg_internal/openssl_error.hpp"
 
 // Functions to compute the values used by SCRAM-SHA256
 
-namespace nativepg::protocol::scram_sha256 {
+namespace nativepg::protocol::detail::scram_sha256 {
 
 inline std::span<const unsigned char> to_span(std::string_view from)
 {
@@ -260,9 +263,23 @@ inline void normalize_password(std::string_view input, std::string& output)
     return compute_hmac(ctx.get(), server_key, auth_message, server_signature);
 }
 
-// Nonces are 18 bytes of binary output, then base64 encoded
-[[nodiscard]] boost::system::error_code generate_nonce(std::string& to);
+// TODO: this works but the std::string/std::vector interface is generating friction
+[[nodiscard]] inline boost::system::error_code generate_nonce(std::string& to)
+{
+    // 18 bytes of random data, matching libpq's nonce length
+    unsigned char raw[18];
+    if (RAND_bytes(raw, static_cast<int>(sizeof(raw))) != 1)
+        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
 
-}  // namespace nativepg::protocol::scram_sha256
+    // Base64-encode into a temporary buffer
+    std::vector<unsigned char> encoded;
+    base64_encode(raw, encoded);
+
+    // Hand the encoded characters back to the caller as a string
+    to.assign(encoded.begin(), encoded.end());
+    return {};
+}
+
+}  // namespace nativepg::protocol::detail::scram_sha256
 
 #endif

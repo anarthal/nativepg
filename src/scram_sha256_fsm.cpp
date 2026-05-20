@@ -20,7 +20,7 @@
 #include "nativepg_internal/scram_sha256_crypt.hpp"
 
 using boost::system::error_code;
-using namespace nativepg::protocol::scram_sha256;
+using namespace nativepg::protocol::detail::scram_sha256;
 
 namespace nativepg::protocol::detail {
 

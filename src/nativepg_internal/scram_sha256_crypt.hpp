@@ -8,6 +8,7 @@
 #ifndef NATIVEPG_SRC_NATIVEPG_INTERNAL_SCRAM_SHA256_CRYPT_HPP
 #define NATIVEPG_SRC_NATIVEPG_INTERNAL_SCRAM_SHA256_CRYPT_HPP
 
+#include <boost/endian/conversion.hpp>
 #include <boost/system/detail/error_code.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/system/result.hpp>
@@ -32,6 +33,11 @@
 
 namespace nativepg::protocol::scram_sha256 {
 
+inline std::span<const unsigned char> to_span(std::string_view from)
+{
+    return {reinterpret_cast<const unsigned char*>(from.data()), from.size()};
+}
+
 using sha256_digest = std::array<unsigned char, 32u>;
 
 // OpenSSL resource handling
@@ -54,6 +60,15 @@ using unique_evp_mac_ctx = std::unique_ptr<EVP_MAC_CTX, evp_mac_ctx_deleter>;
 {
     output = input;
     return {};
+}
+
+[[nodiscard]]
+inline sha256_digest compute_xor(const sha256_digest& lhs, const sha256_digest& rhs)
+{
+    sha256_digest result;
+    for (std::size_t i = 0; i < result.size(); ++i)
+        result[i] = lhs[i] ^ rhs[i];
+    return result;
 }
 
 // Prepares a password by either applying sasl_prep, or leaving it as-is
@@ -91,14 +106,39 @@ inline void normalize_password(std::string_view input, std::string& output)
     return {};
 }
 
-inline std::span<const unsigned char> to_span(std::string_view from)
+[[nodiscard]] inline boost::system::error_code compute_hmac(
+    EVP_MAC_CTX* ctx,
+    std::span<const unsigned char> key,
+    std::span<const unsigned char> data,
+    std::span<const unsigned char> data2,
+    sha256_digest& output
+)
 {
-    return {reinterpret_cast<const unsigned char*>(from.data()), from.size()};
+    // (Re)initialize the context with the key
+    if (!EVP_MAC_init(ctx, key.data(), key.size(), nullptr))
+        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
+
+    // Supply data
+    if (!EVP_MAC_update(ctx, data.data(), data.size()))
+        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
+
+    // Supply data
+    if (!EVP_MAC_update(ctx, data2.data(), data2.size()))
+        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
+
+    // Finalize. The output digest is fixed size
+    std::size_t outlen = 0;
+    if (!EVP_MAC_final(ctx, output.data(), &outlen, output.size()))
+        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
+    BOOST_ASSERT(outlen == output.size());
+
+    return {};
 }
 
-//  SaltedPassword  := Hi(Normalize(password), salt, i)
-[[nodiscard]] inline boost::system::result<sha256_digest> salt_password(
-    std::string_view normalized_password,
+//  Aux Hi
+[[nodiscard]] inline boost::system::result<sha256_digest> compute_hi(
+    EVP_MAC_CTX* ctx,
+    std::span<const unsigned char> str,
     std::span<const unsigned char> salt,
     std::uint32_t iteration_count
 )
@@ -111,42 +151,38 @@ inline std::span<const unsigned char> to_span(std::string_view from)
     //   Ui   := HMAC(str, Ui-1)
     //   Hi := U1 XOR U2 XOR ... XOR Ui
 
-    // Fetch the PBKDF2 KDF
-    std::unique_ptr<EVP_KDF, decltype(&EVP_KDF_free)> kdf(
-        EVP_KDF_fetch(nullptr, "PBKDF2", nullptr),
-        &EVP_KDF_free
-    );
-    if (!kdf)
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
+    // INT(g) is a 4-octet encoding of the integer g, most significant octet first.
+    unsigned char int1[4]{};
+    boost::endian::store_big_s32(int1, static_cast<std::int32_t>(1));
 
-    std::unique_ptr<EVP_KDF_CTX, decltype(&EVP_KDF_CTX_free)> ctx(
-        EVP_KDF_CTX_new(kdf.get()),
-        &EVP_KDF_CTX_free
-    );
-    if (!ctx)
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
+    // Compute U1
+    sha256_digest ucurrent{};
+    if (auto ec = compute_hmac(ctx, str, salt, int1, ucurrent))
+        return ucurrent;
 
-    char digest_name[] = "SHA256";
-    OSSL_PARAM params[5];
-    params[0] = OSSL_PARAM_construct_octet_string(
-        OSSL_KDF_PARAM_PASSWORD,
-        const_cast<char*>(normalized_password.data()),
-        normalized_password.size()
-    );
-    params[1] = OSSL_PARAM_construct_octet_string(
-        OSSL_KDF_PARAM_SALT,
-        const_cast<unsigned char*>(salt.data()),
-        salt.size()
-    );
-    params[2] = OSSL_PARAM_construct_uint32(OSSL_KDF_PARAM_ITER, &iteration_count);
-    params[3] = OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_DIGEST, digest_name, 0);
-    params[4] = OSSL_PARAM_construct_end();
+    // Compute the rest of the values
+    sha256_digest hi = ucurrent;
+    for (std::size_t i = 1u; i < iteration_count; ++i)
+    {
+        sha256_digest unext;
+        if (auto ec = compute_hmac(ctx, str, ucurrent, unext))
+            return ec;
+        hi = compute_xor(hi, unext);
+        ucurrent = unext;
+    }
 
-    sha256_digest result{};
-    if (EVP_KDF_derive(ctx.get(), result.data(), result.size(), params) <= 0)
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
+    return hi;
+}
 
-    return result;
+//  SaltedPassword  := Hi(Normalize(password), salt, i)
+[[nodiscard]] inline boost::system::result<sha256_digest> salt_password(
+    EVP_MAC_CTX* ctx,
+    std::string_view normalized_password,
+    std::span<const unsigned char> salt,
+    std::uint32_t iteration_count
+)
+{
+    return compute_hi(ctx, to_span(normalized_password), salt, iteration_count);
 }
 
 //  ClientKey       := HMAC(SaltedPassword, "Client Key")
@@ -278,7 +314,7 @@ inline std::span<const unsigned char> to_span(std::string_view from)
     //  SaltedPassword  := Hi(Normalize(password), salt, i)
     std::string normal_pass;
     normalize_password(password, normal_pass);
-    auto salted_password_res = salt_password(normal_pass, salt, iteration_count);
+    auto salted_password_res = salt_password(ctx.get(), normal_pass, salt, iteration_count);
     if (salted_password_res.has_error())
         return salted_password_res.error();
     const auto& salted_password = *salted_password_res;

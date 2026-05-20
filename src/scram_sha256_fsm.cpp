@@ -79,7 +79,14 @@ boost::system::error_code scram_sha256_fsm::on_server_first(
     //  SaltedPassword  := Hi(Normalize(password), salt, i)
     std::string normal_pass;
     normalize_password(password, normal_pass);
-    auto salted_password = salt_password(normal_pass, server_msg.salt, server_msg.iteration_count);
+    auto salted_password_res = salt_password(
+        normal_pass,
+        server_msg.salt,
+        server_msg.iteration_count
+    );
+    if (salted_password_res.has_error())
+        return salted_password_res.error();
+    auto& salted_password = *salted_password_res;
 
     //  ClientKey       := HMAC(SaltedPassword, "Client Key")
     auto client_key_res = compute_client_key(salted_password);
@@ -88,7 +95,10 @@ boost::system::error_code scram_sha256_fsm::on_server_first(
     auto& client_key = *client_key_res;
 
     //  StoredKey       := H(ClientKey)
-    auto stored_key = compute_stored_key(client_key);
+    auto stored_key_res = compute_stored_key(client_key);
+    if (stored_key_res.has_error())
+        return stored_key_res.error();
+    auto& stored_key = *stored_key_res;
 
     //  AuthMessage     := client-first-message-bare + "," +
     //                     server-first-message + "," +
@@ -100,17 +110,26 @@ boost::system::error_code scram_sha256_fsm::on_server_first(
     auth_message.insert(auth_message.end(), res->begin(), res->end());
 
     //  ClientSignature := HMAC(StoredKey, AuthMessage)
-    auto client_signature = compute_client_signature(stored_key, auth_message);
+    auto client_signature_res = compute_client_signature(stored_key, auth_message);
+    if (client_signature_res.has_error())
+        return client_signature_res.error();
+    auto& client_signature = *client_signature_res;
 
     //  ClientProof     := ClientKey XOR ClientSignature
     auto client_proof = compute_client_proof(client_key, client_signature);
 
     //  ServerKey       := HMAC(SaltedPassword, "Server Key")
-    auto server_key = compute_server_key(salted_password);
+    auto server_key_res = compute_server_key(salted_password);
+    if (server_key_res.has_error())
+        return server_key_res.error();
+    auto& server_key = *server_key_res;
 
     //  ServerSignature := HMAC(ServerKey, AuthMessage)
     // Store it for later validation
-    server_signature_ = compute_server_signature(server_key, auth_message);
+    auto server_signature_res = compute_server_signature(server_key, auth_message);
+    if (server_signature_res.has_error())
+        return server_signature_res.error();
+    server_signature_ = *server_signature_res;
 
     // Serialize the proof for the server
     return serializer.serialize_proof(client_proof);

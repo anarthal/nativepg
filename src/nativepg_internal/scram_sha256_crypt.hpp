@@ -40,19 +40,6 @@ inline std::span<const unsigned char> to_span(std::string_view from)
 
 using sha256_digest = std::array<unsigned char, 32u>;
 
-// OpenSSL resource handling
-struct evp_mac_deleter
-{
-    void operator()(EVP_MAC* p) const { EVP_MAC_free(p); }
-};
-using unique_evp_mac = std::unique_ptr<EVP_MAC, evp_mac_deleter>;
-
-struct evp_mac_ctx_deleter
-{
-    void operator()(EVP_MAC_CTX* p) const { EVP_MAC_CTX_free(p); }
-};
-using unique_evp_mac_ctx = std::unique_ptr<EVP_MAC_CTX, evp_mac_ctx_deleter>;
-
 // Tries to apply the StringPrep algorithm with the SASLPrep profile to input.
 // TODO: this is a complex algorithm and is not implemented yet.
 // It should be valid for ASCII passwords, at least
@@ -122,11 +109,12 @@ inline void normalize_password(std::string_view input, std::string& output)
 }
 
 //  Aux Hi
-[[nodiscard]] inline boost::system::result<sha256_digest> compute_hi(
+[[nodiscard]] inline boost::system::error_code compute_hi(
     EVP_MAC_CTX* ctx,
     std::span<const unsigned char> str,
     std::span<const unsigned char> salt,
-    std::uint32_t iteration_count
+    std::uint32_t iteration_count,
+    sha256_digest& res
 )
 {
     // Hi(str, salt, i):
@@ -144,7 +132,7 @@ inline void normalize_password(std::string_view input, std::string& output)
     // Compute U1
     sha256_digest ucurrent{};
     if (auto ec = compute_hmac(ctx, str, salt, int1, ucurrent))
-        return ucurrent;
+        return ec;
 
     // Compute the rest of the values
     sha256_digest hi = ucurrent;
@@ -157,30 +145,9 @@ inline void normalize_password(std::string_view input, std::string& output)
         ucurrent = unext;
     }
 
-    return hi;
-}
-
-//  SaltedPassword  := Hi(Normalize(password), salt, i)
-[[nodiscard]] inline boost::system::result<sha256_digest> salt_password(
-    EVP_MAC_CTX* ctx,
-    std::string_view normalized_password,
-    std::span<const unsigned char> salt,
-    std::uint32_t iteration_count
-)
-{
-    return compute_hi(ctx, to_span(normalized_password), salt, iteration_count);
-}
-
-//  ClientKey       := HMAC(SaltedPassword, "Client Key")
-[[nodiscard]] inline boost::system::result<sha256_digest> compute_client_key(
-    EVP_MAC_CTX* ctx,
-    const sha256_digest& salted_password
-)
-{
-    sha256_digest result{};
-    if (auto ec = compute_hmac(ctx, salted_password, to_span("Client Key"), result))
-        return ec;
-    return result;
+    // Done
+    res = hi;
+    return {};
 }
 
 //  StoredKey       := H(ClientKey)
@@ -220,56 +187,6 @@ inline void normalize_password(std::string_view input, std::string& output)
     return result;
 }
 
-//  ClientSignature := HMAC(StoredKey, AuthMessage)
-[[nodiscard]] inline boost::system::result<sha256_digest> compute_client_signature(
-    EVP_MAC_CTX* ctx,
-    const sha256_digest& stored_key,
-    std::span<const unsigned char> auth_msg
-)
-{
-    sha256_digest result{};
-    if (auto ec = compute_hmac(ctx, stored_key, auth_msg, result))
-        return ec;
-    return result;
-}
-
-//  ClientProof     := ClientKey XOR ClientSignature
-[[nodiscard]] inline sha256_digest compute_client_proof(
-    const sha256_digest& client_key,
-    const sha256_digest& client_signature
-)
-{
-    sha256_digest result{};
-    for (std::size_t i = 0; i < result.size(); ++i)
-        result[i] = client_key[i] ^ client_signature[i];
-    return result;
-}
-
-//  ServerKey       := HMAC(SaltedPassword, "Server Key")
-[[nodiscard]] inline boost::system::result<sha256_digest> compute_server_key(
-    EVP_MAC_CTX* ctx,
-    const sha256_digest& salted_password
-)
-{
-    sha256_digest result{};
-    if (auto ec = compute_hmac(ctx, salted_password, to_span("Server Key"), result))
-        return ec;
-    return result;
-}
-
-//  ServerSignature := HMAC(ServerKey, AuthMessage)
-[[nodiscard]] inline boost::system::result<sha256_digest> compute_server_signature(
-    EVP_MAC_CTX* ctx,
-    const sha256_digest& server_key,
-    std::span<const unsigned char> auth_msg
-)
-{
-    sha256_digest result{};
-    if (auto ec = compute_hmac(ctx, server_key, auth_msg, result))
-        return ec;
-    return result;
-}
-
 // Performs the entire proof computation process
 [[nodiscard]] inline boost::system::error_code compute_proofs(
     std::string_view password,
@@ -280,12 +197,23 @@ inline void normalize_password(std::string_view input, std::string& output)
     sha256_digest& server_signature
 )
 {
+    // OpenSSL resource handling
+    struct evp_mac_deleter
+    {
+        void operator()(EVP_MAC* p) const { EVP_MAC_free(p); }
+    };
+
+    struct evp_mac_ctx_deleter
+    {
+        void operator()(EVP_MAC_CTX* p) const { EVP_MAC_CTX_free(p); }
+    };
+
     // Create a MAC ctx
-    unique_evp_mac mac{EVP_MAC_fetch(nullptr, "HMAC", nullptr)};
+    std::unique_ptr<EVP_MAC, evp_mac_deleter> mac{EVP_MAC_fetch(nullptr, "HMAC", nullptr)};
     if (!mac)
         return ::nativepg::detail::translate_openssl_error(ERR_get_error());
 
-    unique_evp_mac_ctx ctx{EVP_MAC_CTX_new(mac.get())};
+    std::unique_ptr<EVP_MAC_CTX, evp_mac_ctx_deleter> ctx{EVP_MAC_CTX_new(mac.get())};
     if (!ctx)
         return ::nativepg::detail::translate_openssl_error(ERR_get_error());
 
@@ -297,19 +225,19 @@ inline void normalize_password(std::string_view input, std::string& output)
     if (!EVP_MAC_CTX_set_params(ctx.get(), params))
         return ::nativepg::detail::translate_openssl_error(ERR_get_error());
 
+    // Normalize the password
+    std::string normalized_password;
+    normalize_password(password, normalized_password);
+
     //  SaltedPassword  := Hi(Normalize(password), salt, i)
-    std::string normal_pass;
-    normalize_password(password, normal_pass);
-    auto salted_password_res = salt_password(ctx.get(), normal_pass, salt, iteration_count);
-    if (salted_password_res.has_error())
-        return salted_password_res.error();
-    const auto& salted_password = *salted_password_res;
+    sha256_digest salted_password{};
+    if (auto ec = compute_hi(ctx.get(), to_span(normalized_password), salt, iteration_count, salted_password))
+        return ec;
 
     //  ClientKey       := HMAC(SaltedPassword, "Client Key")
-    auto client_key_res = compute_client_key(ctx.get(), salted_password);
-    if (client_key_res.has_error())
-        return client_key_res.error();
-    const auto& client_key = *client_key_res;
+    sha256_digest client_key{};
+    if (auto ec = compute_hmac(ctx.get(), salted_password, to_span("Client Key"), client_key))
+        return ec;
 
     //  StoredKey       := H(ClientKey)
     auto stored_key_res = compute_stored_key(client_key);
@@ -318,27 +246,20 @@ inline void normalize_password(std::string_view input, std::string& output)
     const auto& stored_key = *stored_key_res;
 
     //  ClientSignature := HMAC(StoredKey, AuthMessage)
-    auto client_signature_res = compute_client_signature(ctx.get(), stored_key, auth_message);
-    if (client_signature_res.has_error())
-        return client_signature_res.error();
-    auto& client_signature = *client_signature_res;
+    sha256_digest client_signature{};
+    if (auto ec = compute_hmac(ctx.get(), stored_key, auth_message, client_key))
+        return ec;
 
     //  ClientProof     := ClientKey XOR ClientSignature
-    client_proof = compute_client_proof(client_key, client_signature);
+    client_proof = compute_xor(client_key, client_signature);
 
     //  ServerKey       := HMAC(SaltedPassword, "Server Key")
-    auto server_key_res = compute_server_key(ctx.get(), salted_password);
-    if (server_key_res.has_error())
-        return server_key_res.error();
-    const auto& server_key = *server_key_res;
+    sha256_digest server_key{};
+    if (auto ec = compute_hmac(ctx.get(), salted_password, to_span("Server Key"), server_key))
+        return ec;
 
     //  ServerSignature := HMAC(ServerKey, AuthMessage)
-    auto server_signature_res = compute_server_signature(ctx.get(), server_key, auth_message);
-    if (server_signature_res.has_error())
-        return server_signature_res.error();
-    server_signature = *server_signature_res;
-
-    return {};
+    return compute_hmac(ctx.get(), server_key, auth_message, server_signature);
 }
 
 // Nonces are 18 bytes of binary output, then base64 encoded

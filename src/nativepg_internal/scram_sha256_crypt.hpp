@@ -8,10 +8,9 @@
 #ifndef NATIVEPG_SRC_NATIVEPG_INTERNAL_SCRAM_SHA256_CRYPT_HPP
 #define NATIVEPG_SRC_NATIVEPG_INTERNAL_SCRAM_SHA256_CRYPT_HPP
 
+#include <boost/assert.hpp>
 #include <boost/endian/conversion.hpp>
-#include <boost/system/detail/error_code.hpp>
 #include <boost/system/error_code.hpp>
-#include <boost/system/result.hpp>
 
 #include <array>
 #include <cstddef>
@@ -150,8 +149,11 @@ inline void normalize_password(std::string_view input, std::string& output)
     return {};
 }
 
-//  StoredKey       := H(ClientKey)
-[[nodiscard]] inline boost::system::result<sha256_digest> compute_stored_key(const sha256_digest& client_key)
+// One-shot SHA256 calculation, but with error handling
+[[nodiscard]] inline boost::system::error_code compute_sha256(
+    std::span<const unsigned char> data,
+    sha256_digest& output
+)
 {
     // Helpers
     struct md_deleter
@@ -172,19 +174,16 @@ inline void normalize_password(std::string_view input, std::string& output)
     if (!ctx)
         return ::nativepg::detail::translate_openssl_error(ERR_get_error());
 
-    if (!EVP_DigestInit_ex(ctx.get(), md.get(), nullptr))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
-    if (!EVP_DigestUpdate(ctx.get(), client_key.data(), client_key.size()))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
-    sha256_digest result{};
+    // Actual computation
     unsigned int outlen = 0;
-    if (!EVP_DigestFinal_ex(ctx.get(), result.data(), &outlen))
+    if (!EVP_DigestInit_ex(ctx.get(), md.get(), nullptr) ||
+        !EVP_DigestUpdate(ctx.get(), data.data(), data.size()) ||
+        !EVP_DigestFinal_ex(ctx.get(), output.data(), &outlen))
+    {
         return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-    BOOST_ASSERT(outlen == result.size());
-
-    return result;
+    }
+    BOOST_ASSERT(outlen == output.size());
+    return {};
 }
 
 // Performs the entire proof computation process
@@ -240,10 +239,9 @@ inline void normalize_password(std::string_view input, std::string& output)
         return ec;
 
     //  StoredKey       := H(ClientKey)
-    auto stored_key_res = compute_stored_key(client_key);
-    if (stored_key_res.has_error())
-        return stored_key_res.error();
-    const auto& stored_key = *stored_key_res;
+    sha256_digest stored_key{};
+    if (auto ec = compute_sha256(client_key, stored_key))
+        return ec;
 
     //  ClientSignature := HMAC(StoredKey, AuthMessage)
     sha256_digest client_signature{};

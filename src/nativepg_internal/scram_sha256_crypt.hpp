@@ -89,49 +89,35 @@ inline void normalize_password(std::string_view input, std::string& output)
     sha256_digest& output
 )
 {
-    // (Re)initialize the context with the key
-    if (!EVP_MAC_init(ctx, key.data(), key.size(), nullptr))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
-    // Supply data
-    if (!EVP_MAC_update(ctx, data.data(), data.size()))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
-    // Finalize. The output digest is fixed size
     std::size_t outlen = 0;
-    if (!EVP_MAC_final(ctx, output.data(), &outlen, output.size()))
+    if (!EVP_MAC_init(ctx, key.data(), key.size(), nullptr) ||
+        !EVP_MAC_update(ctx, data.data(), data.size()) ||
+        !EVP_MAC_final(ctx, output.data(), &outlen, output.size()))
+    {
         return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-    BOOST_ASSERT(outlen == output.size());
-
+    }
+    BOOST_ASSERT(outlen == output.size());  // Output is fixed-size
     return {};
 }
 
+// Variant with two data pieces
 [[nodiscard]] inline boost::system::error_code compute_hmac(
     EVP_MAC_CTX* ctx,
     std::span<const unsigned char> key,
-    std::span<const unsigned char> data,
+    std::span<const unsigned char> data1,
     std::span<const unsigned char> data2,
     sha256_digest& output
 )
 {
-    // (Re)initialize the context with the key
-    if (!EVP_MAC_init(ctx, key.data(), key.size(), nullptr))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
-    // Supply data
-    if (!EVP_MAC_update(ctx, data.data(), data.size()))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
-    // Supply data
-    if (!EVP_MAC_update(ctx, data2.data(), data2.size()))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
-    // Finalize. The output digest is fixed size
     std::size_t outlen = 0;
-    if (!EVP_MAC_final(ctx, output.data(), &outlen, output.size()))
+    if (!EVP_MAC_init(ctx, key.data(), key.size(), nullptr) ||
+        !EVP_MAC_update(ctx, data1.data(), data1.size()) ||
+        !EVP_MAC_update(ctx, data2.data(), data2.size()) ||
+        !EVP_MAC_final(ctx, output.data(), &outlen, output.size()))
+    {
         return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-    BOOST_ASSERT(outlen == output.size());
-
+    }
+    BOOST_ASSERT(outlen == output.size());  // output is fixed size
     return {};
 }
 

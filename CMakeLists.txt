@@ -15,11 +15,13 @@ find_package(OpenSSL REQUIRED)
 add_library(nativepg
     # Internal functions
     src/nativepg_internal/base64.cpp
+    src/nativepg_internal/openssl_error.cpp
 
     # External API
     src/error.cpp
     src/messages.cpp
     src/startup_fsm.cpp
+    src/scram_sha256_fsm.cpp
     src/read_response_fsm.cpp
     src/read_message_fsm.cpp
     src/exec_fsm.cpp

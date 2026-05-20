@@ -35,11 +35,20 @@ enum class client_errc : int
     invalid_base64,
 
     // Parsing a SCRAM message failed
-    invalid_scram_message,
+    invalid_scram_message,  // TODO: rename these to start with scram_
 
     // We found a mandatory SCRAM extension ('m'), which requires us to fail
     // authentication in the current version
     mandatory_scram_extension_not_supported,
+
+    // We don't support any of the SCRAM authentication mechanisms that the server does.
+    scram_mechanisms_unsupported,
+
+    // The server sent us a nonce that didn't match what we generated
+    scram_invalid_nonce,
+
+    // The server signature check failed
+    scram_invalid_server_signature,
 
     // We got a message type that wasn't supposed to appear in the state we are.
     // This is a protocol violation.
@@ -80,9 +89,6 @@ enum class client_errc : int
     // We don't support this authentication method yet
     auth_sspi_unsupported,
 
-    // We don't support this authentication method yet
-    auth_sasl_unsupported,
-
     // Empty requests are not allowed
     empty_request,
 
@@ -100,6 +106,9 @@ enum class client_errc : int
 
     // A pipeline step was skipped because of a previous error
     step_skipped,
+
+    // TODO: I don't like this
+    unknown_openssl_error,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

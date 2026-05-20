@@ -139,15 +139,22 @@ inline void normalize_password(std::string_view input, std::string& output)
 //  StoredKey       := H(ClientKey)
 [[nodiscard]] inline boost::system::result<sha256_digest> compute_stored_key(const sha256_digest& client_key)
 {
+    // Helpers
+    struct md_deleter
+    {
+        void operator()(EVP_MD* p) const { EVP_MD_free(p); }
+    };
+    struct evp_ctx_deleter
+    {
+        void operator()(EVP_MD_CTX* p) const { EVP_MD_CTX_free(p); }
+    };
+
     // Fetch the SHA256 message digest
-    std::unique_ptr<EVP_MD, decltype(&EVP_MD_free)> md(
-        EVP_MD_fetch(nullptr, "SHA256", nullptr),
-        &EVP_MD_free
-    );
+    std::unique_ptr<EVP_MD, md_deleter> md(EVP_MD_fetch(nullptr, "SHA256", nullptr));
     if (!md)
         return ::nativepg::detail::translate_openssl_error(ERR_get_error());
 
-    std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> ctx(EVP_MD_CTX_new(), &EVP_MD_CTX_free);
+    std::unique_ptr<EVP_MD_CTX, evp_ctx_deleter> ctx(EVP_MD_CTX_new());
     if (!ctx)
         return ::nativepg::detail::translate_openssl_error(ERR_get_error());
 
@@ -168,39 +175,23 @@ inline void normalize_password(std::string_view input, std::string& output)
 
 //  ClientSignature := HMAC(StoredKey, AuthMessage)
 [[nodiscard]] inline boost::system::result<sha256_digest> compute_client_signature(
+    EVP_MAC_CTX* ctx,
     const sha256_digest& stored_key,
     std::span<const unsigned char> auth_msg
 )
 {
-    // Fetch the HMAC algorithm
-    std::unique_ptr<EVP_MAC, decltype(&EVP_MAC_free)> mac(
-        EVP_MAC_fetch(nullptr, "HMAC", nullptr),
-        &EVP_MAC_free
-    );
-    if (!mac)
+    // (Re)initialize the context, setting the key
+    if (!EVP_MAC_init(ctx, stored_key.data(), stored_key.size(), nullptr))
         return ::nativepg::detail::translate_openssl_error(ERR_get_error());
 
-    std::unique_ptr<EVP_MAC_CTX, decltype(&EVP_MAC_CTX_free)> ctx(
-        EVP_MAC_CTX_new(mac.get()),
-        &EVP_MAC_CTX_free
-    );
-    if (!ctx)
+    // Add the data
+    if (!EVP_MAC_update(ctx, auth_msg.data(), auth_msg.size()))
         return ::nativepg::detail::translate_openssl_error(ERR_get_error());
 
-    OSSL_PARAM params[2];
-    char digest_name[] = "SHA256";
-    params[0] = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, digest_name, 0);
-    params[1] = OSSL_PARAM_construct_end();
-
-    if (!EVP_MAC_init(ctx.get(), stored_key.data(), stored_key.size(), params))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
-    if (!EVP_MAC_update(ctx.get(), auth_msg.data(), auth_msg.size()))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
+    // The result is fixed-size
     sha256_digest result{};
     std::size_t outlen = 0;
-    if (!EVP_MAC_final(ctx.get(), result.data(), &outlen, result.size()))
+    if (!EVP_MAC_final(ctx, result.data(), &outlen, result.size()))
         return ::nativepg::detail::translate_openssl_error(ERR_get_error());
     BOOST_ASSERT(outlen == result.size());
 
@@ -221,40 +212,24 @@ inline void normalize_password(std::string_view input, std::string& output)
 
 //  ServerKey       := HMAC(SaltedPassword, "Server Key")
 [[nodiscard]] inline boost::system::result<sha256_digest> compute_server_key(
+    EVP_MAC_CTX* ctx,
     const sha256_digest& salted_password
 )
 {
     constexpr std::string_view msg_str = "Server Key";
 
-    // Fetch the HMAC algorithm
-    std::unique_ptr<EVP_MAC, decltype(&EVP_MAC_free)> mac(
-        EVP_MAC_fetch(nullptr, "HMAC", nullptr),
-        &EVP_MAC_free
-    );
-    if (!mac)
+    // (Re)initialize the context, setting the key
+    if (!EVP_MAC_init(ctx, salted_password.data(), salted_password.size(), nullptr))
         return ::nativepg::detail::translate_openssl_error(ERR_get_error());
 
-    std::unique_ptr<EVP_MAC_CTX, decltype(&EVP_MAC_CTX_free)> ctx(
-        EVP_MAC_CTX_new(mac.get()),
-        &EVP_MAC_CTX_free
-    );
-    if (!ctx)
+    // Add the data
+    if (!EVP_MAC_update(ctx, reinterpret_cast<const unsigned char*>(msg_str.data()), msg_str.size()))
         return ::nativepg::detail::translate_openssl_error(ERR_get_error());
 
-    OSSL_PARAM params[2];
-    char digest_name[] = "SHA256";
-    params[0] = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, digest_name, 0);
-    params[1] = OSSL_PARAM_construct_end();
-
-    if (!EVP_MAC_init(ctx.get(), salted_password.data(), salted_password.size(), params))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
-    if (!EVP_MAC_update(ctx.get(), reinterpret_cast<const unsigned char*>(msg_str.data()), msg_str.size()))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
+    // The result is fixed size
     sha256_digest result{};
     std::size_t outlen = 0;
-    if (!EVP_MAC_final(ctx.get(), result.data(), &outlen, result.size()))
+    if (!EVP_MAC_final(ctx, result.data(), &outlen, result.size()))
         return ::nativepg::detail::translate_openssl_error(ERR_get_error());
     BOOST_ASSERT(outlen == result.size());
 
@@ -263,39 +238,23 @@ inline void normalize_password(std::string_view input, std::string& output)
 
 //  ServerSignature := HMAC(ServerKey, AuthMessage)
 [[nodiscard]] inline boost::system::result<sha256_digest> compute_server_signature(
+    EVP_MAC_CTX* ctx,
     const sha256_digest& server_key,
     std::span<const unsigned char> auth_msg
 )
 {
-    // Fetch the HMAC algorithm
-    std::unique_ptr<EVP_MAC, decltype(&EVP_MAC_free)> mac(
-        EVP_MAC_fetch(nullptr, "HMAC", nullptr),
-        &EVP_MAC_free
-    );
-    if (!mac)
+    // (Re)initialize the context, setting the key
+    if (!EVP_MAC_init(ctx, server_key.data(), server_key.size(), nullptr))
         return ::nativepg::detail::translate_openssl_error(ERR_get_error());
 
-    std::unique_ptr<EVP_MAC_CTX, decltype(&EVP_MAC_CTX_free)> ctx(
-        EVP_MAC_CTX_new(mac.get()),
-        &EVP_MAC_CTX_free
-    );
-    if (!ctx)
+    // Add the data
+    if (!EVP_MAC_update(ctx, auth_msg.data(), auth_msg.size()))
         return ::nativepg::detail::translate_openssl_error(ERR_get_error());
 
-    OSSL_PARAM params[2];
-    char digest_name[] = "SHA256";
-    params[0] = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST, digest_name, 0);
-    params[1] = OSSL_PARAM_construct_end();
-
-    if (!EVP_MAC_init(ctx.get(), server_key.data(), server_key.size(), params))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
-    if (!EVP_MAC_update(ctx.get(), auth_msg.data(), auth_msg.size()))
-        return ::nativepg::detail::translate_openssl_error(ERR_get_error());
-
+    // The result is fixed size
     sha256_digest result{};
     std::size_t outlen = 0;
-    if (!EVP_MAC_final(ctx.get(), result.data(), &outlen, result.size()))
+    if (!EVP_MAC_final(ctx, result.data(), &outlen, result.size()))
         return ::nativepg::detail::translate_openssl_error(ERR_get_error());
     BOOST_ASSERT(outlen == result.size());
 
@@ -350,7 +309,7 @@ inline void normalize_password(std::string_view input, std::string& output)
     const auto& stored_key = *stored_key_res;
 
     //  ClientSignature := HMAC(StoredKey, AuthMessage)
-    auto client_signature_res = compute_client_signature(stored_key, auth_message);
+    auto client_signature_res = compute_client_signature(ctx.get(), stored_key, auth_message);
     if (client_signature_res.has_error())
         return client_signature_res.error();
     auto& client_signature = *client_signature_res;
@@ -359,13 +318,13 @@ inline void normalize_password(std::string_view input, std::string& output)
     client_proof = compute_client_proof(client_key, client_signature);
 
     //  ServerKey       := HMAC(SaltedPassword, "Server Key")
-    auto server_key_res = compute_server_key(salted_password);
+    auto server_key_res = compute_server_key(ctx.get(), salted_password);
     if (server_key_res.has_error())
         return server_key_res.error();
     const auto& server_key = *server_key_res;
 
     //  ServerSignature := HMAC(ServerKey, AuthMessage)
-    auto server_signature_res = compute_server_signature(server_key, auth_message);
+    auto server_signature_res = compute_server_signature(ctx.get(), server_key, auth_message);
     if (server_signature_res.has_error())
         return server_signature_res.error();
     server_signature = *server_signature_res;

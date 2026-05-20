@@ -45,6 +45,19 @@ namespace nativepg::protocol::scram_sha256 {
 
 using sha256_digest = std::array<unsigned char, 32u>;
 
+// OpenSSL resource handling
+struct evp_mac_deleter
+{
+    void operator()(EVP_MAC* p) const { EVP_MAC_free(p); }
+};
+using unique_evp_mac = std::unique_ptr<EVP_MAC, evp_mac_deleter>;
+
+struct evp_mac_ctx_deleter
+{
+    void operator()(EVP_MAC_CTX* p) const { EVP_MAC_CTX_free(p); }
+};
+using unique_evp_mac_ctx = std::unique_ptr<EVP_MAC_CTX, evp_mac_ctx_deleter>;
+
 // Tries to apply the StringPrep algorithm with the SASLPrep profile to input.
 // TODO: this is a complex algorithm and is not implemented yet.
 // It should be valid for ASCII passwords, at least

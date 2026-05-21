@@ -10,10 +10,10 @@
 #include <string_view>
 #include <vector>
 
-#include "nativepg/protocol/scram_sha256.hpp"
+#include "nativepg_internal/scram_sha256_messages.hpp"
 #include "test_utils.hpp"
 
-using namespace nativepg::protocol;
+using namespace nativepg::protocol::detail::scram_sha256;
 
 namespace {
 

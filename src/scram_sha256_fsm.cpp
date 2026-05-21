@@ -16,8 +16,8 @@
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/detail/scram_sha256_fsm.hpp"
-#include "nativepg/protocol/scram_sha256.hpp"
 #include "nativepg_internal/scram_sha256_crypt.hpp"
+#include "nativepg_internal/scram_sha256_messages.hpp"
 
 using boost::system::error_code;
 using namespace nativepg::protocol::detail::scram_sha256;

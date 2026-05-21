@@ -11,11 +11,11 @@
 
 #include <string_view>
 
-#include "nativepg/protocol/scram_sha256.hpp"
+#include "nativepg_internal/scram_sha256_messages.hpp"
 #include "test_utils.hpp"
 
 using boost::system::error_code;
-using namespace nativepg::protocol;
+using namespace nativepg::protocol::detail::scram_sha256;
 
 namespace {
 

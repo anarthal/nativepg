@@ -9,11 +9,19 @@
 #include <boost/system/detail/error_code.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <cstdint>
+#include <span>
+#include <string>
 #include <string_view>
+#include <vector>
 
+#include "nativepg/protocol/detail/scram_sha256_fsm.hpp"
+#include "nativepg_internal/base64.hpp"
 #include "nativepg_internal/scram_sha256_crypt.hpp"
 #include "test_utils.hpp"
 
+using nativepg::protocol::detail::base64_encode;
+using nativepg::protocol::detail::scram_sha256_fsm;
 using namespace nativepg::protocol::detail::scram_sha256;
 using boost::system::error_code;
 
@@ -32,40 +40,90 @@ void test_success()
     //    C: c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,
     //       p=dHzbZapWIk4jUhN+Ute9ytag9zjfMHgsqmmiz7AndVQ=
     //    S: v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=
+    constexpr std::string_view password = "pencil";
+    constexpr std::string_view client_first = "n,,n=user,r=rOprNGfwEbeRWgbNEkqO";
+    constexpr std::string_view server_first =
+        "r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096";
+    constexpr std::string_view client_final =
+        "c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,p=dHzbZapWIk4jUhN+"
+        "Ute9ytag9zjfMHgsqmmiz7AndVQ=";
+    constexpr std::string_view server_final = "v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=";
 
-    constexpr unsigned char salt[] =
-        {0x5b, 0x6d, 0x99, 0x68, 0x9d, 0x12, 0x35, 0x8e, 0xec, 0xa0, 0x4b, 0x14, 0x12, 0x36, 0xfa, 0x81};
+    // Serialized messages are prefixed by a header (password message and length)
+    constexpr unsigned char client_first_len = client_final.size();
+    constexpr unsigned char client_final_len = server_final.size();
 
-    constexpr std::string_view auth_message =
-        "n=user,r=rOprNGfwEbeRWgbNEkqO"
-        ","
-        "r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096"
-        ","
-        "c=biws,r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0";
+    std::vector<unsigned char> expected_client_first = {'p', 0, 0, 0, client_first_len};
+    expected_client_first.insert(expected_client_first.end(), client_first.begin(), client_first.end());
 
-    constexpr unsigned char expected_client_proof[32] = {
-        0x74, 0x7c, 0xdb, 0x65, 0xaa, 0x56, 0x22, 0x4e, 0x23, 0x52, 0x13, 0x7e, 0x52, 0xd7, 0xbd, 0xca,
-        0xd6, 0xa0, 0xf7, 0x38, 0xdf, 0x30, 0x78, 0x2c, 0xaa, 0x69, 0xa2, 0xcf, 0xb0, 0x27, 0x75, 0x54,
+    std::vector<unsigned char> expected_client_final = {'p', 0, 0, 0, client_final_len};
+    expected_client_final.insert(expected_client_final.end(), client_final.begin(), client_final.end());
+
+    // Setup
+    std::vector<unsigned char> write_buffer;
+    scram_sha256_fsm fsm;
+    auto client_nonce_gen = [](std::string& s) -> boost::system::error_code {
+        s = "rOprNGfwEbeRWgbNEkqO";
+        return {};
     };
 
-    constexpr unsigned char expected_server_signature[32] = {
-        0xea, 0xba, 0xe2, 0x4d, 0x10, 0x62, 0xdb, 0x75, 0xa9, 0x45, 0x1f, 0xf0, 0xb6, 0xea, 0x7e, 0x98,
-        0xc8, 0x54, 0x65, 0x49, 0xff, 0x74, 0x1e, 0x67, 0x2d, 0x32, 0x51, 0xb2, 0x39, 0x7d, 0xe4, 0x6e,
-    };
+    // on_init writes the client-first message
+    auto ec = fsm.on_init(client_nonce_gen, write_buffer);
+    BOOST_TEST_EQ(ec, error_code());
+    NATIVEPG_TEST_CONT_EQ(write_buffer, expected_client_first)
 
-    sha256_digest client_proof, server_signature;
-    auto ec = compute_proofs(
-        "pencil",
-        salt,
-        4096u,
-        {reinterpret_cast<const unsigned char*>(auth_message.data()), auth_message.size()},
-        client_proof,
-        server_signature
+    // Recover the FSM's generated client nonce from the buffer. The
+    // client-first-message-bare ends the buffer and starts with "n=,r=",
+    // so everything after that marker up to the end is the nonce.
+    std::string_view init_sv(reinterpret_cast<const char*>(write_buffer.data()), write_buffer.size());
+    auto bare_offset = init_sv.find("n=,r=");
+    BOOST_TEST(bare_offset != std::string_view::npos);
+    const std::string client_nonce(init_sv.substr(bare_offset + 5));
+
+    // Synthesize the server-first message using the FSM's nonce
+    const std::string server_first = "r=" + client_nonce + std::string(server_nonce_extension) +
+                                     ",s=" + std::string(salt_b64) + ",i=4096";
+    const std::span<const unsigned char> server_first_bytes(
+        reinterpret_cast<const unsigned char*>(server_first.data()),
+        server_first.size()
     );
 
+    std::vector<unsigned char> client_final_buf;
+    ec = fsm.on_server_first(server_first_bytes, password, client_final_buf);
     BOOST_TEST_EQ(ec, error_code());
-    NATIVEPG_TEST_CONT_EQ(client_proof, expected_client_proof)
-    NATIVEPG_TEST_CONT_EQ(server_signature, expected_server_signature)
+
+    // Compute what the FSM should have produced via compute_proofs. The
+    // AuthMessage is client-first-bare + "," + server-first + "," +
+    // client-final-without-proof. With no channel binding, the bare
+    // client-final-without-proof is "c=biws,r=<full_nonce>".
+    const std::string full_nonce = client_nonce + std::string(server_nonce_extension);
+    const std::string auth_msg = "n=,r=" + client_nonce + "," + server_first + "," + "c=biws,r=" + full_nonce;
+
+    sha256_digest expected_proof{};
+    sha256_digest expected_signature{};
+    ec = compute_proofs(
+        password,
+        salt,
+        iteration_count,
+        {reinterpret_cast<const unsigned char*>(auth_msg.data()), auth_msg.size()},
+        expected_proof,
+        expected_signature
+    );
+    BOOST_TEST_EQ(ec, error_code());
+
+    // Hand the FSM a server-final built with the expected signature. If the
+    // FSM stored the right server_signature during on_server_first, this
+    // verification step must succeed.
+    std::vector<unsigned char> sig_b64;
+    base64_encode(expected_signature, sig_b64);
+    const std::string server_final = "v=" + std::string(sig_b64.begin(), sig_b64.end());
+    const std::span<const unsigned char> server_final_bytes(
+        reinterpret_cast<const unsigned char*>(server_final.data()),
+        server_final.size()
+    );
+
+    ec = fsm.on_server_final(server_final_bytes);
+    BOOST_TEST_EQ(ec, error_code());
 }
 
 }  // namespace

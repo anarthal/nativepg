@@ -6,29 +6,28 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
-#include <boost/system/detail/error_code.hpp>
 #include <boost/system/error_code.hpp>
 
-#include <cstdint>
 #include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "nativepg/protocol/detail/scram_sha256_fsm.hpp"
-#include "nativepg_internal/base64.hpp"
-#include "nativepg_internal/scram_sha256_crypt.hpp"
 #include "test_utils.hpp"
 
-using nativepg::protocol::detail::base64_encode;
-using nativepg::protocol::detail::scram_sha256_fsm;
-using namespace nativepg::protocol::detail::scram_sha256;
 using boost::system::error_code;
+using nativepg::protocol::detail::scram_sha256_fsm;
 
 namespace {
 
 // TODO: errors
 // TODO: empty password
+
+std::span<const unsigned char> to_span(std::string_view s)
+{
+    return {reinterpret_cast<const unsigned char*>(s.data()), s.size()};
+}
 
 void test_success()
 {
@@ -72,57 +71,13 @@ void test_success()
     BOOST_TEST_EQ(ec, error_code());
     NATIVEPG_TEST_CONT_EQ(write_buffer, expected_client_first)
 
-    // Recover the FSM's generated client nonce from the buffer. The
-    // client-first-message-bare ends the buffer and starts with "n=,r=",
-    // so everything after that marker up to the end is the nonce.
-    std::string_view init_sv(reinterpret_cast<const char*>(write_buffer.data()), write_buffer.size());
-    auto bare_offset = init_sv.find("n=,r=");
-    BOOST_TEST(bare_offset != std::string_view::npos);
-    const std::string client_nonce(init_sv.substr(bare_offset + 5));
-
-    // Synthesize the server-first message using the FSM's nonce
-    const std::string server_first = "r=" + client_nonce + std::string(server_nonce_extension) +
-                                     ",s=" + std::string(salt_b64) + ",i=4096";
-    const std::span<const unsigned char> server_first_bytes(
-        reinterpret_cast<const unsigned char*>(server_first.data()),
-        server_first.size()
-    );
-
-    std::vector<unsigned char> client_final_buf;
-    ec = fsm.on_server_first(server_first_bytes, password, client_final_buf);
+    // on_server_first checks the server-first-message and writes the client-final-message
+    ec = fsm.on_server_first(to_span(server_first), password, write_buffer);
     BOOST_TEST_EQ(ec, error_code());
+    NATIVEPG_TEST_CONT_EQ(write_buffer, expected_client_final)
 
-    // Compute what the FSM should have produced via compute_proofs. The
-    // AuthMessage is client-first-bare + "," + server-first + "," +
-    // client-final-without-proof. With no channel binding, the bare
-    // client-final-without-proof is "c=biws,r=<full_nonce>".
-    const std::string full_nonce = client_nonce + std::string(server_nonce_extension);
-    const std::string auth_msg = "n=,r=" + client_nonce + "," + server_first + "," + "c=biws,r=" + full_nonce;
-
-    sha256_digest expected_proof{};
-    sha256_digest expected_signature{};
-    ec = compute_proofs(
-        password,
-        salt,
-        iteration_count,
-        {reinterpret_cast<const unsigned char*>(auth_msg.data()), auth_msg.size()},
-        expected_proof,
-        expected_signature
-    );
-    BOOST_TEST_EQ(ec, error_code());
-
-    // Hand the FSM a server-final built with the expected signature. If the
-    // FSM stored the right server_signature during on_server_first, this
-    // verification step must succeed.
-    std::vector<unsigned char> sig_b64;
-    base64_encode(expected_signature, sig_b64);
-    const std::string server_final = "v=" + std::string(sig_b64.begin(), sig_b64.end());
-    const std::span<const unsigned char> server_final_bytes(
-        reinterpret_cast<const unsigned char*>(server_final.data()),
-        server_final.size()
-    );
-
-    ec = fsm.on_server_final(server_final_bytes);
+    // on_server_final checks the server-final-message
+    ec = fsm.on_server_final(to_span(server_final));
     BOOST_TEST_EQ(ec, error_code());
 }
 

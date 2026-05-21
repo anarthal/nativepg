@@ -10,7 +10,6 @@
 #include <algorithm>
 #include <cstring>
 #include <span>
-#include <string>
 #include <string_view>
 #include <vector>
 
@@ -24,10 +23,13 @@ using namespace nativepg::protocol::detail::scram_sha256;
 
 namespace nativepg::protocol::detail {
 
-boost::system::error_code scram_sha256_fsm::on_init(std::vector<unsigned char>& write_buffer)
+boost::system::error_code scram_sha256_fsm::on_init(
+    nonce_generator nonce_gen,
+    std::vector<unsigned char>& write_buffer
+)
 {
     // Compose the client initial message
-    if (auto ec = generate_nonce(nonce_))
+    if (auto ec = nonce_gen(nonce_))
         return ec;
 
     // Serialize it

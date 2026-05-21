@@ -18,6 +18,8 @@
 
 namespace nativepg::protocol::detail {
 
+using nonce_generator = boost::system::error_code (*)(std::string&);
+
 class scram_sha256_fsm
 {
     std::string nonce_;
@@ -26,12 +28,17 @@ class scram_sha256_fsm
 
 public:
     scram_sha256_fsm() = default;
-    boost::system::error_code on_init(std::vector<unsigned char>& write_buffer);
+    // Composes the client initial message. The nonce generator is passed as parameter for testability
+    boost::system::error_code on_init(nonce_generator nonce_gen, std::vector<unsigned char>& write_buffer);
+
+    // Checks the server nonce, computes proofs and composes the client final message
     boost::system::error_code on_server_first(
         std::span<const unsigned char> msg,
         std::string_view password,
         std::vector<unsigned char>& write_buffer
     );
+
+    // Checks the server proof
     boost::system::error_code on_server_final(std::span<const unsigned char> msg);
 };
 

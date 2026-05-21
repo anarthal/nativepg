@@ -26,7 +26,6 @@ class scram_sha256_fsm
 
 public:
     scram_sha256_fsm() = default;
-    void reset() { nonce_.clear(); }
     boost::system::error_code on_init(std::vector<unsigned char>& write_buffer);
     boost::system::error_code on_server_first(
         std::span<const unsigned char> msg,

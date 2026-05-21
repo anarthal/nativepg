@@ -8,7 +8,6 @@
 #ifndef NATIVEPG_SRC_NATIVEPG_INTERNAL_SCRAM_SHA256_MESSAGES_HPP
 #define NATIVEPG_SRC_NATIVEPG_INTERNAL_SCRAM_SHA256_MESSAGES_HPP
 
-#include <boost/core/span.hpp>
 #include <boost/endian/conversion.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/system/result.hpp>
@@ -44,7 +43,7 @@ struct client_first_message
     std::string_view nonce;
 };
 
-[[nodiscard]] inline boost::system::result<boost::span<const unsigned char>> serialize(
+[[nodiscard]] inline boost::system::result<std::span<const unsigned char>> serialize(
     const client_first_message& msg,
     std::vector<unsigned char>& to
 )
@@ -101,7 +100,7 @@ struct client_first_message
         return ec;
 
     // Done
-    return boost::span<const unsigned char>(to.data() + bare_start_offset, to.data() + bare_end_offset);
+    return std::span<const unsigned char>(to.data() + bare_start_offset, to.data() + bare_end_offset);
 }
 
 // This is an authentication_sasl_continue message. parse does not parse the type
@@ -124,7 +123,7 @@ inline bool scram_is_printable(unsigned char c)
 }
 
 [[nodiscard]] inline boost::system::error_code parse(
-    boost::span<const unsigned char> data,
+    std::span<const unsigned char> data,
     server_first_message& to
 )
 {
@@ -276,7 +275,7 @@ struct server_final_message
 };
 
 [[nodiscard]] inline boost::system::error_code parse(
-    boost::span<const unsigned char> data,
+    std::span<const unsigned char> data,
     server_final_message& to
 )
 {
@@ -297,7 +296,7 @@ struct server_final_message
         return ::nativepg::client_errc::invalid_scram_message;
     const char* verifier_last = std::find(p, last, ',');
     if (auto ec = ::nativepg::protocol::detail::base64_decode(
-            boost::span<const unsigned char>(
+            std::span<const unsigned char>(
                 reinterpret_cast<const unsigned char*>(p),
                 reinterpret_cast<const unsigned char*>(verifier_last)
             ),

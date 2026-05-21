@@ -27,7 +27,7 @@ void test_parse()
     constexpr std::string_view
         data = "r=7vha5bhElx564U6mzXimIJqdygCr/dQmx9ESrL/+FfZHVXyA,s=M8SSqYCQ4spIf9DBNNLBJA==,i=4096";
     boost::span<const unsigned char> buff(reinterpret_cast<const unsigned char*>(data.data()), data.size());
-    scram_sha256_server_first_message msg{};
+    server_first_message msg{};
     constexpr unsigned char expected_salt[] =
         {0x33, 0xc4, 0x92, 0xa9, 0x80, 0x90, 0xe2, 0xca, 0x48, 0x7f, 0xd0, 0xc1, 0x34, 0xd2, 0xc1, 0x24};
 

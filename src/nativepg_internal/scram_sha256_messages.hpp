@@ -35,7 +35,7 @@ namespace nativepg::protocol::detail::scram_sha256 {
 // This is really a password message. serialize serializes the entire message,
 // including the header. Returns the client-first-message-bare part of the serialized
 // message, required by the SCRAM algorithm
-struct scram_sha256_client_first_message
+struct client_first_message
 {
     // The SASL mechanism name that was chosen
     std::string_view mechanism;
@@ -45,11 +45,11 @@ struct scram_sha256_client_first_message
 };
 
 [[nodiscard]] inline boost::system::result<boost::span<const unsigned char>> serialize(
-    const scram_sha256_client_first_message& msg,
+    const client_first_message& msg,
     std::vector<unsigned char>& to
 )
 {
-    ::nativepg::protocol::detail::serialization_context ctx(to);
+    serialization_context ctx(to);
 
     // Header
     ctx.add_header('p');
@@ -105,7 +105,7 @@ struct scram_sha256_client_first_message
 }
 
 // This is an authentication_sasl_continue message. parse does not parse the type
-struct scram_sha256_server_first_message
+struct server_first_message
 {
     // The nonce sent by the server, should contain the nonce we sent and an extra value created by the server
     std::string_view nonce;
@@ -125,7 +125,7 @@ inline bool scram_is_printable(unsigned char c)
 
 [[nodiscard]] inline boost::system::error_code parse(
     boost::span<const unsigned char> data,
-    scram_sha256_server_first_message& to
+    server_first_message& to
 )
 {
     // server-first-message = [reserved-mext ","] nonce "," salt "," iteration-count ["," extensions]
@@ -207,12 +207,12 @@ inline bool scram_is_printable(unsigned char c)
 //     It returns client-final-message-without-proof, required by the SCRAM algorithm.
 //   * serialize_proof serializes the proof and adjusts the header.
 //     Computing proof needs client-final-message-without-proof. This is why we need to split serialization.
-class scram_sha256_client_final_message_serializer
+class client_final_message_serializer
 {
     ::nativepg::protocol::detail::serialization_context ctx_;
 
 public:
-    scram_sha256_client_final_message_serializer(std::vector<unsigned char>& to) noexcept : ctx_(to) {}
+    client_final_message_serializer(std::vector<unsigned char>& to) noexcept : ctx_(to) {}
 
     // Should be called once, first
     [[nodiscard]] boost::system::result<std::span<const unsigned char>> serialize_without_proof(
@@ -268,7 +268,7 @@ public:
 };
 
 // This is an authentication_sasl_final message. parse does not parse the type
-struct scram_sha256_server_final_message
+struct server_final_message
 {
     // Proof that the server had access to our password
     // TODO: this is restricted to digest size, we should probably use this knowledge and static storage
@@ -277,7 +277,7 @@ struct scram_sha256_server_final_message
 
 [[nodiscard]] inline boost::system::error_code parse(
     boost::span<const unsigned char> data,
-    scram_sha256_server_final_message& to
+    server_final_message& to
 )
 {
     // server-final-message = (server-error / verifier) ["," extensions]

@@ -60,14 +60,14 @@ boost::system::error_code scram_sha256_fsm::on_server_first(
     if (auto ec = parse(bytes, server_msg))
         return ec;
 
-    // Check the nonce. If it does start with our nonce, that's an error
-    // TODO: we should also check the length here
-    if (!server_msg.nonce.starts_with(nonce_))
+    // Check the nonce. If it does not start with our nonce, that's an error
+    if (server_msg.nonce.empty() || !server_msg.nonce.starts_with(nonce_))
         return error_code(client_errc::scram_invalid_nonce);
 
     // Reject too big iteration counts - this looks like a DDOS
-    // TODO: do we need similar measures for salt?
-    if (server_msg.iteration_count > 0xffff)
+    // An iteration count of zero is not legal either
+    // TODO: do we need similar measures for salt and nonce?
+    if (server_msg.iteration_count == 0u || server_msg.iteration_count > 0xffffu)
         return error_code(client_errc::protocol_value_error);
 
     // Save client-first-message-bare, as it is part of AuthMessage

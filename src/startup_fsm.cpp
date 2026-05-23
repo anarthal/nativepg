@@ -19,7 +19,6 @@
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/startup.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
-#include "nativepg_internal/scram_sha256_crypt.hpp"
 
 using namespace nativepg::protocol;
 using boost::system::error_code;
@@ -104,7 +103,7 @@ startup_fsm_impl::result startup_fsm_impl::resume(
                 return error_code(client_errc::scram_mechanisms_unsupported);
 
             // Delegate to the SCRAM FSM. This generates the message to send to the server
-            if (auto ec = scram_fsm_.on_init(&scram_sha256::generate_nonce, st.write_buffer))
+            if (auto ec = scram_fsm_.on_init(st.write_buffer))
                 return ec;
 
             // Write the message

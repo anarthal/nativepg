@@ -44,6 +44,11 @@ boost::system::error_code scram_sha256_fsm::on_init(
     return {};
 }
 
+boost::system::error_code scram_sha256_fsm::on_init(std::vector<unsigned char>& write_buffer)
+{
+    return on_init(&generate_nonce, write_buffer);
+}
+
 boost::system::error_code scram_sha256_fsm::on_server_first(
     std::span<const unsigned char> bytes,
     std::string_view password,

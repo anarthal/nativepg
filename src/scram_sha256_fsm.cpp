@@ -70,6 +70,7 @@ boost::system::error_code scram_sha256_fsm::on_server_first(
     std::vector<unsigned char> auth_message{client_first_msg_.begin(), client_first_msg_.end()};
 
     // Serialize the initial part of the client final message, as this is part of AuthMessage
+    write_buffer.clear();
     client_final_message_serializer serializer{write_buffer};
     auto res = serializer.serialize_without_proof(server_msg.nonce);
     if (res.has_error())

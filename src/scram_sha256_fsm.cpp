@@ -7,7 +7,6 @@
 
 #include <boost/system/error_code.hpp>
 
-#include <algorithm>
 #include <cstring>
 #include <span>
 #include <string_view>
@@ -117,7 +116,7 @@ boost::system::error_code scram_sha256_fsm::on_server_final(std::span<const unsi
 
     // Check that the server signature is the same as the client's.
     // This is not a password, so timing attacks shouldn't be possible
-    if (!std::ranges::equal(msg.server_signature, server_signature_))
+    if (!crypto_equal(msg.server_signature, server_signature_))
         return client_errc::scram_invalid_server_signature;
 
     // Done

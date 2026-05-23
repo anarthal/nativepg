@@ -27,7 +27,8 @@ class scram_sha256_fsm
 public:
     scram_sha256_fsm() = default;
 
-    // Composes the client initial message. The nonce generator is passed as parameter for testability
+    // Composes the client initial message. The nonce generator is passed as parameter for testability.
+    // write_buffer should not invalidate iterators between on_init and on_server_first
     using nonce_generator = boost::system::error_code (*)(std::string&);
     boost::system::error_code on_init(nonce_generator nonce_gen, std::vector<unsigned char>& write_buffer);
     boost::system::error_code on_init(std::vector<unsigned char>& write_buffer);

@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <memory>
 #include <openssl/core_names.h>
+#include <openssl/crypto.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/kdf.h>
@@ -278,6 +279,12 @@ inline void normalize_password(std::string_view input, std::string& output)
     // Hand the encoded characters back to the caller as a string
     to.assign(encoded.begin(), encoded.end());
     return {};
+}
+
+[[nodiscard]]
+inline bool crypto_equal(std::span<const unsigned char> lhs, std::span<const unsigned char> rhs)
+{
+    return lhs.size() == rhs.size() && CRYPTO_memcmp(lhs.data(), rhs.data(), lhs.size()) == 0u;
 }
 
 }  // namespace nativepg::protocol::detail::scram_sha256

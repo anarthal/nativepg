@@ -29,6 +29,35 @@ static const char* error_to_string(client_errc error)
         case client_errc::extra_bytes: return "Unexpected extra bytes at the end of a message were received";
         case client_errc::protocol_value_error:
             return "An unexpected value was found in a server-received message";
+
+            // TODO: proper phrasing for these
+        case client_errc::value_too_big: return "value_too_big";
+        case client_errc::invalid_base64: return "invalid_base64";
+        case client_errc::invalid_scram_message: return "invalid_scram_message";
+        case client_errc::mandatory_scram_extension_not_supported:
+            return "mandatory_scram_extension_not_supported";
+        case client_errc::scram_mechanisms_unsupported: return "scram_mechanisms_unsupported";
+        case client_errc::scram_invalid_nonce: return "scram_invalid_nonce";
+        case client_errc::scram_invalid_server_signature: return "scram_invalid_server_signature";
+        case client_errc::unexpected_message: return "unexpected_message";
+        case client_errc::incompatible_response_length: return "incompatible_response_length";
+        case client_errc::incompatible_response_type: return "incompatible_response_type";
+        case client_errc::unexpected_null: return "unexpected_null";
+        case client_errc::incompatible_field_type: return "incompatible_field_type";
+        case client_errc::field_not_found: return "field_not_found";
+        case client_errc::auth_failed: return "auth_failed";
+        case client_errc::auth_kerberos_v5_unsupported: return "auth_kerberos_v5_unsupported";
+        case client_errc::auth_cleartext_password_unsupported: return "auth_cleartext_password_unsupported";
+        case client_errc::auth_md5_password_unsupported: return "auth_md5_password_unsupported";
+        case client_errc::auth_gss_unsupported: return "auth_gss_unsupported";
+        case client_errc::auth_sspi_unsupported: return "auth_sspi_unsupported";
+        case client_errc::empty_request: return "empty_request";
+        case client_errc::request_ends_without_sync: return "request_ends_without_sync";
+        case client_errc::request_mixes_simple_advanced_protocols:
+            return "request_mixes_simple_advanced_protocols";
+        case client_errc::exec_server_error: return "exec_server_error";
+        case client_errc::step_skipped: return "step_skipped";
+        case client_errc::unknown_openssl_error: return "unknown_openssl_error";
         default: return "<unknown nativepg client error>";
     }
 }

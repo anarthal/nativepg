@@ -155,6 +155,7 @@ startup_fsm_impl::result startup_fsm_impl::resume(
                 return ec;
 
             // SCRAM authentication is done. We should wait until an OK is received
+            NATIVEPG_YIELD(resume_point_, 7, result_type::read)
         }
         else if (auto ec = check_unknown_auth_methods(msg))
         {
@@ -170,7 +171,7 @@ startup_fsm_impl::result startup_fsm_impl::resume(
         while (true)
         {
             // Read a message
-            NATIVEPG_YIELD(resume_point_, 7, result_type::read)
+            NATIVEPG_YIELD(resume_point_, 8, result_type::read)
 
             // Act upon it
             switch (msg.type())

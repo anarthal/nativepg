@@ -10,10 +10,10 @@
 #include <string_view>
 #include <vector>
 
-#include "nativepg/protocol/scram_sha256.hpp"
+#include "nativepg_internal/scram_sha256_messages.hpp"
 #include "test_utils.hpp"
 
-using namespace nativepg::protocol;
+using namespace nativepg::protocol::detail::scram_sha256;
 
 namespace {
 
@@ -23,7 +23,7 @@ void test_serialize()
 {
     // Setup
     std::vector<unsigned char> buff{0xff, 0xff};
-    scram_sha256_client_first_message msg{"SCRAM-SHA-256", "7vha5bhElx564U6mzXimIJqd"};
+    client_first_message msg{"SCRAM-SHA-256", "7vha5bhElx564U6mzXimIJqd"};
     constexpr unsigned char expected[] = {
         0xff, 0xff, 0x70, 0x00, 0x00, 0x00, 0x36, 0x53, 0x43, 0x52, 0x41, 0x4d, 0x2d, 0x53, 0x48,
         0x41, 0x2d, 0x32, 0x35, 0x36, 0x00, 0x00, 0x00, 0x00, 0x20, 0x6e, 0x2c, 0x2c, 0x6e, 0x3d,

@@ -15,11 +15,13 @@ find_package(OpenSSL REQUIRED)
 add_library(nativepg
     # Internal functions
     src/nativepg_internal/base64.cpp
+    src/nativepg_internal/openssl_error.cpp
 
     # External API
     src/error.cpp
     src/messages.cpp
     src/startup_fsm.cpp
+    src/scram_sha256_fsm.cpp
     src/read_response_fsm.cpp
     src/read_message_fsm.cpp
     src/exec_fsm.cpp
@@ -54,6 +56,8 @@ if (BUILD_TESTING)
     add_unit_test(protocol          test_scram_sha256_server_first_message)
     add_unit_test(protocol          test_scram_sha256_client_final_message)
     add_unit_test(protocol          test_scram_sha256_server_final_message)
+    add_unit_test(protocol          test_scram_sha256_crypt)
+    add_unit_test(protocol          test_scram_sha256_fsm)
     add_unit_test(protocol          test_read_message_fsm)
     add_unit_test(protocol          test_startup_fsm)
     add_unit_test(protocol          test_read_response_fsm)

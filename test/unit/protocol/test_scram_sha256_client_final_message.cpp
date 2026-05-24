@@ -6,14 +6,17 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
+#include <boost/system/error_code.hpp>
 
+#include <span>
 #include <string_view>
 #include <vector>
 
-#include "nativepg/protocol/scram_sha256.hpp"
+#include "nativepg_internal/scram_sha256_messages.hpp"
 #include "test_utils.hpp"
 
-using namespace nativepg::protocol;
+using namespace nativepg::protocol::detail::scram_sha256;
+using boost::system::error_code;
 
 namespace {
 
@@ -35,17 +38,26 @@ void test_serialize()
         0x78, 0x77, 0x46, 0x59, 0x41, 0x6c, 0x50, 0x4f, 0x4b, 0x52, 0x37, 0x44, 0x78, 0x48, 0x71, 0x7a,
         0x6c, 0x35, 0x6a, 0x4e, 0x33, 0x52, 0x64, 0x6e, 0x54, 0x73, 0x4b, 0x42, 0x6b, 0x73, 0x3d,
     };
+
     std::vector<unsigned char> buff{0xff, 0xff};
-    const scram_sha256_client_final_message msg{"8L+V/3ytl95bttI99/bhMxawOHcGq/1XrujDHQsrL/x/it8E", proof};
+    client_final_message_serializer serializer(buff);
+
+    // Serialize all except for the proof
+    auto res = serializer.serialize_without_proof("8L+V/3ytl95bttI99/bhMxawOHcGq/1XrujDHQsrL/x/it8E");
+
+    // without_proof is the part of the final message to use for proof calculations
+    // proof_offset is where the proof starts in the binary message (expected has also a header)
     constexpr std::string_view without_proof = "c=biws,r=8L+V/3ytl95bttI99/bhMxawOHcGq/1XrujDHQsrL/x/it8E";
-
-    // Serialize
-    auto res = serialize(msg, buff);
-
-    // Check
+    constexpr std::size_t proof_offset = 64u;
     NATIVEPG_TEST(res.has_value())
-    NATIVEPG_TEST_CONT_EQ(res.value(), without_proof)
+    NATIVEPG_TEST_CONT_EQ(res.value(), without_proof);
+    NATIVEPG_TEST_CONT_EQ(buff, std::span<const unsigned char>(buff).subspan(0, proof_offset));
+
+    // Serialize the proof
+    auto ec = serializer.serialize_proof(proof);
+
     NATIVEPG_TEST_CONT_EQ(buff, expected)
+    NATIVEPG_TEST_EQ(ec, error_code())
 }
 
 }  // namespace

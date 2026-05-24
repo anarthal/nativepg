@@ -62,10 +62,7 @@ void test_error_exception_ptr()
     catch (const boost::system::system_error& err)
     {
         BOOST_TEST_EQ(err.code(), error_code(client_errc::value_too_big));
-        BOOST_TEST_EQ(
-            std::string_view(err.what()),
-            "My message: <unknown nativepg client error> [nativepg.client:4]"
-        );  // TODO: update when we implement proper client_errc to string conversion
+        BOOST_TEST_EQ(std::string_view(err.what()), "My message: value_too_big [nativepg.client:4]");
     }
 }
 
@@ -91,10 +88,7 @@ void test_error_throw_exception()
     catch (const boost::system::system_error& err)
     {
         BOOST_TEST_EQ(err.code(), error_code(client_errc::value_too_big));
-        BOOST_TEST_EQ(
-            std::string_view(err.what()),
-            "My message: <unknown nativepg client error> [nativepg.client:4]"
-        );  // TODO: update when we implement proper client_errc to string conversion
+        BOOST_TEST_EQ(std::string_view(err.what()), "My message: value_too_big [nativepg.client:4]");
     }
 }
 

@@ -65,10 +65,12 @@ public:
 
     void add_bytes(std::string_view contents)
     {
-        add_bytes(boost::span<const unsigned char>(
-            reinterpret_cast<const unsigned char*>(contents.data()),
-            contents.size()
-        ));
+        add_bytes(
+            boost::span<const unsigned char>(
+                reinterpret_cast<const unsigned char*>(contents.data()),
+                contents.size()
+            )
+        );
     }
 
     void add_byte(unsigned char byte) { buffer_.push_back(byte); }

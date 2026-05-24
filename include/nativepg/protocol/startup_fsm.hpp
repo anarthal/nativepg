@@ -16,8 +16,9 @@
 
 #include "nativepg/connect_params.hpp"
 #include "nativepg/extended_error.hpp"
-#include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
+#include "nativepg/protocol/connection_state.hpp"
+#include "nativepg/protocol/detail/scram_sha256_fsm.hpp"
 
 namespace nativepg::protocol {
 
@@ -51,6 +52,7 @@ public:
 private:
     int resume_point_{0};
     const connect_params* params_;
+    scram_sha256_fsm scram_fsm_;
 };
 
 }  // namespace detail

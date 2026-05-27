@@ -8,8 +8,14 @@
 cmake_minimum_required(VERSION 3.10..3.31)
 project(nativepg LANGUAGES CXX)
 
+option(NATIVEPG_COROSIO_API "Whether to build the Corosio API" OFF)
+
 find_package(boost_headers REQUIRED)
 find_package(OpenSSL REQUIRED)
+
+if (NATIVEPG_COROSIO_API)
+    find_package(boost_corosio REQUIRED)
+endif()
 
 # Library
 add_library(nativepg
@@ -32,6 +38,17 @@ add_library(nativepg
 target_link_libraries(nativepg PUBLIC Boost::headers OpenSSL::SSL OpenSSL::Crypto)
 target_include_directories(nativepg PUBLIC include)
 target_include_directories(nativepg PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+
+# Corosio API
+if (NATIVEPG_COROSIO_API)
+    add_library(nativepg_corosio
+        src/co_connection.cpp
+    )
+    target_link_libraries(nativepg_corosio PUBLIC
+        nativepg
+        Boost::corosio
+    )
+endif()
 
 # Tests
 include(CTest)

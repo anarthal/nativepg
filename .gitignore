@@ -1,3 +1,5 @@
 .vscode/
 __build/
 private/
+/.claude/
+/CLAUDE.md

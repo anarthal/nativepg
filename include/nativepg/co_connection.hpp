@@ -9,6 +9,7 @@
 #define NATIVEPG_CO_CONNECTION_HPP
 
 #include <boost/capy/buffers/make_buffer.hpp>
+#include <boost/capy/concept/executor.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/write.hpp>
@@ -17,6 +18,7 @@
 #include <boost/corosio/tcp_socket.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <concepts>
 #include <memory>
 #include <string>
 
@@ -54,7 +56,12 @@ class co_connection
 
 public:
     explicit co_connection(boost::capy::execution_context& ctx) : impl_(new impl{ctx}) {}
-    // TODO: ctor from execution context
+
+    template <boost::capy::Executor Ex>
+        requires(!std::same_as<Ex, co_connection>)
+    explicit co_connection(const Ex& ex) : co_connection{ex.context()}
+    {
+    }
 
     boost::capy::io_task<> connect(const connect_params& params)
     {

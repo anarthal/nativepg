@@ -5,8 +5,6 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include "nativepg/co_connection.hpp"
-
 #include <boost/assert.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/ex/execution_context.hpp>
@@ -19,7 +17,9 @@
 #include <memory>
 #include <string>
 
+#include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
+#include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
 #include "nativepg/protocol/detail/exec_fsm.hpp"
@@ -51,7 +51,7 @@ co_connection::co_connection(boost::capy::execution_context& ctx) : impl_(std::m
 
 co_connection::~co_connection() = default;
 
-boost::capy::io_task<> co_connection::connect(const connect_params& params)
+boost::capy::io_task<> co_connection::connect(const connect_params& params, diagnostics* diag)
 {
     using protocol::detail::connect_fsm;
 
@@ -92,13 +92,22 @@ boost::capy::io_task<> co_connection::connect(const connect_params& params)
                 res = fsm_.resume(impl_->st, {}, 0u);
                 break;
             }
-            case connect_fsm::result_type::done: co_return {res.error()};
+            case connect_fsm::result_type::done:
+            {
+                if (diag)
+                    *diag = impl_->st.shared_diag;
+                co_return {res.error()};
+            }
             default: BOOST_ASSERT(false); co_return {};
         }
     }
 }
 
-boost::capy::io_task<> co_connection::exec(const request& req, response_handler_ref handler)
+boost::capy::io_task<> co_connection::exec(
+    const request& req,
+    response_handler_ref handler,
+    diagnostics* diag
+)
 {
     using protocol::detail::exec_fsm;
 
@@ -128,7 +137,12 @@ boost::capy::io_task<> co_connection::exec(const request& req, response_handler_
                 break;
             }
             case protocol::startup_fsm::result_type::done:
-                co_return {fsm_.get_result(res.error()).code};  // TODO: looks sus
+            {
+                auto result = fsm_.get_result(res.error());
+                if (diag)
+                    *diag = std::move(result.diag);
+                co_return {result.code};
+            }
             default: BOOST_ASSERT(false); co_return {};
         }
     }

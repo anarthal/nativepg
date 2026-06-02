@@ -16,6 +16,7 @@
 #include <memory>
 
 #include "nativepg/connect_params.hpp"
+#include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
 
@@ -37,9 +38,13 @@ public:
 
     ~co_connection();
 
-    boost::capy::io_task<> connect(const connect_params& params);
+    boost::capy::io_task<> connect(const connect_params& params, diagnostics* diag = nullptr);
 
-    boost::capy::io_task<> exec(const request& req, response_handler_ref handler);
+    boost::capy::io_task<> exec(
+        const request& req,
+        response_handler_ref handler,
+        diagnostics* diag = nullptr
+    );
 };
 
 }  // namespace nativepg

@@ -13,6 +13,7 @@
 #include <iostream>
 
 #include "nativepg/co_connection.hpp"
+#include "nativepg/extended_error.hpp"
 #include "nativepg/response.hpp"
 
 using namespace nativepg;
@@ -26,28 +27,33 @@ struct myrow
 };
 BOOST_DESCRIBE_STRUCT(myrow, (), (f3, f1))
 
-static void print_err(const char* prefix, std::error_code err)
+static void print_err(const char* prefix, std::error_code err, const diagnostics& diag)
 {
-    std::cout << prefix << err << ": " << err.message() << '\n';
+    std::cout << prefix << ": " << err << ": " << err.message();
+    if (!diag.message().empty())
+        std::cout << ": " << diag.message();
+    std::cout << '\n';
 }
 
 static void print_err(const char* prefix, const extended_error& err)
 {
-    std::cout << prefix << err.code.what() << ": " << err.diag.message() << '\n';
+    print_err(prefix, err.code, err.diag);
 }
 
 static capy::task<> co_main()
 {
     // Create a connection
     co_connection conn{co_await capy::this_coro::executor};
+    diagnostics diag;
 
     // Connect
     auto [ec] = co_await conn.connect(
-        {.hostname = "localhost", .username = "postgres", .password = "secret", .database = "postgres"}
+        {.hostname = "localhost", .username = "postgres", .password = "secret", .database = "postgres"},
+        &diag
     );
     if (ec)
     {
-        print_err("Error connecting", ec);
+        print_err("Error connecting", ec, diag);
         co_return;
     }
     std::cout << "Startup complete\n";
@@ -61,10 +67,10 @@ static capy::task<> co_main()
     std::vector<myrow> vec1, vec2;
     response res{into(vec1), into(vec2)};
 
-    auto [ec2] = co_await conn.exec(req, res);
-    print_err("Operation result: ", ec2);
-    print_err("Q1 result: ", std::get<0>(res.handlers()).result());
-    print_err("Q2 result: ", std::get<1>(res.handlers()).result());
+    auto [ec2] = co_await conn.exec(req, res, &diag);
+    print_err("Operation result", ec2, diag);
+    print_err("Q1 result", std::get<0>(res.handlers()).result());
+    print_err("Q2 result", std::get<1>(res.handlers()).result());
 
     for (const auto& r : vec1)
         std::cout << "Got row (1): " << r.f1 << ", " << r.f3 << std::endl;

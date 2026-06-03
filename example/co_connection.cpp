@@ -76,8 +76,6 @@ static capy::task<> co_main()
         std::cout << "Got row (1): " << r.f1 << ", " << r.f3 << std::endl;
     for (const auto& r : vec2)
         std::cout << "Got row (2): " << r.f1 << ", " << r.f3 << std::endl;
-
-    std::cout << "Done\n";
 }
 
 int main()

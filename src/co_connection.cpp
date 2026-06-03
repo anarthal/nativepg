@@ -51,7 +51,9 @@ co_connection::co_connection(boost::capy::execution_context& ctx) : impl_(std::m
 
 co_connection::~co_connection() = default;
 
-boost::capy::io_task<> co_connection::connect(const connect_params& params, diagnostics* diag)
+// TODO: I'd prefer having connect_params be a view
+// const references here may cause dangling parameters
+boost::capy::io_task<> co_connection::connect(connect_params params, diagnostics* diag)
 {
     using protocol::detail::connect_fsm;
 

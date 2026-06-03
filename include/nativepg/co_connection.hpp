@@ -38,7 +38,7 @@ public:
 
     ~co_connection();
 
-    boost::capy::io_task<> connect(const connect_params& params, diagnostics* diag = nullptr);
+    boost::capy::io_task<> connect(connect_params params, diagnostics* diag = nullptr);
 
     boost::capy::io_task<> exec(
         const request& req,

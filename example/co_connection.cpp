@@ -87,20 +87,21 @@ int main()
 
     // Schedules the main coroutine for execution
     capy::run_async(
-      ctx.get_executor(),
-      []() {
-         // Runs when the main coroutine finishes normally
-         std::cout << "Done\n";
-      },
-      [](std::exception_ptr exc) {
-         // Runs when the main coroutine finishes with an exception
-         try {
-            std::rethrow_exception(exc);
-         } catch (const std::exception& e) {
-            std::cerr << "Error: " << e.what() << std::endl;
-         }
-         exit(1);
-      })(co_main());
+        ctx.get_executor(),
+        []() {
+           // Runs when the main coroutine finishes normally
+           std::cout << "Done\n";
+        },
+        [](std::exception_ptr exc) {
+            // Runs when the main coroutine finishes with an exception
+            try {
+               std::rethrow_exception(exc);
+            } catch (const std::exception& e) {
+               std::cerr << "Error: " << e.what() << std::endl;
+            }
+            exit(1);
+        }
+    )(co_main());
 
     // Executes all pending work, including the main coroutine
     ctx.run();

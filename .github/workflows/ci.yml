@@ -97,7 +97,7 @@ jobs:
           cd ../..
 
           ./bootstrap.sh
-          ./b2 --with-headers --with-capy --with-corosio --prefix=/opt/boost -d0 install
+          ./b2 cxxstd=20 --with-headers --with-capy --with-corosio --prefix=/opt/boost -d0 install
 
       - name: Save Boost to cache
         if: steps.restore-boost.outputs.cache-hit != 'true'

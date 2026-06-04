@@ -149,12 +149,16 @@ public:
         // Prevent any further waits in with_connection, since no more connection will be available
         shared_st_.idle_connections_cv.expires_at((std::chrono::steady_clock::time_point::min)());
 
-        // Wait for all connection tasks to exit. We need to replace the stop token so this has any effect
-        co_await boost::capy::run(std::stop_token())([this] -> boost::capy::task<> {
-            auto [ec2] = co_await shared_st_.conns_finished_cv.wait();
-            BOOST_ASSERT(!ec2);
-            static_cast<void>(ec2);
-        }());
+        // Wait for all connection tasks to exit. We need to replace the stop token so this has any effect.
+        // Skip this if there is no connection to wait for
+        if (!all_conns_.empty())
+        {
+            co_await boost::capy::run(std::stop_token())([this] -> boost::capy::task<> {
+                auto [ec2] = co_await shared_st_.conns_finished_cv.wait();
+                BOOST_ASSERT(!ec2);
+                static_cast<void>(ec2);
+            }());
+        }
 
         // Done
         run_env_ = nullptr;
@@ -163,28 +167,21 @@ public:
 
     boost::capy::io_task<pooled_connection> get_connection()
     {
+        // If the pool is cancelled, the operation must fail even if there are available connections
+        if (state_ == state_t::cancelled)
+            co_return {boost::capy::error::canceled, {}};
+
+        // Try to get a connection
+        if (auto* node = try_get_connection())
+            co_return {{}, pooled_connection(*node)};
+
+        // No luck, we need to wait.
         // This loop guards us against possible race conditions
         // between waiting on the pending request timer and getting the
         // connection
+        auto tok = co_await boost::capy::this_coro::stop_token;
         while (true)
         {
-            // TODO: is checking the first thing the best performance-wise?
-            // Is there overhead to stop_requested()?
-            if (state_ == state_t::cancelled ||
-                (co_await boost::capy::this_coro::stop_token).stop_requested())
-            {
-                // The pool was cancelled
-                co_return {boost::capy::error::canceled, {}};
-            }
-
-            // Try to get a connection
-            auto* node = try_get_connection();
-            if (node != nullptr)
-            {
-                // We have a connection
-                co_return {{}, pooled_connection(*node)};
-            }
-
             // No luck. Record that we're waiting for a connection.
             enter_request_pending();
 
@@ -194,6 +191,18 @@ public:
 
             // Record that we're no longer pending
             exit_request_pending();
+
+            // If the pool is cancelled, the operation must fail even if there are available connections
+            if (state_ == state_t::cancelled)
+                co_return {boost::capy::error::canceled, {}};
+
+            // Try to get a connection
+            if (auto* node = try_get_connection())
+                co_return {{}, pooled_connection(*node)};
+
+            // Check for cancellations
+            if (tok.stop_requested())
+                co_return {boost::capy::error::canceled, {}};
         }
     }
 

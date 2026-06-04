@@ -23,7 +23,7 @@
 namespace nativepg {
 
 namespace detail {
-struct connection_node;
+class connection_node;
 void return_connection(connection_node&, bool should_reset);
 co_connection& get_connection(const connection_node&);
 }  // namespace detail

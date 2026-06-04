@@ -24,6 +24,7 @@ namespace nativepg {
 
 namespace detail {
 class connection_node;
+class co_connection_pool_impl;
 void return_connection(connection_node&, bool should_reset);
 co_connection& get_connection(const connection_node&);
 }  // namespace detail
@@ -44,6 +45,8 @@ class pooled_connection
     detail::connection_node* node_;
 
     pooled_connection(detail::connection_node& node) noexcept : node_(&node) {}
+
+    friend class detail::co_connection_pool_impl;
 
 public:
     pooled_connection() noexcept = default;
@@ -90,8 +93,7 @@ public:
 
 class co_connection_pool
 {
-    struct impl;
-    std::unique_ptr<impl> impl_;
+    std::unique_ptr<detail::co_connection_pool_impl> impl_;
 
     co_connection_pool(boost::capy::execution_context& ctx, pool_params&& params, int);
 

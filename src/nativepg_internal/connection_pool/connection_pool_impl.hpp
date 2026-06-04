@@ -196,7 +196,9 @@ public:
             if (state_ == state_t::cancelled)
                 co_return {boost::capy::error::canceled, {}};
 
-            // Try to get a connection
+            // Try again. We need to try to satisfy the request even if we were cancelled.
+            // When a connection becomes idle, only one task is awakened. We must
+            // use the connection - otherwise, other tasks waiting won't be notified.
             if (auto* node = try_get_connection())
                 co_return {{}, pooled_connection(*node)};
 

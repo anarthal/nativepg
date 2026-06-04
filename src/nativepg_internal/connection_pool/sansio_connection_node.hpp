@@ -14,9 +14,7 @@
 #include <algorithm>
 #include <cstddef>
 
-namespace boost {
-namespace mysql {
-namespace detail {
+namespace nativepg::detail {
 
 // The status the connection is in
 enum class node_status
@@ -226,8 +224,6 @@ inline std::size_t num_connections_to_create(
     return (std::min)((std::max)(required_by_requests, required_by_min), room);
 }
 
-}  // namespace detail
-}  // namespace mysql
-}  // namespace boost
+}  // namespace nativepg::detail
 
 #endif

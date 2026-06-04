@@ -50,7 +50,6 @@
 #include <boost/describe/class.hpp>
 #include <boost/endian/conversion.hpp>
 
-#include <chrono>
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
@@ -199,7 +198,7 @@ int main(int argc, char** argv)
             .hostname = server_hostname,
             .username = username,
             .password = password,
-            .database = "nativepg_examples",
+            .database = "postgres",
         }
     });
     // clang-format on

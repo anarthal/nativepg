@@ -6,8 +6,9 @@
 //
 
 /**
- * This example demonstrates how to use co_connection_pool to implement a
- * server for a simple custom TCP-based protocol.
+ * This example demonstrates how to use co_connection_pool together with
+ * corosio's tcp_server to implement a server for a simple custom TCP-based
+ * protocol.
  *
  * The protocol can be used to retrieve the full name of an employee given
  * their ID. It works as follows:
@@ -18,6 +19,11 @@
  *
  * It uses Boost.Capy for coroutines, Boost.Corosio for the I/O primitives,
  * and nativepg's co_connection_pool to manage Postgres connections.
+ *
+ * tcp_server owns a fixed pool of worker objects, dispatches an idle worker
+ * for each accepted connection, and returns the worker to the pool when the
+ * handling coroutine completes. This avoids fire-and-forget coroutines that
+ * could outlive the accept loop.
  *
  * This example expects a Postgres database with an `employee` table:
  *
@@ -30,7 +36,6 @@
 
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/ex/run_async.hpp>
-#include <boost/capy/ex/this_coro.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/read.hpp>
 #include <boost/capy/task.hpp>
@@ -40,15 +45,17 @@
 #include <boost/corosio/io_context.hpp>
 #include <boost/corosio/shutdown_type.hpp>
 #include <boost/corosio/signal_set.hpp>
-#include <boost/corosio/tcp_acceptor.hpp>
+#include <boost/corosio/tcp_server.hpp>
 #include <boost/corosio/tcp_socket.hpp>
 #include <boost/describe/class.hpp>
 #include <boost/endian/conversion.hpp>
 
+#include <chrono>
 #include <csignal>
+#include <cstddef>
 #include <cstdint>
-#include <exception>
 #include <iostream>
+#include <memory>
 #include <stop_token>
 #include <string>
 #include <utility>
@@ -76,10 +83,8 @@ BOOST_DESCRIBE_STRUCT(employee, (), (first_name, last_name))
 // Given an employee_id, retrieves the employee details to be sent to the client.
 static capy::io_task<std::string> get_employee_details(co_connection_pool& pool, std::int64_t employee_id)
 {
-    // Get a connection from the pool. Fail if no connection becomes available
-    // in the next 20 seconds. pooled_connection grants exclusive access to the
-    // connection until the object is destroyed, at which point it returns to
-    // the pool automatically.
+    // Get a connection from the pool, with a timeout. pooled_connection grants
+    // exclusive access to the connection until destroyed.
     auto [ec_get, pconn] = co_await capy::timeout(pool.get_connection(), 20s);
     if (ec_get)
         co_return {ec_get, {}};
@@ -88,7 +93,6 @@ static capy::io_task<std::string> get_employee_details(co_connection_pool& pool,
     request req;
     req.add_query("SELECT first_name, last_name FROM employee WHERE id = $1", {employee_id});
 
-    // The row callback will append to this vector.
     std::vector<employee> rows;
     response res{into(rows)};
 
@@ -98,81 +102,77 @@ static capy::io_task<std::string> get_employee_details(co_connection_pool& pool,
 
     if (rows.empty())
         co_return {{}, std::string{"NOT_FOUND"}};
-
     co_return {{}, rows[0].first_name + ' ' + rows[0].last_name};
 }
 
-// Handles one client session: read the 8-byte employee ID, look it up, write the answer back.
-static capy::io_task<> handle_session(co_connection_pool& pool, corosio::tcp_socket sock)
+static capy::task<> handle_session(corosio::tcp_socket& sock, co_connection_pool& pool)
 {
     // Read the 8-byte request. capy::read fills the whole buffer or fails.
     unsigned char buf[8]{};
-    if (auto [ec_read, n_read] = co_await capy::read(sock, capy::make_buffer(buf)); ec_read)
+    if (auto [ec, n] = co_await capy::read(sock, capy::make_buffer(buf)); ec)
     {
-        std::cerr << "Error reading from client: " << ec_read << std::endl;
-        co_return {ec_read};
+        std::cerr << "Error reading from client: " << ec << '\n';
+        co_return;
     }
 
     const std::int64_t employee_id = boost::endian::load_big_s64(buf);
 
-    // Hit the database.
+    // Look it up in the DB.
     auto [ec_db, response_text] = co_await get_employee_details(pool, employee_id);
     if (ec_db)
     {
-        std::cerr << "Error querying the database: " << ec_db << std::endl;
+        std::cerr << "Error querying the database: " << ec_db << '\n';
         response_text = "ERROR";
     }
 
     // Write the response back. capy::write writes the whole buffer or fails.
-    if (auto [ec_write, n_write] = co_await capy::write(sock, capy::make_buffer(response_text)); ec_write)
+    if (auto [ec, n] = co_await capy::write(sock, capy::make_buffer(response_text)); ec)
     {
-        std::cerr << "Error writing to the client: " << ec_write << std::endl;
-        co_return {ec_write};
+        std::cerr << "Error writing to the client: " << ec << '\n';
+        co_return;
     }
 
-    // Cleanly close the connection
-    sock.shutdown(boost::corosio::shutdown_both);
+    // Cleanly close the connection. tcp_server will re-initialize the
+    // socket on the next accept dispatched to this worker.
+    sock.shutdown(corosio::shutdown_both);
     sock.close();
-
-    co_return {};
+    co_return;
 }
 
-// Accepts incoming TCP connections and spawns a handler coroutine for each one.
-static capy::io_task<> listener(co_connection_pool& pool, std::uint16_t port)
+// One session worker, recycled by tcp_server across many connections.
+// tcp_server holds the workers, accepts into worker.socket(), then calls
+// worker.run(launcher); when the launched coroutine completes, the worker
+// goes back to the idle pool.
+class session_worker final : public corosio::tcp_server::worker_base
 {
-    auto ex = co_await capy::this_coro::executor;
-    const auto stop = co_await capy::this_coro::stop_token;
+    corosio::tcp_socket sock_;
+    corosio::io_context* ctx_;
+    co_connection_pool* pool_;
 
-    // Convenience ctor: open + SO_REUSEADDR + bind + listen.
-    corosio::tcp_acceptor acc(ex.context(), corosio::endpoint(port));
-    std::cout << "Server listening on port " << port << '\n';
-
-    while (true)
+public:
+    session_worker(corosio::io_context& ctx, co_connection_pool& pool) : sock_(ctx), ctx_(&ctx), pool_(&pool)
     {
-        // Accept the next client.
-        corosio::tcp_socket peer(ex.context());
-        if (auto [ec] = co_await acc.accept(peer); ec)
-            co_return {ec};
-
-        // Spawn the session as a fire-and-forget task. Each session inherits the
-        // listener's stop token, so cancellation cascades down. Exceptions in
-        // the session are logged but don't bring down the listener.
-        capy::run_async(
-            ex,
-            stop,
-            []() {},
-            [](std::exception_ptr ep) {
-                try
-                {
-                    std::rethrow_exception(ep);
-                }
-                catch (const std::exception& e)
-                {
-                    std::cerr << "Session error: " << e.what() << '\n';
-                }
-            }
-        )(handle_session(pool, std::move(peer)));
     }
+
+    corosio::tcp_socket& socket() override { return sock_; }
+
+    void run(corosio::tcp_server::launcher launch) override
+    {
+        launch(ctx_->get_executor(), [this]() -> capy::task<> { return handle_session(sock_, *pool_); }());
+    }
+};
+
+static std::vector<std::unique_ptr<corosio::tcp_server::worker_base>> make_workers(
+    corosio::io_context& ctx,
+    co_connection_pool& pool,
+    std::size_t n
+)
+{
+    std::vector<std::unique_ptr<corosio::tcp_server::worker_base>> v;
+    v.reserve(n);
+    for (std::size_t i = 0; i < n; ++i)
+        v.push_back(std::make_unique<session_worker>(ctx, pool));
+    return v;
 }
 
 int main(int argc, char** argv)
@@ -183,19 +183,16 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    const std::string username = argv[1];
-    const std::string password = argv[2];
-    const std::string server_hostname = argv[3];
+    const char* username = argv[1];
+    const char* password = argv[2];
+    const char* server_hostname = argv[3];
     const auto listener_port = static_cast<std::uint16_t>(std::stoi(argv[4]));
 
-    // The I/O context. Required for all I/O operations.
+    // The I/O context.
     corosio::io_context ctx;
     auto ex = ctx.get_executor();
 
-    // Configuration for the pool.
-    pool_params params;
-
-    // The pool. Connections are created and kept healthy by pool.run().
+    // The connection pool. It must be kept alive for the lifetime of the application.
     // clang-format off
     co_connection_pool pool(ex, {
         .transport = {
@@ -207,39 +204,39 @@ int main(int argc, char** argv)
     });
     // clang-format on
 
-    // Master stop source. Triggered when SIGINT/SIGTERM is received; both the
-    // pool and the listener observe its token and shut down cooperatively.
-    std::stop_source stop_src;
+    // co_connection_pool::run() must be called exactly once.
+    // This stop source will be signaled when the user hits Ctrl+C
+    std::stop_source pool_stop;
+    capy::run_async(ex, pool_stop.get_token())(pool.run());
 
-    // Start the pool. Must be called exactly once. Returns when stopped.
-    capy::run_async(ex, stop_src.get_token())(pool.run());
+    // The TCP server. set_workers caps the number of concurrent sessions.
+    corosio::tcp_server srv(ctx, ex);
+    srv.set_workers(make_workers(ctx, pool, 256));
+    if (auto ec = srv.bind(corosio::endpoint(listener_port)))
+    {
+        std::cerr << "Bind failed: " << ec << '\n';
+        return 1;
+    }
+    srv.start();
+    std::cout << "Server listening on port " << srv.local_endpoint().port() << '\n';
 
-    // Start the listener.
-    capy::run_async(
-        ex,
-        stop_src.get_token(),
-        []() {},
-        [](std::exception_ptr ep) {
-            try
-            {
-                std::rethrow_exception(ep);
-            }
-            catch (const std::exception& e)
-            {
-                std::cerr << "Listener error: " << e.what() << '\n';
-            }
-        }
-    )(listener(pool, listener_port));
-
-    // Wait for SIGINT/SIGTERM and request shutdown.
+    // Wait for SIGINT/SIGTERM and trigger a cooperative shutdown
     corosio::signal_set signals(ctx, SIGINT, SIGTERM);
-    capy::run_async(ex)([](corosio::signal_set& sigs, std::stop_source& src) -> capy::task<> {
-        auto [ec, signum] = co_await sigs.wait();
-        if (!ec)
-            std::cout << "Received signal " << signum << ", shutting down\n";
-        src.request_stop();
-    }(signals, stop_src));
+    capy::run_async(ex)(
+        [](corosio::signal_set& sigs, corosio::tcp_server& server, std::stop_source& src) -> capy::task<> {
+            auto [ec, signum] = co_await sigs.wait();
+            if (!ec)
+                std::cout << "Received signal " << signum << ", shutting down\n";
+            server.stop();       // stop accepting new connections, drain active workers
+            src.request_stop();  // unblock pool.run() so connections shut down
+        }(signals, srv, pool_stop)
+    );
 
-    // Drive everything to completion. Returns when all spawned coroutines exit.
+    // Drain the context. Returns once the pool, the server's workers and
+    // accept loops, and the signal handler have all finished.
     ctx.run();
+
+    // Final join from a thread NOT running ctx.run() (we are now). Waits for
+    // any lingering accept-loop tasks to fully exit before destruction.
+    srv.join();
 }

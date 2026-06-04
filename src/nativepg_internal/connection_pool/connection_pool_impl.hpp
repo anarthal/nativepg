@@ -8,6 +8,7 @@
 #ifndef NATIVEPG_CONNECTION_POOL_IMPL_HPP
 #define NATIVEPG_CONNECTION_POOL_IMPL_HPP
 
+#include <boost/capy/cond.hpp>
 #include <boost/capy/error.hpp>
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/execution_context.hpp>
@@ -46,8 +47,7 @@ class co_connection_pool_impl
     std::list<connection_node> all_conns_;
     conn_shared_state<connection_node> shared_st_;
     boost::capy::async_event cancel_ev_;
-    boost::capy::async_event forever_ev_;
-    const boost::capy::io_env* run_env_{};
+    boost::capy::async_event connections_needed_;
 
     // Create and run one connection
     // This should be safe as long as we ensure that the parent task (pool run)
@@ -85,14 +85,8 @@ class co_connection_pool_impl
         // Record that we're pending
         ++shared_st_.num_pending_requests;
 
-        // Create new connections, if required.
-        // Don't create any connections if we're not yet running,
-        // since this would leave connections running after run exits
-        if (state_ == state_t::running)
-        {
-            BOOST_ASSERT(run_env_);
-            create_connections(run_env_);
-        }
+        // Tell run() that we need connections
+        connections_needed_.set();
     }
 
     // An async_get_connection request finished waiting
@@ -130,17 +124,28 @@ public:
         BOOST_ASSERT(state_ == state_t::initial);
         state_ = state_t::running;
 
-        run_env_ = co_await boost::capy::this_coro::environment;
+        const auto* env = co_await boost::capy::this_coro::environment;
 
         // Create the initial connections
-        create_connections(run_env_);
+        create_connections(env);
 
-        // Wait forever, until we're cancelled
-        auto [ec] = co_await forever_ev_.wait();
-        static_cast<void>(ec);
+        while (true)
+        {
+            // Wait until more connections are needed. Exit on cancellation
+            if (auto [ec] = co_await connections_needed_.wait(); ec)
+            {
+                BOOST_ASSERT(ec == boost::capy::cond::canceled);
+                break;
+            }
 
-        // Set the state. This must happen before cancellation because it inhibits the creation
-        // of any further connections.
+            // Acknowledge the notification
+            connections_needed_.clear();
+
+            // Create the required connections
+            create_connections(env);
+        }
+
+        // Set the state so further get_connection requests fail
         state_ = state_t::cancelled;
 
         // Deliver the cancel notification to the child tasks
@@ -161,7 +166,6 @@ public:
         }
 
         // Done
-        run_env_ = nullptr;
         co_return {boost::capy::error::canceled};
     }
 

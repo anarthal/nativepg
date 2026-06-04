@@ -5,301 +5,241 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include <boost/mysql/pfr.hpp>
-
-#include <boost/asio/awaitable.hpp>
-#if defined(BOOST_ASIO_HAS_CO_AWAIT) && BOOST_PFR_CORE_NAME_ENABLED
-
-//[example_tutorial_connection_pool
-
 /**
- * This example demonstrates how to use connection_pool
- * to implement a server for a simple custom TCP-based protocol.
- * It also demonstrates how to set timeouts with asio::cancel_after.
+ * This example demonstrates how to use co_connection_pool to implement a
+ * server for a simple custom TCP-based protocol.
  *
- * The protocol can be used to retrieve the full name of an
- * employee, given their ID. It works as follows:
+ * The protocol can be used to retrieve the full name of an employee given
+ * their ID. It works as follows:
  *   - The client connects.
- *   - The client sends the employee ID, as a big-endian 64-bit signed int.
- *   - The server responds with a string containing the employee full name.
+ *   - The client sends the employee ID as a big-endian 64-bit signed int.
+ *   - The server responds with a string containing the employee's full name.
  *   - The connection is closed.
  *
- * This tutorial doesn't include proper error handling.
- * We will build it in the next one.
+ * It uses Boost.Capy for coroutines, Boost.Corosio for the I/O primitives,
+ * and nativepg's co_connection_pool to manage Postgres connections.
  *
- * It uses Boost.Pfr for reflection, which requires C++20.
- * You can backport it to C++14 if you need by using Boost.Describe.
- * It uses C++20 coroutines. If you need, you can backport
- * it to C++11 by using callbacks, asio::yield_context
- * or sync functions instead of coroutines.
+ * This example expects a Postgres database with an `employee` table:
  *
- * This example uses the 'boost_mysql_examples' database, which you
- * can get by running db_setup.sql.
+ *     CREATE TABLE employee (
+ *         id          BIGINT PRIMARY KEY,
+ *         first_name  TEXT NOT NULL,
+ *         last_name   TEXT NOT NULL
+ *     );
  */
 
-#include <boost/mysql/connection_pool.hpp>
-#include <boost/mysql/error_with_diagnostics.hpp>
-#include <boost/mysql/pfr.hpp>
-#include <boost/mysql/pool_params.hpp>
-#include <boost/mysql/static_results.hpp>
-#include <boost/mysql/with_params.hpp>
-
-#include <boost/asio/awaitable.hpp>
-#include <boost/asio/buffer.hpp>
-#include <boost/asio/cancel_after.hpp>
-#include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
-#include <boost/asio/io_context.hpp>
-#include <boost/asio/ip/tcp.hpp>
-#include <boost/asio/read.hpp>
-#include <boost/asio/signal_set.hpp>
-#include <boost/asio/this_coro.hpp>
-#include <boost/asio/write.hpp>
+#include <boost/capy/buffers/make_buffer.hpp>
+#include <boost/capy/ex/run_async.hpp>
+#include <boost/capy/ex/this_coro.hpp>
+#include <boost/capy/io_task.hpp>
+#include <boost/capy/read.hpp>
+#include <boost/capy/task.hpp>
+#include <boost/capy/timeout.hpp>
+#include <boost/capy/write.hpp>
+#include <boost/corosio/endpoint.hpp>
+#include <boost/corosio/io_context.hpp>
+#include <boost/corosio/shutdown_type.hpp>
+#include <boost/corosio/signal_set.hpp>
+#include <boost/corosio/tcp_acceptor.hpp>
+#include <boost/corosio/tcp_socket.hpp>
+#include <boost/describe/class.hpp>
 #include <boost/endian/conversion.hpp>
-#include <boost/system/error_code.hpp>
 
-#include <chrono>
+#include <csignal>
 #include <cstdint>
 #include <exception>
 #include <iostream>
+#include <stop_token>
 #include <string>
+#include <utility>
+#include <vector>
 
-namespace mysql = boost::mysql;
-namespace asio = boost::asio;
+#include "nativepg/co_connection_pool.hpp"
+#include "nativepg/request.hpp"
+#include "nativepg/response.hpp"
 
-// Should contain a member for each field of interest present in our query
+namespace capy = boost::capy;
+namespace corosio = boost::corosio;
+using namespace nativepg;
+using namespace std::chrono_literals;
+
+// One row of the query result. Boost.Describe lets the row callback
+// populate the fields by name.
 struct employee
 {
     std::string first_name;
     std::string last_name;
 };
+BOOST_DESCRIBE_STRUCT(employee, (), (first_name, last_name))
 
-//[tutorial_connection_pool_db
 // Encapsulates the database access logic.
 // Given an employee_id, retrieves the employee details to be sent to the client.
-asio::awaitable<std::string> get_employee_details(mysql::connection_pool& pool, std::int64_t employee_id)
+static capy::io_task<std::string> get_employee_details(co_connection_pool& pool, std::int64_t employee_id)
 {
-    //[tutorial_connection_pool_get_connection_timeout
-    // Get a connection from the pool.
-    // This will wait until a healthy connection is ready to be used.
-    // pooled_connection grants us exclusive access to the connection until
-    // the object is destroyed.
-    // Fail the operation if no connection becomes available in the next 20 seconds.
-    mysql::pooled_connection conn = co_await pool.async_get_connection(
-        asio::cancel_after(std::chrono::seconds(1))
-    );
-    //]
+    // Get a connection from the pool. Fail if no connection becomes available
+    // in the next 20 seconds. pooled_connection grants exclusive access to the
+    // connection until the object is destroyed, at which point it returns to
+    // the pool automatically.
+    auto [ec_get, pconn] = co_await capy::timeout(pool.get_connection(), 20s);
+    if (ec_get)
+        co_return {ec_get, {}};
 
-    //[tutorial_connection_pool_use
-    // Use the connection normally to query the database.
-    // operator-> returns a reference to an any_connection,
-    // so we can apply all what we learnt in previous tutorials
-    mysql::static_results<mysql::pfr_by_name<employee>> result;
-    co_await conn->async_execute(
-        mysql::with_params("SELECT first_name, last_name FROM employee WHERE id = {}", employee_id),
-        result
-    );
-    //]
+    // Build the query. Positional parameters in PostgreSQL use $N.
+    request req;
+    req.add_query("SELECT first_name, last_name FROM employee WHERE id = $1", {employee_id});
 
-    // Compose the message to be sent back to the client
-    if (result.rows().empty())
-    {
-        co_return "NOT_FOUND";
-    }
-    else
-    {
-        const auto& emp = result.rows()[0];
-        co_return emp.first_name + ' ' + emp.last_name;
-    }
+    // The row callback will append to this vector.
+    std::vector<employee> rows;
+    response res{into(rows)};
 
-    // When the pooled_connection is destroyed, the connection is returned
-    // to the pool, so it can be re-used.
+    auto [ec_exec] = co_await pconn->exec(req, res);
+    if (ec_exec)
+        co_return {ec_exec, {}};
+
+    if (rows.empty())
+        co_return {{}, std::string{"NOT_FOUND"}};
+
+    co_return {{}, rows[0].first_name + ' ' + rows[0].last_name};
 }
-//]
 
-//[tutorial_connection_pool_session
-asio::awaitable<void> handle_session(mysql::connection_pool& pool, asio::ip::tcp::socket client_socket)
+// Handles one client session: read the 8-byte employee ID, look it up, write the answer back.
+static capy::io_task<> handle_session(co_connection_pool& pool, corosio::tcp_socket sock)
 {
-    // Read the request from the client.
-    // async_read ensures that the 8-byte buffer is filled, handling partial reads.
-    unsigned char message[8]{};
-    co_await asio::async_read(client_socket, asio::buffer(message));
+    // Read the 8-byte request. capy::read fills the whole buffer or fails.
+    unsigned char buf[8]{};
+    if (auto [ec_read, n_read] = co_await capy::read(sock, capy::make_buffer(buf)); ec_read)
+    {
+        std::cerr << "Error reading from client: " << ec_read << std::endl;
+        co_return {ec_read};
+    }
 
-    // Parse the 64-bit big-endian int into a native int64_t
-    std::int64_t employee_id = boost::endian::load_big_s64(message);
+    const std::int64_t employee_id = boost::endian::load_big_s64(buf);
 
-    // Invoke the database handling logic
-    std::string response = co_await get_employee_details(pool, employee_id);
+    // Hit the database.
+    auto [ec_db, response_text] = co_await get_employee_details(pool, employee_id);
+    if (ec_db)
+    {
+        std::cerr << "Error querying the database: " << ec_db << std::endl;
+        response_text = "ERROR";
+    }
 
-    // Write the response back to the client.
-    // async_write ensures that the entire message is written, handling partial writes
-    co_await asio::async_write(client_socket, asio::buffer(response));
+    // Write the response back. capy::write writes the whole buffer or fails.
+    if (auto [ec_write, n_write] = co_await capy::write(sock, capy::make_buffer(response_text)); ec_write)
+    {
+        std::cerr << "Error writing to the client: " << ec_write << std::endl;
+        co_return {ec_write};
+    }
 
-    // The socket's destructor will close the client connection
+    // Cleanly close the connection
+    sock.shutdown(boost::corosio::shutdown_both);
+    sock.close();
+
+    co_return {};
 }
-//]
 
-//[tutorial_connection_pool_listener
-asio::awaitable<void> listener(mysql::connection_pool& pool, unsigned short port)
+// Accepts incoming TCP connections and spawns a handler coroutine for each one.
+static capy::io_task<> listener(co_connection_pool& pool, std::uint16_t port)
 {
-    // An object that accepts incoming TCP connections.
-    asio::ip::tcp::acceptor acc(co_await asio::this_coro::executor);
+    auto ex = co_await capy::this_coro::executor;
+    const auto stop = co_await capy::this_coro::stop_token;
 
-    // The endpoint where the server will listen.
-    asio::ip::tcp::endpoint listening_endpoint(asio::ip::make_address("0.0.0.0"), port);
+    // Convenience ctor: open + SO_REUSEADDR + bind + listen.
+    corosio::tcp_acceptor acc(ex.context(), corosio::endpoint(port));
+    std::cout << "Server listening on port " << port << '\n';
 
-    // Open the acceptor
-    acc.open(listening_endpoint.protocol());
-
-    // Allow reusing the local address, so we can restart our server
-    // without encountering errors in bind
-    acc.set_option(asio::socket_base::reuse_address(true));
-
-    // Bind to the local address
-    acc.bind(listening_endpoint);
-
-    // Start listening for connections
-    acc.listen();
-    std::cout << "Server listening at " << acc.local_endpoint() << std::endl;
-
-    // Start the accept loop
     while (true)
     {
-        // Accept a new connection
-        auto sock = co_await acc.async_accept();
+        // Accept the next client.
+        corosio::tcp_socket peer(ex.context());
+        if (auto [ec] = co_await acc.accept(peer); ec)
+            co_return {ec};
 
-        // Function implementing our session logic.
-        // Takes ownership of the socket.
-        // Having this as a named variable workarounds a gcc bug
-        // (https://gcc.gnu.org/bugzilla/show_bug.cgi?id=107288)
-        auto session_logic = [&pool, s = std::move(sock)]() mutable {
-            return handle_session(pool, std::move(s));
-        };
-
-        // Launch a coroutine that runs our session logic.
-        // We don't co_await this coroutine so we can listen
-        // to new connections while the session is running.
-        asio::co_spawn(
-            // Use the same executor as the current coroutine
-            co_await asio::this_coro::executor,
-
-            // Session logic
-            std::move(session_logic),
-
-            // Propagate exceptions thrown in handle_session
-            [](std::exception_ptr ex) {
-                if (ex)
-                    std::rethrow_exception(ex);
+        // Spawn the session as a fire-and-forget task. Each session inherits the
+        // listener's stop token, so cancellation cascades down. Exceptions in
+        // the session are logged but don't bring down the listener.
+        capy::run_async(
+            ex,
+            stop,
+            []() {},
+            [](std::exception_ptr ep) {
+                try
+                {
+                    std::rethrow_exception(ep);
+                }
+                catch (const std::exception& e)
+                {
+                    std::cerr << "Session error: " << e.what() << '\n';
+                }
             }
-        );
+        )(handle_session(pool, std::move(peer)));
     }
-}
-//]
-
-void main_impl(int argc, char** argv)
-{
-    if (argc != 5)
-    {
-        std::cerr << "Usage: " << argv[0] << " <username> <password> <server-hostname> <listener-port>\n";
-        exit(1);
-    }
-
-    const char* username = argv[1];
-    const char* password = argv[2];
-    const char* server_hostname = argv[3];
-    auto listener_port = static_cast<unsigned short>(std::stoi(argv[4]));
-
-    //[tutorial_connection_pool_main
-    //[tutorial_connection_pool_create
-    // Create an I/O context, required by all I/O objects
-    asio::io_context ctx;
-
-    // pool_params contains configuration for the pool.
-    // You must specify enough information to establish a connection,
-    // including the server address and credentials.
-    // You can configure a lot of other things, like pool limits
-    mysql::pool_params params;
-    params.server_address.emplace_host_and_port(server_hostname);
-    params.username = username;
-    params.password = password;
-    params.database = "boost_mysql_examples";
-
-    // Construct the pool.
-    // ctx will be used to create the connections and other I/O objects
-    mysql::connection_pool pool(ctx, std::move(params));
-    //]
-
-    //[tutorial_connection_pool_run
-    // You need to call async_run on the pool before doing anything useful with it.
-    // async_run creates connections and keeps them healthy. It must be called
-    // only once per pool.
-    // The detached completion token means that we don't want to be notified when
-    // the operation ends. It's similar to a no-op callback.
-    pool.async_run(asio::detached);
-    //]
-
-    //[tutorial_connection_pool_signals
-    // signal_set is an I/O object that allows waiting for signals
-    asio::signal_set signals(ctx, SIGINT, SIGTERM);
-
-    // Wait for signals
-    signals.async_wait([&](boost::system::error_code, int) {
-        // Stop the execution context. This will cause io_context::run to return
-        ctx.stop();
-    });
-    //]
-
-    // Launch our listener
-    asio::co_spawn(
-        ctx,
-        [&pool, listener_port] { return listener(pool, listener_port); },
-        // If any exception is thrown in the coroutine body, rethrow it.
-        [](std::exception_ptr ptr) {
-            if (ptr)
-            {
-                std::rethrow_exception(ptr);
-            }
-        }
-    );
-
-    // Calling run will actually execute the coroutine until completion
-    ctx.run();
-    //]
 }
 
 int main(int argc, char** argv)
 {
-    try
+    if (argc != 5)
     {
-        main_impl(argc, argv);
-    }
-    catch (const boost::mysql::error_with_diagnostics& err)
-    {
-        // Some errors include additional diagnostics, like server-provided error messages.
-        // Security note: diagnostics::server_message may contain user-supplied values (e.g. the
-        // field value that caused the error) and is encoded using to the connection's character set
-        // (UTF-8 by default). Treat is as untrusted input.
-        std::cerr << "Error: " << err.what() << ", error code: " << err.code() << '\n'
-                  << "Server diagnostics: " << err.get_diagnostics().server_message() << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <username> <password> <server-hostname> <listener-port>\n";
         return 1;
     }
-    catch (const std::exception& err)
-    {
-        std::cerr << "Error: " << err.what() << std::endl;
-        return 1;
-    }
+
+    const std::string username = argv[1];
+    const std::string password = argv[2];
+    const std::string server_hostname = argv[3];
+    const auto listener_port = static_cast<std::uint16_t>(std::stoi(argv[4]));
+
+    // The I/O context. Required for all I/O operations.
+    corosio::io_context ctx;
+    auto ex = ctx.get_executor();
+
+    // Configuration for the pool.
+    pool_params params;
+
+    // The pool. Connections are created and kept healthy by pool.run().
+    // clang-format off
+    co_connection_pool pool(ex, {
+        .transport = {
+            .hostname = server_hostname,
+            .username = username,
+            .password = password,
+            .database = "nativepg_examples",
+        }
+    });
+    // clang-format on
+
+    // Master stop source. Triggered when SIGINT/SIGTERM is received; both the
+    // pool and the listener observe its token and shut down cooperatively.
+    std::stop_source stop_src;
+
+    // Start the pool. Must be called exactly once. Returns when stopped.
+    capy::run_async(ex, stop_src.get_token())(pool.run());
+
+    // Start the listener.
+    capy::run_async(
+        ex,
+        stop_src.get_token(),
+        []() {},
+        [](std::exception_ptr ep) {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception& e)
+            {
+                std::cerr << "Listener error: " << e.what() << '\n';
+            }
+        }
+    )(listener(pool, listener_port));
+
+    // Wait for SIGINT/SIGTERM and request shutdown.
+    corosio::signal_set signals(ctx, SIGINT, SIGTERM);
+    capy::run_async(ex)([](corosio::signal_set& sigs, std::stop_source& src) -> capy::task<> {
+        auto [ec, signum] = co_await sigs.wait();
+        if (!ec)
+            std::cout << "Received signal " << signum << ", shutting down\n";
+        src.request_stop();
+    }(signals, stop_src));
+
+    // Drive everything to completion. Returns when all spawned coroutines exit.
+    ctx.run();
 }
-
-//]
-
-#else
-
-#include <iostream>
-
-int main()
-{
-    std::cout << "Sorry, your compiler doesn't have the required capabilities to run this example"
-              << std::endl;
-}
-
-#endif

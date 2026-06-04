@@ -9,7 +9,7 @@ Scope:
   distinct protocol functionalities.
 - Serialization functions to serialize and parse the distinct data types
   that can appear in a row.
-- A connection class that uses the the points above to expose a simple Asio interface for postgres
+- A connection class that uses the the points above to expose a simple Asio/Corosio interface for postgres
   (akin to `mysql::any_connection`).
 - Functions to securely generate queries dynamically (akin to `mysql::format_sql`).
 - A connection pool class (akin to `mysql::connection_pool`).

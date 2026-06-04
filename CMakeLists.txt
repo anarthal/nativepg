@@ -43,11 +43,13 @@ target_include_directories(nativepg PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 if (NATIVEPG_COROSIO_API)
     add_library(nativepg_corosio
         src/co_connection.cpp
+        src/co_connection_pool.cpp
     )
     target_link_libraries(nativepg_corosio PUBLIC
         nativepg
         Boost::corosio
     )
+    target_include_directories(nativepg_corosio PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 endif()
 
 # Tests
@@ -97,4 +99,7 @@ target_link_libraries(nativepg_datetime_example PRIVATE nativepg)
 if (NATIVEPG_COROSIO_API)
     add_executable(nativepg_co_connection example/co_connection.cpp)
     target_link_libraries(nativepg_co_connection PRIVATE nativepg_corosio)
+
+    add_executable(nativepg_co_connection_pool example/co_connection_pool.cpp)
+    target_link_libraries(nativepg_co_connection_pool PRIVATE nativepg_corosio)
 endif()

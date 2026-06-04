@@ -26,7 +26,7 @@ namespace detail {
 class connection_node;
 class co_connection_pool_impl;
 void return_connection(connection_node&, bool should_reset);
-co_connection& get_connection(const connection_node&);
+co_connection& get_connection(connection_node&);
 }  // namespace detail
 
 struct pool_params

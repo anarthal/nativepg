@@ -30,8 +30,8 @@ class co_connection
 public:
     explicit co_connection(boost::capy::execution_context& ctx);
 
-    template <boost::capy::Executor Ex>
-        requires(!std::same_as<Ex, co_connection>)
+    template <class Ex>
+        requires(!std::same_as<Ex, co_connection> && boost::capy::Executor<Ex>)
     explicit co_connection(const Ex& ex) : co_connection{ex.context()}
     {
     }

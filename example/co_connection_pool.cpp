@@ -20,11 +20,6 @@
  * It uses Boost.Capy for coroutines, Boost.Corosio for the I/O primitives,
  * and nativepg's co_connection_pool to manage Postgres connections.
  *
- * tcp_server owns a fixed pool of worker objects, dispatches an idle worker
- * for each accepted connection, and returns the worker to the pool when the
- * handling coroutine completes. This avoids fire-and-forget coroutines that
- * could outlive the accept loop.
- *
  * This example expects a Postgres database with an `employee` table:
  *
  *     CREATE TABLE employee (
@@ -104,6 +99,7 @@ static capy::io_task<std::string> get_employee_details(co_connection_pool& pool,
     co_return {{}, rows[0].first_name + ' ' + rows[0].last_name};
 }
 
+// Handles a session
 static capy::task<> handle_session(corosio::tcp_socket& sock, co_connection_pool& pool)
 {
     // Read the 8-byte request. capy::read fills the whole buffer or fails.

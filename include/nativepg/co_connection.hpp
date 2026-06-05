@@ -10,6 +10,7 @@
 
 #include <boost/capy/concept/executor.hpp>
 #include <boost/capy/ex/execution_context.hpp>
+#include <boost/capy/io/any_stream.hpp>
 #include <boost/capy/io_task.hpp>
 
 #include <concepts>
@@ -51,6 +52,9 @@ public:
         response_handler_ref handler,
         diagnostics* diag = nullptr
     );
+
+    // TODO: I don't like this
+    boost::capy::any_stream& stream();
 };
 
 }  // namespace nativepg

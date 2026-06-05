@@ -5,21 +5,59 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#include <boost/capy/buffers/make_buffer.hpp>
+#include <boost/capy/cond.hpp>
 #include <boost/capy/error.hpp>
+#include <boost/capy/ex/async_event.hpp>
+#include <boost/capy/ex/this_coro.hpp>
+#include <boost/capy/io_task.hpp>
+#include <boost/capy/write.hpp>
 
 #include <system_error>
 
+#include "nativepg/co_connection.hpp"
 #include "nativepg/co_multiplexed_connection.hpp"
 #include "nativepg_internal/multiplexed_connection/multiplexer.hpp"
 
-namespace nativepg {
+namespace capy = boost::capy;
 
-struct co_multiplexed_connection::impl
+struct nativepg::co_multiplexed_connection::impl
 {
+    co_connection conn;
     detail::multiplexer mpx;
+    capy::async_event write_evt;
+
+    capy::io_task<> writer()
+    {
+        auto& stream = conn.stream();
+
+        while (true)
+        {
+            // Attempt to prepare any pending requests
+            auto buff = mpx.prepare_write();
+
+            // No more requests to write. Wait for more
+            if (buff.empty())
+            {
+                write_evt.clear();
+                auto [ec] = co_await write_evt.wait();
+                if (ec == capy::cond::canceled)
+                    co_return {ec};
+                continue;
+            }
+
+            // Write the request.
+            // TODO: this will have to change once we implement health checks
+            auto [ec, bytes] = co_await capy::write(stream, capy::make_buffer(buff));
+            if (ec == capy::cond::canceled)
+                co_return {ec};
+        }
+    }
 
     boost::capy::io_task<> exec(const request& req, response_handler_ref handler, diagnostics* diag = nullptr)
     {
+        // TODO: check request
+
         // Setup
         boost::capy::async_event done_event;
         std::error_code result_ec;
@@ -31,7 +69,8 @@ struct co_multiplexed_connection::impl
         // Add the request to the multiplexer
         auto* elm = mpx.add(&req, handler, on_done);
 
-        // TODO: signal the writer that it has job to be done
+        // Signal the writer that it has job to be done
+        write_evt.set();
 
         // Wait for the response to arrive
         auto [wait_ec] = co_await done_event.wait();
@@ -53,5 +92,3 @@ struct co_multiplexed_connection::impl
         }
     }
 };
-
-}  // namespace nativepg

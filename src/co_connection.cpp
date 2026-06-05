@@ -33,6 +33,7 @@ struct co_connection::impl
     boost::corosio::resolver resolv;
     boost::corosio::tcp_socket sock;
     protocol::connection_state st{};
+    boost::capy::any_stream stream{&sock};
 
     explicit impl(boost::capy::execution_context& ctx) : resolv(ctx), sock(ctx) {}
 
@@ -151,5 +152,9 @@ boost::capy::io_task<> co_connection::exec(
         }
     }
 }
+
+boost::capy::any_stream& co_connection::stream() { return impl_->stream; }
+
+protocol::connection_state& co_connection::state() { return impl_->st; }
 
 }  // namespace nativepg

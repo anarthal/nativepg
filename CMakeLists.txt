@@ -44,6 +44,7 @@ if (NATIVEPG_COROSIO_API)
     add_library(nativepg_corosio
         src/co_connection.cpp
         src/co_connection_pool.cpp
+        src/co_multiplexed_connection.cpp
     )
     target_link_libraries(nativepg_corosio PUBLIC
         nativepg

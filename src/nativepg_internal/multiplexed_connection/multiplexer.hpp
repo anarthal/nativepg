@@ -13,6 +13,7 @@
 
 #include <boost/compat/function_ref.hpp>
 
+#include <cstddef>
 #include <deque>
 #include <optional>
 #include <span>
@@ -120,6 +121,16 @@ public:
 
         // Any errors here are protocol violations and should cause connection teardown
         return res.ec;
+    }
+
+    // To be called when connection is lost.
+    // Cancels requests that are in flight (i.e. not pending)
+    void cancel_in_flight()
+    {
+        for (std::size_t i = 0u; i < pending_offset_; ++i)
+            elems_[i].on_done(std::make_error_code(std::errc::operation_canceled));
+        elems_.erase(elems_.begin(), elems_.begin() + pending_offset_);
+        pending_offset_ = 0u;
     }
 
 private:

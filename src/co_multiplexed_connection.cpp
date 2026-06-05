@@ -7,10 +7,12 @@
 
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/cond.hpp>
+#include <boost/capy/delay.hpp>
 #include <boost/capy/error.hpp>
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/this_coro.hpp>
 #include <boost/capy/io_task.hpp>
+#include <boost/capy/when_any.hpp>
 #include <boost/capy/write.hpp>
 
 #include <system_error>
@@ -28,6 +30,8 @@ struct nativepg::co_multiplexed_connection::impl
     detail::multiplexer mpx;
     capy::async_event write_evt;
 
+    // These tasks don't return an error code so when_any
+    // finishes when they return
     capy::io_task<> writer()
     {
         auto& stream = conn.stream();
@@ -43,15 +47,15 @@ struct nativepg::co_multiplexed_connection::impl
                 write_evt.clear();
                 auto [ec] = co_await write_evt.wait();
                 if (ec == capy::cond::canceled)
-                    co_return {ec};
+                    co_return {};
                 continue;
             }
 
             // Write the request.
             // TODO: this will have to change once we implement health checks
             auto [ec, bytes] = co_await capy::write(stream, capy::make_buffer(buff));
-            if (ec == capy::cond::canceled)
-                co_return {ec};
+            if (ec)
+                co_return {};
         }
     }
 
@@ -72,12 +76,45 @@ struct nativepg::co_multiplexed_connection::impl
 
             // An error reading a message indicates an irrecoverable failure
             if (act.type() == protocol::read_message_stream_fsm::result_type::error)
-                co_return {act.error()};
+                co_return {};
 
             // We have a message, deliver it.
             // An error here means an irrecoverable failure
             if (auto ec = mpx.on_message(act.message()))
-                co_return {ec};
+                co_return {};
+        }
+    }
+
+    capy::io_task<> run(multiplexed_config cfg)
+    {
+        auto tok = co_await capy::this_coro::stop_token;
+
+        while (true)
+        {
+            // Try to connect
+            // TODO: this is doing a copy
+            // TODO: are we properly resetting state here?
+            auto [ec] = co_await conn.connect(cfg.transport);
+            if (tok.stop_requested())
+                co_return {capy::error::canceled};
+
+            if (!ec)
+            {
+                // Run the tasks
+                [[maybe_unused]] auto res = co_await capy::when_any(writer(), reader());
+                if (tok.stop_requested())
+                    co_return {capy::error::canceled};
+
+                // We've lost connection or otherwise been cancelled.
+                // Remove from the multiplexer the required requests.
+                // TODO: we should ensure that no request is allowed to enter once we're cancelled
+                mpx.cancel_in_flight();
+            }
+
+            // Wait for the reconnection interval
+            auto [ec_wait] = co_await capy::delay(cfg.reconnect_wait_interval);
+            if (ec_wait)  // only possible failure should be cancellation
+                co_return {ec_wait};
         }
     }
 
@@ -105,9 +142,9 @@ struct nativepg::co_multiplexed_connection::impl
 
         // We're done. If the event was set, the request has completed without cancellations.
         // No cleanup is required. The element will probably be invalid at this point (elm dangles)
-        // If the event wasn't set, we were cancelled (checking this is more reliable that checking wait_ec,
-        // because there may be a reschedule between cancellation and resuming, while the callback is sync).
-        // On cancellation, elm is valid and should be marked as cancelled.
+        // If the event wasn't set, we were cancelled (checking this is more reliable that checking
+        // wait_ec, because there may be a reschedule between cancellation and resuming, while the
+        // callback is sync). On cancellation, elm is valid and should be marked as cancelled.
         if (done_event.is_set())
         {
             co_return {result_ec ? result_ec : std::error_code(handler.result().code)};

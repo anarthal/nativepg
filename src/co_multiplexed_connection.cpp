@@ -17,6 +17,7 @@
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_multiplexed_connection.hpp"
+#include "nativepg/protocol/read_message_fsm.hpp"
 #include "nativepg_internal/multiplexed_connection/multiplexer.hpp"
 
 namespace capy = boost::capy;
@@ -50,6 +51,32 @@ struct nativepg::co_multiplexed_connection::impl
             // TODO: this will have to change once we implement health checks
             auto [ec, bytes] = co_await capy::write(stream, capy::make_buffer(buff));
             if (ec == capy::cond::canceled)
+                co_return {ec};
+        }
+    }
+
+    capy::io_task<> reader()
+    {
+        auto& stream = conn.stream();
+        auto& st = conn.state();
+
+        while (true)
+        {
+            // Read one entire message
+            auto act = st.read_msg_stream_fsm.resume(st, {}, 0u);
+            while (act.type() == protocol::read_message_stream_fsm::result_type::read)
+            {
+                auto [ec, bytes] = co_await stream.read_some(boost::capy::make_buffer(act.read_buffer()));
+                act = st.read_msg_stream_fsm.resume(st, ec, bytes);
+            }
+
+            // An error reading a message indicates an irrecoverable failure
+            if (act.type() == protocol::read_message_stream_fsm::result_type::error)
+                co_return {act.error()};
+
+            // We have a message, deliver it.
+            // An error here means an irrecoverable failure
+            if (auto ec = mpx.on_message(act.message()))
                 co_return {ec};
         }
     }

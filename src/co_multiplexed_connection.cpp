@@ -15,7 +15,9 @@
 #include <boost/capy/when_any.hpp>
 #include <boost/capy/write.hpp>
 
+#include <memory>
 #include <system_error>
+#include <utility>
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_multiplexed_connection.hpp"
@@ -29,6 +31,8 @@ struct nativepg::co_multiplexed_connection::impl
     co_connection conn;
     detail::multiplexer mpx;
     capy::async_event write_evt;
+
+    explicit impl(boost::capy::execution_context& ctx) : conn(ctx) {}
 
     // These tasks don't return an error code so when_any
     // finishes when they return
@@ -121,6 +125,7 @@ struct nativepg::co_multiplexed_connection::impl
     boost::capy::io_task<> exec(const request& req, response_handler_ref handler, diagnostics* diag = nullptr)
     {
         // TODO: check request
+        // TODO: diagnostics
 
         // Setup
         boost::capy::async_event done_event;
@@ -156,3 +161,28 @@ struct nativepg::co_multiplexed_connection::impl
         }
     }
 };
+
+nativepg::co_multiplexed_connection::co_multiplexed_connection(boost::capy::execution_context& ctx)
+    : impl_(std::make_unique<impl>(ctx))
+{
+}
+
+nativepg::co_multiplexed_connection& nativepg::co_multiplexed_connection::operator=(
+    co_multiplexed_connection&&
+) noexcept = default;
+
+nativepg::co_multiplexed_connection::~co_multiplexed_connection() = default;
+
+boost::capy::io_task<> nativepg::co_multiplexed_connection::run(multiplexed_config cfg)
+{
+    return impl_->run(std::move(cfg));
+}
+
+boost::capy::io_task<> nativepg::co_multiplexed_connection::exec(
+    const request& req,
+    response_handler_ref handler,
+    diagnostics* diag
+)
+{
+    return impl_->exec(req, handler, diag);
+}

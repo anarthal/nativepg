@@ -109,6 +109,9 @@ enum class client_errc : int
 
     // TODO: I don't like this
     unknown_openssl_error,
+
+    // TODO: document
+    bad_sqlstate,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

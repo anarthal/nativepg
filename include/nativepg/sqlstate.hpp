@@ -1,0 +1,348 @@
+//
+// Copyright (c) 2025 Ruben Perez Hidalgo (rubenperez038 at gmail dot com)
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+
+#ifndef NATIVEPG_SQLSTATE_HPP
+#define NATIVEPG_SQLSTATE_HPP
+
+#include <boost/system/detail/error_code.hpp>
+
+#include <cstddef>
+#include <span>
+#include <stdexcept>
+#include <string_view>
+#include <system_error>
+
+#include "nativepg/client_errc.hpp"
+
+namespace nativepg {
+
+namespace detail {
+
+constexpr int parse_sqlstate_char(char value)
+{
+    // '0' => 0
+    // '1' => 1
+    // ...
+    // '9' => 9
+    // 'A' => 10
+    // 'B' => 11
+    // ...
+    // 'Z' => 35
+    // invalid => -1
+    if (value >= '0' && value <= '9')
+        return value - '0';
+    if (value >= 'A' && value <= 'Z')
+        return value - 'A' + 10;
+    return -1;
+}
+
+constexpr int parse_sqlstate(std::span<const char, 5> chars)
+{
+    int c0 = parse_sqlstate_char(chars[0]);
+    int c1 = parse_sqlstate_char(chars[1]);
+    int c2 = parse_sqlstate_char(chars[2]);
+    int c3 = parse_sqlstate_char(chars[3]);
+    int c4 = parse_sqlstate_char(chars[4]);
+    if (c0 == -1 || c1 == -1 || c2 == -1 || c3 == -1 || c4 == -1)
+        return -1;
+    return c0 << (6 * 4) | c1 << (6 * 3) | c2 << (6 * 2) | c3 << (6 * 1) | c4;
+}
+
+}  // namespace detail
+
+// Runtime parsing
+inline std::error_code parse_sqlstate(std::string_view from)
+{
+    if (from.size() != 5u)
+        return boost::system::error_code(client_errc::bad_sqlstate);
+    int v = detail::parse_sqlstate(std::span<const char, 5>{from.data(), 5});
+    if (v == -1)
+        return boost::system::error_code(client_errc::bad_sqlstate);
+    return {};  // TODO
+}
+
+// Compile-time parsing
+consteval int operator""_sqlstate(const char* value, std::size_t len)
+{
+    if (len != 5u)
+        throw std::invalid_argument("Bad SQLSTATE literal");
+    int res = detail::parse_sqlstate(std::span<const char, 5>{value, 5});
+    if (res == -1)
+        throw std::invalid_argument("SQLSTATE literals can only contain numbers and uppercase letters");
+    return res;
+}
+
+enum class sqlstate_cond
+{
+    successful_completion = "00000"_sqlstate,
+    warning = "01000"_sqlstate,
+    dynamic_result_sets_returned = "0100C"_sqlstate,
+    implicit_zero_bit_padding = "01008"_sqlstate,
+    null_value_eliminated_in_set_function = "01003"_sqlstate,
+    privilege_not_granted = "01007"_sqlstate,
+    privilege_not_revoked = "01006"_sqlstate,
+    string_data_right_truncation = "01004"_sqlstate,
+    deprecated_feature = "01P01"_sqlstate,
+    no_data = "02000"_sqlstate,
+    no_additional_dynamic_result_sets_returned = "02001"_sqlstate,
+    sql_statement_not_yet_complete = "03000"_sqlstate,
+    connection_exception = "08000"_sqlstate,
+    connection_does_not_exist = "08003"_sqlstate,
+    connection_failure = "08006"_sqlstate,
+    sqlclient_unable_to_establish_sqlconnection = "08001"_sqlstate,
+    sqlserver_rejected_establishment_of_sqlconnection = "08004"_sqlstate,
+    transaction_resolution_unknown = "08007"_sqlstate,
+    protocol_violation = "08P01"_sqlstate,
+    triggered_action_exception = "09000"_sqlstate,
+    feature_not_supported = "0A000"_sqlstate,
+    invalid_transaction_initiation = "0B000"_sqlstate,
+    locator_exception = "0F000"_sqlstate,
+    invalid_locator_specification = "0F001"_sqlstate,
+    invalid_grantor = "0L000"_sqlstate,
+    invalid_grant_operation = "0LP01"_sqlstate,
+    invalid_role_specification = "0P000"_sqlstate,
+    diagnostics_exception = "0Z000"_sqlstate,
+    stacked_diagnostics_accessed_without_active_handler = "0Z002"_sqlstate,
+    invalid_argument_for_xquery = "10608"_sqlstate,
+    case_not_found = "20000"_sqlstate,
+    cardinality_violation = "21000"_sqlstate,
+    data_exception = "22000"_sqlstate,
+    array_subscript_error = "2202E"_sqlstate,
+    character_not_in_repertoire = "22021"_sqlstate,
+    datetime_field_overflow = "22008"_sqlstate,
+    division_by_zero = "22012"_sqlstate,
+    error_in_assignment = "22005"_sqlstate,
+    escape_character_conflict = "2200B"_sqlstate,
+    indicator_overflow = "22022"_sqlstate,
+    interval_field_overflow = "22015"_sqlstate,
+    invalid_argument_for_logarithm = "2201E"_sqlstate,
+    invalid_argument_for_ntile_function = "22014"_sqlstate,
+    invalid_argument_for_nth_value_function = "22016"_sqlstate,
+    invalid_argument_for_power_function = "2201F"_sqlstate,
+    invalid_argument_for_width_bucket_function = "2201G"_sqlstate,
+    invalid_character_value_for_cast = "22018"_sqlstate,
+    invalid_datetime_format = "22007"_sqlstate,
+    invalid_escape_character = "22019"_sqlstate,
+    invalid_escape_octet = "2200D"_sqlstate,
+    invalid_escape_sequence = "22025"_sqlstate,
+    nonstandard_use_of_escape_character = "22P06"_sqlstate,
+    invalid_indicator_parameter_value = "22010"_sqlstate,
+    invalid_parameter_value = "22023"_sqlstate,
+    invalid_preceding_or_following_size = "22013"_sqlstate,
+    invalid_regular_expression = "2201B"_sqlstate,
+    invalid_row_count_in_limit_clause = "2201W"_sqlstate,
+    invalid_row_count_in_result_offset_clause = "2201X"_sqlstate,
+    invalid_tablesample_argument = "2202H"_sqlstate,
+    invalid_tablesample_repeat = "2202G"_sqlstate,
+    invalid_time_zone_displacement_value = "22009"_sqlstate,
+    invalid_use_of_escape_character = "2200C"_sqlstate,
+    most_specific_type_mismatch = "2200G"_sqlstate,
+    null_value_not_allowed = "22004"_sqlstate,
+    null_value_no_indicator_parameter = "22002"_sqlstate,
+    numeric_value_out_of_range = "22003"_sqlstate,
+    sequence_generator_limit_exceeded = "2200H"_sqlstate,
+    string_data_length_mismatch = "22026"_sqlstate,
+    string_data_right_truncation = "22001"_sqlstate,
+    substring_error = "22011"_sqlstate,
+    trim_error = "22027"_sqlstate,
+    unterminated_c_string = "22024"_sqlstate,
+    zero_length_character_string = "2200F"_sqlstate,
+    floating_point_exception = "22P01"_sqlstate,
+    invalid_text_representation = "22P02"_sqlstate,
+    invalid_binary_representation = "22P03"_sqlstate,
+    bad_copy_file_format = "22P04"_sqlstate,
+    untranslatable_character = "22P05"_sqlstate,
+    not_an_xml_document = "2200L"_sqlstate,
+    invalid_xml_document = "2200M"_sqlstate,
+    invalid_xml_content = "2200N"_sqlstate,
+    invalid_xml_comment = "2200S"_sqlstate,
+    invalid_xml_processing_instruction = "2200T"_sqlstate,
+    duplicate_json_object_key_value = "22030"_sqlstate,
+    invalid_argument_for_sql_json_datetime_function = "22031"_sqlstate,
+    invalid_json_text = "22032"_sqlstate,
+    invalid_sql_json_subscript = "22033"_sqlstate,
+    more_than_one_sql_json_item = "22034"_sqlstate,
+    no_sql_json_item = "22035"_sqlstate,
+    non_numeric_sql_json_item = "22036"_sqlstate,
+    non_unique_keys_in_a_json_object = "22037"_sqlstate,
+    singleton_sql_json_item_required = "22038"_sqlstate,
+    sql_json_array_not_found = "22039"_sqlstate,
+    sql_json_member_not_found = "2203A"_sqlstate,
+    sql_json_number_not_found = "2203B"_sqlstate,
+    sql_json_object_not_found = "2203C"_sqlstate,
+    too_many_json_array_elements = "2203D"_sqlstate,
+    too_many_json_object_members = "2203E"_sqlstate,
+    sql_json_scalar_required = "2203F"_sqlstate,
+    sql_json_item_cannot_be_cast_to_target_type = "2203G"_sqlstate,
+    integrity_constraint_violation = "23000"_sqlstate,
+    restrict_violation = "23001"_sqlstate,
+    not_null_violation = "23502"_sqlstate,
+    foreign_key_violation = "23503"_sqlstate,
+    unique_violation = "23505"_sqlstate,
+    check_violation = "23514"_sqlstate,
+    exclusion_violation = "23P01"_sqlstate,
+    invalid_cursor_state = "24000"_sqlstate,
+    invalid_transaction_state = "25000"_sqlstate,
+    active_sql_transaction = "25001"_sqlstate,
+    branch_transaction_already_active = "25002"_sqlstate,
+    held_cursor_requires_same_isolation_level = "25008"_sqlstate,
+    inappropriate_access_mode_for_branch_transaction = "25003"_sqlstate,
+    inappropriate_isolation_level_for_branch_transaction = "25004"_sqlstate,
+    no_active_sql_transaction_for_branch_transaction = "25005"_sqlstate,
+    read_only_sql_transaction = "25006"_sqlstate,
+    schema_and_data_statement_mixing_not_supported = "25007"_sqlstate,
+    no_active_sql_transaction = "25P01"_sqlstate,
+    in_failed_sql_transaction = "25P02"_sqlstate,
+    idle_in_transaction_session_timeout = "25P03"_sqlstate,
+    transaction_timeout = "25P04"_sqlstate,
+    invalid_sql_statement_name = "26000"_sqlstate,
+    triggered_data_change_violation = "27000"_sqlstate,
+    invalid_authorization_specification = "28000"_sqlstate,
+    invalid_password = "28P01"_sqlstate,
+    dependent_privilege_descriptors_still_exist = "2B000"_sqlstate,
+    dependent_objects_still_exist = "2BP01"_sqlstate,
+    invalid_transaction_termination = "2D000"_sqlstate,
+    sql_routine_exception = "2F000"_sqlstate,
+    function_executed_no_return_statement = "2F005"_sqlstate,
+    modifying_sql_data_not_permitted = "2F002"_sqlstate,
+    prohibited_sql_statement_attempted = "2F003"_sqlstate,
+    reading_sql_data_not_permitted = "2F004"_sqlstate,
+    invalid_cursor_name = "34000"_sqlstate,
+    external_routine_exception = "38000"_sqlstate,
+    containing_sql_not_permitted = "38001"_sqlstate,
+    modifying_sql_data_not_permitted = "38002"_sqlstate,
+    prohibited_sql_statement_attempted = "38003"_sqlstate,
+    reading_sql_data_not_permitted = "38004"_sqlstate,
+    external_routine_invocation_exception = "39000"_sqlstate,
+    invalid_sqlstate_returned = "39001"_sqlstate,
+    null_value_not_allowed = "39004"_sqlstate,
+    trigger_protocol_violated = "39P01"_sqlstate,
+    srf_protocol_violated = "39P02"_sqlstate,
+    event_trigger_protocol_violated = "39P03"_sqlstate,
+    savepoint_exception = "3B000"_sqlstate,
+    invalid_savepoint_specification = "3B001"_sqlstate,
+    invalid_catalog_name = "3D000"_sqlstate,
+    invalid_schema_name = "3F000"_sqlstate,
+    transaction_rollback = "40000"_sqlstate,
+    transaction_integrity_constraint_violation = "40002"_sqlstate,
+    serialization_failure = "40001"_sqlstate,
+    statement_completion_unknown = "40003"_sqlstate,
+    deadlock_detected = "40P01"_sqlstate,
+    syntax_error_or_access_rule_violation = "42000"_sqlstate,
+    syntax_error = "42601"_sqlstate,
+    insufficient_privilege = "42501"_sqlstate,
+    cannot_coerce = "42846"_sqlstate,
+    grouping_error = "42803"_sqlstate,
+    windowing_error = "42P20"_sqlstate,
+    invalid_recursion = "42P19"_sqlstate,
+    invalid_foreign_key = "42830"_sqlstate,
+    invalid_name = "42602"_sqlstate,
+    name_too_long = "42622"_sqlstate,
+    reserved_name = "42939"_sqlstate,
+    datatype_mismatch = "42804"_sqlstate,
+    indeterminate_datatype = "42P18"_sqlstate,
+    collation_mismatch = "42P21"_sqlstate,
+    indeterminate_collation = "42P22"_sqlstate,
+    wrong_object_type = "42809"_sqlstate,
+    generated_always = "428C9"_sqlstate,
+    undefined_column = "42703"_sqlstate,
+    undefined_function = "42883"_sqlstate,
+    undefined_table = "42P01"_sqlstate,
+    undefined_parameter = "42P02"_sqlstate,
+    undefined_object = "42704"_sqlstate,
+    duplicate_column = "42701"_sqlstate,
+    duplicate_cursor = "42P03"_sqlstate,
+    duplicate_database = "42P04"_sqlstate,
+    duplicate_function = "42723"_sqlstate,
+    duplicate_prepared_statement = "42P05"_sqlstate,
+    duplicate_schema = "42P06"_sqlstate,
+    duplicate_table = "42P07"_sqlstate,
+    duplicate_alias = "42712"_sqlstate,
+    duplicate_object = "42710"_sqlstate,
+    ambiguous_column = "42702"_sqlstate,
+    ambiguous_function = "42725"_sqlstate,
+    ambiguous_parameter = "42P08"_sqlstate,
+    ambiguous_alias = "42P09"_sqlstate,
+    invalid_column_reference = "42P10"_sqlstate,
+    invalid_column_definition = "42611"_sqlstate,
+    invalid_cursor_definition = "42P11"_sqlstate,
+    invalid_database_definition = "42P12"_sqlstate,
+    invalid_function_definition = "42P13"_sqlstate,
+    invalid_prepared_statement_definition = "42P14"_sqlstate,
+    invalid_schema_definition = "42P15"_sqlstate,
+    invalid_table_definition = "42P16"_sqlstate,
+    invalid_object_definition = "42P17"_sqlstate,
+    with_check_option_violation = "44000"_sqlstate,
+    insufficient_resources = "53000"_sqlstate,
+    disk_full = "53100"_sqlstate,
+    out_of_memory = "53200"_sqlstate,
+    too_many_connections = "53300"_sqlstate,
+    configuration_limit_exceeded = "53400"_sqlstate,
+    program_limit_exceeded = "54000"_sqlstate,
+    statement_too_complex = "54001"_sqlstate,
+    too_many_columns = "54011"_sqlstate,
+    too_many_arguments = "54023"_sqlstate,
+    object_not_in_prerequisite_state = "55000"_sqlstate,
+    object_in_use = "55006"_sqlstate,
+    cant_change_runtime_param = "55P02"_sqlstate,
+    lock_not_available = "55P03"_sqlstate,
+    unsafe_new_enum_value_usage = "55P04"_sqlstate,
+    operator_intervention = "57000"_sqlstate,
+    query_canceled = "57014"_sqlstate,
+    admin_shutdown = "57P01"_sqlstate,
+    crash_shutdown = "57P02"_sqlstate,
+    cannot_connect_now = "57P03"_sqlstate,
+    database_dropped = "57P04"_sqlstate,
+    idle_session_timeout = "57P05"_sqlstate,
+    system_error = "58000"_sqlstate,
+    io_error = "58030"_sqlstate,
+    undefined_file = "58P01"_sqlstate,
+    duplicate_file = "58P02"_sqlstate,
+    file_name_too_long = "58P03"_sqlstate,
+    config_file_error = "F0000"_sqlstate,
+    lock_file_exists = "F0001"_sqlstate,
+    fdw_error = "HV000"_sqlstate,
+    fdw_column_name_not_found = "HV005"_sqlstate,
+    fdw_dynamic_parameter_value_needed = "HV002"_sqlstate,
+    fdw_function_sequence_error = "HV010"_sqlstate,
+    fdw_inconsistent_descriptor_information = "HV021"_sqlstate,
+    fdw_invalid_attribute_value = "HV024"_sqlstate,
+    fdw_invalid_column_name = "HV007"_sqlstate,
+    fdw_invalid_column_number = "HV008"_sqlstate,
+    fdw_invalid_data_type = "HV004"_sqlstate,
+    fdw_invalid_data_type_descriptors = "HV006"_sqlstate,
+    fdw_invalid_descriptor_field_identifier = "HV091"_sqlstate,
+    fdw_invalid_handle = "HV00B"_sqlstate,
+    fdw_invalid_option_index = "HV00C"_sqlstate,
+    fdw_invalid_option_name = "HV00D"_sqlstate,
+    fdw_invalid_string_length_or_buffer_length = "HV090"_sqlstate,
+    fdw_invalid_string_format = "HV00A"_sqlstate,
+    fdw_invalid_use_of_null_pointer = "HV009"_sqlstate,
+    fdw_too_many_handles = "HV014"_sqlstate,
+    fdw_out_of_memory = "HV001"_sqlstate,
+    fdw_no_schemas = "HV00P"_sqlstate,
+    fdw_option_name_not_found = "HV00J"_sqlstate,
+    fdw_reply_handle = "HV00K"_sqlstate,
+    fdw_schema_not_found = "HV00Q"_sqlstate,
+    fdw_table_not_found = "HV00R"_sqlstate,
+    fdw_unable_to_create_execution = "HV00L"_sqlstate,
+    fdw_unable_to_create_reply = "HV00M"_sqlstate,
+    fdw_unable_to_establish_connection = "HV00N"_sqlstate,
+    plpgsql_error = "P0000"_sqlstate,
+    raise_exception = "P0001"_sqlstate,
+    no_data_found = "P0002"_sqlstate,
+    too_many_rows = "P0003"_sqlstate,
+    assert_failure = "P0004"_sqlstate,
+    internal_error = "XX000"_sqlstate,
+    data_corrupted = "XX001"_sqlstate,
+    index_corrupted = "XX002"_sqlstate,
+
+};
+
+}  // namespace nativepg
+
+#endif

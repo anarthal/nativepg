@@ -13,6 +13,7 @@
 
 #include <boost/compat/function_ref.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <deque>
 #include <optional>
@@ -20,6 +21,7 @@
 #include <system_error>
 #include <vector>
 
+#include "nativepg/client_errc.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/read_response_fsm.hpp"
@@ -107,11 +109,18 @@ public:
         {
             // We're starting a new message. Ignore any abandoned
             // requests that are not expecting any message back
-            while (elems_.front().abandoned_before_write)
-                elems_.pop_front();
+            auto it = std::find_if(elems_.begin(), elems_.end(), [](const multiplexer_elem& elm) {
+                return !elm.abandoned_before_write;
+            });
+            elems_.erase(elems_.begin(), it);
+
+            // If we have no request, something went extremely wrong
+            if (elems_.empty())
+                return boost::system::error_code(client_errc::unmatched_request);
 
             // Start the new message
-            fsm_.emplace(elems_.front().req, elems_.front().res);
+            const auto& elm = elems_.front();
+            fsm_.emplace(elm.req, elm.res);
         }
 
         // Handle the message

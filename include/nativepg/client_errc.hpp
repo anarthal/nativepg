@@ -109,6 +109,10 @@ enum class client_errc : int
 
     // TODO: I don't like this
     unknown_openssl_error,
+
+    // The server sent us a message in a multiplexed connection that couldn't be matched to any pending
+    // request
+    unmatched_request,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

@@ -10,6 +10,7 @@
 
 #include <boost/capy/concept/executor.hpp>
 #include <boost/capy/ex/execution_context.hpp>
+#include <boost/capy/io/any_stream.hpp>
 #include <boost/capy/io_task.hpp>
 
 #include <concepts>
@@ -17,6 +18,7 @@
 
 #include "nativepg/connect_params.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
 
@@ -51,6 +53,10 @@ public:
         response_handler_ref handler,
         diagnostics* diag = nullptr
     );
+
+    // TODO: I don't like this
+    boost::capy::any_stream& stream();
+    protocol::connection_state& state();
 };
 
 }  // namespace nativepg

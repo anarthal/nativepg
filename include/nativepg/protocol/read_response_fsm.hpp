@@ -12,9 +12,10 @@
 #include <boost/system/error_code.hpp>
 
 #include <cstddef>
+#include <span>
 
-#include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
+#include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
@@ -41,13 +42,19 @@ public:
         result(result_type t) noexcept : type(t) {}
     };
 
-    read_response_fsm_impl(const request& req, response_handler_ref handler) noexcept
-        : req_(&req), handler_(handler)
+    read_response_fsm_impl(const request* req, response_handler_ref handler) noexcept
+        : req_(req), handler_(handler)
     {
+        BOOST_ASSERT(req != nullptr);
     }
 
     const request& get_request() const { return *req_; }
     response_handler_ref get_handler() const { return handler_; }
+
+    std::span<const request_message_type> get_remaining_messages() const
+    {
+        return req_->messages().subspan(current_);
+    }
 
     result resume(const any_backend_message& msg);
 
@@ -113,7 +120,7 @@ public:
         }
     };
 
-    read_response_fsm(const request& req, response_handler_ref handler) noexcept : impl_(req, handler) {}
+    read_response_fsm(const request* req, response_handler_ref handler) noexcept : impl_(req, handler) {}
 
     result resume(connection_state& st, boost::system::error_code io_error, std::size_t bytes_read);
 

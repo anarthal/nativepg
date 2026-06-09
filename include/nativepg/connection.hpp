@@ -172,7 +172,7 @@ public:
         return boost::asio::async_compose<CompletionToken, void(extended_error)>(
             detail::exec_op{
                 *impl_,
-                protocol::detail::exec_fsm{req, handler}
+                protocol::detail::exec_fsm{&req, handler}
         },
             token,
             impl_->sock

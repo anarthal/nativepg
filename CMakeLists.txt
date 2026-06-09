@@ -44,6 +44,7 @@ if (NATIVEPG_COROSIO_API)
     add_library(nativepg_corosio
         src/co_connection.cpp
         src/co_connection_pool.cpp
+        src/co_multiplexed_connection.cpp
     )
     target_link_libraries(nativepg_corosio PUBLIC
         nativepg
@@ -103,4 +104,7 @@ if (NATIVEPG_COROSIO_API)
 
     add_executable(nativepg_co_connection_pool example/co_connection_pool.cpp)
     target_link_libraries(nativepg_co_connection_pool PRIVATE nativepg_corosio)
+
+    add_executable(nativepg_co_multiplexed_connection example/co_multiplexed_connection.cpp)
+    target_link_libraries(nativepg_co_multiplexed_connection PRIVATE nativepg_corosio)
 endif()

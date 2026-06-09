@@ -29,7 +29,7 @@ public:
     using result_type = startup_fsm::result_type;
     using result = startup_fsm::result;
 
-    exec_fsm(const request& req, response_handler_ref handler) noexcept : read_fsm_(req, handler) {}
+    exec_fsm(const request* req, response_handler_ref handler) noexcept : read_fsm_(req, handler) {}
 
     result resume(connection_state& st, boost::system::error_code ec, std::size_t bytes_transferred);
 

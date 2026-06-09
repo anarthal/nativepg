@@ -142,6 +142,65 @@ void test_error()
 
         BOOST_TEST_EQ(check_request(req), error_code(client_errc::empty_request));
     }
+
+    {
+        // parse, bind, describe, execute, query sync
+        // A simple query in the middle of an extended batch
+        request req(false);
+        req.add_query("SELECT $1", {42});
+        req.add_simple_query("SELECT 42");
+        req.add(protocol::sync{});
+
+        BOOST_TEST_EQ(check_request(req), error_code(client_errc::request_mixes_simple_advanced_protocols));
+    }
+    {
+        // bind, query, sync
+        // A simple query in the middle of an extended batch
+        request req(false);
+        req.add_bind("stmt", {});
+        req.add_simple_query("SELECT 1");
+        req.add(protocol::sync{});
+
+        BOOST_TEST_EQ(check_request(req), error_code(client_errc::request_mixes_simple_advanced_protocols));
+    }
+    {
+        // query, close, query, sync
+        // A simple query in the middle of an extended batch
+        request req(false);
+        req.add_simple_query("SELECT 1");
+        req.add_close_statement("stmt");
+        req.add_simple_query("SELECT 1");
+        req.add(protocol::sync{});
+
+        BOOST_TEST_EQ(check_request(req), error_code(client_errc::request_mixes_simple_advanced_protocols));
+    }
+    {
+        // parse, bind, describe, execute
+        // Extended batch not terminated by a sync
+        request req(false);
+        req.add_query("SELECT $1", {42});
+
+        BOOST_TEST_EQ(check_request(req), error_code(client_errc::request_ends_without_sync));
+    }
+    {
+        // query, parse, bind, describe, execute
+        // Extended batch not terminated by a sync
+        request req(false);
+        req.add_simple_query("SELECT 50");
+        req.add_query("SELECT $1", {42});
+
+        BOOST_TEST_EQ(check_request(req), error_code(client_errc::request_ends_without_sync));
+    }
+    {
+        // parse, sync, parse, bind, describe, execute
+        // The first batch is well-formed, but the trailing one lacks a sync
+        request req(false);
+        req.add_prepare("SELECT $1", "mystmt");
+        req.add(protocol::sync{});
+        req.add_query("SELECT $1", {42});
+
+        BOOST_TEST_EQ(check_request(req), error_code(client_errc::request_ends_without_sync));
+    }
 }
 
 }  // namespace

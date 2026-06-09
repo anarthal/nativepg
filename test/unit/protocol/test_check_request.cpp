@@ -8,6 +8,7 @@
 #include <boost/core/lightweight_test.hpp>
 #include <boost/system/error_code.hpp>
 
+#include "nativepg/client_errc.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg_internal/check_request.hpp"
 
@@ -133,11 +134,22 @@ void test_success()
     }
 }
 
+void test_error()
+{
+    {
+        // Empty request
+        request req;
+
+        BOOST_TEST_EQ(check_request(req), error_code(client_errc::empty_request));
+    }
+}
+
 }  // namespace
 
 int main()
 {
     test_success();
+    test_error();
 
     return boost::report_errors();
 }

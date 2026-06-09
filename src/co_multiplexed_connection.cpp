@@ -22,6 +22,7 @@
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_multiplexed_connection.hpp"
 #include "nativepg/protocol/read_message_fsm.hpp"
+#include "nativepg_internal/check_request.hpp"
 #include "nativepg_internal/multiplexed_connection/multiplexer.hpp"
 
 namespace capy = boost::capy;
@@ -124,7 +125,9 @@ struct nativepg::co_multiplexed_connection::impl
 
     boost::capy::io_task<> exec(const request& req, response_handler_ref handler, diagnostics* diag = nullptr)
     {
-        // TODO: check request
+        // Check that the request is valid
+        if (auto req_ec = protocol::detail::check_request(req))
+            co_return {req_ec};
         // TODO: diagnostics
 
         // Setup

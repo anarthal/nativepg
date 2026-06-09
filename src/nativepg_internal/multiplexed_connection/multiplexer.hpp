@@ -74,6 +74,8 @@ class read_response_stream_fsm
 public:
     read_response_stream_fsm() = default;
 
+    bool is_reading() const { return status_ == status::reading; }
+
     [[nodiscard]]
     std::error_code on_message(std::deque<multiplexer_elem>& elms, const protocol::any_backend_message& msg)
     {
@@ -142,6 +144,7 @@ public:
 
     void abandon_current()
     {
+        BOOST_ASSERT(is_reading());
         remaining_rfq_ = get_expected_rfqs(fsm_->get_remaining_messages());
         status_ = status::ignoring;
     }
@@ -183,11 +186,11 @@ public:
                 // We've sent this request. We need to keep enough info to identify
                 // the responses for this request and discard them.
                 // The process differs if we've already read part of the response
-                if (elem == &elems_.front())
+                elem->status = multiplexer_elem_status::abandoned_in_flight;
+                if (elem == &elems_.front() && fsm_.is_reading())
                     fsm_.abandon_current();
                 else
                     elem->num_rfq = get_expected_rfqs(elem->req->messages());
-                elem->status = multiplexer_elem_status::abandoned_in_flight;
                 break;
             }
             default: BOOST_ASSERT(false); break;

@@ -32,9 +32,8 @@ exec_fsm::result exec_fsm::resume(
     {
         // Check that the request is correctly formed
         const request& req = read_fsm_.get_request();
-        auto ec = check_request(req);
-        if (ec)
-            return ec;
+        if (auto ec_req = check_request(req))
+            return ec_req;
 
         // Perform the response setup
         auto res = read_fsm_.get_handler().setup(req, 0u);

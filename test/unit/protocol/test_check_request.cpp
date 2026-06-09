@@ -91,7 +91,46 @@ void test_success()
 
         BOOST_TEST_EQ(check_request(req), error_code());
     }
-    // Extended protocol: X, sync
+    {
+        // Extended protocol: bind, sync
+        request req(false);
+        req.add_bind("stmt", {});
+        req.add(protocol::sync{});
+
+        BOOST_TEST_EQ(check_request(req), error_code());
+    }
+    {
+        // Extended protocol: close, sync
+        request req(false);
+        req.add(protocol::close{protocol::portal_or_statement::statement, "stmt"});
+        req.add(protocol::sync{});
+
+        BOOST_TEST_EQ(check_request(req), error_code());
+    }
+    {
+        // Extended protocol: describe, sync
+        request req(false);
+        req.add(protocol::describe{protocol::portal_or_statement::statement, "stmt"});
+        req.add(protocol::sync{});
+
+        BOOST_TEST_EQ(check_request(req), error_code());
+    }
+    {
+        // Extended protocol: execute, sync
+        request req(false);
+        req.add(protocol::execute{.portal_name = {}, .max_num_rows = 0});
+        req.add(protocol::sync{});
+
+        BOOST_TEST_EQ(check_request(req), error_code());
+    }
+    {
+        // Extended protocol: parse, sync
+        request req(false);
+        req.add(protocol::parse_t{.statement_name = "stmt", .query = "SELECT 1", .parameter_type_oids = {}});
+        req.add(protocol::sync{});
+
+        BOOST_TEST_EQ(check_request(req), error_code());
+    }
 }
 
 }  // namespace

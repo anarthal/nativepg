@@ -25,6 +25,7 @@
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/read_response_fsm.hpp"
+#include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
 
 namespace nativepg {
@@ -33,12 +34,117 @@ class request;
 
 namespace detail {
 
+enum class multiplexer_elem_status
+{
+    pending,
+    in_flight,
+    abandoned_pending,
+    abandoned_in_flight,
+};
+
 struct multiplexer_elem
 {
     const request* req;
     response_handler_ref res;
     boost::compat::function_ref<void(std::error_code)> on_done;  // TODO: do we have any alternative?
-    bool abandoned_before_write{};
+    multiplexer_elem_status status{multiplexer_elem_status::pending};
+    std::size_t num_rfq{};  // Expected number of ready-for-query messages. Populated lazily
+};
+
+inline std::size_t get_expected_rfqs(std::span<const request_message_type> msgs)
+{
+    return std::ranges::count_if(msgs, [](request_message_type type) {
+        return type == request_message_type::query || type == request_message_type::sync;
+    });
+}
+
+class read_response_stream_fsm
+{
+    enum class status
+    {
+        initial,
+        reading,
+        ignoring,
+    };
+
+    status status_{status::initial};
+    std::optional<protocol::detail::read_response_fsm_impl> fsm_;  // TODO: don't like optional
+    std::size_t remaining_rfq_{};
+
+public:
+    read_response_stream_fsm() = default;
+
+    [[nodiscard]]
+    std::error_code on_message(std::deque<multiplexer_elem>& elms, const protocol::any_backend_message& msg)
+    {
+        using protocol::detail::read_response_fsm_impl;
+
+        if (status_ == status::initial)
+        {
+            // We're starting a new message. Ignore any abandoned
+            // requests that are not expecting any message back
+            auto it = std::ranges::find_if(elms, [](const multiplexer_elem& elm) {
+                return elm.status != multiplexer_elem_status::abandoned_pending;
+            });
+            elms.erase(elms.begin(), it);
+
+            // If we have no request, something went extremely wrong
+            if (elms.empty())
+                return boost::system::error_code(client_errc::unmatched_request);
+            const auto& elm = elms.front();
+
+            // Determine if we should care about responses or not
+            if (elm.status == multiplexer_elem_status::abandoned_in_flight)
+            {
+                status_ = status::ignoring;
+                remaining_rfq_ = elm.num_rfq;
+            }
+            else
+            {
+                BOOST_ASSERT(elm.status == multiplexer_elem_status::in_flight);
+                status_ = status::reading;
+                fsm_.emplace(elm.req, elm.res);
+            }
+        }
+
+        switch (status_)
+        {
+            case status::reading:
+            {
+                // Handle the message
+                auto res = fsm_->resume(msg);
+
+                // If the FSM terminates, it means we're done with this request
+                if (res.type == read_response_fsm_impl::result_type::done)
+                {
+                    elms.front().on_done(res.ec);
+                    elms.pop_front();
+                    status_ = status::initial;
+                }
+
+                // Any errors here are protocol violations and should cause connection teardown
+                return res.ec;
+            }
+            case status::ignoring:
+            {
+                // We only care about ready for queries
+                if (msg.type() == protocol::any_backend_message::kind::ready_for_query &&
+                    --remaining_rfq_ == 0u)
+                {
+                    elms.pop_front();
+                    status_ = status::initial;
+                }
+                return {};
+            }
+            default: BOOST_ASSERT(false);
+        }
+    }
+
+    void abandon_current()
+    {
+        remaining_rfq_ = get_expected_rfqs(fsm_->get_remaining_messages());
+        status_ = status::ignoring;
+    }
 };
 
 class multiplexer
@@ -60,6 +166,34 @@ public:
 
     void cancel(multiplexer_elem* elem)
     {
+        BOOST_ASSERT(elem != nullptr);
+        BOOST_ASSERT(!elems_.empty());
+
+        switch (elem->status)
+        {
+            case multiplexer_elem_status::pending:
+            {
+                // The request hasn't been written yet.
+                // Mark it as abandoned and it will be ignored and removed when possible
+                elem->status = multiplexer_elem_status::abandoned_pending;
+                break;
+            }
+            case multiplexer_elem_status::in_flight:
+            {
+                // We've sent this request. We need to keep enough info to identify
+                // the responses for this request and discard them.
+                // The process differs if we've already read part of the response
+                if (elem == &elems_.front())
+                    fsm_.abandon_current();
+                else
+                    elem->num_rfq = get_expected_rfqs(elem->req->messages());
+                elem->status = multiplexer_elem_status::abandoned_in_flight;
+                break;
+            }
+            default: BOOST_ASSERT(false); break;
+        }
+
+        // In any case, clean up other data members, just in case
         elem->req = nullptr;
         elem->res = null_handler_;
         elem->on_done = &ignore;
@@ -73,14 +207,22 @@ public:
         // TODO: ideally, we shouldn't need to copy the payload, but cancellations get much trickier
         for (auto& elm : pending_requests())
         {
-            if (elm.req)  // ignore abandoned requests
+            switch (elm.status)
             {
-                auto payload = elm.req->payload();
-                write_buffer_.insert(write_buffer_.end(), payload.begin(), payload.end());
-            }
-            else
-            {
-                elm.abandoned_before_write = true;
+                case multiplexer_elem_status::pending:
+                {
+                    // Healthy request
+                    BOOST_ASSERT(elm.req);
+                    auto payload = elm.req->payload();
+                    write_buffer_.insert(write_buffer_.end(), payload.begin(), payload.end());
+                    elm.status = multiplexer_elem_status::in_flight;
+                }
+                case multiplexer_elem_status::abandoned_pending:
+                {
+                    // The request was cancelled before being written, ignore it
+                    break;
+                }
+                default: BOOST_ASSERT(false); break;
             }
         }
 
@@ -104,39 +246,7 @@ public:
         }
 
         // The message is supposed to belong to a request, handle it
-        // TODO: handle cancellation
-        using protocol::detail::read_response_fsm_impl;
-        if (!fsm_.has_value())
-        {
-            // We're starting a new message. Ignore any abandoned
-            // requests that are not expecting any message back
-            auto it = std::find_if(elems_.begin(), elems_.end(), [](const multiplexer_elem& elm) {
-                return !elm.abandoned_before_write;
-            });
-            elems_.erase(elems_.begin(), it);
-
-            // If we have no request, something went extremely wrong
-            if (elems_.empty())
-                return boost::system::error_code(client_errc::unmatched_request);
-
-            // Start the new message
-            const auto& elm = elems_.front();
-            fsm_.emplace(elm.req, elm.res);
-        }
-
-        // Handle the message
-        auto res = fsm_->resume(msg);
-
-        // If the FSM terminates, it means we're done with this request
-        if (res.type == read_response_fsm_impl::result_type::done)
-        {
-            elems_.front().on_done(res.ec);
-            elems_.pop_front();
-            fsm_ = {};
-        }
-
-        // Any errors here are protocol violations and should cause connection teardown
-        return res.ec;
+        return fsm_.on_message(elems_, msg);
     }
 
     // To be called when connection is lost.
@@ -167,9 +277,7 @@ private:
     std::deque<multiplexer_elem> elems_;
     null_handler null_handler_;
     std::size_t num_pending_{};
-
-    // TODO: I don't like this
-    std::optional<protocol::detail::read_response_fsm_impl> fsm_;
+    read_response_stream_fsm fsm_;
 
     inline static void ignore(std::error_code) {}
 

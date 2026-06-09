@@ -12,11 +12,11 @@
 #include <boost/system/error_code.hpp>
 
 #include <cstddef>
+#include <span>
 
 #include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/notice_error.hpp"
-#include "nativepg/protocol/views.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
 
@@ -50,6 +50,11 @@ public:
 
     const request& get_request() const { return *req_; }
     response_handler_ref get_handler() const { return handler_; }
+
+    std::span<const request_message_type> get_remaining_messages() const
+    {
+        return req_->messages().subspan(current_);
+    }
 
     result resume(const any_backend_message& msg);
 

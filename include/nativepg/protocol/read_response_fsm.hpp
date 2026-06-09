@@ -13,9 +13,10 @@
 
 #include <cstddef>
 
-#include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
+#include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/notice_error.hpp"
+#include "nativepg/protocol/views.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
 
@@ -41,9 +42,10 @@ public:
         result(result_type t) noexcept : type(t) {}
     };
 
-    read_response_fsm_impl(const request& req, response_handler_ref handler) noexcept
-        : req_(&req), handler_(handler)
+    read_response_fsm_impl(const request* req, response_handler_ref handler) noexcept
+        : req_(req), handler_(handler)
     {
+        BOOST_ASSERT(req != nullptr);
     }
 
     const request& get_request() const { return *req_; }
@@ -113,7 +115,7 @@ public:
         }
     };
 
-    read_response_fsm(const request& req, response_handler_ref handler) noexcept : impl_(req, handler) {}
+    read_response_fsm(const request* req, response_handler_ref handler) noexcept : impl_(req, handler) {}
 
     result resume(connection_state& st, boost::system::error_code io_error, std::size_t bytes_read);
 

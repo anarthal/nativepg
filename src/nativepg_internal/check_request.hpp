@@ -12,6 +12,7 @@
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/response_handler.hpp"
 
 namespace nativepg::protocol::detail {
 
@@ -57,6 +58,21 @@ inline boost::system::error_code check_request(const request& req)
         return client_errc::request_ends_without_sync;
 
     // Everything OK
+    return {};
+}
+
+inline boost::system::error_code setup_request(const request& req, response_handler_ref res)
+{
+    // Check that the request is correctly formed
+    if (auto ec_req = check_request(req))
+        return ec_req;
+
+    // Perform the response setup
+    auto [ec, offset] = res.setup(req, 0u);
+    if (ec)
+        return ec;
+    if (offset != req.messages().size())
+        return client_errc::incompatible_response_length;
     return {};
 }
 

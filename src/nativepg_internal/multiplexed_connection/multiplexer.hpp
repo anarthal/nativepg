@@ -54,6 +54,7 @@ public:
     )
     {
         elems_.push_back({req, res, on_done});
+        ++num_pending_;
         return &elems_.back();
     }
 

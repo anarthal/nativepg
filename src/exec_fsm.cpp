@@ -30,17 +30,9 @@ exec_fsm::result exec_fsm::resume(
 {
     if (state_ == state_t::initial)
     {
-        // Check that the request is correctly formed
-        const request& req = read_fsm_.get_request();
-        if (auto ec_req = check_request(req))
+        // Initial checkings
+        if (auto ec_req = setup_request(read_fsm_.get_request(), read_fsm_.get_handler()))
             return ec_req;
-
-        // Perform the response setup
-        auto res = read_fsm_.get_handler().setup(req, 0u);
-        if (res.ec)
-            return res.ec;
-        if (res.offset != req.messages().size())
-            return result(client_errc::incompatible_response_length);
 
         state_ = state_t::writing;
 

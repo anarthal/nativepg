@@ -117,7 +117,7 @@ boost::capy::io_task<> co_connection::exec(
     using protocol::detail::exec_fsm;
 
     // Initialize
-    exec_fsm fsm_(req, handler);
+    exec_fsm fsm_(&req, handler);
     auto res = fsm_.resume(impl_->st, {}, 0u);
 
     while (true)

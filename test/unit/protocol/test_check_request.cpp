@@ -19,10 +19,21 @@ namespace {
 
 void test_success()
 {
-    request req;
-    req.add_query("SELECT $1", {42});
+    {
+        // Extended protocol: parse, bind, describe, execute, sync
+        request req;
+        req.add_query("SELECT $1", {42});
 
-    BOOST_TEST_EQ(check_request(req), error_code());
+        BOOST_TEST_EQ(check_request(req), error_code());
+    }
+    // Extended protocol: (parse, bind, describe, execute)x2, sync
+    // Extended protocol: sync
+    // Simple protocol: query
+    // Extended protocol: (parse, bind, describe, execute, sync)x2
+    // Simple protocol: query x2
+    // Mixing: (parse, bind, describe, execute, sync), query, (parse, bind, describe, execute, sync)
+    // Mixing: query, (parse, bind, describe, execute, sync)
+    // Mixing: query, (parse, bind, describe, execute, sync), query
 }
 
 }  // namespace

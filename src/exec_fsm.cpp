@@ -57,4 +57,3 @@ exec_fsm::result exec_fsm::resume(
         default: BOOST_ASSERT(false); return error_code();
     }
 }
-//

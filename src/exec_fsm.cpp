@@ -15,39 +15,12 @@
 #include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
+#include "nativepg_internal/check_request.hpp"
 
 using namespace nativepg::protocol;
 using boost::system::error_code;
 using detail::exec_fsm;
 using nativepg::client_errc;
-
-static error_code check_request(const nativepg::request& req)
-{
-    // Empty requests are not allowed
-    if (req.messages().empty())
-        return error_code(client_errc::empty_request);
-
-    // To enable appropriate error recovery, requests need to either
-    //   1. End with a sync
-    //   2. Be a sequence of query messages, with nothing in front of it
-    //   3. End with a sequence of query messages, with a sync in front of it
-    // TODO: do we need to support requests ending with flush? is there any use case for this?
-    bool query_seen = false;
-    for (auto it = req.messages().rbegin(); it != req.messages().rend(); ++it)
-    {
-        switch (*it)
-        {
-            case nativepg::request_message_type::query: query_seen = true; continue;
-            case nativepg::request_message_type::sync: return error_code();
-            default:
-                return query_seen ? client_errc::request_mixes_simple_advanced_protocols
-                                  : client_errc::request_ends_without_sync;
-        }
-    }
-
-    // There was nothing but queries
-    return error_code();
-}
 
 exec_fsm::result exec_fsm::resume(
     connection_state& st,
@@ -59,9 +32,8 @@ exec_fsm::result exec_fsm::resume(
     {
         // Check that the request is correctly formed
         const request& req = read_fsm_.get_request();
-        auto ec = check_request(req);
-        if (ec)
-            return ec;
+        if (auto ec_req = check_request(req))
+            return ec_req;
 
         // Perform the response setup
         auto res = read_fsm_.get_handler().setup(req, 0u);

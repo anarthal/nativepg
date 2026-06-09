@@ -32,20 +32,31 @@ inline boost::system::error_code check_request(const request& req)
     if (req.messages().empty())
         return client_errc::empty_request;
 
-    bool query_seen = false;
-    for (auto it = req.messages().rbegin(); it != req.messages().rend(); ++it)
+    // Check that the request follows the batch structure described above
+    bool is_extended_batch = false;
+    for (const auto type : req.messages())
     {
-        switch (*it)
+        switch (type)
         {
-            case nativepg::request_message_type::query: query_seen = true; continue;
-            case nativepg::request_message_type::sync: return {};
+            case request_message_type::query:
+                if (is_extended_batch)
+                    return client_errc::request_mixes_simple_advanced_protocols;
+                else
+                    break;
+            case request_message_type::sync:
+                is_extended_batch = false;  // finishes a batch
+                break;
             default:
-                return query_seen ? client_errc::request_mixes_simple_advanced_protocols
-                                  : client_errc::request_ends_without_sync;
+                is_extended_batch = true;  // we're in a batch
+                break;
         }
     }
 
-    // There was nothing but queries
+    // If the last batch is unfinished, that's an error
+    if (is_extended_batch)
+        return client_errc::request_ends_without_sync;
+
+    // Everything OK
     return {};
 }
 

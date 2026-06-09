@@ -26,14 +26,72 @@ void test_success()
 
         BOOST_TEST_EQ(check_request(req), error_code());
     }
-    // Extended protocol: (parse, bind, describe, execute)x2, sync
-    // Extended protocol: sync
-    // Simple protocol: query
-    // Extended protocol: (parse, bind, describe, execute, sync)x2
-    // Simple protocol: query x2
-    // Mixing: (parse, bind, describe, execute, sync), query, (parse, bind, describe, execute, sync)
-    // Mixing: query, (parse, bind, describe, execute, sync)
-    // Mixing: query, (parse, bind, describe, execute, sync), query
+    {
+        // Extended protocol: (parse, bind, describe, execute)x2, sync
+        request req(false);
+        req.add_query("SELECT $1", {42});
+        req.add_query("SELECT $2", {50});
+        req.add(protocol::sync{});
+
+        BOOST_TEST_EQ(check_request(req), error_code());
+    }
+    {
+        // Extended protocol: sync
+        request req(false);
+        req.add(protocol::sync{});
+
+        BOOST_TEST_EQ(check_request(req), error_code());
+    }
+    {
+        // Simple protocol: query
+        request req;
+        req.add_simple_query("SELECT 1");
+
+        BOOST_TEST_EQ(check_request(req), error_code());
+    }
+    {
+        // Extended protocol: (parse, bind, describe, execute, sync)x2
+        request req;
+        req.add_query("SELECT $1", {42});
+        req.add_query("SELECT $1", {42});
+
+        BOOST_TEST_EQ(check_request(req), error_code());
+    }
+    {
+        // Simple protocol: query x2
+        request req;
+        req.add_simple_query("SELECT 1");
+        req.add_simple_query("SELECT 2");
+
+        BOOST_TEST_EQ(check_request(req), error_code());
+    }
+    {
+        // Mixing: (parse, bind, describe, execute, sync), query, (parse, bind, describe, execute, sync)
+        request req;
+        req.add_query("SELECT $1", {42});
+        req.add_simple_query("SELECT 1");
+        req.add_query("SELECT $1", {42});
+
+        BOOST_TEST_EQ(check_request(req), error_code());
+    }
+    {
+        // Mixing: query, (parse, bind, describe, execute, sync)
+        request req;
+        req.add_simple_query("SELECT 1");
+        req.add_query("SELECT $1", {42});
+
+        BOOST_TEST_EQ(check_request(req), error_code());
+    }
+    {
+        // Mixing: query, (parse, bind, describe, execute, sync), query
+        request req;
+        req.add_simple_query("SELECT 1");
+        req.add_query("SELECT $1", {42});
+        req.add_simple_query("SELECT 2");
+
+        BOOST_TEST_EQ(check_request(req), error_code());
+    }
+    // Extended protocol: X, sync
 }
 
 }  // namespace

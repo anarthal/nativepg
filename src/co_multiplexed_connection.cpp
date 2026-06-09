@@ -113,7 +113,7 @@ struct nativepg::co_multiplexed_connection::impl
                 // We've lost connection or otherwise been cancelled.
                 // Remove from the multiplexer the required requests.
                 // TODO: we should ensure that no request is allowed to enter once we're cancelled
-                mpx.cancel_in_flight();
+                mpx.cleanup();
             }
 
             // Wait for the reconnection interval

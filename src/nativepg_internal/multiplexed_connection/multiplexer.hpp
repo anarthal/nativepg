@@ -74,6 +74,8 @@ class read_response_stream_fsm
 public:
     read_response_stream_fsm() = default;
 
+    void reset() { status_ = status::initial; }
+
     bool is_reading() const { return status_ == status::reading; }
 
     [[nodiscard]]
@@ -130,6 +132,7 @@ public:
             case status::ignoring:
             {
                 // We only care about ready for queries
+                BOOST_ASSERT(remaining_rfq_ > 0u);
                 if (msg.type() == protocol::any_backend_message::kind::ready_for_query &&
                     --remaining_rfq_ == 0u)
                 {
@@ -219,6 +222,7 @@ public:
                     auto payload = elm.req->payload();
                     write_buffer_.insert(write_buffer_.end(), payload.begin(), payload.end());
                     elm.status = multiplexer_elem_status::in_flight;
+                    break;
                 }
                 case multiplexer_elem_status::abandoned_pending:
                 {
@@ -254,7 +258,8 @@ public:
 
     // To be called when connection is lost.
     // Cancels requests that are in flight (i.e. not pending)
-    void cancel_in_flight()
+    // and resets state
+    void cleanup()
     {
         // Cancel all the requests
         for (auto& elm : in_flight_requests())
@@ -262,6 +267,9 @@ public:
 
         // Remove them
         elems_.erase(elems_.begin(), elems_.begin() + pending_offset());
+
+        // Clean up state
+        fsm_.reset();
     }
 
 private:

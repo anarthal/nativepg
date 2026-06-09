@@ -68,9 +68,8 @@ public:
 
         // Go over all pending elements, add them to the write buffer, and mark them as in-progress
         // TODO: ideally, we shouldn't need to copy the payload, but cancellations get much trickier
-        for (std::size_t i = pending_offset_; i < elems_.size(); ++i)
+        for (auto& elm : pending_requests())
         {
-            auto& elm = elems_[i];
             if (elm.req)  // ignore abandoned requests
             {
                 auto payload = elm.req->payload();
@@ -83,7 +82,7 @@ public:
         }
 
         // All the elements are now in-progress
-        pending_offset_ = elems_.size();
+        num_pending_ = 0u;
 
         return write_buffer_;
     }
@@ -98,10 +97,7 @@ public:
             // We're starting a new message. Ignore any abandoned
             // requests that are not expecting any message back
             while (elems_.front().abandoned_before_write)
-            {
                 elems_.pop_front();
-                --pending_offset_;
-            }
 
             // Start the new message
             fsm_.emplace(elems_.front().req, elems_.front().res);
@@ -115,7 +111,6 @@ public:
         {
             elems_.front().on_done(res.ec);
             elems_.pop_front();
-            --pending_offset_;
             fsm_ = {};
         }
 
@@ -127,10 +122,12 @@ public:
     // Cancels requests that are in flight (i.e. not pending)
     void cancel_in_flight()
     {
-        for (std::size_t i = 0u; i < pending_offset_; ++i)
-            elems_[i].on_done(std::make_error_code(std::errc::operation_canceled));
-        elems_.erase(elems_.begin(), elems_.begin() + pending_offset_);
-        pending_offset_ = 0u;
+        // Cancel all the requests
+        for (auto& elm : in_flight_requests())
+            elm.on_done(std::make_error_code(std::errc::operation_canceled));
+
+        // Remove them
+        elems_.erase(elems_.begin(), elems_.begin() + pending_offset());
     }
 
 private:
@@ -148,12 +145,28 @@ private:
     std::vector<unsigned char> write_buffer_;
     std::deque<multiplexer_elem> elems_;
     null_handler null_handler_;
-    std::size_t pending_offset_{};
+    std::size_t num_pending_{};
 
     // TODO: I don't like this
     std::optional<protocol::detail::read_response_fsm_impl> fsm_;
 
     inline static void ignore(std::error_code) {}
+
+    // Gets the offset in the deque where the pending requests start
+    std::size_t pending_offset() const { return elems_.size() - num_pending_; }
+
+    // Gets a view containing all the pending requests. They are at the end
+    // of the queue.
+    std::ranges::subrange<std::deque<multiplexer_elem>::iterator> pending_requests()
+    {
+        return std::ranges::subrange(elems_.begin() + pending_offset(), elems_.end());
+    }
+
+    // Same, for in-flight requests
+    std::ranges::subrange<std::deque<multiplexer_elem>::iterator> in_flight_requests()
+    {
+        return std::ranges::subrange(elems_.begin(), elems_.begin() + pending_offset());
+    }
 };
 
 }  // namespace detail

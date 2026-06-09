@@ -90,6 +90,17 @@ public:
     [[nodiscard]]
     std::error_code on_message(const protocol::any_backend_message& msg)
     {
+        // Handle asynchronous messages
+        // TODO: actually do something useful with these
+        switch (msg.type())
+        {
+            case protocol::any_backend_message::kind::notice_response:
+            case protocol::any_backend_message::kind::notification_response:
+            case protocol::any_backend_message::kind::parameter_status: return std::error_code();
+            default: break;
+        }
+
+        // The message is supposed to belong to a request, handle it
         // TODO: handle cancellation
         using protocol::detail::read_response_fsm_impl;
         if (!fsm_.has_value())

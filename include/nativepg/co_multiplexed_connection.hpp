@@ -14,9 +14,11 @@
 
 #include <concepts>
 #include <memory>
+#include <vector>
 
 #include "nativepg/connect_params.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/notification_event.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
 
@@ -61,6 +63,8 @@ public:
         response_handler_ref handler,
         diagnostics* diag = nullptr
     );
+
+    boost::capy::io_task<> read_notifications(std::vector<notification_event>& output);
 };
 
 }  // namespace nativepg

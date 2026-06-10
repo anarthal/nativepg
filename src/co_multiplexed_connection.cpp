@@ -21,9 +21,11 @@
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_multiplexed_connection.hpp"
+#include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/read_message_fsm.hpp"
 #include "nativepg_internal/check_request.hpp"
 #include "nativepg_internal/multiplexed_connection/multiplexer.hpp"
+#include "nativepg_internal/notification_queue.hpp"
 
 namespace capy = boost::capy;
 
@@ -32,6 +34,7 @@ struct nativepg::co_multiplexed_connection::impl
     co_connection conn;
     detail::multiplexer mpx;
     capy::async_event write_evt;
+    detail::notification_queue notif_queue{256u};  // TODO: make configurable
 
     explicit impl(boost::capy::execution_context& ctx) : conn(ctx) {}
 
@@ -83,6 +86,26 @@ struct nativepg::co_multiplexed_connection::impl
             if (act.type() == protocol::read_message_stream_fsm::result_type::error)
                 co_return {};
 
+            // Handle notifications
+            // TODO: although this is a valid backpressure strategy,
+            // it interacts poorly with running requests in the same coroutine.
+            // This is known in Boost.Redis. I'd like to make it better. Options include
+            //    a. Let exec() and read_notifies() handle run()'s work. This buys built-in
+            //       backpressure, but eliminates the option of built-in health-checks.
+            //    b. Make exec() unblock the reader if it's waiting for a message.
+            //       Makes the upper limit soft. May need to tear down the connection
+            //       if too many notifications stack.
+            if (act.message().type() == protocol::any_backend_message::kind::notification_response)
+            {
+                const auto& notif_msg = act.message().get_notification_response();
+                if (!notif_queue.try_add_notify(notif_msg))
+                {
+                    if (auto [ec] = co_await notif_queue.add_notify(notif_msg); ec)
+                        co_return {ec};
+                }
+                continue;
+            }
+
             // We have a message, deliver it.
             // An error here means an irrecoverable failure
             if (auto ec = mpx.on_message(act.message()))
@@ -105,6 +128,9 @@ struct nativepg::co_multiplexed_connection::impl
 
             if (!ec)
             {
+                // We connected
+                notif_queue.add_connect();
+
                 // Run the tasks
                 [[maybe_unused]] auto res = co_await capy::when_any(writer(), reader());
                 if (tok.stop_requested())
@@ -114,6 +140,9 @@ struct nativepg::co_multiplexed_connection::impl
                 // Remove from the multiplexer the required requests.
                 // TODO: we should ensure that no request is allowed to enter once we're cancelled
                 mpx.cleanup();
+
+                // Notify listeners that we've disconnected
+                notif_queue.add_disconnect();
             }
 
             // Wait for the reconnection interval
@@ -188,4 +217,11 @@ boost::capy::io_task<> nativepg::co_multiplexed_connection::exec(
 )
 {
     return impl_->exec(req, handler, diag);
+}
+
+boost::capy::io_task<> nativepg::co_multiplexed_connection::read_notifications(
+    std::vector<notification_event>& output
+)
+{
+    return impl_->notif_queue.read_events(output);
 }

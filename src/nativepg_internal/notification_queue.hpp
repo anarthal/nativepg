@@ -15,23 +15,23 @@
 #include <cstddef>
 #include <vector>
 
-#include "nativepg/notify_event.hpp"
+#include "nativepg/notification_event.hpp"
 #include "nativepg/protocol/async.hpp"
 
 namespace nativepg::detail {
 
 // Handles notify events and backpressure in multiplexed connections
-class notify_queue
+class notification_queue
 {
     std::size_t max_pending_;
-    std::vector<notify_event> pending_;
+    std::vector<notification_event> pending_;
     boost::capy::async_event events_available_;
     boost::capy::async_event space_available_;
     // TODO: we could avoid copies if the consumer task is waiting
 
     bool has_space() const { return pending_.size() < max_pending_; }
 
-    void add_event(notify_event&& evt)
+    void add_event(notification_event&& evt)
     {
         pending_.push_back(std::move(evt));
         if (!has_space())
@@ -42,7 +42,7 @@ class notify_queue
     void do_add_notification(const protocol::notification_response& msg)
     {
         add_event({
-            .type = notify_event_type::notify,
+            .type = notification_event_type::notify,
             .backend_pid = msg.process_id,
             .channel = std::string(msg.channel_name),
             .payload = std::string(msg.payload),
@@ -50,14 +50,14 @@ class notify_queue
     }
 
 public:
-    notify_queue(std::size_t max_pending) : max_pending_(max_pending)
+    notification_queue(std::size_t max_pending) : max_pending_(max_pending)
     {
         BOOST_ASSERT(max_pending > 0u);
         space_available_.set();
     }
 
     // Producer side. Connects and disconnects are not subject to backpressure
-    void add_connect() { add_event({notify_event_type::connect}); }
+    void add_connect() { add_event({notification_event_type::connect}); }
     void add_disconnect()
     {
         // If the last element is a connect, instead of adding a disconnect,
@@ -67,7 +67,7 @@ public:
         // TODO: I think we could avoid losing information by storing connects/disconnects
         // in a 'compressed' format (e.g. store the int 5 if 5 connect/disconnect cycles happen)
         // But this would require having != formats in pending_ and the output buffer
-        if (!pending_.empty() && pending_.back().type == notify_event_type::connect)
+        if (!pending_.empty() && pending_.back().type == notification_event_type::connect)
         {
             pending_.pop_back();
             if (has_space())
@@ -77,7 +77,7 @@ public:
         }
         else
         {
-            add_event({notify_event_type::disconnect});
+            add_event({notification_event_type::disconnect});
         }
     }
 
@@ -103,7 +103,7 @@ public:
     }
 
     // Consumer side
-    boost::capy::io_task<> read_events(std::vector<notify_event>& output)
+    boost::capy::io_task<> read_events(std::vector<notification_event>& output)
     {
         // Wait for messages, if required
         while (pending_.empty())

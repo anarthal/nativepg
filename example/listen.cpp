@@ -18,7 +18,7 @@
 
 #include "nativepg/co_multiplexed_connection.hpp"
 #include "nativepg/extended_error.hpp"
-#include "nativepg/notify_event.hpp"
+#include "nativepg/notification_event.hpp"
 #include "nativepg/request.hpp"
 
 using namespace nativepg;
@@ -28,20 +28,21 @@ namespace corosio = boost::corosio;
 // Should we attempt to issue another LISTEN?
 // Every time we connect we should renew our listens.
 // Issuing the same listen several times is OK, so finding connect events is enough
-static bool should_issue_listen(std::span<const notify_event> events)
+// TODO: we should have an automatic re-subscription feature
+static bool should_issue_listen(std::span<const notification_event> events)
 {
-    return std::ranges::find_if(events, [](const notify_event& evt) {
-               return evt.type == notify_event_type::connect;
+    return std::ranges::find_if(events, [](const notification_event& evt) {
+               return evt.type == notification_event_type::connect;
            }) != events.end();
 }
 
-static void print_event(const notify_event& event)
+static void print_event(const notification_event& event)
 {
     switch (event.type)
     {
-        case nativepg::notify_event_type::connect: std::cout << "Connection established\n"; break;
-        case nativepg::notify_event_type::disconnect: std::cout << "Connection disconnected\n"; break;
-        case nativepg::notify_event_type::notify:
+        case nativepg::notification_event_type::connect: std::cout << "Connection established\n"; break;
+        case nativepg::notification_event_type::disconnect: std::cout << "Connection disconnected\n"; break;
+        case nativepg::notification_event_type::notify:
             std::cout << "Received notification from process " << event.backend_pid << ", channel '"
                       << event.channel << "', payload '" << event.payload << "'\n";
             break;
@@ -62,7 +63,7 @@ public:
 
 static capy::io_task<> listener(co_multiplexed_connection& conn)
 {
-    std::vector<notify_event> events;
+    std::vector<notification_event> events;
 
     request req;
     req.add_simple_query("LISTEN mychannel");
@@ -72,7 +73,7 @@ static capy::io_task<> listener(co_multiplexed_connection& conn)
     while (true)
     {
         // Wait for new events
-        if (auto [ec] = co_await conn.read_notifies(events); ec)
+        if (auto [ec] = co_await conn.read_notifications(events); ec)
         {
             std::cerr << "Error reading events: " << ec << ": " << ec.message() << std::endl;
             co_return {};

@@ -25,7 +25,7 @@
 #include "nativepg/protocol/read_message_fsm.hpp"
 #include "nativepg_internal/check_request.hpp"
 #include "nativepg_internal/multiplexed_connection/multiplexer.hpp"
-#include "nativepg_internal/notify_queue.hpp"
+#include "nativepg_internal/notification_queue.hpp"
 
 namespace capy = boost::capy;
 
@@ -34,7 +34,7 @@ struct nativepg::co_multiplexed_connection::impl
     co_connection conn;
     detail::multiplexer mpx;
     capy::async_event write_evt;
-    detail::notify_queue notif_queue{256u};  // TODO: make configurable
+    detail::notification_queue notif_queue{256u};  // TODO: make configurable
 
     explicit impl(boost::capy::execution_context& ctx) : conn(ctx) {}
 
@@ -219,7 +219,9 @@ boost::capy::io_task<> nativepg::co_multiplexed_connection::exec(
     return impl_->exec(req, handler, diag);
 }
 
-boost::capy::io_task<> nativepg::co_multiplexed_connection::read_notifies(std::vector<notify_event>& output)
+boost::capy::io_task<> nativepg::co_multiplexed_connection::read_notifications(
+    std::vector<notification_event>& output
+)
 {
     return impl_->notif_queue.read_events(output);
 }

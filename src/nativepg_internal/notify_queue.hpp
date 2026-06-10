@@ -97,6 +97,7 @@ public:
         // Take the messages
         output.swap(pending_);
         pending_.clear();
+        events_available_.clear();
 
         // Done
         co_return {};

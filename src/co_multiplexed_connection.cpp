@@ -96,6 +96,7 @@ struct nativepg::co_multiplexed_connection::impl
                     if (auto [ec] = co_await notif_queue.add_notify(notif_msg); ec)
                         co_return {ec};
                 }
+                continue;
             }
 
             // We have a message, deliver it.

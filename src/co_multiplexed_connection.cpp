@@ -21,9 +21,11 @@
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_multiplexed_connection.hpp"
+#include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/read_message_fsm.hpp"
 #include "nativepg_internal/check_request.hpp"
 #include "nativepg_internal/multiplexed_connection/multiplexer.hpp"
+#include "nativepg_internal/notify_queue.hpp"
 
 namespace capy = boost::capy;
 
@@ -32,6 +34,7 @@ struct nativepg::co_multiplexed_connection::impl
     co_connection conn;
     detail::multiplexer mpx;
     capy::async_event write_evt;
+    detail::notify_queue notif_queue{256u};  // TODO: make configurable
 
     explicit impl(boost::capy::execution_context& ctx) : conn(ctx) {}
 
@@ -82,6 +85,18 @@ struct nativepg::co_multiplexed_connection::impl
             // An error reading a message indicates an irrecoverable failure
             if (act.type() == protocol::read_message_stream_fsm::result_type::error)
                 co_return {};
+
+            // Handle notifications
+            // TODO: maybe extract?
+            if (act.message().type() == protocol::any_backend_message::kind::notification_response)
+            {
+                const auto& notif_msg = act.message().as_notification_response();
+                if (!notif_queue.try_add_notify(notif_msg))
+                {
+                    if (auto [ec] = co_await notif_queue.add_notify(notif_msg); ec)
+                        co_return {ec};
+                }
+            }
 
             // We have a message, deliver it.
             // An error here means an irrecoverable failure
@@ -188,4 +203,9 @@ boost::capy::io_task<> nativepg::co_multiplexed_connection::exec(
 )
 {
     return impl_->exec(req, handler, diag);
+}
+
+boost::capy::io_task<> nativepg::co_multiplexed_connection::read_notifies(std::vector<notify_event>& output)
+{
+    return impl_->notif_queue.read_events(output);
 }

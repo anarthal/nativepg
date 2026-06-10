@@ -97,7 +97,7 @@ struct nativepg::co_multiplexed_connection::impl
             //       if too many notifications stack.
             if (act.message().type() == protocol::any_backend_message::kind::notification_response)
             {
-                const auto& notif_msg = act.message().as_notification_response();
+                const auto& notif_msg = act.message().get_notification_response();
                 if (!notif_queue.try_add_notify(notif_msg))
                 {
                     if (auto [ec] = co_await notif_queue.add_notify(notif_msg); ec)

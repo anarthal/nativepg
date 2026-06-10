@@ -82,8 +82,6 @@ public:
         co_return {};
     }
 
-    auto wait_for_space() { return space_available_.wait(); }
-
     // Consumer side
     boost::capy::io_task<> read_events(std::vector<notify_event>& output)
     {
@@ -98,6 +96,7 @@ public:
         output.swap(pending_);
         pending_.clear();
         events_available_.clear();
+        space_available_.set();
 
         // Done
         co_return {};

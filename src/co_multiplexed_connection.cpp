@@ -87,7 +87,14 @@ struct nativepg::co_multiplexed_connection::impl
                 co_return {};
 
             // Handle notifications
-            // TODO: maybe extract?
+            // TODO: although this is a valid backpressure strategy,
+            // it interacts poorly with running requests in the same coroutine.
+            // This is known in Boost.Redis. I'd like to make it better. Options include
+            //    a. Let exec() and read_notifies() handle run()'s work. This buys built-in
+            //       backpressure, but eliminates the option of built-in health-checks.
+            //    b. Make exec() unblock the reader if it's waiting for a message.
+            //       Makes the upper limit soft. May need to tear down the connection
+            //       if too many notifications stack.
             if (act.message().type() == protocol::any_backend_message::kind::notification_response)
             {
                 const auto& notif_msg = act.message().as_notification_response();

@@ -120,6 +120,9 @@ struct nativepg::co_multiplexed_connection::impl
 
             if (!ec)
             {
+                // We connected
+                notif_queue.add_connect();
+
                 // Run the tasks
                 [[maybe_unused]] auto res = co_await capy::when_any(writer(), reader());
                 if (tok.stop_requested())
@@ -129,6 +132,9 @@ struct nativepg::co_multiplexed_connection::impl
                 // Remove from the multiplexer the required requests.
                 // TODO: we should ensure that no request is allowed to enter once we're cancelled
                 mpx.cleanup();
+
+                // Notify listeners that we've disconnected
+                notif_queue.add_disconnect();
             }
 
             // Wait for the reconnection interval

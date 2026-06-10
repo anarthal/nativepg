@@ -27,6 +27,7 @@ class notify_queue
     std::vector<notify_event> pending_;
     boost::capy::async_event events_available_;
     boost::capy::async_event space_available_;
+    // TODO: we could avoid copies if the consumer task is waiting
 
     bool has_space() const { return pending_.size() < max_pending_; }
 
@@ -56,6 +57,7 @@ public:
     }
 
     // Producer side. Connects and disconnects are not subject to backpressure
+    // TODO: coalesce connect/disconnect events to avoid unlimited resource consumption
     void add_connect() { add_event({notify_event_type::connect}); }
     void add_disconnect() { add_event({notify_event_type::disconnect}); }
 

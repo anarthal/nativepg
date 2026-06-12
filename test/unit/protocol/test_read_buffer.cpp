@@ -56,8 +56,28 @@ void test_usual_workflow()
     BOOST_TEST_EQ(*ptr_to_5, 5u);
 }
 
-// Constructing with zero size
+// Constructing a zero-sized buffer is not UB
+void test_construct_zero_size()
+{
+    read_buffer buff{0u};
+    BOOST_TEST_EQ(buff.committed_area().size(), 0u);
+    BOOST_TEST_EQ(buff.prepared_area().size(), 1u);
+}
+
 // Constructing with size not a power of two rounds the size
+void test_construct_rounds_size()
+{
+    // The requested size is rounded up to the next power of 2
+    read_buffer buff{1000u};
+    BOOST_TEST_EQ(buff.committed_area().size(), 0u);
+    BOOST_TEST_EQ(buff.prepared_area().size(), 1024u);
+
+    // An exact power of 2 is left untouched
+    read_buffer exact{2048u};
+    BOOST_TEST_EQ(exact.committed_area().size(), 0u);
+    BOOST_TEST_EQ(exact.prepared_area().size(), 2048u);
+}
+
 // Moving, then move-assigning works OK
 // Committing the entire prepared area works
 // Committing size > prepared area commits the entire prepared area
@@ -84,6 +104,8 @@ void test_usual_workflow()
 int main()
 {
     test_usual_workflow();
+    test_construct_zero_size();
+    test_construct_rounds_size();
 
     return boost::report_errors();
 }

@@ -42,8 +42,8 @@ public:
         result(result_type t) noexcept : type(t) {}
     };
 
-    read_response_fsm_impl(const request* req, response_handler_ref handler) noexcept
-        : req_(req), handler_(handler)
+    read_response_fsm_impl(const request* req, response_handler_ref handler, bool allow_copy = false) noexcept
+        : req_(req), handler_(handler), allow_copy_(allow_copy)
     {
         BOOST_ASSERT(req != nullptr);
     }
@@ -65,6 +65,7 @@ private:
     response_handler_ref handler_;
     std::size_t current_{};
     state_t state_{static_cast<state_t>(0)};
+    bool allow_copy_;
 
     inline void call_handler(const any_request_message& msg) { handler_.on_message(msg, current_); }
     result advance();

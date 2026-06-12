@@ -113,6 +113,10 @@ enum class client_errc : int
     // The server sent us a message in a multiplexed connection that couldn't be matched to any pending
     // request
     unmatched_request,
+
+    // You issued a COPY SQL statement through an API that doesn't support COPY operations.
+    // Use an appropriate API, instead
+    copy_not_allowed,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

@@ -146,7 +146,8 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_execute(const any_
                     // Starts a COPY OUT block.
                     // Data is handled by the upper layers as a separate channel.
                     // The handler sees an empty resultset.
-                    // TODO: check that copy might not be allowed
+                    if (!allow_copy_)
+                        return error_code(client_errc::copy_not_allowed);
                     call_handler(row_description{});
                     state_ = state_t::exec_copy_out;
                     return result_type::read;
@@ -259,7 +260,8 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
                     // Starts a COPY OUT block.
                     // Data is handled by the upper layers as a separate channel.
                     // The handler sees an empty resultset.
-                    // TODO: check that copy might not be allowed
+                    if (!allow_copy_)
+                        return error_code(client_errc::copy_not_allowed);
                     call_handler(row_description{});
                     state_ = state_t::query_copy_out;
                     return result_type::read;

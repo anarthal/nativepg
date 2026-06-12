@@ -241,7 +241,7 @@ boost::capy::io_task<> co_connection::write_request(const request& req, response
         co_return {req_ec};
 
     // Store what we're reading
-    impl_->read_response_fsm.emplace(&req, handler);
+    impl_->read_response_fsm.emplace(&req, handler, true);  // allow COPY
 
     // Write the request to the server
     auto [ec, size] = co_await boost::capy::write(impl_->stream, boost::capy::make_buffer(req.payload()));

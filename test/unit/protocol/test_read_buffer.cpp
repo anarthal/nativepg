@@ -46,10 +46,38 @@ void test_usual_workflow()
     BOOST_TEST_EQ(buff.prepared_area().size(), 4088u);
 
     // Consuming part of the bytes moves them to the consumed area
+    // Consuming does not reallocate
+    const auto* ptr_to_5 = buff.committed_area().data() + 4u;
+    BOOST_TEST_EQ(*ptr_to_5, 5u);
     buff.consume(3u);
     NATIVEPG_TEST_CONT_EQ(buff.committed_area(), std::span(data).subspan(3));
     BOOST_TEST_EQ(buff.prepared_area().size(), 4088u);
+    BOOST_TEST_EQ(buff.committed_area().data() + 1u, ptr_to_5);
+    BOOST_TEST_EQ(*ptr_to_5, 5u);
 }
+
+// Constructing with zero size
+// Constructing with size not a power of two rounds the size
+// Moving, then move-assigning works OK
+// Committing the entire prepared area works
+// Committing size > prepared area commits the entire prepared area
+// Committing size == 0 is a no-op
+// Two consecutive commits are OK
+// Consuming the entire committed area works
+// Consuming size > committed area consumes the entire committed area
+// Consuming size == 0 is a no-op
+// Two consecutive consumes are OK
+// Preparing < prepared size is a no-op
+// Preparing size 0 is a no-op
+// Preparing with a size > prepared size and no consumed area reallocates to the next power of 2
+// Preparing with a size > prepared size and a committed area reallocates to the next power of 2 and copies
+// the committed area Preparing with a size > prepared size and consumed area does not copy the consumed area.
+//    The space taken by the consumed area counts as free space, and may condition the amount of allocated
+//    space
+// Preparing with a size > prepared size, consumed and committed area
+// Preparing with a size > prepared size but < consumed area memmoves and doesn't reallocate
+// Preparing with a size > prepared size but == consumed area memmoves and doesn't reallocate
+// Two consecutive prepares are OK
 
 }  // namespace
 

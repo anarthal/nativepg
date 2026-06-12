@@ -63,7 +63,6 @@ struct co_connection::impl
         BOOST_ASSERT(read_response_fsm.has_value());
         auto& fsm = *read_response_fsm;
         copy_out.clear();
-        bool copy_eof = false;
 
         // Read the response until we finished it, an error occurs, or a copy message is found
         auto act = st.read_msg_stream_fsm.resume(st, {}, 0u);
@@ -75,7 +74,7 @@ struct co_connection::impl
                 case protocol::read_message_stream_fsm::result_type::error: co_return {act.error(), {}};
                 case protocol::read_message_stream_fsm::result_type::read:
                 {
-                    if (copy_out.empty() && !copy_eof)
+                    if (copy_out.empty())
                     {
                         // No copy-related info, keep reading
                         auto [ec, bytes] = co_await stream.read_some(
@@ -89,35 +88,35 @@ struct co_connection::impl
                         // We have received copy data during this iteration, return it
                         co_return {
                             {},
-                            exec_some_result{false, copy_eof, copy_out}
+                            exec_some_result{copy_out, false}
                         };
                     }
                 }
                 case protocol::read_message_stream_fsm::result_type::message:
                 {
                     // Feed the protocol state machine. If we received an illegal message, we'll detect it
-                    // here
+                    // here. Copy data never causes termination, so this is safe
                     auto res = fsm.resume(act.message());
-                    bool is_done = res.type == protocol::detail::read_response_fsm_impl::result_type::done;
-                    if (is_done && res.ec)
+                    if (res.type == protocol::detail::read_response_fsm_impl::result_type::done)
                         co_return {res.ec, {}};
 
-                    // The message is legal. Store any copy messages as required
+                    // React to copy messages
                     switch (act.message().type())
                     {
                         case protocol::any_backend_message::kind::copy_data:
+                            // Store them, we'll return the entire batch when ready
                             copy_out.push_back(boost::capy::make_buffer(act.message().get_copy_data().data));
                             break;
-                        case protocol::any_backend_message::kind::copy_done: copy_eof = true; break;
+                        case protocol::any_backend_message::kind::copy_done:
+                        {
+                            // The copy batch has finished, return the remaining messages and the eof
+                            co_return {
+                                {},
+                                exec_some_result{copy_out, true}
+                            };
+                        }
                         default: break;
                     }
-
-                    // If we're done, return the result
-                    if (is_done)
-                        co_return {
-                            {},
-                            exec_some_result{true, copy_eof, copy_out}
-                        };
 
                     // Attempt to read the next message
                     act = st.read_msg_stream_fsm.resume(st, {}, 0u);

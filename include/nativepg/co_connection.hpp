@@ -21,6 +21,8 @@
 #include "nativepg/connect_params.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
+#include "nativepg/protocol/copy.hpp"
+#include "nativepg/protocol/startup_fsm.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
 
@@ -28,32 +30,55 @@ namespace nativepg {
 
 class exec_some_result
 {
-    enum flags_t
+public:
+    enum class kind
     {
-        done = 1,
-        copy_eof = 2,
+        copy_out,
+        copy_out_data,
+        done,
     };
 
-    int flags_{};
-    std::span<const boost::capy::const_buffer> copy_out;
-
-public:
-    exec_some_result(
-        bool done = true,
-        bool has_copy_eof = false,
-        std::span<const boost::capy::const_buffer> copy_out_buffers = {}
-    ) noexcept
-        : copy_out(copy_out_buffers)
+    exec_some_result() = default;
+    exec_some_result(protocol::copy_out_response value) noexcept : type_(kind::copy_out), data_(value) {}
+    exec_some_result(std::span<const boost::capy::const_buffer> value, bool eof) noexcept
+        : type_(kind::copy_out_data), data_({value, eof})
     {
-        if (done)
-            flags_ |= flags_t::done;
-        if (has_copy_eof)
-            flags_ |= flags_t::copy_eof;
     }
 
-    bool is_done() const { return flags_ & flags_t::done; }
-    bool has_copy_out_eof() const { return flags_ & flags_t::copy_eof; }
-    std::span<const boost::capy::const_buffer> copy_out_data() const { return copy_out; }
+    kind type() const { return type_; }
+    protocol::copy_out_response get_copy_out() const
+    {
+        BOOST_ASSERT(type_ == kind::copy_out);
+        return data_.copy_out;
+    }
+    std::span<const boost::capy::const_buffer> get_copy_out_data() const
+    {
+        BOOST_ASSERT(type_ == kind::copy_out_data);
+        return data_.copy_out_data.buffers;
+    }
+    bool get_copy_out_eof() const
+    {
+        BOOST_ASSERT(type_ == kind::copy_out_data);
+        return data_.copy_out_data.is_eof;
+    }
+
+private:
+    kind type_{kind::done};
+    struct copy_out_data_t
+    {
+        std::span<const boost::capy::const_buffer> buffers;
+        bool is_eof;
+    };
+
+    union data_t
+    {
+        protocol::copy_out_response copy_out;
+        copy_out_data_t copy_out_data;
+
+        data_t() : copy_out_data() {}
+        data_t(protocol::copy_out_response value) noexcept : copy_out(value) {}
+        data_t(copy_out_data_t value) noexcept : copy_out_data(value) {}
+    } data_;
 };
 
 class co_connection

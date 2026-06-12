@@ -111,11 +111,10 @@ public:
         diagnostics* diag = nullptr
     );
 
-    // TODO: I think this could be more ergonomic if we packaged the request and handler
-    // into a generator-like object
-    boost::capy::io_task<> write_request(const request& req, response_handler_ref handler);
-
-    boost::capy::io_task<exec_some_result> read_response_part();
+    // The request and the handler must live until the entire response has been read
+    // with exec_some
+    void setup_request(const request& req, response_handler_ref handler);
+    boost::capy::io_task<exec_some_result> exec_some();
 
     // TODO: I don't like this
     boost::capy::any_stream& stream();

@@ -75,16 +75,14 @@ static capy::task<> co_main()
     // Structures to parse the response into
     null_handler ignore;
 
-    if (auto [ec2] = co_await conn.write_request(req, ignore); ec2)
-    {
-        print_err("Error writing request", ec, {});
-        co_return;
-    }
+    // Setup the request for exec_some
+    // Important: req and the handler must be kept alive until we finish executing
+    conn.setup_request(req, ignore);
 
     bool done = false;
     while (!done)
     {
-        auto [ec2, res] = co_await conn.read_response_part();
+        auto [ec2, res] = co_await conn.exec_some();
         if (ec2)
         {
             print_err("Error reading response", ec, {});

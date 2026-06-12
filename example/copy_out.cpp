@@ -85,7 +85,7 @@ static capy::task<> co_main()
         auto [ec2, res] = co_await conn.exec_some();
         if (ec2)
         {
-            print_err("Error reading response", ec, {});
+            print_err("Error reading response", ec2, {});
             co_return;
         }
 

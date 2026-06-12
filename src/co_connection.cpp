@@ -92,7 +92,10 @@ struct co_connection::impl
         {
             // Check that the request is valid
             if (auto req_ec = protocol::detail::setup_request(fsm.get_request(), fsm.get_handler()))
+            {
+                exec_some_st.reset();
                 co_return {req_ec, {}};
+            }
 
             // Write the request to the server
             auto [ec, size] = co_await boost::capy::write(

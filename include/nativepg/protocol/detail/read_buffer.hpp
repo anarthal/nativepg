@@ -87,7 +87,7 @@ public:
         {
             std::memmove(buffer_.get(), committed.data(), committed.size());
             committed_offset_ = 0u;
-            prepared_offset_ -= committed.size();
+            prepared_offset_ -= consumed_size;
             return;
         }
 

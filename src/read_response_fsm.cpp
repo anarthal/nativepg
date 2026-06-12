@@ -30,8 +30,10 @@ enum class read_response_fsm_impl::state_t
     query_first,
     query_needs_ready,
     query_rows,
-    copy_out,
-    copy_out_needs_command_complete,
+    exec_copy_out,
+    exec_copy_out_needs_command_complete,
+    query_copy_out,
+    query_copy_out_needs_command_complete,
 };
 
 read_response_fsm_impl::result read_response_fsm_impl::handle_error(const error_response& err)
@@ -146,7 +148,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_execute(const any_
                     // The handler sees an empty resultset.
                     // TODO: check that copy might not be allowed
                     call_handler(row_description{});
-                    state_ = state_t::copy_out;
+                    state_ = state_t::exec_copy_out;
                     return result_type::read;
                 case kind::error_response:
                     // An error finishes this message and makes the server skip everything until sync
@@ -170,7 +172,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_execute(const any_
                 default: return error_code(client_errc::unexpected_message);
             }
         }
-        case state_t::copy_out:
+        case state_t::exec_copy_out:
         {
             switch (msg.type())
             {
@@ -182,12 +184,12 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_execute(const any_
                     return handle_error(msg.get_error_response());
                 case kind::copy_done:
                     // Terminates copy out, but should be followed by CommandComplete
-                    state_ = state_t::copy_out_needs_command_complete;
+                    state_ = state_t::exec_copy_out_needs_command_complete;
                     return result_type::read;
                 default: return error_code(client_errc::unexpected_message);
             }
         }
-        case state_t::copy_out_needs_command_complete:
+        case state_t::exec_copy_out_needs_command_complete:
         {
             switch (msg.type())
             {
@@ -236,9 +238,14 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
 {
     // either
     //    at least one
-    //        optional row_description (we synthesize one of not present)
-    //        any number of data_row
-    //        finalizer: command_complete, error_response
+    //        either
+    //            optional row_description (we synthesize one of not present)
+    //            any number of data_row
+    //            finalizer: command_complete, error_response
+    //        or
+    //            copy_out_response
+    //            any number of copy_data
+    //            copy_done, followed by (command_complete or error_response), or error_response
     //    ready_for_query
     // or empty_query_response
     switch (state_)
@@ -248,6 +255,14 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
         {
             switch (msg.type())
             {
+                case kind::copy_out_response:
+                    // Starts a COPY OUT block.
+                    // Data is handled by the upper layers as a separate channel.
+                    // The handler sees an empty resultset.
+                    // TODO: check that copy might not be allowed
+                    call_handler(row_description{});
+                    state_ = state_t::query_copy_out;
+                    return result_type::read;
                 case kind::error_response:
                     // An error should always be followed by ReadyForQuery
                     state_ = state_t::query_needs_ready;
@@ -313,6 +328,39 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
                 return advance();
             }
             return error_code(client_errc::unexpected_message);
+        case state_t::query_copy_out:
+        {
+            switch (msg.type())
+            {
+                case kind::copy_data:
+                    // Data is handled by upper layers, we don't need to do anything
+                    return result_type::read;
+                case kind::error_response:
+                    // Terminates copy out
+                    call_handler(msg.get_error_response());
+                    return result_type::read;
+                case kind::copy_done:
+                    // Terminates copy out, but should be followed by CommandComplete
+                    state_ = state_t::query_copy_out_needs_command_complete;
+                    return result_type::read;
+                default: return error_code(client_errc::unexpected_message);
+            }
+        }
+        case state_t::query_copy_out_needs_command_complete:
+        {
+            switch (msg.type())
+            {
+                case kind::error_response:
+                    // This is possible, in theory
+                    call_handler(msg.get_error_response());
+                    return result_type::read;
+                case kind::command_complete:
+                    call_handler(msg.get_command_complete());
+                    state_ = state_t::query_first;
+                    return result_type::read;
+                default: return error_code(client_errc::unexpected_message);
+            }
+        }
         default: BOOST_ASSERT(false); return error_code(client_errc::unexpected_message);
     }
 }

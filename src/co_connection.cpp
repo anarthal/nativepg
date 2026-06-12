@@ -147,6 +147,9 @@ struct co_connection::impl
                     // React to copy messages
                     switch (act.message().type())
                     {
+                        case protocol::any_backend_message::kind::copy_out_response:
+                            // We're entering COPY OUT, notify the user
+                            co_return {{}, exec_some_result{act.message().get_copy_out_response()}};
                         case protocol::any_backend_message::kind::copy_data:
                             // Store them, we'll return the entire batch when ready
                             exec_some_st.copy_out.push_back(

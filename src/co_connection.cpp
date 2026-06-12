@@ -6,6 +6,7 @@
 //
 
 #include <boost/assert.hpp>
+#include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/io_task.hpp>
@@ -15,16 +16,22 @@
 #include <boost/corosio/tcp_socket.hpp>
 
 #include <memory>
+#include <optional>
 #include <string>
+#include <vector>
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
 #include "nativepg/protocol/detail/exec_fsm.hpp"
+#include "nativepg/protocol/read_message_fsm.hpp"
+#include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
+#include "nativepg_internal/check_request.hpp"
 
 namespace nativepg {
 
@@ -34,6 +41,10 @@ struct co_connection::impl
     boost::corosio::tcp_socket sock;
     protocol::connection_state st{};
     boost::capy::any_stream stream{&sock};
+
+    // For operations spanning multiple functions
+    std::optional<protocol::detail::read_response_fsm_impl> read_response_fsm;
+    std::vector<boost::capy::const_buffer> copy_out;
 
     explicit impl(boost::capy::execution_context& ctx) : resolv(ctx), sock(ctx) {}
 
@@ -45,6 +56,76 @@ struct co_connection::impl
 
         auto [ec2, ep] = co_await boost::corosio::connect(sock, endpoints);
         co_return {ec2};
+    }
+
+    boost::capy::io_task<exec_some_result> read_response_part()
+    {
+        BOOST_ASSERT(read_response_fsm.has_value());
+        auto& fsm = *read_response_fsm;
+        copy_out.clear();
+        bool copy_eof = false;
+
+        // Read the response until we finished it, an error occurs, or a copy message is found
+        auto act = st.read_msg_stream_fsm.resume(st, {}, 0u);
+
+        while (true)
+        {
+            switch (act.type())
+            {
+                case protocol::read_message_stream_fsm::result_type::error: co_return {act.error(), {}};
+                case protocol::read_message_stream_fsm::result_type::read:
+                {
+                    if (copy_out.empty() && !copy_eof)
+                    {
+                        // No copy-related info, keep reading
+                        auto [ec, bytes] = co_await stream.read_some(
+                            boost::capy::make_buffer(act.read_buffer())
+                        );
+                        act = st.read_msg_stream_fsm.resume(st, ec, bytes);
+                        break;
+                    }
+                    else
+                    {
+                        // We have received copy data during this iteration, return it
+                        co_return {
+                            {},
+                            exec_some_result{false, copy_eof, copy_out}
+                        };
+                    }
+                }
+                case protocol::read_message_stream_fsm::result_type::message:
+                {
+                    // Feed the protocol state machine. If we received an illegal message, we'll detect it
+                    // here
+                    auto res = fsm.resume(act.message());
+                    bool is_done = res.type == protocol::detail::read_response_fsm_impl::result_type::done;
+                    if (is_done && res.ec)
+                        co_return {res.ec, {}};
+
+                    // The message is legal. Store any copy messages as required
+                    switch (act.message().type())
+                    {
+                        case protocol::any_backend_message::kind::copy_data:
+                            copy_out.push_back(boost::capy::make_buffer(act.message().get_copy_data().data));
+                            break;
+                        case protocol::any_backend_message::kind::copy_done: copy_eof = true; break;
+                        default: break;
+                    }
+
+                    // If we're done, return the result
+                    if (is_done)
+                        co_return {
+                            {},
+                            exec_some_result{true, copy_eof, copy_out}
+                        };
+
+                    // Attempt to read the next message
+                    act = st.read_msg_stream_fsm.resume(st, {}, 0u);
+
+                    break;
+                }
+            }
+        }
     }
 };
 
@@ -151,6 +232,25 @@ boost::capy::io_task<> co_connection::exec(
             default: BOOST_ASSERT(false); co_return {};
         }
     }
+}
+
+boost::capy::io_task<> co_connection::write_request(const request& req, response_handler_ref handler)
+{
+    // Check that the request is valid
+    if (auto req_ec = protocol::detail::setup_request(req, handler))
+        co_return {req_ec};
+
+    // Store what we're reading
+    impl_->read_response_fsm.emplace(&req, handler);
+
+    // Write the request to the server
+    auto [ec, size] = co_await boost::capy::write(impl_->stream, boost::capy::make_buffer(req.payload()));
+    co_return {ec};
+}
+
+boost::capy::io_task<exec_some_result> co_connection::read_response_part()
+{
+    return impl_->read_response_part();
 }
 
 boost::capy::any_stream& co_connection::stream() { return impl_->stream; }

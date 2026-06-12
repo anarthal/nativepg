@@ -28,26 +28,31 @@ namespace nativepg {
 
 class exec_some_result
 {
-    enum class type
+    enum flags_t
     {
-        done,
-        copy_out,
-        copy_out_eof,
+        done = 1,
+        copy_eof = 2,
     };
 
-    type type_{type::done};
+    int flags_{};
     std::span<const boost::capy::const_buffer> copy_out;
 
 public:
-    exec_some_result() noexcept = default;
-    exec_some_result(std::span<const boost::capy::const_buffer> copy_out_buffers, bool is_eof) noexcept
-        : type_(is_eof ? type::copy_out_eof : type::copy_out), copy_out(copy_out_buffers)
+    exec_some_result(
+        bool done = true,
+        bool has_copy_eof = false,
+        std::span<const boost::capy::const_buffer> copy_out_buffers = {}
+    ) noexcept
+        : copy_out(copy_out_buffers)
     {
+        if (done)
+            flags_ |= flags_t::done;
+        if (has_copy_eof)
+            flags_ |= flags_t::copy_eof;
     }
 
-    bool is_done() const { return type_ == type::done; }
-    bool is_copy_out() const { return type_ == type::copy_out || type_ == type::copy_out_eof; }
-    bool is_copy_out_eof() const { return type_ == type::copy_out_eof; }
+    bool is_done() const { return flags_ & flags_t::done; }
+    bool has_copy_out_eof() const { return flags_ & flags_t::copy_eof; }
     std::span<const boost::capy::const_buffer> copy_out_data() const { return copy_out; }
 };
 
@@ -83,11 +88,9 @@ public:
 
     // TODO: I think this could be more ergonomic if we packaged the request and handler
     // into a generator-like object
-    boost::capy::io_task<exec_some_result> exec_some(
-        const request& req,
-        response_handler_ref handler,
-        diagnostics* diag = nullptr
-    );
+    boost::capy::io_task<> write_request(const request& req, response_handler_ref handler);
+
+    boost::capy::io_task<exec_some_result> read_response_part();
 
     // TODO: I don't like this
     boost::capy::any_stream& stream();

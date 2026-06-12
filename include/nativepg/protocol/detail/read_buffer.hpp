@@ -11,14 +11,22 @@
 #include <boost/assert.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <cstddef>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <span>
 
 namespace nativepg::protocol::detail {
 
-std::size_t next_power_of_2(std::size_t);
+// Returns the smallest power of 2 that is not less than n.
+// n == 0 yields 1, matching the "round capacity up to a power of 2" use below.
+constexpr std::size_t next_power_of_2(std::size_t n)
+{
+    constexpr auto sizemax = (std::numeric_limits<std::size_t>::max)();
+    return (n > (sizemax >> 1)) ? std::bit_ceil(n) : sizemax;
+}
 
 // Custom buffer type optimized for read operations.
 // Similar to beast::flat_buffer. Avoids dependencies on Beast or Capy at this point.

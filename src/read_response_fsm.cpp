@@ -338,7 +338,8 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
                     // Data is handled by upper layers, we don't need to do anything
                     return result_type::read;
                 case kind::error_response:
-                    // Terminates copy out
+                    // An error should always be followed by ReadyForQuery
+                    state_ = state_t::query_needs_ready;
                     call_handler(msg.get_error_response());
                     return result_type::read;
                 case kind::copy_done:
@@ -353,7 +354,8 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
             switch (msg.type())
             {
                 case kind::error_response:
-                    // This is possible, in theory
+                    // An error should always be followed by ReadyForQuery
+                    state_ = state_t::query_needs_ready;
                     call_handler(msg.get_error_response());
                     return result_type::read;
                 case kind::command_complete:

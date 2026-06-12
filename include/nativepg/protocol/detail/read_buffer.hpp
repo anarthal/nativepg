@@ -85,6 +85,8 @@ public:
         if (consumed_size + old_prepared_size >= required && buffer_.get() != nullptr)
         {
             std::memmove(buffer_.get(), committed.data(), committed.size());
+            committed_offset_ = 0u;
+            prepared_offset_ -= committed.size();
             return;
         }
 
@@ -102,10 +104,10 @@ public:
     }
 
     // Marks n bytes from the prepared area as committed
-    void commit(std::size_t n) { prepared_offset_ -= (std::min)(n, prepared_area().size()); }
+    void commit(std::size_t n) { prepared_offset_ += (std::min)(n, prepared_area().size()); }
 
     // Marks n bytes from the committed area as consumed
-    void consume(std::size_t n) { committed_offset_ -= (std::min)(n, committed_area().size()); }
+    void consume(std::size_t n) { committed_offset_ += (std::min)(n, committed_area().size()); }
 };
 
 }  // namespace nativepg::protocol::detail

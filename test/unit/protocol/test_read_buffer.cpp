@@ -14,7 +14,6 @@
 
 using namespace nativepg;
 using protocol::detail::next_power_of_2;
-using protocol::detail::read_buffer;
 
 namespace {
 
@@ -37,8 +36,12 @@ void test_next_power_of_2()
     BOOST_TEST_EQ(next_power_of_2(1000u), 1024u);
     BOOST_TEST_EQ(next_power_of_2(1024u), 1024u);
     BOOST_TEST_EQ(next_power_of_2(4093u), 4096u);
+}
 
-    if constexpr (sizeof(std::size_t) == 8u)
+template <class T = std::size_t>
+void test_next_power_of_2_max()
+{
+    if constexpr (sizeof(T) == 8u)
     {
         // Values around the 32-bit boundary
         BOOST_TEST_EQ(next_power_of_2(2147483647ull), 2147483648ull);  // 2^31 - 1 -> 2^31
@@ -56,6 +59,19 @@ void test_next_power_of_2()
         BOOST_TEST_EQ(next_power_of_2(size_max - 1u), size_max);                         // max - 1  -> max
         BOOST_TEST_EQ(next_power_of_2(size_max), size_max);                              // max      -> max
     }
+    else
+    {
+        static_assert(sizeof(T) == 4u);
+
+        // Values around the 32-bit boundary
+        constexpr auto size_max = (std::numeric_limits<std::size_t>::max)();
+        BOOST_TEST_EQ(next_power_of_2(2147483646ull), 2147483648ull);  // 2^31 - 2 -> 2^31
+        BOOST_TEST_EQ(next_power_of_2(2147483647ull), 2147483648ull);  // 2^31 - 1 -> 2^31
+        BOOST_TEST_EQ(next_power_of_2(2147483648ull), 2147483648ull);  // 2^31     -> 2^31
+        BOOST_TEST_EQ(next_power_of_2(2147483649ull), size_max);       // 2^31 + 1 -> max
+        BOOST_TEST_EQ(next_power_of_2(size_max - 1u), size_max);       // max - 1  -> max
+        BOOST_TEST_EQ(next_power_of_2(size_max), size_max);            // max      -> max
+    }
 }
 
 }  // namespace
@@ -63,6 +79,7 @@ void test_next_power_of_2()
 int main()
 {
     test_next_power_of_2();
+    test_next_power_of_2_max();
 
     return boost::report_errors();
 }

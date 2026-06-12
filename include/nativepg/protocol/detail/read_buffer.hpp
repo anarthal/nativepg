@@ -26,7 +26,8 @@ namespace nativepg::protocol::detail {
 constexpr std::size_t next_power_of_2(std::size_t n)
 {
     constexpr auto sizemax = (std::numeric_limits<std::size_t>::max)();
-    return (n <= ((sizemax >> 1) + 1)) ? std::bit_ceil(n) : sizemax;
+    constexpr auto ub_boundary = (sizemax >> 1) + 1;  // bit_ceil would cause UB if the arg is > this value
+    return (n <= ub_boundary) ? std::bit_ceil(n) : sizemax;
 }
 
 // Custom buffer type optimized for read operations.

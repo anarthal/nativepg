@@ -11,9 +11,9 @@
 #include <span>
 
 #include "coroutine.hpp"
+#include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/header.hpp"
-#include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/read_message_fsm.hpp"
 
 using namespace nativepg::protocol;
@@ -53,11 +53,6 @@ read_message_fsm::result read_message_fsm::resume(std::span<const unsigned char>
     return result(*msg_result, expected_size);
 }
 
-static std::span<unsigned char> to_span(boost::asio::mutable_buffer buff)
-{
-    return {static_cast<unsigned char*>(buff.data()), buff.size()};
-}
-
 read_message_stream_fsm::result read_message_stream_fsm::resume(
     connection_state& st,
     boost::system::error_code io_ec,
@@ -72,7 +67,7 @@ read_message_stream_fsm::result read_message_stream_fsm::resume(
 
         while (true)
         {
-            res = fsm_.resume(to_span(st.read_buffer.data()));
+            res = fsm_.resume(st.read_buffer.committed_area());
 
             if (res.type() == read_message_fsm::result_type::error)
             {
@@ -92,7 +87,8 @@ read_message_stream_fsm::result read_message_stream_fsm::resume(
                 BOOST_ASSERT(res.type() == read_message_fsm::result_type::needs_more);
 
                 // Prepare the buffer and tell the caller to read
-                NATIVEPG_YIELD(resume_point_, 2, to_span(st.read_buffer.prepare(res.hint())));
+                st.read_buffer.prepare(res.hint());
+                NATIVEPG_YIELD(resume_point_, 2, st.read_buffer.prepared_area());
 
                 // Check for read errors
                 if (io_ec)

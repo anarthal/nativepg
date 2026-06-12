@@ -356,25 +356,72 @@ void test_prepare_memmoves()
     BOOST_TEST_EQ(buff.committed_area().data(), base);  // moved to the front, same allocation
 }
 
-// Preparing with a size > prepared size but == consumed area memmoves and doesn't reallocate
+// Same, but required space == (consumed + prepared)
+void test_prepare_memmoves_required_equals_total()
+{
+    constexpr unsigned char data[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+
+    // Set up: 6 consumed, 6 committed, 4 free
+    read_buffer buff{16u};
+    copy_to(data, buff.prepared_area());
+    buff.commit(12u);
+    const auto* base = buff.committed_area().data();  // start of the allocation
+    buff.consume(6u);
+
+    // Requested space (10) equals the total free space
+    buff.prepare(10u);
+    NATIVEPG_TEST_CONT_EQ(buff.committed_area(), std::span(data).last(6));
+    BOOST_TEST_EQ(buff.prepared_area().size(), 10u);
+    BOOST_TEST_EQ(buff.committed_area().data(), base);  // moved to the front, same allocation
+}
+
 // Two consecutive prepares are OK
+void test_two_prepares()
+{
+    constexpr unsigned char data[] = {1, 2, 3, 4, 5, 6, 7, 8};
+
+    // Fill the buffer so the next prepare must reallocate
+    read_buffer buff{8u};
+    copy_to(data, buff.prepared_area());
+    buff.commit(8u);
+
+    // First prepare reallocates: next_power_of_2(8 + 10) == 32, prepared area == 24
+    buff.prepare(10u);
+    NATIVEPG_TEST_CONT_EQ(buff.committed_area(), data);
+    BOOST_TEST_EQ(buff.prepared_area().size(), 24u);
+
+    // Second prepare for a size that already fits is a no-op
+    buff.prepare(24u);
+    NATIVEPG_TEST_CONT_EQ(buff.committed_area(), data);
+    BOOST_TEST_EQ(buff.prepared_area().size(), 24u);
+
+    // A larger prepare reallocates again: next_power_of_2(8 + 30) == 64, prepared area == 56
+    buff.prepare(30u);
+    NATIVEPG_TEST_CONT_EQ(buff.committed_area(), data);
+    BOOST_TEST_EQ(buff.prepared_area().size(), 56u);
+}
 
 }  // namespace
 
 int main()
 {
     test_usual_workflow();
+
     test_construct_zero_size();
     test_construct_rounds_size();
+
     test_move();
+
     test_commit_entire_prepared_area();
     test_commit_over_prepared_area();
     test_commit_zero();
     test_two_commits();
+
     test_consume_entire_committed_area();
     test_consume_over_committed_area();
     test_consume_zero();
     test_two_consumes();
+
     test_prepare_below_prepared_size();
     test_prepare_zero();
     test_prepare_reallocates_empty();
@@ -382,6 +429,8 @@ int main()
     test_prepare_reallocates_drops_consumed();
     test_prepare_reallocates_consumed_and_committed();
     test_prepare_memmoves();
+    test_prepare_memmoves_required_equals_total();
+    test_two_prepares();
 
     return boost::report_errors();
 }

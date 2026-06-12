@@ -166,9 +166,72 @@ void test_two_commits()
 }
 
 // Consuming the entire committed area works
+void test_consume_entire_committed_area()
+{
+    constexpr unsigned char data[] = {1, 2, 3, 4, 5, 6, 7, 8};
+
+    // Setup
+    read_buffer buff{32u};
+    copy_to(data, buff.prepared_area());
+    buff.commit(8u);
+
+    // Consume everything: the committed area empties. The prepared area is unchanged,
+    // since consumed bytes are not returned as free space.
+    buff.consume(8u);
+    BOOST_TEST_EQ(buff.committed_area().size(), 0u);
+    BOOST_TEST_EQ(buff.prepared_area().size(), 24u);
+}
+
 // Consuming size > committed area consumes the entire committed area
+void test_consume_over_committed_area()
+{
+    constexpr unsigned char data[] = {1, 2, 3, 4, 5, 6, 7, 8};
+
+    read_buffer buff{32u};
+    copy_to(data, buff.prepared_area());
+    buff.commit(8u);
+
+    // Consuming more than is committed is clamped to the whole committed area
+    buff.consume(100u);
+    BOOST_TEST_EQ(buff.committed_area().size(), 0u);
+    BOOST_TEST_EQ(buff.prepared_area().size(), 24u);
+}
+
 // Consuming size == 0 is a no-op
+void test_consume_zero()
+{
+    constexpr unsigned char data[] = {1, 2, 3, 4};
+
+    read_buffer buff{16u};
+    copy_to(data, buff.prepared_area());
+    buff.commit(4u);
+
+    // Consuming 0 leaves both areas untouched
+    buff.consume(0u);
+    NATIVEPG_TEST_CONT_EQ(buff.committed_area(), data);
+    BOOST_TEST_EQ(buff.prepared_area().size(), 12u);
+}
+
 // Two consecutive consumes are OK
+void test_two_consumes()
+{
+    constexpr unsigned char data[] = {1, 2, 3, 4, 5, 6, 7, 8};
+
+    read_buffer buff{16u};
+    copy_to(data, buff.prepared_area());
+    buff.commit(8u);
+
+    // First consume: the committed area shrinks from the front
+    buff.consume(5u);
+    NATIVEPG_TEST_CONT_EQ(buff.committed_area(), std::span(data).last(3));
+    BOOST_TEST_EQ(buff.prepared_area().size(), 8u);
+
+    // Second consume: the remaining committed bytes are consumed too
+    buff.consume(3u);
+    BOOST_TEST_EQ(buff.committed_area().size(), 0u);
+    BOOST_TEST_EQ(buff.prepared_area().size(), 8u);
+}
+
 // Preparing < prepared size is a no-op
 // Preparing size 0 is a no-op
 // Preparing with a size > prepared size and no consumed area reallocates to the next power of 2
@@ -193,6 +256,10 @@ int main()
     test_commit_over_prepared_area();
     test_commit_zero();
     test_two_commits();
+    test_consume_entire_committed_area();
+    test_consume_over_committed_area();
+    test_consume_zero();
+    test_two_consumes();
 
     return boost::report_errors();
 }

@@ -7,79 +7,55 @@
 
 #include <boost/core/lightweight_test.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <limits>
+#include <span>
 
 #include "nativepg/protocol/detail/read_buffer.hpp"
+#include "test_utils.hpp"
 
 using namespace nativepg;
-using protocol::detail::next_power_of_2;
+using protocol::detail::read_buffer;
 
 namespace {
 
-void test_next_power_of_2()
+void copy_to(std::span<const unsigned char> data, std::span<unsigned char> to)
 {
-    BOOST_TEST_EQ(next_power_of_2(0u), 1u);
-    BOOST_TEST_EQ(next_power_of_2(1u), 1u);
-    BOOST_TEST_EQ(next_power_of_2(2u), 2u);
-    BOOST_TEST_EQ(next_power_of_2(3u), 4u);
-    BOOST_TEST_EQ(next_power_of_2(4u), 4u);
-    BOOST_TEST_EQ(next_power_of_2(5u), 8u);
-    BOOST_TEST_EQ(next_power_of_2(6u), 8u);
-    BOOST_TEST_EQ(next_power_of_2(7u), 8u);
-    BOOST_TEST_EQ(next_power_of_2(8u), 8u);
-    BOOST_TEST_EQ(next_power_of_2(9u), 16u);
-    BOOST_TEST_EQ(next_power_of_2(10u), 16u);
-    BOOST_TEST_EQ(next_power_of_2(15u), 16u);
-    BOOST_TEST_EQ(next_power_of_2(16u), 16u);
-    BOOST_TEST_EQ(next_power_of_2(17u), 32u);
-    BOOST_TEST_EQ(next_power_of_2(1000u), 1024u);
-    BOOST_TEST_EQ(next_power_of_2(1024u), 1024u);
-    BOOST_TEST_EQ(next_power_of_2(4093u), 4096u);
+    BOOST_ASSERT(data.size() <= to.size());
+    std::ranges::copy(data, to.data());
 }
 
-template <class T = std::size_t>
-void test_next_power_of_2_max()
+void test_usual_workflow()
 {
-    if constexpr (sizeof(T) == 8u)
-    {
-        // Values around the 32-bit boundary
-        BOOST_TEST_EQ(next_power_of_2(2147483647ull), 2147483648ull);  // 2^31 - 1 -> 2^31
-        BOOST_TEST_EQ(next_power_of_2(2147483648ull), 2147483648ull);  // 2^31     -> 2^31
-        BOOST_TEST_EQ(next_power_of_2(2147483649ull), 4294967296ull);  // 2^31 + 1 -> 2^32
-        BOOST_TEST_EQ(next_power_of_2(2147483650ull), 4294967296ull);  // 2^31 + 2 -> 2^32
-        BOOST_TEST_EQ(next_power_of_2(4294967296ull), 4294967296ull);  // 2^32     -> 2^32
+    // Constructor: creates a buffer with free space
+    read_buffer buff{4096u};
+    BOOST_TEST_EQ(buff.committed_area().size(), 0u);
+    BOOST_TEST_EQ(buff.prepared_area().size(), 4096u);
 
-        // Values around the 64-bit boundary
-        constexpr auto size_max = (std::numeric_limits<std::size_t>::max)();
-        BOOST_TEST_EQ(next_power_of_2(9223372036854775806ull), 9223372036854775808ull);  // 2^63 - 2 -> 2^63
-        BOOST_TEST_EQ(next_power_of_2(9223372036854775807ull), 9223372036854775808ull);  // 2^63 - 1 -> 2^63
-        BOOST_TEST_EQ(next_power_of_2(9223372036854775808ull), 9223372036854775808ull);  // 2^63     -> 2^63
-        BOOST_TEST_EQ(next_power_of_2(9223372036854775809ull), size_max);                // 2^63 + 1 -> max
-        BOOST_TEST_EQ(next_power_of_2(size_max - 1u), size_max);                         // max - 1  -> max
-        BOOST_TEST_EQ(next_power_of_2(size_max), size_max);                              // max      -> max
-    }
-    else
-    {
-        static_assert(sizeof(T) == 4u);
+    // Prepare the buffer to fit a small message: nothing happens
+    buff.prepare(1000u);
+    BOOST_TEST_EQ(buff.committed_area().size(), 0u);
+    BOOST_TEST_EQ(buff.prepared_area().size(), 4096u);
 
-        // Values around the 32-bit boundary
-        constexpr auto size_max = (std::numeric_limits<std::size_t>::max)();
-        BOOST_TEST_EQ(next_power_of_2(2147483646ull), 2147483648ull);  // 2^31 - 2 -> 2^31
-        BOOST_TEST_EQ(next_power_of_2(2147483647ull), 2147483648ull);  // 2^31 - 1 -> 2^31
-        BOOST_TEST_EQ(next_power_of_2(2147483648ull), 2147483648ull);  // 2^31     -> 2^31
-        BOOST_TEST_EQ(next_power_of_2(2147483649ull), size_max);       // 2^31 + 1 -> max
-        BOOST_TEST_EQ(next_power_of_2(size_max - 1u), size_max);       // max - 1  -> max
-        BOOST_TEST_EQ(next_power_of_2(size_max), size_max);            // max      -> max
-    }
+    // Read some data into the buffer and commit => bytes go into the committed area
+    constexpr unsigned char data[] = {1, 2, 3, 4, 5, 6, 7, 8};
+    copy_to(data, buff.prepared_area());
+    buff.commit(8u);
+    NATIVEPG_TEST_CONT_EQ(buff.committed_area(), data);
+    BOOST_TEST_EQ(buff.prepared_area().size(), 4088u);
+
+    // Consuming part of the bytes moves them to the consumed area
+    buff.consume(3u);
+    NATIVEPG_TEST_CONT_EQ(buff.committed_area(), std::span(data).subspan(3));
+    BOOST_TEST_EQ(buff.prepared_area().size(), 4088u);
 }
 
 }  // namespace
 
 int main()
 {
-    test_next_power_of_2();
-    test_next_power_of_2_max();
+    test_usual_workflow();
 
     return boost::report_errors();
 }

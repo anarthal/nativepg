@@ -13,9 +13,7 @@
 #include <cstddef>
 #include <span>
 
-#include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
-#include "nativepg/protocol/header.hpp"
 
 // Functions to parse a stream of messages into any_backend_message
 
@@ -34,56 +32,11 @@ struct parse_message_result
     std::size_t size{};
 };
 
-inline parse_message_result parse_message(std::span<const unsigned char> data)
-{
-    // See if we have space for the header
-    if (data.size() < 5u)
-        return {client_errc::needs_more, {}, 5u - data.size()};
-
-    // Load the header
-    auto header_res = parse_header(boost::span<const unsigned char, 5>(data));
-    if (header_res.has_error())
-        return {header_res.error()};
-
-    // See if we have space for the body
-    // The length in the header is the entire message's length, counting
-    // the header length but not the type byte
-    const auto required_size = static_cast<std::size_t>(header_res->size + 1u);
-    if (data.size() < required_size)
-        return {client_errc::needs_more, {}, required_size - data.size()};
-
-    // Parse the body
-    auto msg_result = parse(header_res->type, data.subspan(5u, required_size - 5u));
-    if (msg_result.has_error())
-        return {msg_result.error()};
-
-    // Done
-    return {{}, *msg_result, required_size};
-}
+parse_message_result parse_message(std::span<const unsigned char> data);
 
 // Gets how many bytes we're missing to have a complete message in data.
 // This function should be called iteratively until it returns 0.
-inline std::size_t message_missing_bytes(std::span<const unsigned char> data)
-{
-    // See if we have space for the header
-    if (data.size() < 5u)
-        return 5u - data.size();
-
-    // Load the header
-    auto header_res = parse_header(boost::span<const unsigned char, 5>(data));
-    if (header_res.has_error())
-        return 0u;  // Signal errors as complete. Message parsing will find them out
-
-    // See if we have space for the body
-    // The length in the header is the entire message's length, counting
-    // the header length but not the type byte
-    const auto required_size = static_cast<std::size_t>(header_res->size + 1u);
-    if (data.size() < required_size)
-        return required_size - data.size();
-
-    // We have enough data
-    return 0u;
-}
+std::size_t message_missing_bytes(std::span<const unsigned char> data);
 
 }  // namespace nativepg::protocol
 

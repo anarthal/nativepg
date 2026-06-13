@@ -15,11 +15,13 @@
 #include <boost/corosio/resolver.hpp>
 #include <boost/corosio/tcp_socket.hpp>
 
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
 #include "nativepg/extended_error.hpp"
@@ -27,20 +29,23 @@
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
 #include "nativepg/protocol/detail/exec_fsm.hpp"
-#include "nativepg/protocol/read_message_fsm.hpp"
+#include "nativepg/protocol/parse_message.hpp"
 #include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
 #include "nativepg_internal/check_request.hpp"
 
+namespace capy = boost::capy;
+namespace corosio = boost::corosio;
+
 namespace nativepg {
 
 struct co_connection::impl
 {
-    boost::corosio::resolver resolv;
-    boost::corosio::tcp_socket sock;
+    corosio::resolver resolv;
+    corosio::tcp_socket sock;
     protocol::connection_state st{};
-    boost::capy::any_stream stream{&sock};
+    capy::any_stream stream{&sock};
 
     // For operations spanning multiple functions
     enum class exec_some_status
@@ -52,8 +57,9 @@ struct co_connection::impl
     struct exec_some_state
     {
         exec_some_status status{exec_some_status::idle};
-        std::optional<protocol::detail::read_response_fsm_impl> read_response_fsm;
-        std::vector<boost::capy::const_buffer> copy_out;
+        std::optional<protocol::read_response_fsm> read_response_fsm;
+        std::vector<capy::const_buffer> copy_out;
+        std::size_t consumed{};
 
         void reset()
         {
@@ -63,9 +69,9 @@ struct co_connection::impl
         }
     } exec_some_st;
 
-    explicit impl(boost::capy::execution_context& ctx) : resolv(ctx), sock(ctx) {}
+    explicit impl(capy::execution_context& ctx) : resolv(ctx), sock(ctx) {}
 
-    boost::capy::io_task<> physical_connect(const connect_params& params)
+    capy::io_task<> physical_connect(const connect_params& params)
     {
         auto [ec, endpoints] = co_await resolv.resolve(params.hostname, std::to_string(params.port));
         if (ec)
@@ -81,7 +87,31 @@ struct co_connection::impl
         exec_some_st.read_response_fsm.emplace(&req, handler, true);
     }
 
-    boost::capy::io_task<exec_some_result> exec_some()
+    capy::io_task<> read_some_messages()
+    {
+        while (true)
+        {
+            // How many bytes are we missing to have a complete message?
+            auto missing_bytes = protocol::message_missing_bytes(st.read_buffer.committed_area());
+            if (missing_bytes == 0u)
+                co_return {};
+
+            // Make space in the buffer
+            st.read_buffer.prepare(missing_bytes);
+
+            // Read some data
+            auto [ec, bytes] = co_await stream.read_some(capy::make_buffer(st.read_buffer.prepared_area()));
+
+            // Check for errors
+            if (ec)
+                co_return {ec};
+
+            // Commit the data we were handed in
+            st.read_buffer.commit(bytes);
+        }
+    }
+
+    capy::io_task<exec_some_result> exec_some()
     {
         BOOST_ASSERT(exec_some_st.read_response_fsm.has_value());
         auto& fsm = *exec_some_st.read_response_fsm;
@@ -98,89 +128,84 @@ struct co_connection::impl
             }
 
             // Write the request to the server
-            auto [ec, size] = co_await boost::capy::write(
-                stream,
-                boost::capy::make_buffer(fsm.get_request().payload())
-            );
+            auto [ec, size] = co_await capy::write(stream, capy::make_buffer(fsm.get_request().payload()));
             if (ec)
                 co_return {ec, {}};
 
             exec_some_st.status = exec_some_status::reading;
         }
 
-        // Read the response until we finished it, an error occurs, or a copy message is found
-        auto act = st.read_msg_stream_fsm.resume(st, {}, 0u);
-
         while (true)
         {
-            switch (act.type())
+            // Try to get a message
+            auto res = protocol::parse_message(st.read_buffer.committed_area());
+            if (res.ec == client_errc::needs_more)
             {
-                case protocol::read_message_stream_fsm::result_type::error: co_return {act.error(), {}};
-                case protocol::read_message_stream_fsm::result_type::read:
+                // We need more data
+                if (exec_some_st.copy_out.empty())
                 {
-                    if (exec_some_st.copy_out.empty())
-                    {
-                        // No copy-related info, keep reading
-                        auto [ec, bytes] = co_await stream.read_some(
-                            boost::capy::make_buffer(act.read_buffer())
-                        );
-                        act = st.read_msg_stream_fsm.resume(st, ec, bytes);
+                    // No copy-related info, keep reading
+                    st.read_buffer.consume(exec_some_st.consumed);
+                    exec_some_st.consumed = 0u;
+                    if (auto [ec] = co_await read_some_messages(); ec)
+                        co_return {ec, {}};
+                    continue;
+                }
+                else
+                {
+                    // We have received copy data during this iteration, return it
+                    co_return {
+                        {},
+                        exec_some_result{exec_some_st.copy_out, false}
+                    };
+                }
+            }
+            else if (res.ec)
+            {
+                // Fatal error, bail out
+                co_return {res.ec, {}};
+            }
+            else
+            {
+                // We've got a message. Account for its bytes
+                exec_some_st.consumed += res.size;
+
+                // If we received an illegal message, we'll detect it here.
+                auto read_res = fsm.resume(res.message);
+                if (read_res.type == protocol::read_response_fsm::result_type::done)
+                {
+                    // We're done. Copy data never causes termination, so this is safe
+                    st.read_buffer.consume(exec_some_st.consumed);
+                    exec_some_st.reset();
+                    co_return {res.ec, {}};
+                }
+
+                // React to copy messages
+                switch (res.message.type())
+                {
+                    case protocol::any_backend_message::kind::copy_out_response:
+                        // We're entering COPY OUT, notify the user
+                        co_return {{}, exec_some_result{res.message.get_copy_out_response()}};
+                    case protocol::any_backend_message::kind::copy_data:
+                        // Store them, we'll return the entire batch when ready
+                        exec_some_st.copy_out.push_back(capy::make_buffer(res.message.get_copy_data().data));
                         break;
-                    }
-                    else
+                    case protocol::any_backend_message::kind::copy_done:
                     {
-                        // We have received copy data during this iteration, return it
+                        // The copy batch has finished, return the remaining messages and the eof
                         co_return {
                             {},
-                            exec_some_result{exec_some_st.copy_out, false}
+                            exec_some_result{exec_some_st.copy_out, true}
                         };
                     }
-                }
-                case protocol::read_message_stream_fsm::result_type::message:
-                {
-                    // Feed the protocol state machine. If we received an illegal message, we'll detect it
-                    // here. Copy data never causes termination, so this is safe
-                    auto res = fsm.resume(act.message());
-                    if (res.type == protocol::detail::read_response_fsm_impl::result_type::done)
-                    {
-                        exec_some_st.reset();
-                        co_return {res.ec, {}};
-                    }
-
-                    // React to copy messages
-                    switch (act.message().type())
-                    {
-                        case protocol::any_backend_message::kind::copy_out_response:
-                            // We're entering COPY OUT, notify the user
-                            co_return {{}, exec_some_result{act.message().get_copy_out_response()}};
-                        case protocol::any_backend_message::kind::copy_data:
-                            // Store them, we'll return the entire batch when ready
-                            exec_some_st.copy_out.push_back(
-                                boost::capy::make_buffer(act.message().get_copy_data().data)
-                            );
-                            break;
-                        case protocol::any_backend_message::kind::copy_done:
-                        {
-                            // The copy batch has finished, return the remaining messages and the eof
-                            co_return {
-                                {},
-                                exec_some_result{exec_some_st.copy_out, true}
-                            };
-                        }
-                        default: break;
-                    }
-
-                    // Attempt to read the next message
-                    act = st.read_msg_stream_fsm.resume(st, {}, 0u);
-
-                    break;
+                    default: break;
                 }
             }
         }
     }
 };
 
-co_connection::co_connection(boost::capy::execution_context& ctx) : impl_(std::make_unique<impl>(ctx)) {}
+co_connection::co_connection(capy::execution_context& ctx) : impl_(std::make_unique<impl>(ctx)) {}
 
 co_connection& co_connection::operator=(co_connection&&) noexcept = default;
 
@@ -188,7 +213,7 @@ co_connection::~co_connection() = default;
 
 // TODO: I'd prefer having connect_params be a view
 // const references here may cause dangling parameters
-boost::capy::io_task<> co_connection::connect(connect_params params, diagnostics* diag)
+capy::io_task<> co_connection::connect(connect_params params, diagnostics* diag)
 {
     using protocol::detail::connect_fsm;
 
@@ -202,18 +227,13 @@ boost::capy::io_task<> co_connection::connect(connect_params params, diagnostics
         {
             case connect_fsm::result_type::write:
             {
-                auto [ec, bytes] = co_await boost::capy::write(
-                    impl_->sock,
-                    boost::capy::make_buffer(res.write_data())
-                );
+                auto [ec, bytes] = co_await capy::write(impl_->sock, capy::make_buffer(res.write_data()));
                 res = fsm_.resume(impl_->st, ec, bytes);
                 break;
             }
             case connect_fsm::result_type::read:
             {
-                auto [ec, bytes] = co_await impl_->sock.read_some(
-                    boost::capy::make_buffer(res.read_buffer())
-                );
+                auto [ec, bytes] = co_await impl_->sock.read_some(capy::make_buffer(res.read_buffer()));
                 res = fsm_.resume(impl_->st, ec, bytes);
                 break;
             }
@@ -240,11 +260,7 @@ boost::capy::io_task<> co_connection::connect(connect_params params, diagnostics
     }
 }
 
-boost::capy::io_task<> co_connection::exec(
-    const request& req,
-    response_handler_ref handler,
-    diagnostics* diag
-)
+capy::io_task<> co_connection::exec(const request& req, response_handler_ref handler, diagnostics* diag)
 {
     using protocol::detail::exec_fsm;
 
@@ -258,18 +274,13 @@ boost::capy::io_task<> co_connection::exec(
         {
             case protocol::startup_fsm::result_type::write:
             {
-                auto [ec, bytes] = co_await boost::capy::write(
-                    impl_->sock,
-                    boost::capy::make_buffer(res.write_data())
-                );
+                auto [ec, bytes] = co_await capy::write(impl_->sock, capy::make_buffer(res.write_data()));
                 res = fsm_.resume(impl_->st, ec, bytes);
                 break;
             }
             case protocol::startup_fsm::result_type::read:
             {
-                auto [ec, bytes] = co_await impl_->sock.read_some(
-                    boost::capy::make_buffer(res.read_buffer())
-                );
+                auto [ec, bytes] = co_await impl_->sock.read_some(capy::make_buffer(res.read_buffer()));
                 res = fsm_.resume(impl_->st, ec, bytes);
                 break;
             }
@@ -290,9 +301,11 @@ void co_connection::setup_request(const request& req, response_handler_ref handl
     return impl_->setup_request(req, handler);
 }
 
-boost::capy::io_task<exec_some_result> co_connection::exec_some() { return impl_->exec_some(); }
+capy::io_task<exec_some_result> co_connection::exec_some() { return impl_->exec_some(); }
 
-boost::capy::any_stream& co_connection::stream() { return impl_->stream; }
+capy::io_task<> co_connection::read_some_messages() { return impl_->read_some_messages(); }
+
+capy::any_stream& co_connection::stream() { return impl_->stream; }
 
 protocol::connection_state& co_connection::state() { return impl_->st; }
 

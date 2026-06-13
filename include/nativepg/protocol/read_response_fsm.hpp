@@ -40,7 +40,7 @@ public:
     };
 
     read_response_fsm(const request* req, response_handler_ref handler, bool allow_copy = false) noexcept
-        : req_(req), handler_(handler)
+        : req_(req), handler_(handler), allow_copy_(allow_copy)
     {
         BOOST_ASSERT(req != nullptr);
     }

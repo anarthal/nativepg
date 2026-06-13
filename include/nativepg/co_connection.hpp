@@ -116,6 +116,10 @@ public:
     void setup_request(const request& req, response_handler_ref handler);
     boost::capy::io_task<exec_some_result> exec_some();
 
+    // Reads until there is at least one message in the read buffer.
+    // Access messages with state().read_buffer
+    boost::capy::io_task<> read_some_messages();
+
     // TODO: I don't like this
     boost::capy::any_stream& stream();
     protocol::connection_state& state();

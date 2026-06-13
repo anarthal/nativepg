@@ -48,11 +48,6 @@ exec_fsm::result exec_fsm::resume(
             return ec;
 
         // Read the response
-        res = read_fsm_.resume({});
-        if (res.type == read_response_fsm::result_type::done)
-            return res.ec;
-        BOOST_ASSERT(res.type == read_response_fsm::result_type::read);
-
         while (true)
         {
             // Try to get a cached message

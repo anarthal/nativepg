@@ -37,10 +37,8 @@
 using namespace nativepg;
 using namespace nativepg::test;
 using boost::system::error_code;
-using protocol::detail::read_response_fsm_impl;
-using result_type = read_response_fsm_impl::result_type;
-
-// TODO: rename this file when we implement the external API tests
+using protocol::read_response_fsm;
+using result_type = read_response_fsm::result_type;
 
 // Operators
 static const char* to_string(result_type t)
@@ -53,14 +51,14 @@ static const char* to_string(result_type t)
     }
 }
 
-namespace nativepg::protocol::detail {
+namespace nativepg::protocol {
 
-bool operator==(const read_response_fsm_impl::result& lhs, const read_response_fsm_impl::result& rhs)
+bool operator==(const read_response_fsm::result& lhs, const read_response_fsm::result& rhs)
 {
     return lhs.type == rhs.type && lhs.ec == rhs.ec;
 }
 
-std::ostream& operator<<(std::ostream& os, const read_response_fsm_impl::result& value)
+std::ostream& operator<<(std::ostream& os, const read_response_fsm::result& value)
 {
     os << "read_response_fsm_impl::result{ .type=" << to_string(value.type);
     if (value.type == result_type::done)
@@ -68,7 +66,7 @@ std::ostream& operator<<(std::ostream& os, const read_response_fsm_impl::result&
     return os << " }";
 }
 
-}  // namespace nativepg::protocol::detail
+}  // namespace nativepg::protocol
 
 namespace {
 
@@ -90,7 +88,7 @@ struct fixture
 {
     request req;
     mock_handler handler;
-    read_response_fsm_impl fsm{&req, handler};
+    read_response_fsm fsm{&req, handler};
 
     void check(
         std::initializer_list<on_msg_args> expected,

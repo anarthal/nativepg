@@ -68,7 +68,7 @@ class read_response_stream_fsm
     };
 
     status status_{status::initial};
-    std::optional<protocol::detail::read_response_fsm_impl> fsm_;  // TODO: don't like optional
+    std::optional<protocol::read_response_fsm> fsm_;  // TODO: don't like optional
     std::size_t remaining_rfq_{};
 
 public:
@@ -81,7 +81,7 @@ public:
     [[nodiscard]]
     std::error_code on_message(std::deque<multiplexer_elem>& elms, const protocol::any_backend_message& msg)
     {
-        using protocol::detail::read_response_fsm_impl;
+        using protocol::read_response_fsm;
 
         if (status_ == status::initial)
         {
@@ -119,7 +119,7 @@ public:
                 auto res = fsm_->resume(msg);
 
                 // If the FSM terminates, it means we're done with this request
-                if (res.type == read_response_fsm_impl::result_type::done)
+                if (res.type == read_response_fsm::result_type::done)
                 {
                     elms.front().on_done(res.ec);
                     elms.pop_front();

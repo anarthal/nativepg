@@ -16,11 +16,10 @@
 
 using namespace nativepg::protocol;
 using boost::system::error_code;
-using detail::read_response_fsm_impl;
 using nativepg::client_errc;
 using kind = any_backend_message::kind;
 
-enum class read_response_fsm_impl::state_t
+enum class read_response_fsm::state_t
 {
     msg_first = 0,
     query_first,
@@ -28,7 +27,7 @@ enum class read_response_fsm_impl::state_t
     query_rows,
 };
 
-read_response_fsm_impl::result read_response_fsm_impl::handle_error(const error_response& err)
+read_response_fsm::result read_response_fsm::handle_error(const error_response& err)
 {
     // Call the handler with the error
     call_handler(err);
@@ -52,7 +51,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_error(const error_
     return error_code(client_errc::request_ends_without_sync);
 }
 
-read_response_fsm_impl::result read_response_fsm_impl::advance()
+read_response_fsm::result read_response_fsm::advance()
 {
     if (++current_ >= req_->messages().size())
         return error_code();
@@ -60,7 +59,7 @@ read_response_fsm_impl::result read_response_fsm_impl::advance()
         return result(result_type::read);
 }
 
-read_response_fsm_impl::result read_response_fsm_impl::handle_bind(const any_backend_message& msg)
+read_response_fsm::result read_response_fsm::handle_bind(const any_backend_message& msg)
 {
     // bind: either (bind_complete, error_response)
     BOOST_ASSERT(state_ == state_t::msg_first);
@@ -77,7 +76,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_bind(const any_bac
     }
 }
 
-read_response_fsm_impl::result read_response_fsm_impl::handle_close(const any_backend_message& msg)
+read_response_fsm::result read_response_fsm::handle_close(const any_backend_message& msg)
 {
     // close: either (close_complete, error_response)
     BOOST_ASSERT(state_ == state_t::msg_first);
@@ -96,7 +95,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_close(const any_ba
 
 // TODO: we need to differentiate between describe statement and portal
 // only the portal version is supported now
-read_response_fsm_impl::result read_response_fsm_impl::handle_describe(const any_backend_message& msg)
+read_response_fsm::result read_response_fsm::handle_describe(const any_backend_message& msg)
 {
     // describe (portal)
     //   either: row_description, no_data, error_response
@@ -122,7 +121,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_describe(const any
     }
 }
 
-read_response_fsm_impl::result read_response_fsm_impl::handle_execute(const any_backend_message& msg)
+read_response_fsm::result read_response_fsm::handle_execute(const any_backend_message& msg)
 {
     // execute: either:
     //   any number of data_row, then either (command_complete, portal_suspended, error_response)
@@ -154,7 +153,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_execute(const any_
     }
 }
 
-read_response_fsm_impl::result read_response_fsm_impl::handle_parse(const any_backend_message& msg)
+read_response_fsm::result read_response_fsm::handle_parse(const any_backend_message& msg)
 {
     // parse: either (parse_complete, error_response)
     BOOST_ASSERT(state_ == state_t::msg_first);
@@ -171,7 +170,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_parse(const any_ba
     }
 }
 
-read_response_fsm_impl::result read_response_fsm_impl::handle_sync(const any_backend_message& msg)
+read_response_fsm::result read_response_fsm::handle_sync(const any_backend_message& msg)
 {
     // sync always returns ReadyForQuery. Getting an error here is a protocol error,
     // as we don't know whether the connection is healthy or not
@@ -181,7 +180,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_sync(const any_bac
     return advance();
 }
 
-read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_backend_message& msg)
+read_response_fsm::result read_response_fsm::handle_query(const any_backend_message& msg)
 {
     // either
     //    at least one
@@ -266,7 +265,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
     }
 }
 
-read_response_fsm_impl::result read_response_fsm_impl::resume(const any_backend_message& msg)
+read_response_fsm::result read_response_fsm::resume(const any_backend_message& msg)
 {
     // Some messages may be found interleaved with the expected message flow
     // TODO: actually do something useful with these

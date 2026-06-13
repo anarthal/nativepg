@@ -40,7 +40,7 @@ public:
 
 private:
     int resume_point_{0};
-    read_response_fsm_impl read_fsm_;
+    read_response_fsm read_fsm_;
 };
 
 }  // namespace nativepg::protocol::detail

@@ -31,7 +31,7 @@ exec_fsm::result exec_fsm::resume(
     std::size_t bytes_transferred
 )
 {
-    read_response_fsm_impl::result res{{}};
+    read_response_fsm::result res{{}};
     parse_message_result msg_res;
 
     switch (resume_point_)
@@ -49,9 +49,9 @@ exec_fsm::result exec_fsm::resume(
 
         // Read the response
         res = read_fsm_.resume({});
-        if (res.type == read_response_fsm_impl::result_type::done)
+        if (res.type == read_response_fsm::result_type::done)
             return res.ec;
-        BOOST_ASSERT(res.type == read_response_fsm_impl::result_type::read);
+        BOOST_ASSERT(res.type == read_response_fsm::result_type::read);
 
         while (true)
         {
@@ -62,7 +62,7 @@ exec_fsm::result exec_fsm::resume(
                 // We have a message
                 res = read_fsm_.resume(msg_res.message);
                 st.read_buffer.consume(msg_res.size);
-                if (res.type == read_response_fsm_impl::result_type::done)
+                if (res.type == read_response_fsm::result_type::done)
                     return res.ec;
             }
             else if (msg_res.ec == client_errc::needs_more)

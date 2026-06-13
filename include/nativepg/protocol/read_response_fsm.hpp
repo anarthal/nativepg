@@ -15,16 +15,13 @@
 #include <span>
 
 #include "nativepg/protocol/any_backend_message.hpp"
-#include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
 
 namespace nativepg::protocol {
 
-namespace detail {
-
-class read_response_fsm_impl
+class read_response_fsm
 {
 public:
     enum class result_type
@@ -42,7 +39,7 @@ public:
         result(result_type t) noexcept : type(t) {}
     };
 
-    read_response_fsm_impl(const request* req, response_handler_ref handler) noexcept
+    read_response_fsm(const request* req, response_handler_ref handler) noexcept
         : req_(req), handler_(handler)
     {
         BOOST_ASSERT(req != nullptr);
@@ -77,8 +74,6 @@ private:
     result handle_query(const any_backend_message&);
     result handle_error(const error_response& err);
 };
-
-}  // namespace detail
 
 }  // namespace nativepg::protocol
 

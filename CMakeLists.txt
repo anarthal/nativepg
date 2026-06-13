@@ -29,7 +29,6 @@ add_library(nativepg
     src/startup_fsm.cpp
     src/scram_sha256_fsm.cpp
     src/read_response_fsm.cpp
-    src/read_message_fsm.cpp
     src/exec_fsm.cpp
     src/connect_fsm.cpp
     src/request.cpp

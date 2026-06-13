@@ -35,7 +35,7 @@ void test_success()
 }
 
 // Short buffers are reported as needs_more, together with the number of missing bytes
-void test_short_reads()
+void test_incomplete_message()
 {
     // A command completion message
     const unsigned char data[] =
@@ -105,7 +105,7 @@ void test_error_invalid_length()
 int main()
 {
     test_success();
-    test_short_reads();
+    test_incomplete_message();
 
     test_error_unknown_message_type();
     test_error_invalid_length();

@@ -40,6 +40,11 @@ public:
     result next();
 };
 
+// TODO: move
+// Gets how many bytes we're missing to have a complete message in buff.
+// This function should be called iteratively until it returns 0.
+std::size_t message_missing_bytes(std::span<const unsigned char> buff);
+
 }  // namespace nativepg::protocol
 
 #endif

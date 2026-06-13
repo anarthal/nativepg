@@ -76,35 +76,25 @@ struct nativepg::co_multiplexed_connection::impl
 
         while (true)
         {
-            // Try to get a message
-            auto res = protocol::messages_view(st.read_buffer.committed_area()).next();
-            if (!res.ec)
-            {
-                // We have a message
+            // How many bytes are we missing to have a complete message?
+            auto missing_bytes = protocol::message_missing_bytes(st.read_buffer.committed_area());
+            if (missing_bytes == 0u)
                 co_return {};
-            }
-            else if (res.ec == client_errc::needs_more)
-            {
-                // Make space in the buffer, if required
-                st.read_buffer.prepare(res.size);
 
-                // Read some data
-                auto [ec, bytes] = co_await stream.read_some(
-                    boost::capy::make_buffer(st.read_buffer.prepared_area())
-                );
+            // Make space in the buffer
+            st.read_buffer.prepare(missing_bytes);
 
-                // Check for errors
-                if (ec)
-                    co_return {ec};
+            // Read some data
+            auto [ec, bytes] = co_await stream.read_some(
+                boost::capy::make_buffer(st.read_buffer.prepared_area())
+            );
 
-                // Commit the data we were handed in
-                st.read_buffer.commit(bytes);
-            }
-            else
-            {
-                // An error occurred
-                co_return {res.ec};
-            }
+            // Check for errors
+            if (ec)
+                co_return {ec};
+
+            // Commit the data we were handed in
+            st.read_buffer.commit(bytes);
         }
     }
 

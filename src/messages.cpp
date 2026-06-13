@@ -14,9 +14,7 @@
 #include <boost/throw_exception.hpp>
 #include <boost/variant2/variant.hpp>
 
-#include <algorithm>
 #include <array>
-#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -44,12 +42,12 @@
 #include "nativepg/protocol/header.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/parse.hpp"
+#include "nativepg/protocol/parse_message.hpp"
 #include "nativepg/protocol/query.hpp"
 #include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/protocol/startup.hpp"
 #include "nativepg/protocol/sync.hpp"
 #include "nativepg/protocol/terminate.hpp"
-#include "nativepg_internal/base64.hpp"
 #include "parse_context.hpp"
 
 using namespace nativepg::protocol;
@@ -1076,3 +1074,53 @@ boost::system::error_code nativepg::protocol::serialize(query msg, std::vector<u
     return ctx.finalize_message();
 }
 
+parse_message_result nativepg::protocol::parse_message(std::span<const unsigned char> data)
+{
+    // See if we have space for the header
+    if (data.size() < 5u)
+        return {client_errc::needs_more, {}, 5u - data.size()};
+
+    // Load the header
+    auto header_res = parse_header(boost::span<const unsigned char, 5>(data));
+    if (header_res.has_error())
+        return {header_res.error()};
+
+    // See if we have space for the body
+    // The length in the header is the entire message's length, counting
+    // the header length but not the type byte
+    const auto required_size = static_cast<std::size_t>(header_res->size + 1u);
+    if (data.size() < required_size)
+        return {client_errc::needs_more, {}, required_size - data.size()};
+
+    // Parse the body
+    auto msg_result = parse(header_res->type, data.subspan(5u, required_size - 5u));
+    if (msg_result.has_error())
+        return {msg_result.error()};
+
+    // Done
+    return {{}, *msg_result, required_size};
+}
+
+// Gets how many bytes we're missing to have a complete message in data.
+// This function should be called iteratively until it returns 0.
+std::size_t nativepg::protocol::message_missing_bytes(std::span<const unsigned char> data)
+{
+    // See if we have space for the header
+    if (data.size() < 5u)
+        return 5u - data.size();
+
+    // Load the header
+    auto header_res = parse_header(boost::span<const unsigned char, 5>(data));
+    if (header_res.has_error())
+        return 0u;  // Signal errors as complete. Message parsing will find them out
+
+    // See if we have space for the body
+    // The length in the header is the entire message's length, counting
+    // the header length but not the type byte
+    const auto required_size = static_cast<std::size_t>(header_res->size + 1u);
+    if (data.size() < required_size)
+        return required_size - data.size();
+
+    // We have enough data
+    return 0u;
+}

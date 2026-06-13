@@ -114,6 +114,9 @@ enum class client_errc : int
     // request
     unmatched_request,
 
+    // We need more input
+    needs_more,
+
     // You issued a COPY SQL statement through an API that doesn't support COPY operations.
     // Use an appropriate API, instead
     copy_not_allowed,

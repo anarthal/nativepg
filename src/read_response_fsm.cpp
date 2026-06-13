@@ -7,24 +7,19 @@
 
 #include <boost/system/error_code.hpp>
 
-#include <cstddef>
-
 #include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
-#include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/describe.hpp"
-#include "nativepg/protocol/read_message_fsm.hpp"
 #include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
 
 using namespace nativepg::protocol;
 using boost::system::error_code;
-using detail::read_response_fsm_impl;
 using nativepg::client_errc;
 using kind = any_backend_message::kind;
 
-enum class read_response_fsm_impl::state_t
+enum class read_response_fsm::state_t
 {
     msg_first = 0,
     query_first,
@@ -36,7 +31,7 @@ enum class read_response_fsm_impl::state_t
     query_copy_out_needs_command_complete,
 };
 
-read_response_fsm_impl::result read_response_fsm_impl::handle_error(const error_response& err)
+read_response_fsm::result read_response_fsm::handle_error(const error_response& err)
 {
     // Call the handler with the error
     call_handler(err);
@@ -60,7 +55,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_error(const error_
     return error_code(client_errc::request_ends_without_sync);
 }
 
-read_response_fsm_impl::result read_response_fsm_impl::advance()
+read_response_fsm::result read_response_fsm::advance()
 {
     if (++current_ >= req_->messages().size())
         return error_code();
@@ -68,7 +63,7 @@ read_response_fsm_impl::result read_response_fsm_impl::advance()
         return result(result_type::read);
 }
 
-read_response_fsm_impl::result read_response_fsm_impl::handle_bind(const any_backend_message& msg)
+read_response_fsm::result read_response_fsm::handle_bind(const any_backend_message& msg)
 {
     // bind: either (bind_complete, error_response)
     BOOST_ASSERT(state_ == state_t::msg_first);
@@ -85,7 +80,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_bind(const any_bac
     }
 }
 
-read_response_fsm_impl::result read_response_fsm_impl::handle_close(const any_backend_message& msg)
+read_response_fsm::result read_response_fsm::handle_close(const any_backend_message& msg)
 {
     // close: either (close_complete, error_response)
     BOOST_ASSERT(state_ == state_t::msg_first);
@@ -104,7 +99,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_close(const any_ba
 
 // TODO: we need to differentiate between describe statement and portal
 // only the portal version is supported now
-read_response_fsm_impl::result read_response_fsm_impl::handle_describe(const any_backend_message& msg)
+read_response_fsm::result read_response_fsm::handle_describe(const any_backend_message& msg)
 {
     // describe (portal)
     //   either: row_description, no_data, error_response
@@ -130,7 +125,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_describe(const any
     }
 }
 
-read_response_fsm_impl::result read_response_fsm_impl::handle_execute(const any_backend_message& msg)
+read_response_fsm::result read_response_fsm::handle_execute(const any_backend_message& msg)
 {
     // execute: either:
     //   copy_out_response, then any number of copy_data, then copy_done, then either (command_complete,
@@ -208,7 +203,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_execute(const any_
     }
 }
 
-read_response_fsm_impl::result read_response_fsm_impl::handle_parse(const any_backend_message& msg)
+read_response_fsm::result read_response_fsm::handle_parse(const any_backend_message& msg)
 {
     // parse: either (parse_complete, error_response)
     BOOST_ASSERT(state_ == state_t::msg_first);
@@ -225,7 +220,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_parse(const any_ba
     }
 }
 
-read_response_fsm_impl::result read_response_fsm_impl::handle_sync(const any_backend_message& msg)
+read_response_fsm::result read_response_fsm::handle_sync(const any_backend_message& msg)
 {
     // sync always returns ReadyForQuery. Getting an error here is a protocol error,
     // as we don't know whether the connection is healthy or not
@@ -235,7 +230,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_sync(const any_bac
     return advance();
 }
 
-read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_backend_message& msg)
+read_response_fsm::result read_response_fsm::handle_query(const any_backend_message& msg)
 {
     // either
     //    at least one
@@ -369,7 +364,7 @@ read_response_fsm_impl::result read_response_fsm_impl::handle_query(const any_ba
     }
 }
 
-read_response_fsm_impl::result read_response_fsm_impl::resume(const any_backend_message& msg)
+read_response_fsm::result read_response_fsm::resume(const any_backend_message& msg)
 {
     // Some messages may be found interleaved with the expected message flow
     // TODO: actually do something useful with these
@@ -398,40 +393,6 @@ read_response_fsm_impl::result read_response_fsm_impl::resume(const any_backend_
             case request_message_type::parse: return handle_parse(msg);
             case request_message_type::query: return handle_query(msg);
             case request_message_type::sync: return handle_sync(msg);
-        }
-    }
-}
-
-read_response_fsm::result read_response_fsm::resume(
-    connection_state& st,
-    boost::system::error_code io_error,
-    std::size_t bytes_read
-)
-{
-    // Attempt to read a message
-    while (true)
-    {
-        auto read_msg_res = st.read_msg_stream_fsm.resume(st, io_error, bytes_read);
-        if (read_msg_res.type() == read_message_stream_fsm::result_type::read)
-        {
-            return result::read(read_msg_res.read_buffer());
-        }
-        else if (read_msg_res.type() == read_message_stream_fsm::result_type::message)
-        {
-            // We've got a message, invoke the FSM
-            auto res = impl_.resume(read_msg_res.message());
-
-            // If we're done, exit
-            if (res.type == read_response_fsm_impl::result_type::done)
-                return res.ec;
-
-            // Otherwise, keep reading
-            BOOST_ASSERT(res.type == read_response_fsm_impl::result_type::read);
-        }
-        else
-        {
-            BOOST_ASSERT(read_msg_res.type() == read_message_stream_fsm::result_type::error);
-            return read_msg_res.error();
         }
     }
 }

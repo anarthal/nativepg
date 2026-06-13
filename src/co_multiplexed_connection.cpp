@@ -109,11 +109,14 @@ struct nativepg::co_multiplexed_connection::impl
                 co_return {ec};
 
             // Process each message
-            protocol::messages_view messages{st.read_buffer.committed_area()};
+            auto bytes = st.read_buffer.committed_area();
 
             std::size_t consumed = 0u;
-            for (auto res = messages.next();; res = messages.next())
+            while (true)
             {
+                // Parse the next message
+                auto res = protocol::parse_message(bytes.subspan(consumed));
+
                 // Check for errors and end of input.
                 // Errors here are irrecoverable.
                 if (res.ec)

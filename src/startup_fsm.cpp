@@ -211,7 +211,7 @@ startup_fsm::result startup_fsm::resume(
 {
     // TODO: this implementation is improvable, changes in reading messages required
     startup_fsm_impl::result startup_res{error_code()};
-    messages_view::result read_msg_res;
+    parse_message_result msg_res;
 
     switch (resume_point_)
     {
@@ -245,18 +245,18 @@ startup_fsm::result startup_fsm::resume(
                 while (true)
                 {
                     // Try to get a cached message
-                    read_msg_res = messages_view(st.read_buffer.committed_area()).next();
-                    if (!read_msg_res.ec)
+                    msg_res = parse_message(st.read_buffer.committed_area());
+                    if (!msg_res.ec)
                     {
                         // We have a message
-                        startup_res = impl_.resume(st, diag, read_msg_res.message);
-                        st.read_buffer.consume(read_msg_res.size);
+                        startup_res = impl_.resume(st, diag, msg_res.message);
+                        st.read_buffer.consume(msg_res.size);
                         break;
                     }
-                    else if (read_msg_res.ec == client_errc::needs_more)
+                    else if (msg_res.ec == client_errc::needs_more)
                     {
                         // Make space in the buffer, if required
-                        st.read_buffer.prepare(read_msg_res.size);
+                        st.read_buffer.prepare(msg_res.size);
 
                         // Read some data
                         NATIVEPG_YIELD(resume_point_, 2, result::read(st.read_buffer.prepared_area()))
@@ -271,7 +271,7 @@ startup_fsm::result startup_fsm::resume(
                     else
                     {
                         // An error occurred
-                        return read_msg_res.ec;
+                        return msg_res.ec;
                     }
                 }
             }

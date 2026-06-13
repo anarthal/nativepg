@@ -32,7 +32,7 @@ exec_fsm::result exec_fsm::resume(
 )
 {
     read_response_fsm_impl::result res{{}};
-    messages_view::result read_msg_res;
+    parse_message_result msg_res;
 
     switch (resume_point_)
     {
@@ -56,19 +56,19 @@ exec_fsm::result exec_fsm::resume(
         while (true)
         {
             // Try to get a cached message
-            read_msg_res = messages_view(st.read_buffer.committed_area()).next();
-            if (!read_msg_res.ec)
+            msg_res = parse_message(st.read_buffer.committed_area());
+            if (!msg_res.ec)
             {
                 // We have a message
-                res = read_fsm_.resume(read_msg_res.message);
-                st.read_buffer.consume(read_msg_res.size);
+                res = read_fsm_.resume(msg_res.message);
+                st.read_buffer.consume(msg_res.size);
                 if (res.type == read_response_fsm_impl::result_type::done)
                     return res.ec;
             }
-            else if (read_msg_res.ec == client_errc::needs_more)
+            else if (msg_res.ec == client_errc::needs_more)
             {
                 // Make space in the buffer, if required
-                st.read_buffer.prepare(read_msg_res.size);
+                st.read_buffer.prepare(msg_res.size);
 
                 // Read some data
                 NATIVEPG_YIELD(resume_point_, 2, result::read(st.read_buffer.prepared_area()))
@@ -83,7 +83,7 @@ exec_fsm::result exec_fsm::resume(
             else
             {
                 // An error occurred
-                return read_msg_res.ec;
+                return msg_res.ec;
             }
         }
     }

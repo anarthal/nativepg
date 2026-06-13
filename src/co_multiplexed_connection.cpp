@@ -19,9 +19,11 @@
 #include <system_error>
 #include <utility>
 
+#include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_multiplexed_connection.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
+#include "nativepg/protocol/messages_view.hpp"
 #include "nativepg/protocol/read_message_fsm.hpp"
 #include "nativepg_internal/check_request.hpp"
 #include "nativepg_internal/multiplexed_connection/multiplexer.hpp"
@@ -67,49 +69,101 @@ struct nativepg::co_multiplexed_connection::impl
         }
     }
 
-    capy::io_task<> reader()
+    capy::io_task<> read_some_messages()
     {
         auto& stream = conn.stream();
         auto& st = conn.state();
 
         while (true)
         {
-            // Read one entire message
-            auto act = st.read_msg_stream_fsm.resume(st, {}, 0u);
-            while (act.type() == protocol::read_message_stream_fsm::result_type::read)
+            // Try to get a message
+            auto res = protocol::messages_view(st.read_buffer.committed_area()).next();
+            if (!res.ec)
             {
-                auto [ec, bytes] = co_await stream.read_some(boost::capy::make_buffer(act.read_buffer()));
-                act = st.read_msg_stream_fsm.resume(st, ec, bytes);
-            }
-
-            // An error reading a message indicates an irrecoverable failure
-            if (act.type() == protocol::read_message_stream_fsm::result_type::error)
+                // We have a message
                 co_return {};
-
-            // Handle notifications
-            // TODO: although this is a valid backpressure strategy,
-            // it interacts poorly with running requests in the same coroutine.
-            // This is known in Boost.Redis. I'd like to make it better. Options include
-            //    a. Let exec() and read_notifies() handle run()'s work. This buys built-in
-            //       backpressure, but eliminates the option of built-in health-checks.
-            //    b. Make exec() unblock the reader if it's waiting for a message.
-            //       Makes the upper limit soft. May need to tear down the connection
-            //       if too many notifications stack.
-            if (act.message().type() == protocol::any_backend_message::kind::notification_response)
+            }
+            else if (res.ec == client_errc::needs_more)
             {
-                const auto& notif_msg = act.message().get_notification_response();
-                if (!notif_queue.try_add_notify(notif_msg))
+                // Make space in the buffer, if required
+                st.read_buffer.prepare(res.size);
+
+                // Read some data
+                auto [ec, bytes] = co_await stream.read_some(
+                    boost::capy::make_buffer(st.read_buffer.prepared_area())
+                );
+
+                // Check for errors
+                if (ec)
+                    co_return {ec};
+
+                // Commit the data we were handed in
+                st.read_buffer.commit(bytes);
+            }
+            else
+            {
+                // An error occurred
+                co_return {res.ec};
+            }
+        }
+    }
+
+    capy::io_task<> reader()
+    {
+        auto& st = conn.state();
+
+        while (true)
+        {
+            // Read until we have at least one message
+            if (auto [ec] = co_await read_some_messages(); ec)
+                co_return {ec};
+
+            // Process each message
+            protocol::messages_view messages{st.read_buffer.committed_area()};
+
+            std::size_t consumed = 0u;
+            for (auto res = messages.next();; res = messages.next())
+            {
+                // Check for errors and end of input.
+                // Errors here are irrecoverable.
+                if (res.ec)
                 {
-                    if (auto [ec] = co_await notif_queue.add_notify(notif_msg); ec)
-                        co_return {ec};
+                    st.read_buffer.consume(consumed);
+                    if (res.ec == client_errc::needs_more)
+                        break;
+                    else
+                        co_return {};
                 }
-                continue;
-            }
 
-            // We have a message, deliver it.
-            // An error here means an irrecoverable failure
-            if (auto ec = mpx.on_message(act.message()))
-                co_return {};
+                // Account for the message bytes
+                consumed += res.size;
+
+                // Handle notifications
+                // TODO: although this is a valid backpressure strategy,
+                // it interacts poorly with running requests in the same coroutine.
+                // This is known in Boost.Redis. I'd like to make it better. Options include
+                //    a. Let exec() and read_notifies() handle run()'s work. This buys built-in
+                //       backpressure, but eliminates the option of built-in health-checks.
+                //    b. Make exec() unblock the reader if it's waiting for a message.
+                //       Makes the upper limit soft. May need to tear down the connection
+                //       if too many notifications stack.
+                if (res.message.type() == protocol::any_backend_message::kind::notification_response)
+                {
+                    const auto& notif_msg = res.message.get_notification_response();
+                    if (!notif_queue.try_add_notify(notif_msg))
+                    {
+                        if (auto [ec] = co_await notif_queue.add_notify(notif_msg); ec)
+                            co_return {};
+                    }
+                }
+                else
+                {
+                    // We have a message, deliver it.
+                    // An error here means an irrecoverable failure
+                    if (auto ec = mpx.on_message(res.message))
+                        co_return {};
+                }
+            }
         }
     }
 

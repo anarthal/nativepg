@@ -39,15 +39,8 @@ public:
     }
 
 private:
-    enum class state_t
-    {
-        initial,
-        writing,
-        reading
-    };
-
-    state_t state_{state_t::initial};
-    read_response_fsm read_fsm_;
+    int resume_point_{0};
+    read_response_fsm_impl read_fsm_;
 };
 
 }  // namespace nativepg::protocol::detail

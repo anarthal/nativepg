@@ -10,14 +10,11 @@
 #include <cstddef>
 #include <span>
 
-#include "coroutine.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
-#include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/header.hpp"
 #include "nativepg/protocol/read_message_fsm.hpp"
 
 using namespace nativepg::protocol;
-using boost::system::error_code;
 
 read_message_fsm::result read_message_fsm::resume(std::span<const unsigned char> data)
 {
@@ -51,55 +48,4 @@ read_message_fsm::result read_message_fsm::resume(std::span<const unsigned char>
     if (msg_result.has_error())
         return msg_result.error();
     return result(*msg_result, expected_size);
-}
-
-read_message_stream_fsm::result read_message_stream_fsm::resume(
-    connection_state& st,
-    boost::system::error_code io_ec,
-    std::size_t bytes_read
-)
-{
-    // TODO: we could likely rearrange this code to avoid these temporaries and have less state
-    read_message_fsm::result res{error_code()};
-    switch (resume_point_)
-    {
-        NATIVEPG_CORO_INITIAL
-
-        while (true)
-        {
-            res = fsm_.resume(st.read_buffer.committed_area());
-
-            if (res.type() == read_message_fsm::result_type::error)
-            {
-                // An error is always fatal
-                return res.error();
-            }
-            else if (res.type() == read_message_fsm::result_type::message)
-            {
-                // We have a message. Yield it and then consume the used bytes
-                bytes_to_consume_ = res.bytes_consumed();
-                NATIVEPG_YIELD(resume_point_, 1, res.message());
-                st.read_buffer.consume(bytes_to_consume_);
-                fsm_ = {};
-            }
-            else
-            {
-                BOOST_ASSERT(res.type() == read_message_fsm::result_type::needs_more);
-
-                // Prepare the buffer and tell the caller to read
-                st.read_buffer.prepare(res.hint());
-                NATIVEPG_YIELD(resume_point_, 2, st.read_buffer.prepared_area());
-
-                // Check for read errors
-                if (io_ec)
-                    return io_ec;
-
-                // Commit the data and try again
-                st.read_buffer.commit(bytes_read);
-            }
-        }
-    }
-
-    BOOST_ASSERT(false);
-    return error_code();
 }

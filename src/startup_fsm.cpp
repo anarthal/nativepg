@@ -17,6 +17,7 @@
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/connection_state.hpp"
+#include "nativepg/protocol/messages_view.hpp"
 #include "nativepg/protocol/startup.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
 
@@ -209,18 +210,17 @@ startup_fsm::result startup_fsm::resume(
 )
 {
     // TODO: this implementation is improvable, changes in reading messages required
-    any_backend_message msg;
     startup_fsm_impl::result startup_res{error_code()};
-    read_message_stream_fsm::result read_msg_res{error_code()};
+    messages_view::result read_msg_res;
 
     switch (resume_point_)
     {
         NATIVEPG_CORO_INITIAL
 
+        startup_res = impl_.resume(st, diag, {});
+
         while (true)
         {
-            // Call the FSM
-            startup_res = impl_.resume(st, diag, msg);
             if (startup_res.type == startup_fsm_impl::result_type::done)
             {
                 // We're finished
@@ -234,6 +234,8 @@ startup_fsm::result startup_fsm::resume(
                 // Check for errors
                 if (io_error)
                     return io_error;
+
+                startup_res = impl_.resume(st, diag, {});
             }
             else
             {
@@ -242,20 +244,34 @@ startup_fsm::result startup_fsm::resume(
                 // Read a message
                 while (true)
                 {
-                    read_msg_res = st.read_msg_stream_fsm.resume(st, io_error, bytes_read);
-                    if (read_msg_res.type() == read_message_stream_fsm::result_type::read)
+                    // Try to get a cached message
+                    read_msg_res = messages_view(st.read_buffer.committed_area()).next();
+                    if (!read_msg_res.ec)
                     {
-                        NATIVEPG_YIELD(resume_point_, 2, result::read(read_msg_res.read_buffer()));
-                    }
-                    else if (read_msg_res.type() == read_message_stream_fsm::result_type::message)
-                    {
-                        msg = read_msg_res.message();
+                        // We have a message
+                        startup_res = impl_.resume(st, diag, read_msg_res.message);
+                        st.read_buffer.consume(read_msg_res.size);
                         break;
+                    }
+                    else if (read_msg_res.ec == client_errc::needs_more)
+                    {
+                        // Make space in the buffer, if required
+                        st.read_buffer.prepare(read_msg_res.size);
+
+                        // Read some data
+                        NATIVEPG_YIELD(resume_point_, 2, result::read(st.read_buffer.prepared_area()))
+
+                        // Check for errors
+                        if (io_error)
+                            return io_error;
+
+                        // Commit the data we were handed in
+                        st.read_buffer.commit(bytes_read);
                     }
                     else
                     {
-                        BOOST_ASSERT(read_msg_res.type() == read_message_stream_fsm::result_type::error);
-                        return read_msg_res.error();
+                        // An error occurred
+                        return read_msg_res.ec;
                     }
                 }
             }

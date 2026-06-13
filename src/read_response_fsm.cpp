@@ -7,13 +7,9 @@
 
 #include <boost/system/error_code.hpp>
 
-#include <cstddef>
-
 #include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
-#include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/describe.hpp"
-#include "nativepg/protocol/read_message_fsm.hpp"
 #include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
@@ -299,40 +295,6 @@ read_response_fsm_impl::result read_response_fsm_impl::resume(const any_backend_
             case request_message_type::parse: return handle_parse(msg);
             case request_message_type::query: return handle_query(msg);
             case request_message_type::sync: return handle_sync(msg);
-        }
-    }
-}
-
-read_response_fsm::result read_response_fsm::resume(
-    connection_state& st,
-    boost::system::error_code io_error,
-    std::size_t bytes_read
-)
-{
-    // Attempt to read a message
-    while (true)
-    {
-        auto read_msg_res = st.read_msg_stream_fsm.resume(st, io_error, bytes_read);
-        if (read_msg_res.type() == read_message_stream_fsm::result_type::read)
-        {
-            return result::read(read_msg_res.read_buffer());
-        }
-        else if (read_msg_res.type() == read_message_stream_fsm::result_type::message)
-        {
-            // We've got a message, invoke the FSM
-            auto res = impl_.resume(read_msg_res.message());
-
-            // If we're done, exit
-            if (res.type == read_response_fsm_impl::result_type::done)
-                return res.ec;
-
-            // Otherwise, keep reading
-            BOOST_ASSERT(res.type == read_response_fsm_impl::result_type::read);
-        }
-        else
-        {
-            BOOST_ASSERT(read_msg_res.type() == read_message_stream_fsm::result_type::error);
-            return read_msg_res.error();
         }
     }
 }

@@ -113,6 +113,9 @@ enum class client_errc : int
     // The server sent us a message in a multiplexed connection that couldn't be matched to any pending
     // request
     unmatched_request,
+
+    // We need more input
+    needs_more,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

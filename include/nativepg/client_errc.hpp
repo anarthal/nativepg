@@ -116,6 +116,10 @@ enum class client_errc : int
 
     // We need more input
     needs_more,
+
+    // You issued a COPY SQL statement through an API that doesn't support COPY operations.
+    // Use an appropriate API, instead
+    copy_not_allowed,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

@@ -112,4 +112,7 @@ if (NATIVEPG_COROSIO_API)
 
     add_executable(nativepg_listen example/listen.cpp)
     target_link_libraries(nativepg_listen PRIVATE nativepg_corosio)
+
+    add_executable(nativepg_copy_out example/copy_out.cpp)
+    target_link_libraries(nativepg_copy_out PRIVATE nativepg_corosio)
 endif()

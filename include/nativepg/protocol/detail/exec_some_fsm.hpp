@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_PROTOCOL_DETAIL_EXEC_FSM_HPP
-#define NATIVEPG_PROTOCOL_DETAIL_EXEC_FSM_HPP
+#ifndef NATIVEPG_PROTOCOL_DETAIL_EXEC_SOME_FSM_HPP
+#define NATIVEPG_PROTOCOL_DETAIL_EXEC_SOME_FSM_HPP
 
 #include <boost/assert.hpp>
 #include <boost/capy/buffers.hpp>
@@ -51,6 +51,11 @@ public:
         result(protocol::copy_out_response value) noexcept : type_(result_type::copy_out), data_(value) {}
 
         result_type type() const { return type_; }
+        std::error_code error() const
+        {
+            BOOST_ASSERT(type_ == result_type::done);
+            return data_.ec;
+        }
         protocol::copy_out_response get_copy_out() const
         {
             BOOST_ASSERT(type_ == result_type::copy_out);
@@ -70,7 +75,7 @@ public:
         } data_;
     };
 
-    exec_some_fsm(const request* req, response_handler_ref handler) noexcept : fsm_(req, handler) {}
+    exec_some_fsm(const request* req, response_handler_ref handler) noexcept : fsm_(req, handler, true) {}
 
     result resume(connection_state& st, std::vector<boost::capy::const_buffer>& copy_buffs)
     {
@@ -101,7 +106,7 @@ public:
                 while (true)
                 {
                     // Try to get a message
-                    res = parse_message(st.read_buffer.committed_area());
+                    res = parse_message(st.read_buffer.committed_area().subspan(consumed_));
                     if (res.ec == client_errc::needs_more)
                     {
                         // We need more data. If we have received any copy data, yield
@@ -154,6 +159,8 @@ public:
         BOOST_ASSERT(false);
         return {};
     }
+
+    const request& get_request() const { return fsm_.get_request(); }
 
 private:
     int resume_point_{0};

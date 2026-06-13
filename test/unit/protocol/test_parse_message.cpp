@@ -12,7 +12,7 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/command_complete.hpp"
-#include "nativepg/protocol/messages_view.hpp"
+#include "nativepg/protocol/parse_message.hpp"
 
 using namespace nativepg;
 using boost::system::error_code;

@@ -14,7 +14,7 @@
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/detail/exec_fsm.hpp"
 #include "nativepg/protocol/detail/read_buffer.hpp"
-#include "nativepg/protocol/messages_view.hpp"
+#include "nativepg/protocol/parse_message.hpp"
 #include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
 #include "nativepg/request.hpp"

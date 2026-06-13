@@ -17,7 +17,7 @@
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/connection_state.hpp"
-#include "nativepg/protocol/messages_view.hpp"
+#include "nativepg/protocol/parse_message.hpp"
 #include "nativepg/protocol/startup.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
 

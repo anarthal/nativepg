@@ -17,6 +17,7 @@
 namespace nativepg {
 namespace protocol {
 
+// TODO: do we need all this?
 // Message header operations
 struct message_header
 {

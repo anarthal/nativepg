@@ -23,13 +23,13 @@
 #include <system_error>
 #include <utility>
 
-#include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_connection_pool.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/sync.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/sqlstate.hpp"
 #include "nativepg_internal/connection_pool/sansio_connection_node.hpp"
 
 namespace nativepg::detail {
@@ -89,7 +89,7 @@ public:
     {
         if (const auto* msg = boost::variant2::get_if<protocol::error_response>(&req))
         {
-            err_.code = client_errc::exec_server_error;
+            err_.code = parse_sqlstate(msg->sqlstate.value_or(std::string_view{}));
             err_.diag.assign(*msg);
         }
     }

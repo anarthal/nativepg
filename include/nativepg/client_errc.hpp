@@ -101,9 +101,6 @@ enum class client_errc : int
     // deactivated request autosync).
     request_mixes_simple_advanced_protocols,
 
-    // The server returned an error during the execution of a request
-    exec_server_error,
-
     // A pipeline step was skipped because of a previous error
     step_skipped,
 

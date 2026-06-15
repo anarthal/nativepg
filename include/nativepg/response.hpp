@@ -38,6 +38,7 @@
 #include "nativepg/protocol/views.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
+#include "nativepg/sqlstate.hpp"
 
 namespace nativepg {
 
@@ -110,7 +111,7 @@ class resultset_callback_t
         {
             if (!self.err_.code)
             {
-                self.err_.code = client_errc::exec_server_error;
+                self.err_.code = parse_sqlstate(err.sqlstate.value_or(std::string_view{}));
                 self.err_.diag.assign(err);
             }
         }

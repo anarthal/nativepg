@@ -55,7 +55,6 @@ static const char* error_to_string(client_errc error)
         case client_errc::request_ends_without_sync: return "request_ends_without_sync";
         case client_errc::request_mixes_simple_advanced_protocols:
             return "request_mixes_simple_advanced_protocols";
-        case client_errc::exec_server_error: return "exec_server_error";
         case client_errc::step_skipped: return "step_skipped";
         case client_errc::unknown_openssl_error: return "unknown_openssl_error";
         default: return "<unknown nativepg client error>";

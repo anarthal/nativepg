@@ -68,35 +68,6 @@ struct nativepg::co_multiplexed_connection::impl
         }
     }
 
-    capy::io_task<> read_some_messages()
-    {
-        auto& stream = conn.stream();
-        auto& st = conn.state();
-
-        while (true)
-        {
-            // How many bytes are we missing to have a complete message?
-            auto missing_bytes = protocol::message_missing_bytes(st.read_buffer.committed_area());
-            if (missing_bytes == 0u)
-                co_return {};
-
-            // Make space in the buffer
-            st.read_buffer.prepare(missing_bytes);
-
-            // Read some data
-            auto [ec, bytes] = co_await stream.read_some(
-                boost::capy::make_buffer(st.read_buffer.prepared_area())
-            );
-
-            // Check for errors
-            if (ec)
-                co_return {ec};
-
-            // Commit the data we were handed in
-            st.read_buffer.commit(bytes);
-        }
-    }
-
     capy::io_task<> reader()
     {
         auto& st = conn.state();
@@ -104,7 +75,7 @@ struct nativepg::co_multiplexed_connection::impl
         while (true)
         {
             // Read until we have at least one message
-            if (auto [ec] = co_await read_some_messages(); ec)
+            if (auto [ec] = co_await conn.read_some_messages(); ec)
                 co_return {ec};
 
             // Process each message

@@ -110,8 +110,6 @@ enum class client_errc : int
     // TODO: I don't like this
     unknown_openssl_error,
 
-    // TODO: document
-    bad_sqlstate,
     // The server sent us a message in a multiplexed connection that couldn't be matched to any pending
     // request
     unmatched_request,

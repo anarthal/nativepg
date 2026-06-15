@@ -39,6 +39,8 @@
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
 
+// TODO: we need to split this file
+
 namespace nativepg {
 
 namespace detail {
@@ -261,6 +263,28 @@ resultset_callback_t<T, detail::into_handler<T>> into(std::vector<T>& vec)
 {
     return resultset_callback_t<T, detail::into_handler<T>>{detail::into_handler<T>{vec}};
 }
+
+// A response type that checks that no operation resulted in an error
+class check
+{
+    extended_error err_;
+
+public:
+    check() = default;
+    handler_setup_result setup(const request& req, std::size_t offset)
+    {
+        return req.messages().size() - offset;
+    }
+    void on_message(const any_request_message& msg, std::size_t)
+    {
+        if (auto* err = boost::variant2::get_if<protocol::error_response>(&msg))
+        {
+            err_.code = client_errc::exec_server_error;
+            err_.diag.assign(*err);
+        }
+    }
+    const extended_error& result() const { return err_; }
+};
 
 template <response_handler... Handlers>
 class response

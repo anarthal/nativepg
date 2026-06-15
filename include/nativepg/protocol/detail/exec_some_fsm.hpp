@@ -117,7 +117,7 @@ public:
                         }
 
                         // Keep reading
-                        continue;
+                        break;
                     }
                     else if (res.ec)
                         return {res.ec};  // Unrecoverable error
@@ -150,6 +150,14 @@ public:
                     {
                         // The copy batch has finished, return the remaining messages and the eof
                         NATIVEPG_YIELD(resume_point_, 5, result_type::copy_data_with_eof)
+                        copy_buffs.clear();
+                    }
+                    else if (res.message.type() == any_backend_message::kind::error_response)
+                    {
+                        // The copy batch has finished with an error
+                        // TODO: do we need to signal this as a special case? Or is it enough
+                        // passing the error response to the handler as we currently do?
+                        NATIVEPG_YIELD(resume_point_, 6, result_type::copy_data_with_eof)
                         copy_buffs.clear();
                     }
                 }

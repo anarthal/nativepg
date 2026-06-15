@@ -337,8 +337,17 @@ inline std::error_code parse_sqlstate(std::string_view from)
     return std::error_code(sqlstate_as_int(from), get_sqlstate_category());
 }
 
+// std interop
+inline std::error_condition make_error_condition(sqlstate_cond value)
+{
+    return std::error_condition(static_cast<int>(value), get_sqlstate_category());
+}
+
 }  // namespace nativepg
 
-// TODO: make sqlstate_cond interoperable with std
+template <>
+struct std::is_error_condition_enum<nativepg::sqlstate_cond> : true_type
+{
+};
 
 #endif

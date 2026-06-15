@@ -29,7 +29,7 @@ public:
     using result_type = startup_fsm::result_type;
     using result = startup_fsm::result;
 
-    exec_fsm(const request& req, response_handler_ref handler) noexcept : read_fsm_(req, handler) {}
+    exec_fsm(const request* req, response_handler_ref handler) noexcept : read_fsm_(req, handler) {}
 
     result resume(connection_state& st, boost::system::error_code ec, std::size_t bytes_transferred);
 
@@ -39,14 +39,7 @@ public:
     }
 
 private:
-    enum class state_t
-    {
-        initial,
-        writing,
-        reading
-    };
-
-    state_t state_{state_t::initial};
+    int resume_point_{0};
     read_response_fsm read_fsm_;
 };
 

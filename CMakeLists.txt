@@ -29,7 +29,6 @@ add_library(nativepg
     src/startup_fsm.cpp
     src/scram_sha256_fsm.cpp
     src/read_response_fsm.cpp
-    src/read_message_fsm.cpp
     src/exec_fsm.cpp
     src/connect_fsm.cpp
     src/request.cpp
@@ -44,6 +43,7 @@ if (NATIVEPG_COROSIO_API)
     add_library(nativepg_corosio
         src/co_connection.cpp
         src/co_connection_pool.cpp
+        src/co_multiplexed_connection.cpp
     )
     target_link_libraries(nativepg_corosio PUBLIC
         nativepg
@@ -77,9 +77,13 @@ if (BUILD_TESTING)
     add_unit_test(protocol          test_scram_sha256_server_final_message)
     add_unit_test(protocol          test_scram_sha256_crypt)
     add_unit_test(protocol          test_scram_sha256_fsm)
-    add_unit_test(protocol          test_read_message_fsm)
+    add_unit_test(protocol          test_parse_message)
+    add_unit_test(protocol          test_message_missing_bytes)
     add_unit_test(protocol          test_startup_fsm)
     add_unit_test(protocol          test_read_response_fsm)
+    add_unit_test(protocol          test_check_request)
+    add_unit_test(protocol          test_next_power_of_2)
+    add_unit_test(protocol          test_read_buffer)
     add_unit_test(""                test_request)
     add_unit_test(""                test_response)
     add_unit_test(""                test_resultset_callback)
@@ -102,4 +106,13 @@ if (NATIVEPG_COROSIO_API)
 
     add_executable(nativepg_co_connection_pool example/co_connection_pool.cpp)
     target_link_libraries(nativepg_co_connection_pool PRIVATE nativepg_corosio)
+
+    add_executable(nativepg_co_multiplexed_connection example/co_multiplexed_connection.cpp)
+    target_link_libraries(nativepg_co_multiplexed_connection PRIVATE nativepg_corosio)
+
+    add_executable(nativepg_listen example/listen.cpp)
+    target_link_libraries(nativepg_listen PRIVATE nativepg_corosio)
+
+    add_executable(nativepg_copy_out example/copy_out.cpp)
+    target_link_libraries(nativepg_copy_out PRIVATE nativepg_corosio)
 endif()

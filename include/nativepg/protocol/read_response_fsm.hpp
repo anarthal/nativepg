@@ -12,8 +12,8 @@
 #include <boost/system/error_code.hpp>
 
 #include <cstddef>
+#include <span>
 
-#include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/request.hpp"
@@ -21,9 +21,7 @@
 
 namespace nativepg::protocol {
 
-namespace detail {
-
-class read_response_fsm_impl
+class read_response_fsm
 {
 public:
     enum class result_type
@@ -41,13 +39,19 @@ public:
         result(result_type t) noexcept : type(t) {}
     };
 
-    read_response_fsm_impl(const request& req, response_handler_ref handler) noexcept
-        : req_(&req), handler_(handler)
+    read_response_fsm(const request* req, response_handler_ref handler, bool allow_copy = false) noexcept
+        : req_(req), handler_(handler), allow_copy_(allow_copy)
     {
+        BOOST_ASSERT(req != nullptr);
     }
 
     const request& get_request() const { return *req_; }
     response_handler_ref get_handler() const { return handler_; }
+
+    std::span<const request_message_type> get_remaining_messages() const
+    {
+        return req_->messages().subspan(current_);
+    }
 
     result resume(const any_backend_message& msg);
 
@@ -58,6 +62,7 @@ private:
     response_handler_ref handler_;
     std::size_t current_{};
     state_t state_{static_cast<state_t>(0)};
+    bool allow_copy_;
 
     inline void call_handler(const any_request_message& msg) { handler_.on_message(msg, current_); }
     result advance();
@@ -69,59 +74,6 @@ private:
     result handle_sync(const any_backend_message&);
     result handle_query(const any_backend_message&);
     result handle_error(const error_response& err);
-};
-
-}  // namespace detail
-
-class read_response_fsm
-{
-public:
-    enum class result_type
-    {
-        done,
-        read,
-    };
-
-    class result
-    {
-        result_type type_;
-        union
-        {
-            boost::system::error_code ec_;
-            std::span<unsigned char> read_buff_;
-        };
-
-        result(result_type t, std::span<unsigned char> data) noexcept : type_(t), read_buff_(data) {}
-
-    public:
-        result(boost::system::error_code ec) noexcept : type_(result_type::done), ec_(ec) {}
-
-        static result read(std::span<unsigned char> buff) { return {result_type::read, buff}; }
-
-        result_type type() const { return type_; }
-
-        boost::system::error_code error() const
-        {
-            BOOST_ASSERT(type_ == result_type::done);
-            return ec_;
-        }
-
-        std::span<unsigned char> read_buffer() const
-        {
-            BOOST_ASSERT(type_ == result_type::read);
-            return read_buff_;
-        }
-    };
-
-    read_response_fsm(const request& req, response_handler_ref handler) noexcept : impl_(req, handler) {}
-
-    result resume(connection_state& st, boost::system::error_code io_error, std::size_t bytes_read);
-
-    const request& get_request() const { return impl_.get_request(); }
-    response_handler_ref get_handler() const { return impl_.get_handler(); }
-
-private:
-    detail::read_response_fsm_impl impl_;
 };
 
 }  // namespace nativepg::protocol

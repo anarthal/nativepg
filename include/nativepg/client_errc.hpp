@@ -112,6 +112,16 @@ enum class client_errc : int
 
     // TODO: document
     bad_sqlstate,
+    // The server sent us a message in a multiplexed connection that couldn't be matched to any pending
+    // request
+    unmatched_request,
+
+    // We need more input
+    needs_more,
+
+    // You issued a COPY SQL statement through an API that doesn't support COPY operations.
+    // Use an appropriate API, instead
+    copy_not_allowed,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

@@ -49,26 +49,12 @@ static void print_event(const notification_event& event)
     }
 }
 
-// TODO: replace this by the ignore response once we have it
-class null_handler
-{
-    extended_error err_;
-
-public:
-    null_handler() = default;
-    handler_setup_result setup(const request& req, std::size_t) { return req.messages().size(); }
-    void on_message(const any_request_message&, std::size_t) {}
-    const extended_error& result() const { return err_; }
-};
-
 static capy::io_task<> listener(co_multiplexed_connection& conn)
 {
     std::vector<notification_event> events;
 
     request req;
     req.add_simple_query("LISTEN mychannel");
-
-    null_handler h;
 
     while (true)
     {
@@ -87,7 +73,7 @@ static capy::io_task<> listener(co_multiplexed_connection& conn)
         // reconnections remove listeners
         if (should_issue_listen(events))
         {
-            if (auto [ec] = co_await conn.exec(req, h); ec)
+            if (auto [ec] = co_await conn.exec(req); ec)
             {
                 std::cerr << "Error issuing listening: " << ec << ": " << ec.message() << std::endl;
                 co_return {};

@@ -64,6 +64,8 @@ public:
         diagnostics* diag = nullptr
     );
 
+    boost::capy::io_task<> exec(const request& req, diagnostics* diag = nullptr);
+
     boost::capy::io_task<> read_notifications(std::vector<notification_event>& output);
 };
 

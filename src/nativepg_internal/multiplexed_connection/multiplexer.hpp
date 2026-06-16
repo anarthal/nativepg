@@ -22,10 +22,10 @@
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
-#include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/response.hpp"
 #include "nativepg/response_handler.hpp"
 
 namespace nativepg {
@@ -273,20 +273,9 @@ public:
     }
 
 private:
-    class null_handler
-    {
-        extended_error err_;
-
-    public:
-        null_handler() = default;
-        handler_setup_result setup(const request& req, std::size_t) { return req.messages().size(); }
-        void on_message(const any_request_message&, std::size_t) {}
-        const extended_error& result() const { return err_; }
-    };
-
     std::vector<unsigned char> write_buffer_;
     std::deque<multiplexer_elem> elems_;
-    null_handler null_handler_;
+    check null_handler_;
     std::size_t num_pending_{};
     read_response_stream_fsm fsm_;
 

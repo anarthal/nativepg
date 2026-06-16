@@ -112,6 +112,9 @@ if (NATIVEPG_COROSIO_API)
     add_executable(nativepg_co_multiplexed_connection example/co_multiplexed_connection.cpp)
     target_link_libraries(nativepg_co_multiplexed_connection PRIVATE nativepg_corosio)
 
+    add_executable(nativepg_prepared_statements example/prepared_statements.cpp)
+    target_link_libraries(nativepg_prepared_statements PRIVATE nativepg_corosio)
+
     add_executable(nativepg_listen example/listen.cpp)
     target_link_libraries(nativepg_listen PRIVATE nativepg_corosio)
 

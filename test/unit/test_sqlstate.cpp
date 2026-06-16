@@ -29,7 +29,21 @@ static_assert("ZZZZZ"_sqlstate == 596523235);
 void test_runtime_parsing_success()
 {
     const auto& cat = get_sqlstate_category();
+
+    // Zero
     BOOST_TEST_EQ(parse_sqlstate("00000"), std::error_code(0, cat));
+
+    // All digits
+    BOOST_TEST_EQ(parse_sqlstate("23505"), std::error_code(34361349, cat));
+
+    // Digits and a letter
+    BOOST_TEST_EQ(parse_sqlstate("0A000"), std::error_code(2621440, cat));
+
+    // PostgreSQL-specific "P" form
+    BOOST_TEST_EQ(parse_sqlstate("42P01"), std::error_code(67735553, cat));
+
+    // High letters
+    BOOST_TEST_EQ(parse_sqlstate("HV00B"), std::error_code(293339147, cat));
 }
 
 }  // namespace

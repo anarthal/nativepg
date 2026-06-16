@@ -362,7 +362,7 @@ inline error_code parse_binary_geometry(std::span<const unsigned char> from, T& 
 
 // GEOGRAPHY => pg_geography (TEXT)
 template <class T = types::pg_geography>
-constexpr error_code parse_text_geography(std::span<const unsigned char> from, T& to) noexcept
+constexpr error_code parse_text_geography(std::span<const unsigned char> from, [[maybe_unused]] T& to) noexcept
 {
     error_code ec{};
 
@@ -373,7 +373,7 @@ constexpr error_code parse_text_geography(std::span<const unsigned char> from, T
 
 // GEOGRAPHY => pg_geography (BINARY)
 template <class T = types::pg_geography>
-constexpr error_code parse_binary_geography(std::span<const unsigned char> from, T& to) noexcept
+constexpr error_code parse_binary_geography(std::span<const unsigned char> from, [[maybe_unused]] T& to) noexcept
 {
     error_code ec{};
 
@@ -385,7 +385,7 @@ constexpr error_code parse_binary_geography(std::span<const unsigned char> from,
 
 // BOX2D => pg_box2d (TEXT)
 template <class T = types::pg_box2d>
-constexpr error_code parse_text_box2d(std::span<const unsigned char> from, T& to) noexcept
+constexpr error_code parse_text_box2d(std::span<const unsigned char> from, [[maybe_unused]] T& to) noexcept
 {
     error_code ec{};
 
@@ -396,7 +396,7 @@ constexpr error_code parse_text_box2d(std::span<const unsigned char> from, T& to
 
 // BOX2D => pg_box2d (BINARY)
 template <class T = types::pg_box2d>
-constexpr error_code parse_binary_box2d(std::span<const unsigned char> from, T& to) noexcept
+constexpr error_code parse_binary_box2d(std::span<const unsigned char> from, [[maybe_unused]] T& to) noexcept
 {
     error_code ec{};
 
@@ -408,7 +408,7 @@ constexpr error_code parse_binary_box2d(std::span<const unsigned char> from, T& 
 
 // BOX3D => pg_box3d (TEXT)
 template <class T = types::pg_box3d>
-constexpr error_code parse_text_box3d(std::span<const unsigned char> from, T& to) noexcept
+constexpr error_code parse_text_box3d(std::span<const unsigned char> from, [[maybe_unused]] T& to) noexcept
 {
     error_code ec{};
 

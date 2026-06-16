@@ -10,7 +10,7 @@
 
 #include <boost/assert.hpp>
 
-#include <string>
+#include <array>
 
 // Exposed for testing
 
@@ -26,7 +26,7 @@ constexpr char unparse_sqlstate_char(int value)
 }
 
 // Inverse of sqlstate_as_int: unpacks the five 6-bit base-36 digits back into a 5-char string.
-inline std::string unknown_sqlstate_to_string(int val)
+constexpr std::array<char, 5> sqlstate_as_string(int val)
 {
     // As a safety measure, discard everything except the 30 least significant bits
     // that encode our value

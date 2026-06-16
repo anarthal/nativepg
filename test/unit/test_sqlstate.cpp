@@ -14,7 +14,6 @@
 
 #include "nativepg/sqlstate.hpp"
 #include "nativepg/sqlstate_cond.hpp"
-#include "nativepg_internal/sqlstate_as_string.hpp"
 
 using namespace nativepg;
 

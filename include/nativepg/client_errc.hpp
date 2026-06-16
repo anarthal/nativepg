@@ -71,9 +71,6 @@ enum class client_errc : int
     // There was a field defined in a C++ type that wasn't present in the data returned by the query
     field_not_found,
 
-    // TODO: this should really use an error category on its own
-    auth_failed,
-
     // We don't support this authentication method yet
     auth_kerberos_v5_unsupported,
 

@@ -10,7 +10,6 @@
 
 #include <iterator>
 
-#include "nativepg/client_errc.hpp"
 #include "nativepg/connect_params.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/async.hpp"
@@ -19,6 +18,7 @@
 #include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/protocol/startup.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
+#include "nativepg/sqlstate.hpp"
 
 using namespace nativepg;
 using boost::system::error_code;
@@ -118,7 +118,7 @@ void test_auth_error()
     };
     res = fsm.resume(st, diag, err);
     BOOST_TEST_EQ(res.type, startup_fsm_impl::result_type::done);
-    BOOST_TEST_EQ(res.ec, error_code(client_errc::auth_failed));
+    BOOST_TEST_EQ(res.ec, error_code(parse_sqlstate("42P01")));
     BOOST_TEST_EQ(diag.message(), "FATAL: 42P01: database does not exist");
 }
 

@@ -11,18 +11,16 @@
 
 #include <algorithm>
 #include <charconv>
-#include <cstdint>
-#include <span>
 #include <chrono>
-#include <iostream>
-#include <locale>
-#include <sstream>
+#include <cstdint>
 #include <cstring>
+#include <span>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/detail/field_traits.hpp"
-#include "nativepg/types.hpp"
+#include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
+#include "nativepg/response_handler.hpp"
 
 using namespace nativepg;
 using namespace nativepg::types;
@@ -30,7 +28,6 @@ using boost::system::error_code;
 
 // Parsing concrete fields
 namespace {
-
 
 template <class T>
 error_code parse_text_int(std::span<const unsigned char> from, T& to)
@@ -53,7 +50,6 @@ error_code parse_binary_int(std::span<const unsigned char> from, T& to)
     to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data());
     return {};
 }
-
 
 }  // namespace
 
@@ -130,7 +126,6 @@ boost::system::error_code nativepg::detail::field_parse<std::int64_t>::call(
     }
 }
 
-
 // DATE => std::chrono::sys_days
 boost::system::error_code nativepg::detail::field_parse<std::chrono::sys_days>::call(
     std::optional<std::span<const unsigned char>> from,
@@ -141,9 +136,8 @@ boost::system::error_code nativepg::detail::field_parse<std::chrono::sys_days>::
     if (!from.has_value())
         return client_errc::unexpected_null;
     BOOST_ASSERT(desc.type_oid == 1082);
-    return desc.fmt_code == protocol::format_code::text ?
-        parse_text_date(*from, to) :
-        parse_binary_date(*from, to);
+    return desc.fmt_code == protocol::format_code::text ? parse_text_date(*from, to)
+                                                        : parse_binary_date(*from, to);
 }
 
 // TIME => std::chrono::microseconds
@@ -156,9 +150,8 @@ boost::system::error_code nativepg::detail::field_parse<std::chrono::microsecond
     if (!from.has_value())
         return client_errc::unexpected_null;
     BOOST_ASSERT(desc.type_oid == 1083);
-    return desc.fmt_code == protocol::format_code::text ?
-        parse_text_time(*from, to) :
-        parse_binary_time(*from, to);
+    return desc.fmt_code == protocol::format_code::text ? parse_text_time(*from, to)
+                                                        : parse_binary_time(*from, to);
 }
 
 // TIMETZ => pg_timetz
@@ -171,9 +164,8 @@ boost::system::error_code nativepg::detail::field_parse<types::pg_timetz>::call(
     if (!from.has_value())
         return client_errc::unexpected_null;
     BOOST_ASSERT(desc.type_oid == 1266);
-    return desc.fmt_code == protocol::format_code::text ?
-        parse_text_timetz(*from, to) :
-        parse_binary_timetz(*from, to);
+    return desc.fmt_code == protocol::format_code::text ? parse_text_timetz(*from, to)
+                                                        : parse_binary_timetz(*from, to);
 }
 
 // TIMESTAMP => pg_timestamp
@@ -186,9 +178,8 @@ boost::system::error_code nativepg::detail::field_parse<types::pg_timestamp>::ca
     if (!from.has_value())
         return client_errc::unexpected_null;
     BOOST_ASSERT(desc.type_oid == 1114);
-    return desc.fmt_code == protocol::format_code::text ?
-        parse_text_timestamp(*from, to) :
-        parse_binary_timestamp(*from, to);
+    return desc.fmt_code == protocol::format_code::text ? parse_text_timestamp(*from, to)
+                                                        : parse_binary_timestamp(*from, to);
 }
 
 // TIMESTAMPTZ => pg_timestamptz
@@ -201,9 +192,8 @@ boost::system::error_code nativepg::detail::field_parse<types::pg_timestamptz>::
     if (!from.has_value())
         return client_errc::unexpected_null;
     BOOST_ASSERT(desc.type_oid == 1184);
-    return desc.fmt_code == protocol::format_code::text ?
-        parse_text_timestamptz(*from, to) :
-        parse_binary_timestamptz(*from, to);
+    return desc.fmt_code == protocol::format_code::text ? parse_text_timestamptz(*from, to)
+                                                        : parse_binary_timestamptz(*from, to);
 }
 
 // INTERVAL => pg_interval
@@ -216,9 +206,8 @@ boost::system::error_code nativepg::detail::field_parse<types::pg_interval>::cal
     if (!from.has_value())
         return client_errc::unexpected_null;
     BOOST_ASSERT(desc.type_oid == 1186);
-    return desc.fmt_code == protocol::format_code::text ?
-        parse_text_interval(*from, to) :
-        parse_binary_interval(*from, to);
+    return desc.fmt_code == protocol::format_code::text ? parse_text_interval(*from, to)
+                                                        : parse_binary_interval(*from, to);
 }
 
 boost::system::error_code nativepg::detail::compute_pos_map(
@@ -314,4 +303,36 @@ handler_setup_result nativepg::detail::resultset_setup(const request& req, std::
     // If we got the execute message, we're good
     return execute_found ? handler_setup_result{static_cast<std::size_t>(it - req.messages().begin())}
                          : handler_setup_result{client_errc::incompatible_response_type};
+}
+
+handler_setup_result check_parse::setup(const request& req, std::size_t offset)
+{
+    const auto msgs = req.messages().subspan(offset);
+    auto it = msgs.begin();
+
+    // Skip any leading syncs
+    while (it != msgs.end() && (*it == request_message_type::sync || *it == request_message_type::flush))
+        ++it;
+
+    // The original message must be a parse
+    if (it == msgs.end() || *it != request_message_type::parse)
+        return handler_setup_result(client_errc::incompatible_response_type);
+
+    return handler_setup_result{static_cast<std::size_t>(it - req.messages().begin())};
+}
+
+handler_setup_result check_close::setup(const request& req, std::size_t offset)
+{
+    const auto msgs = req.messages().subspan(offset);
+    auto it = msgs.begin();
+
+    // Skip any leading syncs
+    while (it != msgs.end() && (*it == request_message_type::sync || *it == request_message_type::flush))
+        ++it;
+
+    // The original message must be a close
+    if (it == msgs.end() || *it != request_message_type::close)
+        return handler_setup_result(client_errc::incompatible_response_type);
+
+    return handler_setup_result{static_cast<std::size_t>(it - req.messages().begin())};
 }

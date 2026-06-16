@@ -60,22 +60,20 @@ static capy::task<> co_main()
 
     // Compose our request
     request req;
-    req.add_query("SELECT * FROM myt' WHERE f1 <> $1", {"abc"});
+    req.add_query("INSERT INTO myt (f1, f3) VALUES ($1, $2)", {"hehe", "bad"});
     req.add_query("SELECT * FROM myt WHERE f1 <> 'abc'", {});
 
     // Structures to parse the response into
-    std::vector<myrow> vec1, vec2;
-    response res{into(vec1), into(vec2)};
+    std::vector<myrow> vec;
+    response res{check_execute(), into(vec)};
 
     auto [ec2] = co_await conn.exec(req, res, &diag);
     print_err("Operation result", ec2, diag);
     print_err("Q1 result", std::get<0>(res.handlers()).result());
     print_err("Q2 result", std::get<1>(res.handlers()).result());
 
-    for (const auto& r : vec1)
-        std::cout << "Got row (1): " << r.f1 << ", " << r.f3 << std::endl;
-    for (const auto& r : vec2)
-        std::cout << "Got row (2): " << r.f1 << ", " << r.f3 << std::endl;
+    for (const auto& r : vec)
+        std::cout << "Got row: " << r.f1 << ", " << r.f3 << std::endl;
 }
 
 int main()

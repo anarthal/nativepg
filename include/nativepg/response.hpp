@@ -280,7 +280,72 @@ public:
     {
         if (auto* err = boost::variant2::get_if<protocol::error_response>(&msg))
         {
-            err_.code = client_errc::exec_server_error;
+            err_.code = parse_sqlstate(err->sqlstate.value_or(std::string_view{}));
+            err_.diag.assign(*err);
+        }
+    }
+    const extended_error& result() const { return err_; }
+};
+
+// A response type that checks that a single resultset didn't
+// produce an error, skipping any produced data
+class check_execute
+{
+    extended_error err_;
+
+public:
+    check_execute() = default;
+
+    handler_setup_result setup(const request& req, std::size_t offset)
+    {
+        return detail::resultset_setup(req, offset);
+    }
+    void on_message(const any_request_message& msg, std::size_t)
+    {
+        if (auto* err = boost::variant2::get_if<protocol::error_response>(&msg))
+        {
+            err_.code = parse_sqlstate(err->sqlstate.value_or(std::string_view{}));
+            err_.diag.assign(*err);
+        }
+    }
+    const extended_error& result() const { return err_; }
+};
+
+// A response that checks that a single parse (e.g. when preparing a statement)
+// didn't produce an error
+class check_parse
+{
+    extended_error err_;
+
+public:
+    check_parse() = default;
+
+    handler_setup_result setup(const request& req, std::size_t offset);
+    void on_message(const any_request_message& msg, std::size_t)
+    {
+        if (auto* err = boost::variant2::get_if<protocol::error_response>(&msg))
+        {
+            err_.code = parse_sqlstate(err->sqlstate.value_or(std::string_view{}));
+            err_.diag.assign(*err);
+        }
+    }
+    const extended_error& result() const { return err_; }
+};
+
+// A response that checks that a single close didn't produce an error
+class check_close
+{
+    extended_error err_;
+
+public:
+    check_close() = default;
+
+    handler_setup_result setup(const request& req, std::size_t offset);
+    void on_message(const any_request_message& msg, std::size_t)
+    {
+        if (auto* err = boost::variant2::get_if<protocol::error_response>(&msg))
+        {
+            err_.code = parse_sqlstate(err->sqlstate.value_or(std::string_view{}));
             err_.diag.assign(*err);
         }
     }

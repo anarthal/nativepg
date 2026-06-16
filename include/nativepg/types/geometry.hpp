@@ -419,7 +419,7 @@ constexpr error_code parse_text_box3d(std::span<const unsigned char> from, [[may
 
 // BOX3D => pg_box3d (BINARY)
 template <class T = types::pg_box3d>
-constexpr error_code parse_binary_box3d(std::span<const unsigned char> from, T& to) noexcept
+constexpr error_code parse_binary_box3d(std::span<const unsigned char> from, [[maybe_unused]] T& to) noexcept
 {
     error_code ec{};
 

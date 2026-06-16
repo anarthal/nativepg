@@ -197,6 +197,19 @@ void test_sqlstate_cond()
     BOOST_TEST(parse_sqlstate("38002") == sqlstate_cond::modifying_sql_data_not_permitted);
     BOOST_TEST(parse_sqlstate("38003") == sqlstate_cond::prohibited_sql_statement_attempted);
     BOOST_TEST(parse_sqlstate("38004") == sqlstate_cond::reading_sql_data_not_permitted);
+
+    // Comparing codes with invalid int values to sqlstate_cond::bad_sqlstate succeeds
+    BOOST_TEST(std::error_code(-1, cat) == sqlstate_cond::bad_sqlstate);
+    BOOST_TEST(std::error_code(-500, cat) == sqlstate_cond::bad_sqlstate);
+    BOOST_TEST(std::error_code(0x7fffffff, cat) == sqlstate_cond::bad_sqlstate);
+    BOOST_TEST(std::error_code(36, cat) == sqlstate_cond::bad_sqlstate);
+    BOOST_TEST(std::error_code(36 << 6, cat) == sqlstate_cond::bad_sqlstate);
+    BOOST_TEST(std::error_code(36 << 12, cat) == sqlstate_cond::bad_sqlstate);
+    BOOST_TEST(std::error_code(36 << 18, cat) == sqlstate_cond::bad_sqlstate);
+    BOOST_TEST(std::error_code(36 << 24, cat) == sqlstate_cond::bad_sqlstate);
+
+    // Comparing other codes to bad_sqlstate returns false
+    BOOST_TEST(parse_sqlstate("38004") != sqlstate_cond::bad_sqlstate);
 }
 
 }  // namespace

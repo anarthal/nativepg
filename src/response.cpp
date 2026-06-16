@@ -7,17 +7,13 @@
 
 #include <boost/assert.hpp>
 #include <boost/endian/conversion.hpp>
-#include <boost/system/error_code.hpp>
 
 #include <algorithm>
 #include <charconv>
-#include <cstdint>
 #include <span>
 #include <chrono>
 #include <iostream>
 #include <locale>
-#include <sstream>
-#include <cstring>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/detail/field_traits.hpp"

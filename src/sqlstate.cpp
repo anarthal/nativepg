@@ -315,7 +315,7 @@ public:
     std::string message(int ev) const final override
     {
         if (!detail::is_valid_sqlstate(ev))
-            return "invalid_sqlstate";
+            return "bad_sqlstate";
 
         // 5-letter value
         auto value_as_str = detail::sqlstate_as_string(ev);

@@ -15,9 +15,8 @@
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
-#include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/sqlstate.hpp"
+#include "nativepg/response.hpp"
 
 using namespace nativepg;
 namespace capy = boost::capy;
@@ -30,25 +29,6 @@ static void print_err(const char* prefix, std::error_code err, const diagnostics
         std::cout << ": " << diag.message();
     std::cout << '\n';
 }
-
-// TODO: replace this by the ignore response once we have it
-class null_handler
-{
-    extended_error err_;
-
-public:
-    null_handler() = default;
-    handler_setup_result setup(const request& req, std::size_t) { return req.messages().size(); }
-    void on_message(const any_request_message& msg, std::size_t)
-    {
-        if (auto* err = boost::variant2::get_if<protocol::error_response>(&msg))
-        {
-            err_.code = parse_sqlstate(err->sqlstate.value_or(std::string_view{}));
-            err_.diag.assign(*err);
-        }
-    }
-    const extended_error& result() const { return err_; }
-};
 
 static capy::task<> co_main()
 {
@@ -72,12 +52,12 @@ static capy::task<> co_main()
     request req;
     req.add_simple_query("COPY myt TO STDOUT");
 
-    // Structures to parse the response into
-    null_handler ignore;
+    // A response type that verifies that the server sends no error
+    check check_response;
 
     // Setup the request for exec_some
     // Important: req and the handler must be kept alive until we finish executing
-    conn.setup_request(req, ignore);
+    conn.setup_request(req, check_response);
 
     bool done = false;
     while (!done)

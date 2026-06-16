@@ -19,7 +19,7 @@ struct field_is_compatible<types::pg_geometry<>>
 {
     static inline boost::system::error_code call(const protocol::field_description& desc)
     {
-        return desc.type_oid == 16384 ? boost::system::error_code() : client_errc::incompatible_field_type;
+        return desc.type_oid == 24588 ? boost::system::error_code() : client_errc::incompatible_field_type;
     }
 };
 

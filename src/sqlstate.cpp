@@ -12,6 +12,7 @@
 
 #include "nativepg/sqlstate.hpp"
 #include "nativepg/sqlstate_cond.hpp"
+#include "nativepg_internal/sqlstate_to_string.hpp"
 
 using namespace nativepg;
 
@@ -307,33 +308,6 @@ constexpr const char* known_sqlstate_to_string(int value)
     }
 }
 
-// Inverse of parse_sqlstate_char
-constexpr char unparse_sqlstate_char(int value)
-{
-    //   0..9  => '0'..'9'
-    //   10..35 => 'A'..'Z'
-    BOOST_ASSERT(value >= 0 && value <= 35);
-    return value < 10 ? static_cast<char>('0' + value) : static_cast<char>('A' + value - 10);
-}
-
-// Inverse of sqlstate_as_int: unpacks the five 6-bit base-36 digits back into a 5-char string.
-std::string unknown_sqlstate_to_string(int val)
-{
-    // As a safety measure, discard everything except the 30 least significant bits
-    // that encode our value
-    val &= 0x3fffffff;
-
-    // Parse in groups of 6 bits
-    constexpr int six_bits_mask = 0x3f;
-    return {
-        unparse_sqlstate_char(val >> 24),
-        unparse_sqlstate_char((val >> 18) & six_bits_mask),
-        unparse_sqlstate_char((val >> 12) & six_bits_mask),
-        unparse_sqlstate_char((val >> 6) & six_bits_mask),
-        unparse_sqlstate_char(val & six_bits_mask),
-    };
-}
-
 class sqlstate_category final : public std::error_category
 {
 public:
@@ -344,7 +318,7 @@ public:
             return "invalid_sqlstate";
         if (const auto* msg = known_sqlstate_to_string(ev))
             return msg;
-        return unknown_sqlstate_to_string(ev);
+        return detail::unknown_sqlstate_to_string(ev);
     }
     std::error_condition default_error_condition(int val) const noexcept final override
     {

@@ -10,8 +10,10 @@
 
 // A structure similar to PGResult
 
+#include <compare>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <span>
 #include <vector>
 
@@ -54,12 +56,90 @@ struct offsetted_field_description
 
 }  // namespace detail
 
+// A random-access, span-like view over a range of field descriptions.
+// Elements are materialized on access.
 class field_descriptions_view
 {
     std::span<const detail::offsetted_field_description> descrs_;
-    const unsigned char* data_;
+    const unsigned char* data_{};
 
 public:
+    class iterator
+    {
+        const detail::offsetted_field_description* it_{};
+        const unsigned char* data_{};
+
+        friend class field_descriptions_view;
+        iterator(const detail::offsetted_field_description* it, const unsigned char* data) noexcept
+            : it_(it), data_(data)
+        {
+        }
+
+    public:
+        using value_type = protocol::field_description;
+        using reference = protocol::field_description;  // prvalue, materialized on deref
+        using pointer = protocol::field_description;
+        using difference_type = std::ptrdiff_t;
+        using iterator_category = std::random_access_iterator_tag;
+
+        iterator() = default;
+
+        reference operator*() const { return it_->to_field_description(data_); }
+        reference operator[](difference_type n) const { return it_[n].to_field_description(data_); }
+
+        iterator& operator++() noexcept
+        {
+            ++it_;
+            return *this;
+        }
+        iterator operator++(int) noexcept
+        {
+            auto copy = *this;
+            ++it_;
+            return copy;
+        }
+        iterator& operator--() noexcept
+        {
+            --it_;
+            return *this;
+        }
+        iterator operator--(int) noexcept
+        {
+            auto copy = *this;
+            --it_;
+            return copy;
+        }
+        iterator& operator+=(difference_type n) noexcept
+        {
+            it_ += n;
+            return *this;
+        }
+        iterator& operator-=(difference_type n) noexcept
+        {
+            it_ -= n;
+            return *this;
+        }
+
+        friend iterator operator+(iterator it, difference_type n) noexcept { return it += n; }
+        friend iterator operator+(difference_type n, iterator it) noexcept { return it += n; }
+        friend iterator operator-(iterator it, difference_type n) noexcept { return it -= n; }
+        friend difference_type operator-(iterator lhs, iterator rhs) noexcept { return lhs.it_ - rhs.it_; }
+
+        friend bool operator==(iterator lhs, iterator rhs) noexcept { return lhs.it_ == rhs.it_; }
+        friend std::strong_ordering operator<=>(iterator lhs, iterator rhs) noexcept
+        {
+            return lhs.it_ <=> rhs.it_;
+        }
+    };
+
+    using value_type = protocol::field_description;
+    using size_type = std::size_t;
+    using difference_type = std::ptrdiff_t;
+    using reference = protocol::field_description;
+    using const_reference = protocol::field_description;
+    using const_iterator = iterator;
+
+    field_descriptions_view() = default;
     field_descriptions_view(
         std::span<const detail::offsetted_field_description> descr,
         const unsigned char* data
@@ -67,6 +147,20 @@ public:
         : descrs_(descr), data_(data)
     {
     }
+
+    // Iterators
+    iterator begin() const noexcept { return {descrs_.data(), data_}; }
+    iterator end() const noexcept { return {descrs_.data() + descrs_.size(), data_}; }
+
+    // Capacity
+    size_type size() const noexcept { return descrs_.size(); }
+    bool empty() const noexcept { return descrs_.empty(); }
+
+    // Element access (all materialize a field_description by value)
+    reference operator[](size_type i) const { return descrs_[i].to_field_description(data_); }
+    // TODO: at()
+    reference front() const { return descrs_.front().to_field_description(data_); }
+    reference back() const { return descrs_.back().to_field_description(data_); }
 };
 
 class dynamic_resultset

@@ -11,6 +11,7 @@
 #include <system_error>
 
 #include "nativepg/sqlstate.hpp"
+#include "nativepg/sqlstate_cond.hpp"
 
 using namespace nativepg;
 

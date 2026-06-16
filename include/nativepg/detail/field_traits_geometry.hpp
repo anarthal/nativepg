@@ -15,7 +15,7 @@ struct field_is_compatible;
 
 // GEOMETRY
 template <>
-struct field_is_compatible<types::pg_geometry>
+struct field_is_compatible<types::pg_geometry<>>
 {
     static inline boost::system::error_code call(const protocol::field_description& desc)
     {
@@ -60,12 +60,12 @@ struct field_parse;
 
 // GEOMETRY
 template <>
-struct field_parse<types::pg_geometry>
+struct field_parse<types::pg_geometry<>>
 {
     static boost::system::error_code call(
         std::optional<std::span<const unsigned char>> from,
         const protocol::field_description& desc,
-        types::pg_geometry& to
+        types::pg_geometry<>& to
     );
 };
 

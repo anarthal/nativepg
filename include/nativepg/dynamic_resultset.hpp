@@ -19,12 +19,12 @@
 #include <vector>
 
 #include "nativepg/field_view.hpp"
-#include "nativepg/protocol/command_complete.hpp"
 #include "nativepg/protocol/common.hpp"
 #include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
-#include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/views.hpp"
+
+// TODO: separate compilation
 
 namespace nativepg {
 
@@ -472,9 +472,10 @@ public:
     }
 
     // TODO: these methods should be private?
-    void add_row_description(const protocol::row_description& row_descr)
+    void set_row_description(const protocol::row_description& row_descr)
     {
-        field_descr_.clear();
+        clear();
+        field_descr_.reserve(row_descr.field_descriptions.size());
         for (const auto& descr : row_descr.field_descriptions)
         {
             field_descr_.push_back({
@@ -503,12 +504,9 @@ public:
         }
     }
 
-    void add_command_complete(protocol::command_complete msg)
-    {
-        command_complete_tag_ = insert_data(msg.tag);
-    }
+    void set_command_complete_tag(std::string_view tag) { command_complete_tag_ = insert_data(tag); }
 
-    void add_portal_suspended(protocol::portal_suspended) { portal_suspended_ = true; }
+    void set_portal_suspended(bool value) { portal_suspended_ = value; }
 
     field_descriptions_view field_descriptions() const noexcept { return {field_descr_, data_.data()}; }
     rows_view rows() const noexcept { return {values_, field_descr_.size(), data_.data()}; }

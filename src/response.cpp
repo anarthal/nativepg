@@ -363,7 +363,7 @@ void dynamic_resultset_response::on_message(const any_request_message& msg, std:
         void operator()(const protocol::row_description& msg) const
         {
             BOOST_ASSERT(self.state_ == state_t::parsing_meta);
-            self.obj_->add_row_description(msg);
+            self.obj_->set_row_description(msg);
             self.state_ = state_t::parsing_data;
         }
 
@@ -378,14 +378,14 @@ void dynamic_resultset_response::on_message(const any_request_message& msg, std:
         void operator()(protocol::command_complete msg) const
         {
             BOOST_ASSERT(self.state_ == state_t::parsing_data);
-            self.obj_->add_command_complete(msg);
+            self.obj_->set_command_complete_tag(msg.tag);
             self.state_ = state_t::done;
         }
 
-        void operator()(protocol::portal_suspended msg) const
+        void operator()(protocol::portal_suspended) const
         {
             BOOST_ASSERT(self.state_ == state_t::parsing_data);
-            self.obj_->add_portal_suspended(msg);
+            self.obj_->set_portal_suspended(true);
             self.state_ = state_t::done;
         }
 

@@ -371,6 +371,8 @@ public:
 
     handler_setup_result setup(const request& req, std::size_t offset)
     {
+        obj_->clear();
+        state_ = state_t::parsing_meta;
         err_ = {};
         return detail::resultset_setup(req, offset);
     }

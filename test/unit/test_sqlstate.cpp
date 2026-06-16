@@ -47,6 +47,9 @@ void test_parse_sqlstate_success()
 
     // High letters
     BOOST_TEST_EQ(parse_sqlstate("HV00B"), std::error_code(293339147, cat));
+
+    // Valid SQLSTATE that doesn't match any known condition
+    BOOST_TEST_EQ(parse_sqlstate("ABC12"), std::error_code(170704962, cat));
 }
 
 // On error, unknown_sqlstate (error_code -1) is returned
@@ -133,6 +136,14 @@ void test_sqlstate_cond()
     BOOST_TEST(parse_sqlstate("38003") == sqlstate_cond::prohibited_sql_statement_attempted);
     BOOST_TEST(parse_sqlstate("38004") == sqlstate_cond::reading_sql_data_not_permitted);
 
+    // The canonical codes (the dedup targets) also compare equal to the same condition,
+    // exercising the identity branch of deduplicate_sqlstate_value
+    BOOST_TEST(parse_sqlstate("22001") == sqlstate_cond::string_data_right_truncation);
+    BOOST_TEST(parse_sqlstate("22004") == sqlstate_cond::null_value_not_allowed);
+    BOOST_TEST(parse_sqlstate("2F002") == sqlstate_cond::modifying_sql_data_not_permitted);
+    BOOST_TEST(parse_sqlstate("2F003") == sqlstate_cond::prohibited_sql_statement_attempted);
+    BOOST_TEST(parse_sqlstate("2F004") == sqlstate_cond::reading_sql_data_not_permitted);
+
     // Comparing codes with invalid int values to sqlstate_cond::bad_sqlstate succeeds
     BOOST_TEST(std::error_code(-1, cat) == sqlstate_cond::bad_sqlstate);
     BOOST_TEST(std::error_code(-500, cat) == sqlstate_cond::bad_sqlstate);
@@ -143,11 +154,13 @@ void test_sqlstate_cond()
     BOOST_TEST(std::error_code(36 << 18, cat) == sqlstate_cond::bad_sqlstate);
     BOOST_TEST(std::error_code(36 << 24, cat) == sqlstate_cond::bad_sqlstate);
 
-    // Comparing other codes to bad_sqlstate returns false
+    // Comparing other codes to bad_sqlstate returns false,
+    // including codes that don't have a matching identifier
     BOOST_TEST(parse_sqlstate("38004") != sqlstate_cond::bad_sqlstate);
+    BOOST_TEST(parse_sqlstate("ZZZZZ") != sqlstate_cond::bad_sqlstate);
 }
 
-void test_sqlstate_cond_message()
+void test_message()
 {
     constexpr struct
     {
@@ -471,7 +484,7 @@ int main()
     test_parse_sqlstate_success();
     test_parse_sqlstate_error();
     test_sqlstate_cond();
-    test_sqlstate_cond_message();
+    test_message();
     test_sqlstate_cond_message_int_values();
 
     return boost::report_errors();

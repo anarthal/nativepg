@@ -17,6 +17,8 @@ namespace nativepg {
 
 namespace detail {
 
+static_assert(sizeof(int) >= 4, "nativepg requires at least 4-byte ints to represent SQLSTATE values");
+
 constexpr int parse_sqlstate_char(char value)
 {
     // '0' => 0

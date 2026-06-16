@@ -6,5 +6,6 @@
 #define NATIVEPG_TYPES_HPP
 
 #include "types/datetime.hpp"
+#include "types/json.hpp"
 
 #endif  // NATIVEPG_TYPES_HPP

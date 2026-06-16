@@ -100,6 +100,9 @@ target_link_libraries(nativepg_example PRIVATE nativepg)
 add_executable(nativepg_datetime_example example/datetime.cpp)
 target_link_libraries(nativepg_datetime_example PRIVATE nativepg)
 
+add_executable(nativepg_json_example example/json.cpp)
+target_link_libraries(nativepg_json_example PRIVATE nativepg)
+
 if (NATIVEPG_COROSIO_API)
     add_executable(nativepg_co_connection example/co_connection.cpp)
     target_link_libraries(nativepg_co_connection PRIVATE nativepg_corosio)

@@ -128,4 +128,6 @@ struct field_parse<T>
 
 #include "field_traits_datetime.hpp"
 
+#include "field_traits_json.hpp"
+
 #endif

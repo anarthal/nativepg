@@ -13,11 +13,11 @@
 
 #include <iostream>
 
-#include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/sqlstate.hpp"
 
 using namespace nativepg;
 namespace capy = boost::capy;
@@ -43,7 +43,7 @@ public:
     {
         if (auto* err = boost::variant2::get_if<protocol::error_response>(&msg))
         {
-            err_.code = client_errc::exec_server_error;
+            err_.code = parse_sqlstate(err->sqlstate.value_or(std::string_view{}));
             err_.diag.assign(*err);
         }
     }

@@ -33,6 +33,7 @@ add_library(nativepg
     src/connect_fsm.cpp
     src/request.cpp
     src/response.cpp
+    src/sqlstate.cpp
 )
 target_link_libraries(nativepg PUBLIC Boost::headers OpenSSL::SSL OpenSSL::Crypto)
 target_include_directories(nativepg PUBLIC include)
@@ -88,6 +89,7 @@ if (BUILD_TESTING)
     add_unit_test(""                test_response)
     add_unit_test(""                test_resultset_callback)
     add_unit_test(""                test_diagnostics)
+    add_unit_test(""                test_sqlstate)
     add_unit_test(""                test_extended_error_disposition)
     add_unit_test(""                test_extended_error_boost_system)
     add_unit_test(types             test_datetime)

@@ -17,9 +17,11 @@
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/connection_state.hpp"
+#include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/parse_message.hpp"
 #include "nativepg/protocol/startup.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
+#include "nativepg/sqlstate.hpp"
 
 using namespace nativepg::protocol;
 using boost::system::error_code;
@@ -28,6 +30,12 @@ using nativepg::client_errc;
 using kind = any_backend_message::kind;
 
 namespace {
+
+error_code process_error(const error_response& err, nativepg::diagnostics& diag)
+{
+    diag.assign(err);
+    return nativepg::parse_sqlstate(err.sqlstate.value_or(std::string_view{}));
+}
 
 error_code check_unknown_auth_methods(const any_backend_message& msg)
 {
@@ -46,7 +54,7 @@ error_code handle_auth_response(const any_backend_message& msg, nativepg::diagno
 {
     switch (msg.type())
     {
-        case kind::error_response: diag.assign(msg.get_error_response()); return client_errc::auth_failed;
+        case kind::error_response: return process_error(msg.get_error_response(), diag);
         case kind::authentication_ok: return error_code();
         default: return client_errc::unexpected_message;
     }
@@ -117,8 +125,7 @@ startup_fsm_impl::result startup_fsm_impl::resume(
             {
                 // TODO: can notices be received here?
                 case any_backend_message::kind::error_response:
-                    diag.assign(msg.get_error_response());
-                    return error_code(client_errc::auth_failed);
+                    return process_error(msg.get_error_response(), diag);
                 case any_backend_message::kind::authentication_sasl_continue: break;
                 default: return error_code(client_errc::unexpected_message);
             }
@@ -143,8 +150,7 @@ startup_fsm_impl::result startup_fsm_impl::resume(
             {
                 // TODO: can notices be received here?
                 case any_backend_message::kind::error_response:
-                    diag.assign(msg.get_error_response());
-                    return error_code(client_errc::auth_failed);
+                    return process_error(msg.get_error_response(), diag);
                 case any_backend_message::kind::authentication_sasl_final: break;
                 default: return error_code(client_errc::unexpected_message);
             }
@@ -185,9 +191,7 @@ startup_fsm_impl::result startup_fsm_impl::resume(
                 case kind::parameter_status:
                     // TODO: record these somehow
                     break;
-                case kind::error_response:
-                    diag.assign(msg.get_error_response());
-                    return error_code(client_errc::auth_failed);
+                case kind::error_response: return process_error(msg.get_error_response(), diag);
                 case kind::notice_response:
                     // TODO: record these somehow
                     break;

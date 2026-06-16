@@ -138,9 +138,6 @@ static asio::awaitable<void> jsonb_binary_example(connection& conn)
     request req;
     req.add_prepare("SELECT $1::jsonb as jb", {"jsonb_bintest"} )
         .add_execute("jsonb_bintest", {"{ \"name\": \"John\", \"age\": 30, \"address\": { \"street\": \"Main St\", \"city\": \"New York\" }}"}, request::param_format::text, protocol::format_code::binary, 1);
-    //req.add_simple_query("BEGIN; DECLARE my_binary_cursor BINARY CURSOR FOR SELECT '{ \"name\": \"John\", \"age\": 30, \"address\": { \"street\": \"Main St\", \"city\": \"New York\" }}'::jsonb as jb; FETCH NEXT FROM my_binary_cursor; COMMIT;");
-    //req.add_query("SELECT jsonb_send('{ \"name\": \"John\", \"age\": 30, \"address\": { \"street\": \"Main St\", \"city\": \"New York\" }}') as jb;", {});
-    //req.add_query("SELECT bytea_to_jsonb( set_byte('\x00000000'::bytea, 3, octet_length(jsonb_send(doc.val))) || jsonb_send(doc.val) )::jsonb as jb FROM ( SELECT '{ \"name\": \"John\", \"age\": 30, \"address\": { \"street\": \"Main St\", \"city\": \"New York\"}}'::jsonb AS val) as doc", {});
 
     // Structures to parse the response into
     std::vector<jsonb_row> select_vec;

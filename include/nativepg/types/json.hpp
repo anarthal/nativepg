@@ -4,23 +4,14 @@
 
 #include <boost/json/value.hpp>
 #include <boost/json/parse.hpp>
-#include <boost/endian/conversion.hpp>
 #include <boost/system/error_code.hpp>
 
-#include <charconv>
-#include <chrono>
-#include <cctype>
-#include <cstring>
 #include <span>
 #include <string_view>
-#include <system_error>
 
 #include "nativepg/client_errc.hpp"
 
 namespace nativepg::types {
-
-#define JENTRY_HAS_OFF  0x10000000
-#define JENTRY_OFFLENMASK 0x0FFFFFFF
 
 using boost::system::error_code;
 

@@ -30,7 +30,7 @@ struct offset_and_length
     std::size_t offset, length;
 
     // TODO: make a type for this
-    std::optional<std::span<const unsigned char>> to_span(const unsigned char* data)
+    std::optional<std::span<const unsigned char>> to_span(const unsigned char* data) const
     {
         // Lengths are limited to INT32_MAX, so we can use -1 to represent NULL
         if (length == static_cast<std::size_t>(-1))
@@ -173,12 +173,109 @@ public:
     reference back() const { return descrs_.back().to_field_description(data_); }
 };
 
+// A random-access, span-like view over a row's values.
+// Elements are materialized on access. A NULL value is represented as an empty optional.
 class row_view
 {
     std::span<const detail::offset_and_length> values_;
-    const unsigned char* data_;
+    const unsigned char* data_{};
 
 public:
+    class iterator
+    {
+        const detail::offset_and_length* it_{};
+        const unsigned char* data_{};
+
+        friend class row_view;
+        iterator(const detail::offset_and_length* it, const unsigned char* data) noexcept
+            : it_(it), data_(data)
+        {
+        }
+
+    public:
+        using value_type = std::optional<std::span<const unsigned char>>;
+        using reference = std::optional<std::span<const unsigned char>>;  // prvalue, materialized on deref
+        using pointer = std::optional<std::span<const unsigned char>>;
+        using difference_type = std::ptrdiff_t;
+        using iterator_category = std::random_access_iterator_tag;
+
+        iterator() = default;
+
+        reference operator*() const { return it_->to_span(data_); }
+        reference operator[](difference_type n) const { return it_[n].to_span(data_); }
+
+        iterator& operator++() noexcept
+        {
+            ++it_;
+            return *this;
+        }
+        iterator operator++(int) noexcept
+        {
+            auto copy = *this;
+            ++it_;
+            return copy;
+        }
+        iterator& operator--() noexcept
+        {
+            --it_;
+            return *this;
+        }
+        iterator operator--(int) noexcept
+        {
+            auto copy = *this;
+            --it_;
+            return copy;
+        }
+        iterator& operator+=(difference_type n) noexcept
+        {
+            it_ += n;
+            return *this;
+        }
+        iterator& operator-=(difference_type n) noexcept
+        {
+            it_ -= n;
+            return *this;
+        }
+
+        friend iterator operator+(iterator it, difference_type n) noexcept { return it += n; }
+        friend iterator operator+(difference_type n, iterator it) noexcept { return it += n; }
+        friend iterator operator-(iterator it, difference_type n) noexcept { return it -= n; }
+        friend difference_type operator-(iterator lhs, iterator rhs) noexcept { return lhs.it_ - rhs.it_; }
+
+        friend bool operator==(iterator lhs, iterator rhs) noexcept { return lhs.it_ == rhs.it_; }
+        friend std::strong_ordering operator<=>(iterator lhs, iterator rhs) noexcept
+        {
+            return lhs.it_ <=> rhs.it_;
+        }
+    };
+
+    using value_type = std::optional<std::span<const unsigned char>>;
+    using size_type = std::size_t;
+    using difference_type = std::ptrdiff_t;
+    using reference = std::optional<std::span<const unsigned char>>;
+    using const_reference = std::optional<std::span<const unsigned char>>;
+    using const_iterator = iterator;
+
+    row_view() = default;
+    // TODO: hide
+    row_view(std::span<const detail::offset_and_length> values, const unsigned char* data) noexcept
+        : values_(values), data_(data)
+    {
+    }
+
+    // Iterators
+    iterator begin() const noexcept { return {values_.data(), data_}; }
+    iterator end() const noexcept { return {values_.data() + values_.size(), data_}; }
+
+    // Capacity
+    size_type size() const noexcept { return values_.size(); }
+    bool empty() const noexcept { return values_.empty(); }
+
+    // Element access (all materialize a value by value; NULL becomes an empty optional)
+    reference operator[](size_type i) const { return values_[i].to_span(data_); }
+    // TODO: at()
+    reference front() const { return values_.front().to_span(data_); }
+    reference back() const { return values_.back().to_span(data_); }
 };
 
 class dynamic_resultset

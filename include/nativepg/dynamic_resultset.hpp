@@ -14,11 +14,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
-#include <optional>
 #include <span>
 #include <string_view>
 #include <vector>
 
+#include "nativepg/field_view.hpp"
 #include "nativepg/protocol/command_complete.hpp"
 #include "nativepg/protocol/common.hpp"
 #include "nativepg/protocol/data_row.hpp"
@@ -34,12 +34,11 @@ struct offset_and_length
 {
     std::size_t offset, length;
 
-    // TODO: make a type for this
-    std::optional<std::span<const unsigned char>> to_span(const unsigned char* data) const
+    field_view to_field_view(const unsigned char* data) const
     {
         // Lengths are limited to INT32_MAX, so we can use -1 to represent NULL
         if (length == static_cast<std::size_t>(-1))
-            return std::nullopt;
+            return field_view();
         return std::span<const unsigned char>{data + offset, length};
     }
 
@@ -203,16 +202,16 @@ public:
         }
 
     public:
-        using value_type = std::optional<std::span<const unsigned char>>;
-        using reference = std::optional<std::span<const unsigned char>>;  // prvalue, materialized on deref
-        using pointer = std::optional<std::span<const unsigned char>>;
+        using value_type = field_view;
+        using reference = field_view;  // prvalue, materialized on deref
+        using pointer = field_view;
         using difference_type = std::ptrdiff_t;
         using iterator_category = std::random_access_iterator_tag;
 
         iterator() = default;
 
-        reference operator*() const { return it_->to_span(data_); }
-        reference operator[](difference_type n) const { return it_[n].to_span(data_); }
+        reference operator*() const { return it_->to_field_view(data_); }
+        reference operator[](difference_type n) const { return it_[n].to_field_view(data_); }
 
         iterator& operator++() noexcept
         {
@@ -259,11 +258,11 @@ public:
         }
     };
 
-    using value_type = std::optional<std::span<const unsigned char>>;
+    using value_type = field_view;
     using size_type = std::size_t;
     using difference_type = std::ptrdiff_t;
-    using reference = std::optional<std::span<const unsigned char>>;
-    using const_reference = std::optional<std::span<const unsigned char>>;
+    using reference = field_view;
+    using const_reference = field_view;
     using const_iterator = iterator;
 
     row_view() = default;
@@ -282,10 +281,10 @@ public:
     bool empty() const noexcept { return values_.empty(); }
 
     // Element access (all materialize a value by value; NULL becomes an empty optional)
-    reference operator[](size_type i) const { return values_[i].to_span(data_); }
+    reference operator[](size_type i) const { return values_[i].to_field_view(data_); }
     // TODO: at()
-    reference front() const { return values_.front().to_span(data_); }
-    reference back() const { return values_.back().to_span(data_); }
+    reference front() const { return values_.front().to_field_view(data_); }
+    reference back() const { return values_.back().to_field_view(data_); }
 };
 
 // A random-access, span-like view over the rows of a resultset.
@@ -446,6 +445,8 @@ class dynamic_resultset
 
     detail::offset_and_length insert_data(std::span<const unsigned char> value)
     {
+        // Data coming from the server fulfills this assertion by protocol design
+        BOOST_ASSERT(value.size() != static_cast<std::size_t>(-1));
         detail::offset_and_length res{.offset = data_.size(), .length = value.size()};
         data_.insert(data_.end(), value.begin(), value.end());
         return res;
@@ -493,12 +494,12 @@ public:
         // TODO: I think this assert can technically trigger,
         // but it may not be this class' responsibility
         BOOST_ASSERT(row.columns.size() == field_descr_.size());
-        for (const auto& value : row.columns)
+        for (const auto fv : row.columns)
         {
-            if (value.has_value())
-                values_.push_back(insert_data(*value));
-            else
+            if (fv.is_null())
                 values_.push_back({.offset = 0u, .length = static_cast<std::size_t>(-1)});
+            else
+                values_.push_back(insert_data(fv.data()));
         }
     }
 

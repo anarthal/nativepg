@@ -54,10 +54,13 @@ void test_constructor_from_empty_nonnull_span()
     NATIVEPG_TEST_CONT_EQ(f.data(), std::span<const unsigned char>{});
 }
 
-// Functions can be called in a constexpr context
+// Functions can be called in a constexpr context.
+// field_view does not work in constexpr contexts with sanitizers.
+#ifndef __SANITIZE_ADDRESS__
 static_assert(field_view().is_null());
 static_assert(!field_view(std::span<const unsigned char>{}).is_null());
 static_assert(field_view().data().empty());
+#endif
 
 }  // namespace
 

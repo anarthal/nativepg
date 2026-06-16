@@ -33,7 +33,7 @@ using namespace nativepg;
 
 struct geom_row
 {
-    types::pg_geometry g;
+    types::pg_geometry<> g;
 };
 BOOST_DESCRIBE_STRUCT(geom_row, (), (g))
 
@@ -87,9 +87,9 @@ static asio::awaitable<void> point_binary_example(connection& conn)
 
     // Print results
     if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "DATE BINARY Error: " << err.code.what() << ": " << err.diag.message() << " (in " << duration << ")" << std::endl;
+        std::cerr << "POINT BINARY Error: " << err.code.what() << ": " << err.diag.message() << " (in " << duration << ")" << std::endl;
     else
-        std::cout << "DATE BINARY select result: " << select_vec[0].g << " (in " << duration << ")" << std::endl;
+        std::cout << "POINT BINARY select result: " << select_vec[0].g << " (in " << duration << ")" << std::endl;
 }
 
 

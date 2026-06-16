@@ -4,6 +4,7 @@
 #include <boost/system/error_code.hpp>
 #include <boost/geometry.hpp>
 
+#include <variant>
 #include <span>
 #include <string_view>
 
@@ -24,9 +25,32 @@ using boost::system::error_code;
 */
 
 // Type mapping
+template <typename TPrecision = float, std::size_t TDimension = 2, typename TCoordSystem = boost::geometry::cs::cartesian>
 class pg_geometry
 {
+public:
+    typedef boost::geometry::model::point<TPrecision, TDimension, TCoordSystem> point_t;
+    typedef boost::geometry::model::linestring<point_t> line_t;
+    typedef boost::geometry::model::polygon<point_t> polygon_t;
 
+    typedef boost::geometry::model::multi_point<point_t> multi_point_t;
+    typedef boost::geometry::model::multi_linestring<line_t> multi_line_t;
+    typedef boost::geometry::model::multi_polygon<polygon_t> multi_polygon_t;
+
+    typedef std::variant<point_t, line_t, polygon_t, multi_point_t, multi_line_t, multi_polygon_t> geometry_t;
+
+    //operator geometry_t&() { return _storage; }
+
+private:
+    geometry_t _storage;
+
+    friend std::ostream& operator<<(std::ostream& os, const pg_geometry& g)
+    {
+        std::visit([&os](const auto& geom) {
+            os << boost::geometry::wkt(geom);
+        }, g._storage);
+        return os;
+    }
 };
 
 class pg_geography
@@ -53,7 +77,7 @@ namespace detail {
 
 
 // GEOMETRY => pg_geometry (TEXT)
-template <class T = types::pg_geometry>
+template <class T = types::pg_geometry<>>
 constexpr error_code parse_text_geometry(std::span<const unsigned char> from, T& to) noexcept
 {
     error_code ec{};
@@ -64,7 +88,7 @@ constexpr error_code parse_text_geometry(std::span<const unsigned char> from, T&
 }
 
 // GEOMETRY => pg_geometry (BINARY)
-template <class T = types::pg_geometry>
+template <class T = types::pg_geometry<>>
 constexpr error_code parse_binary_geometry(std::span<const unsigned char> from, T& to) noexcept
 {
     error_code ec{};

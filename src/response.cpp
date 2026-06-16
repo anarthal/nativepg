@@ -211,15 +211,15 @@ boost::system::error_code nativepg::detail::field_parse<types::pg_interval>::cal
 }
 
 // GEOMETRY => pg_geometry
-boost::system::error_code nativepg::detail::field_parse<types::pg_geometry>::call(
+boost::system::error_code nativepg::detail::field_parse<types::pg_geometry<>>::call(
     std::optional<std::span<const unsigned char>> from,
     const protocol::field_description& desc,
-    types::pg_geometry& to
+    types::pg_geometry<>& to
 )
 {
     if (!from.has_value())
         return client_errc::unexpected_null;
-    BOOST_ASSERT(desc.type_oid == 1186);
+    BOOST_ASSERT(desc.type_oid == 16384);
     return desc.fmt_code == protocol::format_code::text ?
         parse_text_geometry(*from, to) :
         parse_binary_geometry(*from, to);
@@ -234,7 +234,7 @@ boost::system::error_code nativepg::detail::field_parse<types::pg_geography>::ca
 {
     if (!from.has_value())
         return client_errc::unexpected_null;
-    BOOST_ASSERT(desc.type_oid == 1186);
+    BOOST_ASSERT(desc.type_oid == 16390);
     return desc.fmt_code == protocol::format_code::text ?
         parse_text_geography(*from, to) :
         parse_binary_geography(*from, to);
@@ -249,7 +249,7 @@ boost::system::error_code nativepg::detail::field_parse<types::pg_box2d>::call(
 {
     if (!from.has_value())
         return client_errc::unexpected_null;
-    BOOST_ASSERT(desc.type_oid == 1186);
+    BOOST_ASSERT(desc.type_oid == 16395);
     return desc.fmt_code == protocol::format_code::text ?
         parse_text_box2d(*from, to) :
         parse_binary_box2d(*from, to);
@@ -264,11 +264,12 @@ boost::system::error_code nativepg::detail::field_parse<types::pg_box3d>::call(
 {
     if (!from.has_value())
         return client_errc::unexpected_null;
-    BOOST_ASSERT(desc.type_oid == 1186);
+    BOOST_ASSERT(desc.type_oid == 16398);
     return desc.fmt_code == protocol::format_code::text ?
         parse_text_box3d(*from, to) :
         parse_binary_box3d(*from, to);
 }
+
 
 boost::system::error_code nativepg::detail::compute_pos_map(
     const protocol::row_description& meta,

@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -27,6 +28,15 @@ namespace detail {
 struct offset_and_length
 {
     std::size_t offset, length;
+
+    // TODO: make a type for this
+    std::optional<std::span<const unsigned char>> to_span(const unsigned char* data)
+    {
+        // Lengths are limited to INT32_MAX, so we can use -1 to represent NULL
+        if (length == static_cast<std::size_t>(-1))
+            return std::nullopt;
+        return std::span<const unsigned char>{data + offset, length};
+    }
 };
 
 // Like protocol::field_description, but strings are offset based
@@ -163,6 +173,14 @@ public:
     reference back() const { return descrs_.back().to_field_description(data_); }
 };
 
+class row_view
+{
+    std::span<const detail::offset_and_length> values_;
+    const unsigned char* data_;
+
+public:
+};
+
 class dynamic_resultset
 {
     std::vector<detail::offsetted_field_description> field_descr_;
@@ -171,6 +189,8 @@ class dynamic_resultset
 
 public:
     dynamic_resultset() = default;
+
+    field_descriptions_view field_descriptions() const noexcept { return {field_descr_, data_.data()}; }
 };
 
 }  // namespace nativepg

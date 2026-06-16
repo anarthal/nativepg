@@ -70,8 +70,7 @@ static capy::task<> co_main()
     req.add_sync();
 
     // Actually prepare the statements
-    check check_handler;  // TODO: this should be specifiable as an rvalue
-    if (auto [ec] = co_await conn.exec(req, check_handler, &diag); ec)
+    if (auto [ec] = co_await conn.exec(req, &diag); ec)
     {
         print_err("Error preparing", ec, diag);
         co_return;
@@ -101,8 +100,7 @@ static capy::task<> co_main()
     req.add_close_statement(insert_stmt.name);
     req.add_close_statement(select_stmt.name);
     req.add_sync();
-    response resp2{check_close(), check_close()};
-    if (auto [ec] = co_await conn.exec(req, resp2, &diag); ec)
+    if (auto [ec] = co_await conn.exec(req, &diag); ec)
     {
         print_err("Error closing", ec, diag);
         co_return;

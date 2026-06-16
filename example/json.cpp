@@ -10,19 +10,16 @@
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/address_v4.hpp>
-#include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/this_coro.hpp>
 #include <boost/describe/class.hpp>
 #include <boost/json.hpp>
 
-#include <cstdint>
 #include <exception>
 #include <iomanip>
 #include <iostream>
 #include <string_view>
 #include <vector>
 #include <chrono>
-#include <format>
 
 #include "nativepg/connection.hpp"
 #include "nativepg/extended_error.hpp"
@@ -138,9 +135,6 @@ static asio::awaitable<void> jsonb_binary_example(connection& conn)
     request req;
     req.add_prepare("SELECT $1::jsonb as jb", {"jsonb_bintest"} )
         .add_execute("jsonb_bintest", {"{ \"name\": \"John\", \"age\": 30, \"address\": { \"street\": \"Main St\", \"city\": \"New York\" }}"}, request::param_format::text, protocol::format_code::binary, 1);
-    //req.add_simple_query("BEGIN; DECLARE my_binary_cursor BINARY CURSOR FOR SELECT '{ \"name\": \"John\", \"age\": 30, \"address\": { \"street\": \"Main St\", \"city\": \"New York\" }}'::jsonb as jb; FETCH NEXT FROM my_binary_cursor; COMMIT;");
-    //req.add_query("SELECT jsonb_send('{ \"name\": \"John\", \"age\": 30, \"address\": { \"street\": \"Main St\", \"city\": \"New York\" }}') as jb;", {});
-    //req.add_query("SELECT bytea_to_jsonb( set_byte('\x00000000'::bytea, 3, octet_length(jsonb_send(doc.val))) || jsonb_send(doc.val) )::jsonb as jb FROM ( SELECT '{ \"name\": \"John\", \"age\": 30, \"address\": { \"street\": \"Main St\", \"city\": \"New York\"}}'::jsonb AS val) as doc", {});
 
     // Structures to parse the response into
     std::vector<jsonb_row> select_vec;

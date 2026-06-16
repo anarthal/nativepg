@@ -13,6 +13,7 @@
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/field_view.hpp"
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/command_complete.hpp"
 #include "nativepg/protocol/data_row.hpp"
@@ -111,7 +112,7 @@ void test_parse_text_time_text_format()
     // Arrange
     std::chrono::microseconds us;
     std::string str = "21:06:19";
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    field_view data({reinterpret_cast<const unsigned char*>(str.data()), str.size()});
     protocol::field_description description{
         .name = "t", .table_oid = 0, .column_attribute = -1, .type_oid = 1083, .type_length = -1, .type_modifier = -1, .fmt_code = protocol::format_code::text};
     std::stringstream ss;
@@ -140,7 +141,7 @@ void test_parse_text_time_binary_format()
         0x00, 0x00, 0x00, 0x11,
         0xB0, 0xB3, 0x88, 0xC0
     };
-    boost::span<const unsigned char> data(pg_time_210619);
+    field_view data(pg_time_210619);
     protocol::field_description description{
         .name = "t", .table_oid = 0, .column_attribute = -1, .type_oid = 1083, .type_length = -1, .type_modifier = -1, .fmt_code = protocol::format_code::binary};
     std::stringstream ss;

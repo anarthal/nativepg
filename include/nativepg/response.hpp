@@ -8,7 +8,6 @@
 #ifndef NATIVEPG_RESPONSE_HPP
 #define NATIVEPG_RESPONSE_HPP
 
-#include <boost/core/span.hpp>
 #include <boost/mp11/algorithm.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/variant2/variant.hpp>
@@ -16,7 +15,6 @@
 #include <array>
 #include <concepts>
 #include <cstddef>
-#include <optional>
 #include <span>
 #include <string_view>
 #include <tuple>
@@ -29,6 +27,7 @@
 #include "nativepg/detail/row_traits.hpp"
 #include "nativepg/dynamic_resultset.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/field_view.hpp"
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/command_complete.hpp"
 #include "nativepg/protocol/data_row.hpp"
@@ -99,7 +98,7 @@ class resultset_callback_t
 
     state_t state_{state_t::parsing_meta};
     std::array<detail::pos_map_entry, detail::row_size_v<T>> pos_map_;
-    std::vector<std::optional<std::span<const unsigned char>>> random_access_data_;
+    std::vector<field_view> random_access_data_;
     extended_error err_;
     Callback cb_;
 

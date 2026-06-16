@@ -11,8 +11,7 @@
 #include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
 
-#include <optional>
-
+#include "nativepg/field_view.hpp"
 #include "nativepg/protocol/views.hpp"
 
 namespace nativepg {
@@ -21,9 +20,9 @@ namespace detail {
 
 // Collections impl
 template <>
-struct forward_traits<std::optional<boost::span<const unsigned char>>>
+struct forward_traits<field_view>
 {
-    static std::optional<boost::span<const unsigned char>> dereference(const unsigned char* data);
+    static field_view dereference(const unsigned char* data);
     static const unsigned char* advance(const unsigned char* data);
 };
 
@@ -31,9 +30,9 @@ struct forward_traits<std::optional<boost::span<const unsigned char>>>
 
 struct data_row
 {
-    // The actual values. Contains a an optional<span<const unsigned char>> per column,
-    // containing the serialized value, or an empty optional, if the field is NULL
-    forward_parsing_view<std::optional<boost::span<const unsigned char>>> columns;
+    // The actual values. Contains a field_view per column,
+    // containing the serialized value, or a NULL
+    forward_parsing_view<field_view> columns;
 };
 boost::system::error_code parse(boost::span<const unsigned char> data, data_row& to);
 

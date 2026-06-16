@@ -39,8 +39,10 @@ public:
     constexpr bool is_null() const noexcept { return data_ == &null_identifier; }
 
     // data() will return empty if is_null() == true
-    std::span<const unsigned char> data() const noexcept { return {data_, size_}; }
+    constexpr std::span<const unsigned char> data() const noexcept { return {data_, size_}; }
 };
+
+// TODO: should we make this equality_comparable?
 
 }  // namespace nativepg
 

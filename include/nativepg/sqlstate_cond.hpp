@@ -16,7 +16,6 @@ namespace nativepg {
 
 enum class sqlstate_cond
 {
-    successful_completion = "00000"_sqlstate,
     warning = "01000"_sqlstate,
     dynamic_result_sets_returned = "0100C"_sqlstate,
     implicit_zero_bit_padding = "01008"_sqlstate,

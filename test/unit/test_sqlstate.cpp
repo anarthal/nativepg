@@ -7,11 +7,13 @@
 
 #include <boost/core/lightweight_test.hpp>
 
+#include <string>
 #include <string_view>
 #include <system_error>
 
 #include "nativepg/sqlstate.hpp"
 #include "nativepg/sqlstate_cond.hpp"
+#include "nativepg_internal/sqlstate_as_string.hpp"
 
 using namespace nativepg;
 
@@ -27,7 +29,7 @@ static_assert("ZZZZZ"_sqlstate == 596523235);
 //
 // Runtime parsing
 //
-void test_runtime_parsing_success()
+void test_runtime_parse_success()
 {
     const auto& cat = get_sqlstate_category();
 
@@ -40,7 +42,7 @@ void test_runtime_parsing_success()
     // Digits and a letter
     BOOST_TEST_EQ(parse_sqlstate("0A000"), std::error_code(2621440, cat));
 
-    // PostgreSQL-specific "P" form
+    // Mixed
     BOOST_TEST_EQ(parse_sqlstate("42P01"), std::error_code(67735553, cat));
 
     // High letters
@@ -48,7 +50,7 @@ void test_runtime_parsing_success()
 }
 
 // On error, unknown_sqlstate (error_code -1) is returned
-void test_runtime_parsing_error()
+void test_runtime_parse_error()
 {
     const std::error_code invalid(-1, get_sqlstate_category());
 
@@ -92,6 +94,33 @@ void test_runtime_parsing_error()
 }
 
 //
+// Raw code to string conversion
+//
+std::string as_str_helper(int val)
+{
+    auto res = detail::sqlstate_as_string(val);
+    return {res.begin(), res.end()};
+}
+
+void test_as_string_success()
+{
+    // Zero
+    BOOST_TEST_EQ(as_str_helper(0), "00000");
+
+    // All digits
+    BOOST_TEST_EQ(as_str_helper(34361349), "23505");
+
+    // Digits and a letter
+    BOOST_TEST_EQ(as_str_helper(2621440), "0A000");
+
+    // Mixed
+    BOOST_TEST_EQ(as_str_helper(67735553), "42P01");
+
+    // High letters
+    BOOST_TEST_EQ(as_str_helper(293339147), "HV00B");
+}
+
+//
 // Error category
 //
 
@@ -103,8 +132,9 @@ void test_runtime_parsing_error()
 
 int main()
 {
-    test_runtime_parsing_success();
-    test_runtime_parsing_error();
+    test_runtime_parse_success();
+    test_runtime_parse_error();
+    test_as_string_success();
 
     return boost::report_errors();
 }

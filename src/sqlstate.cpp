@@ -314,15 +314,14 @@ public:
     const char* name() const noexcept final override { return "nativepg.sqlstate"; }
     std::string message(int ev) const final override
     {
-        // TODO: this test is improvable
-        if (ev == -1)
+        if (!detail::is_valid_sqlstate(ev))
             return "invalid_sqlstate";
 
-        // Raw value
+        // 5-letter value
         auto value_as_str = detail::sqlstate_as_string(ev);
         std::string res{value_as_str.begin(), value_as_str.end()};
 
-        // Human-readable code
+        // Human-readable identifier
         if (const auto* identifier = sqlstate_to_identifier(ev))
         {
             res += ": ";
@@ -332,6 +331,8 @@ public:
     }
     std::error_condition default_error_condition(int val) const noexcept final override
     {
+        if (!detail::is_valid_sqlstate(val))
+            return sqlstate_cond::bad_sqlstate;
         return {deduplicate_sqlstate_value(val), *this};
     }
 };

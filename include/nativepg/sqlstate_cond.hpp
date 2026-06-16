@@ -272,7 +272,7 @@ enum class sqlstate_cond
     internal_error = "XX000"_sqlstate,
     data_corrupted = "XX001"_sqlstate,
     index_corrupted = "XX002"_sqlstate,
-    invalid_sqlstate = -1,
+    bad_sqlstate = -1,
 };
 
 // std interop

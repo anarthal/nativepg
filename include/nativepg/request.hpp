@@ -61,6 +61,7 @@ struct statement
     bound_statement<sizeof...(Params)> bind(const Params&... values) { return {name, {values...}}; }
 };
 
+// TODO: a clear method is missing
 class request
 {
     std::vector<unsigned char> buffer_;
@@ -265,6 +266,8 @@ public:
     {
         return add_bind(stmt.name, stmt.params, fmt, portal_name, result_codes);
     }
+
+    request& add_sync() { return add(protocol::sync{}); }
 
     request& add(const protocol::bind& value) { return add_advanced_impl(value, request_message_type::bind); }
 

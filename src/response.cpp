@@ -307,6 +307,7 @@ handler_setup_result nativepg::detail::resultset_setup(const request& req, std::
 
 handler_setup_result check_parse::setup(const request& req, std::size_t offset)
 {
+    err_ = {};
     const auto msgs = req.messages().subspan(offset);
     auto it = msgs.begin();
 
@@ -317,12 +318,18 @@ handler_setup_result check_parse::setup(const request& req, std::size_t offset)
     // The original message must be a parse
     if (it == msgs.end() || *it != request_message_type::parse)
         return handler_setup_result(client_errc::incompatible_response_type);
+    ++it;
+
+    // Skip any further sync messages
+    while (it != msgs.end() && (*it == request_message_type::sync || *it == request_message_type::flush))
+        ++it;
 
     return handler_setup_result{static_cast<std::size_t>(it - req.messages().begin())};
 }
 
 handler_setup_result check_close::setup(const request& req, std::size_t offset)
 {
+    err_ = {};
     const auto msgs = req.messages().subspan(offset);
     auto it = msgs.begin();
 
@@ -333,6 +340,11 @@ handler_setup_result check_close::setup(const request& req, std::size_t offset)
     // The original message must be a close
     if (it == msgs.end() || *it != request_message_type::close)
         return handler_setup_result(client_errc::incompatible_response_type);
+    ++it;
+
+    // Skip any further sync messages
+    while (it != msgs.end() && (*it == request_message_type::sync || *it == request_message_type::flush))
+        ++it;
 
     return handler_setup_result{static_cast<std::size_t>(it - req.messages().begin())};
 }

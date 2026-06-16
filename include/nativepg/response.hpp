@@ -274,6 +274,7 @@ public:
     check() = default;
     handler_setup_result setup(const request& req, std::size_t offset)
     {
+        err_ = {};
         return req.messages().size() - offset;
     }
     void on_message(const any_request_message& msg, std::size_t)

@@ -305,9 +305,12 @@ handler_setup_result nativepg::detail::resultset_setup(const request& req, std::
                          : handler_setup_result{client_errc::incompatible_response_type};
 }
 
-handler_setup_result check_parse::setup(const request& req, std::size_t offset)
+static handler_setup_result check_setup_impl(
+    const request& req,
+    std::size_t offset,
+    request_message_type type
+)
 {
-    err_ = {};
     const auto msgs = req.messages().subspan(offset);
     auto it = msgs.begin();
 
@@ -315,8 +318,8 @@ handler_setup_result check_parse::setup(const request& req, std::size_t offset)
     while (it != msgs.end() && (*it == request_message_type::sync || *it == request_message_type::flush))
         ++it;
 
-    // The original message must be a parse
-    if (it == msgs.end() || *it != request_message_type::parse)
+    // Check that the request contains the message that we expect
+    if (it == msgs.end() || *it != type)
         return handler_setup_result(client_errc::incompatible_response_type);
     ++it;
 
@@ -325,48 +328,22 @@ handler_setup_result check_parse::setup(const request& req, std::size_t offset)
         ++it;
 
     return handler_setup_result{static_cast<std::size_t>(it - req.messages().begin())};
+}
+
+handler_setup_result check_parse::setup(const request& req, std::size_t offset)
+{
+    err_ = {};
+    return check_setup_impl(req, offset, request_message_type::parse);
 }
 
 handler_setup_result check_bind::setup(const request& req, std::size_t offset)
 {
     err_ = {};
-    const auto msgs = req.messages().subspan(offset);
-    auto it = msgs.begin();
-
-    // Skip any leading syncs
-    while (it != msgs.end() && (*it == request_message_type::sync || *it == request_message_type::flush))
-        ++it;
-
-    // The original message must be a bind
-    if (it == msgs.end() || *it != request_message_type::bind)
-        return handler_setup_result(client_errc::incompatible_response_type);
-    ++it;
-
-    // Skip any further sync messages
-    while (it != msgs.end() && (*it == request_message_type::sync || *it == request_message_type::flush))
-        ++it;
-
-    return handler_setup_result{static_cast<std::size_t>(it - req.messages().begin())};
+    return check_setup_impl(req, offset, request_message_type::bind);
 }
 
 handler_setup_result check_close::setup(const request& req, std::size_t offset)
 {
     err_ = {};
-    const auto msgs = req.messages().subspan(offset);
-    auto it = msgs.begin();
-
-    // Skip any leading syncs
-    while (it != msgs.end() && (*it == request_message_type::sync || *it == request_message_type::flush))
-        ++it;
-
-    // The original message must be a close
-    if (it == msgs.end() || *it != request_message_type::close)
-        return handler_setup_result(client_errc::incompatible_response_type);
-    ++it;
-
-    // Skip any further sync messages
-    while (it != msgs.end() && (*it == request_message_type::sync || *it == request_message_type::flush))
-        ++it;
-
-    return handler_setup_result{static_cast<std::size_t>(it - req.messages().begin())};
+    return check_setup_impl(req, offset, request_message_type::close);
 }

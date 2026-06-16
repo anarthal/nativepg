@@ -66,6 +66,15 @@ inline constexpr std::size_t invalid_pos = static_cast<std::size_t>(-1);
 
 handler_setup_result resultset_setup(const request& req, std::size_t offset);
 
+inline void maybe_store_error(const any_request_message& msg, extended_error& to)
+{
+    if (auto* err = boost::variant2::get_if<protocol::error_response>(&msg))
+    {
+        to.code = parse_sqlstate(err->sqlstate.value_or(std::string_view{}));
+        to.diag.assign(*err);
+    }
+}
+
 }  // namespace detail
 
 // Handles a resultset (i.e. a row_description + data_rows + command_complete)
@@ -277,14 +286,7 @@ public:
         err_ = {};
         return req.messages().size() - offset;
     }
-    void on_message(const any_request_message& msg, std::size_t)
-    {
-        if (auto* err = boost::variant2::get_if<protocol::error_response>(&msg))
-        {
-            err_.code = parse_sqlstate(err->sqlstate.value_or(std::string_view{}));
-            err_.diag.assign(*err);
-        }
-    }
+    void on_message(const any_request_message& msg, std::size_t) { detail::maybe_store_error(msg, err_); }
     const extended_error& result() const { return err_; }
 };
 
@@ -299,16 +301,10 @@ public:
 
     handler_setup_result setup(const request& req, std::size_t offset)
     {
+        err_ = {};
         return detail::resultset_setup(req, offset);
     }
-    void on_message(const any_request_message& msg, std::size_t)
-    {
-        if (auto* err = boost::variant2::get_if<protocol::error_response>(&msg))
-        {
-            err_.code = parse_sqlstate(err->sqlstate.value_or(std::string_view{}));
-            err_.diag.assign(*err);
-        }
-    }
+    void on_message(const any_request_message& msg, std::size_t) { detail::maybe_store_error(msg, err_); }
     const extended_error& result() const { return err_; }
 };
 
@@ -322,14 +318,7 @@ public:
     check_parse() = default;
 
     handler_setup_result setup(const request& req, std::size_t offset);
-    void on_message(const any_request_message& msg, std::size_t)
-    {
-        if (auto* err = boost::variant2::get_if<protocol::error_response>(&msg))
-        {
-            err_.code = parse_sqlstate(err->sqlstate.value_or(std::string_view{}));
-            err_.diag.assign(*err);
-        }
-    }
+    void on_message(const any_request_message& msg, std::size_t) { detail::maybe_store_error(msg, err_); }
     const extended_error& result() const { return err_; }
 };
 
@@ -343,14 +332,7 @@ public:
     check_bind() = default;
 
     handler_setup_result setup(const request& req, std::size_t offset);
-    void on_message(const any_request_message& msg, std::size_t)
-    {
-        if (auto* err = boost::variant2::get_if<protocol::error_response>(&msg))
-        {
-            err_.code = parse_sqlstate(err->sqlstate.value_or(std::string_view{}));
-            err_.diag.assign(*err);
-        }
-    }
+    void on_message(const any_request_message& msg, std::size_t) { detail::maybe_store_error(msg, err_); }
     const extended_error& result() const { return err_; }
 };
 
@@ -363,14 +345,7 @@ public:
     check_close() = default;
 
     handler_setup_result setup(const request& req, std::size_t offset);
-    void on_message(const any_request_message& msg, std::size_t)
-    {
-        if (auto* err = boost::variant2::get_if<protocol::error_response>(&msg))
-        {
-            err_.code = parse_sqlstate(err->sqlstate.value_or(std::string_view{}));
-            err_.diag.assign(*err);
-        }
-    }
+    void on_message(const any_request_message& msg, std::size_t) { detail::maybe_store_error(msg, err_); }
     const extended_error& result() const { return err_; }
 };
 

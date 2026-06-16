@@ -35,10 +35,6 @@ constexpr int parse_sqlstate_char(char value)
     return -1;
 }
 
-}  // namespace detail
-
-const std::error_category& get_sqlstate_category();
-
 constexpr int sqlstate_as_int(std::string_view chars)
 {
     if (chars.size() != 5u)
@@ -53,10 +49,14 @@ constexpr int sqlstate_as_int(std::string_view chars)
     return c0 << (6 * 4) | c1 << (6 * 3) | c2 << (6 * 2) | c3 << (6 * 1) | c4;
 }
 
+}  // namespace detail
+
+const std::error_category& get_sqlstate_category();
+
 // Compile-time parsing
 consteval int operator""_sqlstate(const char* value, std::size_t len)
 {
-    int res = sqlstate_as_int({value, len});
+    int res = detail::sqlstate_as_int({value, len});
     if (res == -1)
     {
         throw std::invalid_argument(
@@ -70,7 +70,7 @@ consteval int operator""_sqlstate(const char* value, std::size_t len)
 // Runtime parsing
 inline std::error_code parse_sqlstate(std::string_view from)
 {
-    return std::error_code(sqlstate_as_int(from), get_sqlstate_category());
+    return std::error_code(detail::sqlstate_as_int(from), get_sqlstate_category());
 }
 
 }  // namespace nativepg

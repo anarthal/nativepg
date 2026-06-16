@@ -161,10 +161,43 @@ void test_as_string_round_trip()
 //
 // Error category
 //
+void test_sqlstate_cond()
+{
+    const auto& cat = get_sqlstate_category();
 
-// A std::error_condition can be implicitly created from a sqlstate_cond value
-// Casting std::error_condition containing success to bool returns false
-// Comparing successful completion to
+    // A std::error_condition can be implicitly created from a sqlstate_cond value
+    {
+        std::error_condition cond = sqlstate_cond::unique_violation;
+        BOOST_TEST_EQ(cond.value(), static_cast<int>(sqlstate_cond::unique_violation));
+        BOOST_TEST(cond.category() == cat);
+    }
+
+    // Casting a std::error_condition containing success (00000) to bool returns false
+    {
+        std::error_condition cond("00000"_sqlstate, cat);
+        BOOST_TEST_NOT(cond);
+    }
+
+    // Casting a std::error_condition containing another sqlstate to bool returns true
+    {
+        std::error_condition cond = sqlstate_cond::unique_violation;
+        BOOST_TEST(cond);
+    }
+
+    // Comparing a sqlstate code to an unrelated sqlstate condition returns false
+    BOOST_TEST(parse_sqlstate("23505") != sqlstate_cond::syntax_error);
+
+    // Comparing a sqlstate code to the same sqlstate condition returns true
+    BOOST_TEST(parse_sqlstate("23505") == sqlstate_cond::unique_violation);
+
+    // Comparing the conditions deduplicated in deduplicate_sqlstate_value returns true.
+    // These raw SQLSTATEs map to a canonical condition via default_error_condition.
+    BOOST_TEST(parse_sqlstate("01004") == sqlstate_cond::string_data_right_truncation);
+    BOOST_TEST(parse_sqlstate("39004") == sqlstate_cond::null_value_not_allowed);
+    BOOST_TEST(parse_sqlstate("38002") == sqlstate_cond::modifying_sql_data_not_permitted);
+    BOOST_TEST(parse_sqlstate("38003") == sqlstate_cond::prohibited_sql_statement_attempted);
+    BOOST_TEST(parse_sqlstate("38004") == sqlstate_cond::reading_sql_data_not_permitted);
+}
 
 }  // namespace
 
@@ -174,6 +207,7 @@ int main()
     test_runtime_parse_error();
     test_as_string_success();
     test_as_string_round_trip();
+    test_sqlstate_cond();
 
     return boost::report_errors();
 }

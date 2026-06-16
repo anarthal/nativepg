@@ -7,17 +7,13 @@
 
 #include <boost/assert.hpp>
 #include <boost/endian/conversion.hpp>
-#include <boost/system/error_code.hpp>
 
 #include <algorithm>
 #include <charconv>
-#include <cstdint>
 #include <span>
 #include <chrono>
 #include <iostream>
 #include <locale>
-#include <sstream>
-#include <cstring>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/detail/field_traits.hpp"
@@ -230,7 +226,7 @@ boost::system::error_code nativepg::detail::field_parse<types::pg_geometry<>>::c
 {
     if (!from.has_value())
         return client_errc::unexpected_null;
-    BOOST_ASSERT(desc.type_oid == 16384);
+    BOOST_ASSERT(desc.type_oid == 24588);
     return desc.fmt_code == protocol::format_code::text ?
         parse_text_geometry(*from, to) :
         parse_binary_geometry(*from, to);

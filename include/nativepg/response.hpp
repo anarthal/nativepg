@@ -27,6 +27,7 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/detail/field_traits.hpp"
 #include "nativepg/detail/row_traits.hpp"
+#include "nativepg/dynamic_resultset.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/command_complete.hpp"
@@ -66,14 +67,20 @@ inline constexpr std::size_t invalid_pos = static_cast<std::size_t>(-1);
 
 handler_setup_result resultset_setup(const request& req, std::size_t offset);
 
+inline void maybe_store_error(const protocol::error_response& err, extended_error& to)
+{
+    if (!to.code)
+    {
+        to.code = parse_sqlstate(err.sqlstate.value_or(std::string_view{}));
+        to.diag.assign(err);
+    }
+}
+
 inline void maybe_store_error(const any_request_message& msg, extended_error& to)
 {
     const auto* err = boost::variant2::get_if<protocol::error_response>(&msg);
-    if (err && !to.code)
-    {
-        to.code = parse_sqlstate(err->sqlstate.value_or(std::string_view{}));
-        to.diag.assign(*err);
-    }
+    if (err)
+        maybe_store_error(*err, to);
 }
 
 }  // namespace detail
@@ -121,11 +128,7 @@ class resultset_callback_t
         // We know this is the last message in the sequence.
         void operator()(const protocol::error_response& err) const
         {
-            if (!self.err_.code)
-            {
-                self.err_.code = parse_sqlstate(err.sqlstate.value_or(std::string_view{}));
-                self.err_.diag.assign(err);
-            }
+            detail::maybe_store_error(err, self.err_);
         }
 
         // Ignore messages that may or may not appear
@@ -347,6 +350,32 @@ public:
 
     handler_setup_result setup(const request& req, std::size_t offset);
     void on_message(const any_request_message& msg, std::size_t) { detail::maybe_store_error(msg, err_); }
+    const extended_error& result() const { return err_; }
+};
+
+// A response that reads data into a dynamic_resultset
+class dynamic_resultset_response
+{
+    enum class state_t
+    {
+        parsing_meta,
+        parsing_data,
+        done,
+    };
+
+    dynamic_resultset* obj_;
+    extended_error err_;
+    state_t state_{state_t::parsing_meta};
+
+public:
+    explicit dynamic_resultset_response(dynamic_resultset& obj) noexcept : obj_(&obj) {}
+
+    handler_setup_result setup(const request& req, std::size_t offset)
+    {
+        err_ = {};
+        return detail::resultset_setup(req, offset);
+    }
+    void on_message(const any_request_message& msg, std::size_t);
     const extended_error& result() const { return err_; }
 };
 

@@ -68,7 +68,8 @@ handler_setup_result resultset_setup(const request& req, std::size_t offset);
 
 inline void maybe_store_error(const any_request_message& msg, extended_error& to)
 {
-    if (auto* err = boost::variant2::get_if<protocol::error_response>(&msg))
+    const auto* err = boost::variant2::get_if<protocol::error_response>(&msg);
+    if (err && !to.code)
     {
         to.code = parse_sqlstate(err->sqlstate.value_or(std::string_view{}));
         to.diag.assign(*err);
@@ -281,10 +282,10 @@ class check
 
 public:
     check() = default;
-    handler_setup_result setup(const request& req, std::size_t offset)
+    handler_setup_result setup(const request& req, std::size_t)
     {
         err_ = {};
-        return req.messages().size() - offset;
+        return req.messages().size();
     }
     void on_message(const any_request_message& msg, std::size_t) { detail::maybe_store_error(msg, err_); }
     const extended_error& result() const { return err_; }

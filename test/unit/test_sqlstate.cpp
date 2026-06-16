@@ -82,7 +82,22 @@ void test_runtime_parsing_error()
 
     // string has 0xff chars
     BOOST_TEST_EQ(parse_sqlstate(std::string_view("0000\xff", 5)), invalid);
+
+    // Coverage: we detect errors in all the characters
+    BOOST_TEST_EQ(parse_sqlstate("a0000"), invalid);
+    BOOST_TEST_EQ(parse_sqlstate("0a000"), invalid);
+    BOOST_TEST_EQ(parse_sqlstate("00a00"), invalid);
+    BOOST_TEST_EQ(parse_sqlstate("000a0"), invalid);
+    BOOST_TEST_EQ(parse_sqlstate("0000a"), invalid);
 }
+
+//
+// Error category
+//
+
+// A std::error_condition can be implicitly created from a sqlstate_cond value
+// Casting std::error_condition containing success to bool returns false
+// Comparing successful completion to
 
 }  // namespace
 

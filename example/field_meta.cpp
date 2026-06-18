@@ -33,7 +33,7 @@ using namespace nativepg;
 
 struct my_row {
     std::int32_t  id;
-    std::string   description;   // DB column named "desc"
+    std::string   description;   // DB column named "title"
     types::pg_timestamptz created_at;
 };
 BOOST_DESCRIBE_STRUCT(my_row, (), (id, description, created_at));
@@ -42,7 +42,7 @@ BOOST_DESCRIBE_STRUCT(my_row, (), (id, description, created_at));
 template <>
 struct nativepg::detail::field_meta<&my_row::description>
 {
-    static constexpr std::optional<std::string_view> column_name = "desc";
+    static constexpr std::optional<std::string_view> column_name = "title";
     static constexpr std::optional<std::int32_t> oid = std::nullopt;
     static constexpr bool nullable = false;
 };
@@ -63,16 +63,29 @@ static asio::awaitable<void> field_meta_text_example(connection& conn)
     // Start timing this operation
     auto start = std::chrono::high_resolution_clock::now();
 
-    // Compose our request
-    request req;
-    req
+    // Compose our arrange request
+    /*
+    request arrange_req;
+    arrange_req
         .add_query("DROP TABLE IF EXISTS my_row", {})
         .add_query("CREATE TABLE IF NOT EXISTS my_row ("
-                    "\"id\" serial PRIMARY KEY,"
-                    "\"desc\" text,"
-                    "\"created_at\" timestamp DEFAULT now()"
-                    ");", {})
-        .add_query("INSERT INTO my_row (\"desc\") VALUES ('test');", {})
+                        "id int PRIMARY KEY,"
+                        "title text,"
+                        "created_at timestamptz DEFAULT now())", {})
+        .add_query("INSERT INTO my_row (id, title, created_at) VALUES (1,'test')", {});
+
+    std::vector<my_row> arrange_vec;
+    response arrange_res{into(arrange_vec)};
+
+    auto [arrange_err] = co_await conn.async_exec(arrange_req, arrange_res, asio::as_tuple);
+    if (arrange_err.extended_error::code != boost::system::errc::success)
+    {
+        std::cerr << "ARRANGING test has error: " << arrange_err.code.what() << ": " << arrange_err.diag.message() << std::endl;
+    }
+    */
+
+    request req;
+    req
         .add_query("SELECT * FROM my_row;", {});
 
     // Structures to parse the response into
@@ -89,7 +102,7 @@ static asio::awaitable<void> field_meta_text_example(connection& conn)
     if (err.extended_error::code != boost::system::errc::success)
         std::cerr << "SELECT TEXT operation results in Error: " << err.code.what() << ": " << err.diag.message() << " (in " << duration << ")" << std::endl;
     else
-        std::cout << "SELECT TEXT select result: | " << select_vec[0].id << " | " << select_vec[0].description << " | " << select_vec[0].created_at << " | " << " (in " << duration << ")" << std::endl;
+        std::cout << "SELECT TEXT result: \n| " << select_vec[0].id << " | " << select_vec[0].description << " | " << select_vec[0].created_at << " | " << " (in " << duration << ")" << std::endl;
 }
 
 

@@ -1,12 +1,14 @@
-
 #ifndef NATIVEPG_FIELD_TRAITS_JSON_HPP
 #define NATIVEPG_FIELD_TRAITS_JSON_HPP
 
-#include <chrono>
+#ifdef NATIVEPG_JSON
 
 #include <boost/system/error_code.hpp>
 
-#include "nativepg/types.hpp"
+#include "nativepg/client_errc.hpp"
+#include "nativepg/field_view.hpp"
+#include "nativepg/protocol/describe.hpp"
+#include "nativepg/types/json.hpp"
 
 namespace nativepg::detail {
 
@@ -36,28 +38,43 @@ struct field_is_compatible<types::pg_jsonb>
 template <class T>
 struct field_parse;
 
-// JSON
+// JSON — fully defined inline, no .cpp needed
 template <>
 struct field_parse<types::pg_json>
 {
-    static boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+    static inline boost::system::error_code call(
+        field_view from,
         const protocol::field_description& desc,
         types::pg_json& to
-    );
+    )
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        return desc.fmt_code == protocol::format_code::text
+            ? types::parse_text_json(from.data(), to)
+            : types::parse_binary_json(from.data(), to);
+    }
 };
 
-// JSONB
+// JSONB —
 template <>
 struct field_parse<types::pg_jsonb>
 {
-    static boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+    static inline boost::system::error_code call(
+        field_view from,
         const protocol::field_description& desc,
         types::pg_jsonb& to
-    );
+    )
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        return desc.fmt_code == protocol::format_code::text
+            ? types::parse_text_jsonb(from.data(), to)
+            : types::parse_binary_jsonb(from.data(), to);
+    }
 };
 
-}
+}  // namespace nativepg::detail
 
+#endif  // NATIVEPG_JSON
 #endif  // NATIVEPG_FIELD_TRAITS_JSON_HPP

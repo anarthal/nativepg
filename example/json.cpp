@@ -5,26 +5,30 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#define NATIVEPG_JSON 1
+
+#include <boost/json/src.hpp> // inline header-only implementation (or link against Boost.JSON)
+#include <boost/json/serialize.hpp>
+
 #include <boost/asio/as_tuple.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/io_context.hpp>
-#include <boost/asio/ip/address_v4.hpp>
 #include <boost/asio/this_coro.hpp>
 #include <boost/describe/class.hpp>
-#include <boost/json.hpp>
 
 #include <exception>
-#include <iomanip>
 #include <iostream>
 #include <string_view>
 #include <vector>
 #include <chrono>
 
+#include "nativepg/types/json.hpp"
+#include "nativepg/response.hpp"
 #include "nativepg/connection.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/response.hpp"
+
 
 namespace asio = boost::asio;
 using namespace nativepg;

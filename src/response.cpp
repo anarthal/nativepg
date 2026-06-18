@@ -8,7 +8,6 @@
 #include <boost/assert.hpp>
 #include <boost/endian/conversion.hpp>
 #include <boost/system/error_code.hpp>
-#include <boost/json/src.hpp>
 
 #include <algorithm>
 #include <charconv>
@@ -211,41 +210,6 @@ boost::system::error_code nativepg::detail::field_parse<types::pg_interval>::cal
     return desc.fmt_code == protocol::format_code::text ? parse_text_interval(from.data(), to)
                                                         : parse_binary_interval(from.data(), to);
 }
-
-// JSON => pg_json
-boost::system::error_code nativepg::detail::field_parse<types::pg_json>::call(
-    std::optional<std::span<const unsigned char>> from,
-    const protocol::field_description& desc,
-    types::pg_json& to
-)
-{
-    if (!from.has_value())
-        return client_errc::unexpected_null;
-
-    BOOST_ASSERT(desc.type_oid == 114);
-
-    return desc.fmt_code == protocol::format_code::text ?
-        parse_text_json(*from, to) :
-        parse_binary_json(*from, to);
-}
-
-// JSONB => pg_jsonb
-boost::system::error_code nativepg::detail::field_parse<types::pg_jsonb>::call(
-    std::optional<std::span<const unsigned char>> from,
-    const protocol::field_description& desc,
-    types::pg_jsonb& to
-)
-{
-    if (!from.has_value())
-        return client_errc::unexpected_null;
-
-    BOOST_ASSERT(desc.type_oid == 3802);
-
-    return desc.fmt_code == protocol::format_code::text ?
-        parse_text_jsonb(*from, to) :
-        parse_binary_jsonb(*from, to);
-}
-
 
 boost::system::error_code nativepg::detail::compute_pos_map(
     const protocol::row_description& meta,

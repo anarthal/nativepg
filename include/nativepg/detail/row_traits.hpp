@@ -15,6 +15,9 @@
 #include <array>
 #include <string_view>
 
+#include "nativepg/detail/field_meta.hpp"
+
+
 namespace nativepg::detail {
 
 // TODO: support tuples, Boost.Pfr and C++26 reflection
@@ -36,8 +39,17 @@ constexpr std::array<std::string_view, sizeof...(MemberDescriptor)> get_describe
     return {MemberDescriptor::name...};
 }
 
+template <template <class...> class ListType, class... MemberDescriptor>
+constexpr auto get_describe_names_with_meta(ListType<MemberDescriptor...>)
+{
+    return std::array<std::string_view, sizeof...(MemberDescriptor)>{
+        // If field_meta has a column_name override, use it; otherwise fall back to member name
+        (field_meta<MemberDescriptor::pointer>::column_name.value_or(MemberDescriptor::name))...
+    };
+}
+
 template <class T>
-inline constexpr auto row_name_table_v = get_describe_names(row_members<T>{});
+inline constexpr auto row_name_table_v = get_describe_names_with_meta(row_members<T>{});
 
 // Row traits: field types
 template <class T, template <class...> class ListType, class... D>

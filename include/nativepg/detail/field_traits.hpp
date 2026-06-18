@@ -11,7 +11,6 @@
 #include <boost/system/error_code.hpp>
 
 #include <concepts>
-#include <cstdint>
 #include <optional>
 #include <span>
 #include <string_view>

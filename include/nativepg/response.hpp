@@ -133,6 +133,7 @@ class resultset_callback_t
         void operator()(protocol::bind_complete) const {}
 
         // Metadata
+        /*
         void operator()(const protocol::row_description& msg) const
         {
             // State check
@@ -158,6 +159,39 @@ class resultset_callback_t
                 [&idx, &ec, &pos_map = self.pos_map_](auto type_identity) {
                     using FieldType = typename decltype(type_identity)::type;
                     auto ec2 = detail::field_is_compatible<FieldType>::call(pos_map[idx++].descr);
+                    if (!ec)
+                        ec = ec2;
+                }
+            );
+            if (ec)
+            {
+                self.store_error(ec);
+                return;
+            }
+        }
+        */
+        void operator()(const protocol::row_description& msg) const
+        {
+            BOOST_ASSERT(self.state_ == state_t::parsing_meta);
+            self.state_ = state_t::parsing_data;
+
+            auto ec = detail::compute_pos_map(msg, detail::row_name_table_v<T>, self.pos_map_);
+            if (ec)
+            {
+                self.store_error(ec);
+                return;
+            }
+
+            // Metadata check: iterate row_members<T> so we have both
+            // the member pointer (for field_meta OID override) and the field type.
+            std::size_t idx = 0u;
+            boost::mp11::mp_for_each<detail::row_members<T>>(
+                [&idx, &ec, &pos_map = self.pos_map_](auto D) {
+                    using FieldType = std::remove_reference_t<
+                        decltype(std::declval<T>().*D.pointer)>;
+                    auto ec2 = detail::check_field_compatible<D.pointer, FieldType>(
+                        pos_map[idx++].descr
+                    );
                     if (!ec)
                         ec = ec2;
                 }

@@ -12,18 +12,17 @@
 
 #include <algorithm>
 #include <charconv>
-#include <cstdint>
-#include <span>
 #include <chrono>
-#include <iostream>
-#include <locale>
-#include <sstream>
+#include <cstdint>
 #include <cstring>
+#include <span>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/detail/field_traits.hpp"
-#include "nativepg/types.hpp"
+#include "nativepg/field_view.hpp"
+#include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
+#include "nativepg/response_handler.hpp"
 
 using namespace nativepg;
 using namespace nativepg::types;
@@ -31,7 +30,6 @@ using boost::system::error_code;
 
 // Parsing concrete fields
 namespace {
-
 
 template <class T>
 error_code parse_text_int(std::span<const unsigned char> from, T& to)
@@ -55,31 +53,30 @@ error_code parse_binary_int(std::span<const unsigned char> from, T& to)
     return {};
 }
 
-
 }  // namespace
 
 boost::system::error_code nativepg::detail::field_parse<std::int16_t>::call(
-    std::optional<std::span<const unsigned char>> from,
+    field_view from,
     const protocol::field_description& desc,
     std::int16_t& to
 )
 {
-    if (!from.has_value())
+    if (from.is_null())
         return client_errc::unexpected_null;
     BOOST_ASSERT(desc.type_oid == int2_oid);
-    return desc.fmt_code == protocol::format_code::text ? parse_text_int(*from, to)
-                                                        : parse_binary_int(*from, to);
+    return desc.fmt_code == protocol::format_code::text ? parse_text_int(from.data(), to)
+                                                        : parse_binary_int(from.data(), to);
 }
 
 boost::system::error_code nativepg::detail::field_parse<std::int32_t>::call(
-    std::optional<std::span<const unsigned char>> from,
+    field_view from,
     const protocol::field_description& desc,
     std::int32_t& to
 )
 {
-    if (!from.has_value())
+    if (from.is_null())
         return client_errc::unexpected_null;
-    auto data = *from;
+    auto data = from.data();
     switch (desc.type_oid)
     {
         case int2_oid:
@@ -98,14 +95,14 @@ boost::system::error_code nativepg::detail::field_parse<std::int32_t>::call(
 }
 
 boost::system::error_code nativepg::detail::field_parse<std::int64_t>::call(
-    std::optional<std::span<const unsigned char>> from,
+    field_view from,
     const protocol::field_description& desc,
     std::int64_t& to
 )
 {
-    if (!from.has_value())
+    if (from.is_null())
         return client_errc::unexpected_null;
-    auto data = *from;
+    auto data = from.data();
     switch (desc.type_oid)
     {
         case int2_oid:
@@ -131,95 +128,88 @@ boost::system::error_code nativepg::detail::field_parse<std::int64_t>::call(
     }
 }
 
-
 // DATE => std::chrono::sys_days
 boost::system::error_code nativepg::detail::field_parse<std::chrono::sys_days>::call(
-    std::optional<std::span<const unsigned char>> from,
+    field_view from,
     const protocol::field_description& desc,
     std::chrono::sys_days& to
 )
 {
-    if (!from.has_value())
+    if (from.is_null())
         return client_errc::unexpected_null;
     BOOST_ASSERT(desc.type_oid == 1082);
-    return desc.fmt_code == protocol::format_code::text ?
-        parse_text_date(*from, to) :
-        parse_binary_date(*from, to);
+    return desc.fmt_code == protocol::format_code::text ? parse_text_date(from.data(), to)
+                                                        : parse_binary_date(from.data(), to);
 }
 
 // TIME => std::chrono::microseconds
 boost::system::error_code nativepg::detail::field_parse<std::chrono::microseconds>::call(
-    std::optional<std::span<const unsigned char>> from,
+    field_view from,
     const protocol::field_description& desc,
     std::chrono::microseconds& to
 )
 {
-    if (!from.has_value())
+    if (from.is_null())
         return client_errc::unexpected_null;
     BOOST_ASSERT(desc.type_oid == 1083);
-    return desc.fmt_code == protocol::format_code::text ?
-        parse_text_time(*from, to) :
-        parse_binary_time(*from, to);
+    return desc.fmt_code == protocol::format_code::text ? parse_text_time(from.data(), to)
+                                                        : parse_binary_time(from.data(), to);
 }
 
 // TIMETZ => pg_timetz
 boost::system::error_code nativepg::detail::field_parse<types::pg_timetz>::call(
-    std::optional<std::span<const unsigned char>> from,
+    field_view from,
     const protocol::field_description& desc,
     types::pg_timetz& to
 )
 {
-    if (!from.has_value())
+    if (from.is_null())
         return client_errc::unexpected_null;
     BOOST_ASSERT(desc.type_oid == 1266);
-    return desc.fmt_code == protocol::format_code::text ?
-        parse_text_timetz(*from, to) :
-        parse_binary_timetz(*from, to);
+    return desc.fmt_code == protocol::format_code::text ? parse_text_timetz(from.data(), to)
+                                                        : parse_binary_timetz(from.data(), to);
 }
 
 // TIMESTAMP => pg_timestamp
 boost::system::error_code nativepg::detail::field_parse<types::pg_timestamp>::call(
-    std::optional<std::span<const unsigned char>> from,
+    field_view from,
     const protocol::field_description& desc,
     types::pg_timestamp& to
 )
 {
-    if (!from.has_value())
+    if (from.is_null())
         return client_errc::unexpected_null;
     BOOST_ASSERT(desc.type_oid == 1114);
-    return desc.fmt_code == protocol::format_code::text ?
-        parse_text_timestamp(*from, to) :
-        parse_binary_timestamp(*from, to);
+    return desc.fmt_code == protocol::format_code::text ? parse_text_timestamp(from.data(), to)
+                                                        : parse_binary_timestamp(from.data(), to);
 }
 
 // TIMESTAMPTZ => pg_timestamptz
 boost::system::error_code nativepg::detail::field_parse<types::pg_timestamptz>::call(
-    std::optional<std::span<const unsigned char>> from,
+    field_view from,
     const protocol::field_description& desc,
     types::pg_timestamptz& to
 )
 {
-    if (!from.has_value())
+    if (from.is_null())
         return client_errc::unexpected_null;
     BOOST_ASSERT(desc.type_oid == 1184);
-    return desc.fmt_code == protocol::format_code::text ?
-        parse_text_timestamptz(*from, to) :
-        parse_binary_timestamptz(*from, to);
+    return desc.fmt_code == protocol::format_code::text ? parse_text_timestamptz(from.data(), to)
+                                                        : parse_binary_timestamptz(from.data(), to);
 }
 
 // INTERVAL => pg_interval
 boost::system::error_code nativepg::detail::field_parse<types::pg_interval>::call(
-    std::optional<std::span<const unsigned char>> from,
+    field_view from,
     const protocol::field_description& desc,
     types::pg_interval& to
 )
 {
-    if (!from.has_value())
+    if (from.is_null())
         return client_errc::unexpected_null;
     BOOST_ASSERT(desc.type_oid == 1186);
-    return desc.fmt_code == protocol::format_code::text ?
-        parse_text_interval(*from, to) :
-        parse_binary_interval(*from, to);
+    return desc.fmt_code == protocol::format_code::text ? parse_text_interval(from.data(), to)
+                                                        : parse_binary_interval(from.data(), to);
 }
 
 // JSON => pg_json
@@ -350,4 +340,47 @@ handler_setup_result nativepg::detail::resultset_setup(const request& req, std::
     // If we got the execute message, we're good
     return execute_found ? handler_setup_result{static_cast<std::size_t>(it - req.messages().begin())}
                          : handler_setup_result{client_errc::incompatible_response_type};
+}
+
+static handler_setup_result check_setup_impl(
+    const request& req,
+    std::size_t offset,
+    request_message_type type
+)
+{
+    const auto msgs = req.messages().subspan(offset);
+    auto it = msgs.begin();
+
+    // Skip any leading syncs
+    while (it != msgs.end() && (*it == request_message_type::sync || *it == request_message_type::flush))
+        ++it;
+
+    // Check that the request contains the message that we expect
+    if (it == msgs.end() || *it != type)
+        return handler_setup_result(client_errc::incompatible_response_type);
+    ++it;
+
+    // Skip any further sync messages
+    while (it != msgs.end() && (*it == request_message_type::sync || *it == request_message_type::flush))
+        ++it;
+
+    return handler_setup_result{static_cast<std::size_t>(it - req.messages().begin())};
+}
+
+handler_setup_result check_parse::setup(const request& req, std::size_t offset)
+{
+    err_ = {};
+    return check_setup_impl(req, offset, request_message_type::parse);
+}
+
+handler_setup_result check_bind::setup(const request& req, std::size_t offset)
+{
+    err_ = {};
+    return check_setup_impl(req, offset, request_message_type::bind);
+}
+
+handler_setup_result check_close::setup(const request& req, std::size_t offset)
+{
+    err_ = {};
+    return check_setup_impl(req, offset, request_message_type::close);
 }

@@ -24,6 +24,7 @@
 #include "nativepg/co_multiplexed_connection.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/parse_message.hpp"
+#include "nativepg/response.hpp"
 #include "nativepg_internal/check_request.hpp"
 #include "nativepg_internal/multiplexed_connection/multiplexer.hpp"
 #include "nativepg_internal/notification_queue.hpp"
@@ -234,6 +235,12 @@ boost::capy::io_task<> nativepg::co_multiplexed_connection::exec(
 )
 {
     return impl_->exec(req, handler, diag);
+}
+
+boost::capy::io_task<> nativepg::co_multiplexed_connection::exec(const request& req, diagnostics* diag)
+{
+    check handler;
+    co_return co_await impl_->exec(req, handler, diag);
 }
 
 boost::capy::io_task<> nativepg::co_multiplexed_connection::read_notifications(

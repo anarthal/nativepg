@@ -71,9 +71,6 @@ enum class client_errc : int
     // There was a field defined in a C++ type that wasn't present in the data returned by the query
     field_not_found,
 
-    // TODO: this should really use an error category on its own
-    auth_failed,
-
     // We don't support this authentication method yet
     auth_kerberos_v5_unsupported,
 
@@ -100,9 +97,6 @@ enum class client_errc : int
     // are separated from simple query messages by syncs (this is the default behavior unless you
     // deactivated request autosync).
     request_mixes_simple_advanced_protocols,
-
-    // The server returned an error during the execution of a request
-    exec_server_error,
 
     // A pipeline step was skipped because of a previous error
     step_skipped,

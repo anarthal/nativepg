@@ -33,6 +33,7 @@ add_library(nativepg
     src/connect_fsm.cpp
     src/request.cpp
     src/response.cpp
+    src/sqlstate.cpp
 )
 target_link_libraries(nativepg PUBLIC Boost::headers OpenSSL::SSL OpenSSL::Crypto)
 target_include_directories(nativepg PUBLIC include)
@@ -84,10 +85,12 @@ if (BUILD_TESTING)
     add_unit_test(protocol          test_check_request)
     add_unit_test(protocol          test_next_power_of_2)
     add_unit_test(protocol          test_read_buffer)
+    add_unit_test(""                test_field_view)
     add_unit_test(""                test_request)
     add_unit_test(""                test_response)
     add_unit_test(""                test_resultset_callback)
     add_unit_test(""                test_diagnostics)
+    add_unit_test(""                test_sqlstate)
     add_unit_test(""                test_extended_error_disposition)
     add_unit_test(""                test_extended_error_boost_system)
     add_unit_test(types             test_datetime)
@@ -112,6 +115,9 @@ if (NATIVEPG_COROSIO_API)
 
     add_executable(nativepg_co_multiplexed_connection example/co_multiplexed_connection.cpp)
     target_link_libraries(nativepg_co_multiplexed_connection PRIVATE nativepg_corosio)
+
+    add_executable(nativepg_prepared_statements example/prepared_statements.cpp)
+    target_link_libraries(nativepg_prepared_statements PRIVATE nativepg_corosio)
 
     add_executable(nativepg_listen example/listen.cpp)
     target_link_libraries(nativepg_listen PRIVATE nativepg_corosio)

@@ -11,9 +11,12 @@
 #include <boost/describe/class.hpp>
 
 #include <iostream>
+#include <string_view>
+#include <vector>
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
 
 using namespace nativepg;
@@ -35,11 +38,6 @@ static void print_err(const char* prefix, std::error_code err, const diagnostics
     std::cout << '\n';
 }
 
-static void print_err(const char* prefix, const extended_error& err)
-{
-    print_err(prefix, err.code, err.diag);
-}
-
 static capy::task<> co_main()
 {
     // Create a connection
@@ -58,22 +56,55 @@ static capy::task<> co_main()
     }
     std::cout << "Startup complete\n";
 
-    // Compose our request
-    request req;
-    req.add_query("INSERT INTO myt (f1, f3) VALUES ($1, $2)", {"hehe", "bad"});
-    req.add_query("SELECT * FROM myt WHERE f1 <> 'abc'", {});
+    // Statement objects remember the parameters (compile-time, for diagnosis)
+    // and a user-supplied name. The name can be anything, but must be unique
+    // within this session. Used by the server to identify the statement when executing it.
+    // A good choice is to perform statement preparation once at program startup and reuse them.
+    statement<std::string_view, int> insert_stmt{"insert"};
+    statement<std::string_view> select_stmt{"select"};
 
-    // Structures to parse the response into
-    std::vector<myrow> vec;
-    response res{check_execute(), into(vec)};
+    // Compose the request to prepare these statements
+    request req{false};  // Turns off autosync for better efficiency
+    req.add_prepare("INSERT INTO myt (f1, f3) VALUES ($1, $2)", insert_stmt);
+    req.add_prepare("SELECT * FROM myt WHERE f1 = $1", select_stmt);
+    req.add_sync();
 
-    auto [ec2] = co_await conn.exec(req, res, &diag);
-    print_err("Operation result", ec2, diag);
-    print_err("Q1 result", std::get<0>(res.handlers()).result());
-    print_err("Q2 result", std::get<1>(res.handlers()).result());
+    // Actually prepare the statements
+    if (auto [ec] = co_await conn.exec(req, &diag); ec)
+    {
+        print_err("Error preparing", ec, diag);
+        co_return;
+    }
 
-    for (const auto& r : vec)
+    // Now execute one of the statements.
+    // Note that statements are independent even if you prepared them together
+    req = request();  // TODO: replace by clear when we have it
+    req.add_execute(select_stmt.bind("hola"));
+    req.add_sync();
+
+    std::vector<myrow> rows;
+    response resp{into(rows)};
+    if (auto [ec] = co_await conn.exec(req, resp, &diag); ec)
+    {
+        print_err("Error executing", ec, diag);
+        co_return;
+    }
+
+    for (const auto& r : rows)
         std::cout << "Got row: " << r.f1 << ", " << r.f3 << std::endl;
+
+    // If you happen to be preparing statements dynamically,
+    // you can close them like follows. Closing the connection also deallocates
+    // statements, so this is usually unnecessary.
+    req = request();  // TODO: replace by clear when we have it
+    req.add_close_statement(insert_stmt.name);
+    req.add_close_statement(select_stmt.name);
+    req.add_sync();
+    if (auto [ec] = co_await conn.exec(req, &diag); ec)
+    {
+        print_err("Error closing", ec, diag);
+        co_return;
+    }
 }
 
 int main()

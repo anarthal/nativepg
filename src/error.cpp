@@ -45,7 +45,6 @@ static const char* error_to_string(client_errc error)
         case client_errc::unexpected_null: return "unexpected_null";
         case client_errc::incompatible_field_type: return "incompatible_field_type";
         case client_errc::field_not_found: return "field_not_found";
-        case client_errc::auth_failed: return "auth_failed";
         case client_errc::auth_kerberos_v5_unsupported: return "auth_kerberos_v5_unsupported";
         case client_errc::auth_cleartext_password_unsupported: return "auth_cleartext_password_unsupported";
         case client_errc::auth_md5_password_unsupported: return "auth_md5_password_unsupported";
@@ -55,7 +54,6 @@ static const char* error_to_string(client_errc error)
         case client_errc::request_ends_without_sync: return "request_ends_without_sync";
         case client_errc::request_mixes_simple_advanced_protocols:
             return "request_mixes_simple_advanced_protocols";
-        case client_errc::exec_server_error: return "exec_server_error";
         case client_errc::step_skipped: return "step_skipped";
         case client_errc::unknown_openssl_error: return "unknown_openssl_error";
         default: return "<unknown nativepg client error>";

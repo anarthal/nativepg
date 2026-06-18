@@ -8,7 +8,6 @@
 #ifndef NATIVEPG_RESPONSE_HPP
 #define NATIVEPG_RESPONSE_HPP
 
-#include <boost/core/span.hpp>
 #include <boost/mp11/algorithm.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/variant2/variant.hpp>
@@ -16,7 +15,6 @@
 #include <array>
 #include <concepts>
 #include <cstddef>
-#include <optional>
 #include <span>
 #include <string_view>
 #include <tuple>
@@ -28,6 +26,7 @@
 #include "nativepg/detail/field_traits.hpp"
 #include "nativepg/detail/row_traits.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/field_view.hpp"
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/command_complete.hpp"
 #include "nativepg/protocol/data_row.hpp"
@@ -38,6 +37,9 @@
 #include "nativepg/protocol/views.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
+#include "nativepg/sqlstate.hpp"
+
+// TODO: we need to split this file
 
 namespace nativepg {
 
@@ -63,6 +65,16 @@ inline constexpr std::size_t invalid_pos = static_cast<std::size_t>(-1);
 
 handler_setup_result resultset_setup(const request& req, std::size_t offset);
 
+inline void maybe_store_error(const any_request_message& msg, extended_error& to)
+{
+    const auto* err = boost::variant2::get_if<protocol::error_response>(&msg);
+    if (err && !to.code)
+    {
+        to.code = parse_sqlstate(err->sqlstate.value_or(std::string_view{}));
+        to.diag.assign(*err);
+    }
+}
+
 }  // namespace detail
 
 // Handles a resultset (i.e. a row_description + data_rows + command_complete)
@@ -79,7 +91,7 @@ class resultset_callback_t
 
     state_t state_{state_t::parsing_meta};
     std::array<detail::pos_map_entry, detail::row_size_v<T>> pos_map_;
-    std::vector<std::optional<std::span<const unsigned char>>> random_access_data_;
+    std::vector<field_view> random_access_data_;
     extended_error err_;
     Callback cb_;
 
@@ -110,7 +122,7 @@ class resultset_callback_t
         {
             if (!self.err_.code)
             {
-                self.err_.code = client_errc::exec_server_error;
+                self.err_.code = parse_sqlstate(err.sqlstate.value_or(std::string_view{}));
                 self.err_.diag.assign(err);
             }
         }
@@ -261,6 +273,81 @@ resultset_callback_t<T, detail::into_handler<T>> into(std::vector<T>& vec)
 {
     return resultset_callback_t<T, detail::into_handler<T>>{detail::into_handler<T>{vec}};
 }
+
+// A response type that checks that no operation resulted in an error
+class check
+{
+    extended_error err_;
+
+public:
+    check() = default;
+    handler_setup_result setup(const request& req, std::size_t)
+    {
+        err_ = {};
+        return req.messages().size();
+    }
+    void on_message(const any_request_message& msg, std::size_t) { detail::maybe_store_error(msg, err_); }
+    const extended_error& result() const { return err_; }
+};
+
+// A response type that checks that a single resultset didn't
+// produce an error, skipping any produced data
+class check_execute
+{
+    extended_error err_;
+
+public:
+    check_execute() = default;
+
+    handler_setup_result setup(const request& req, std::size_t offset)
+    {
+        err_ = {};
+        return detail::resultset_setup(req, offset);
+    }
+    void on_message(const any_request_message& msg, std::size_t) { detail::maybe_store_error(msg, err_); }
+    const extended_error& result() const { return err_; }
+};
+
+// A response that checks that a single parse (e.g. when preparing a statement)
+// didn't produce an error
+class check_parse
+{
+    extended_error err_;
+
+public:
+    check_parse() = default;
+
+    handler_setup_result setup(const request& req, std::size_t offset);
+    void on_message(const any_request_message& msg, std::size_t) { detail::maybe_store_error(msg, err_); }
+    const extended_error& result() const { return err_; }
+};
+
+// A response that checks that a single parse (e.g. when preparing a statement)
+// didn't produce an error
+class check_bind
+{
+    extended_error err_;
+
+public:
+    check_bind() = default;
+
+    handler_setup_result setup(const request& req, std::size_t offset);
+    void on_message(const any_request_message& msg, std::size_t) { detail::maybe_store_error(msg, err_); }
+    const extended_error& result() const { return err_; }
+};
+
+// A response that checks that a single close didn't produce an error
+class check_close
+{
+    extended_error err_;
+
+public:
+    check_close() = default;
+
+    handler_setup_result setup(const request& req, std::size_t offset);
+    void on_message(const any_request_message& msg, std::size_t) { detail::maybe_store_error(msg, err_); }
+    const extended_error& result() const { return err_; }
+};
 
 template <response_handler... Handlers>
 class response

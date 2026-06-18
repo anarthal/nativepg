@@ -2,10 +2,12 @@
 #ifndef NATIVEPG_FIELD_TRAITS_DATETIME_HPP
 #define NATIVEPG_FIELD_TRAITS_DATETIME_HPP
 
-#include <chrono>
-
 #include <boost/system/error_code.hpp>
 
+#include <chrono>
+
+#include "nativepg/field_view.hpp"
+#include "nativepg/protocol/describe.hpp"
 #include "nativepg/types.hpp"
 
 namespace nativepg::detail {
@@ -81,7 +83,7 @@ template <>
 struct field_parse<std::chrono::sys_days>
 {
     static boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+        field_view from,
         const protocol::field_description& desc,
         std::chrono::sys_days& to
     );
@@ -92,7 +94,7 @@ template <>
 struct field_parse<std::chrono::microseconds>
 {
     static boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+        field_view from,
         const protocol::field_description& desc,
         std::chrono::microseconds& to
     );
@@ -103,7 +105,7 @@ template <>
 struct field_parse<types::pg_timetz>
 {
     static boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+        field_view from,
         const protocol::field_description& desc,
         types::pg_timetz& to
     );
@@ -114,7 +116,7 @@ template <>
 struct field_parse<types::pg_timestamp>
 {
     static boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+        field_view from,
         const protocol::field_description& desc,
         types::pg_timestamp& to
     );
@@ -125,7 +127,7 @@ template <>
 struct field_parse<types::pg_timestamptz>
 {
     static boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+        field_view from,
         const protocol::field_description& desc,
         types::pg_timestamptz& to
     );
@@ -136,11 +138,11 @@ template <>
 struct field_parse<types::pg_interval>
 {
     static boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+        field_view from,
         const protocol::field_description& desc,
         types::pg_interval& to
     );
 };
 
-}
+}  // namespace nativepg::detail
 #endif  // NATIVEPG_FIELD_TRAITS_DATETIME_HPP

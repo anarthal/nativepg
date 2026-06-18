@@ -29,6 +29,7 @@
 #include "nativepg/protocol/detail/exec_some_fsm.hpp"
 #include "nativepg/protocol/parse_message.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/response.hpp"
 #include "nativepg/response_handler.hpp"
 
 namespace capy = boost::capy;
@@ -233,6 +234,12 @@ capy::io_task<> co_connection::exec(const request& req, response_handler_ref han
             default: BOOST_ASSERT(false); co_return {};
         }
     }
+}
+
+capy::io_task<> co_connection::exec(const request& req, diagnostics* diag)
+{
+    check handler;
+    co_return co_await exec(req, handler, diag);
 }
 
 void co_connection::setup_request(const request& req, response_handler_ref handler)

@@ -30,6 +30,58 @@ using boost::system::error_code;
 namespace {
 
 template <class T>
+error_code parse_text_bool(std::span<const unsigned char> from, T& to)
+{
+    const char* first = reinterpret_cast<const char*>(from.data());
+    const char* last = first + from.size();
+    auto err = std::from_chars(first, last, to);
+    if (err.ec != std::errc{})
+        return std::make_error_code(err.ec);
+    if (err.ptr != last)
+        return client_errc::extra_bytes;
+    return error_code();
+}
+
+template <class T>
+error_code parse_binary_bool(std::span<const unsigned char> from, T& to)
+{
+    const char* first = reinterpret_cast<const char*>(from.data());
+    const char* last = first + from.size();
+    auto err = std::from_chars(first, last, to);
+    if (err.ec != std::errc{})
+        return std::make_error_code(err.ec);
+    if (err.ptr != last)
+        return client_errc::extra_bytes;
+    return error_code();
+}
+
+template <class T>
+error_code parse_text_bytea(std::span<const unsigned char> from, T& to)
+{
+    const char* first = reinterpret_cast<const char*>(from.data());
+    const char* last = first + from.size();
+    auto err = std::from_chars(first, last, to);
+    if (err.ec != std::errc{})
+        return std::make_error_code(err.ec);
+    if (err.ptr != last)
+        return client_errc::extra_bytes;
+    return error_code();
+}
+
+template <class T>
+error_code parse_binary_bytea(std::span<const unsigned char> from, T& to)
+{
+    const char* first = reinterpret_cast<const char*>(from.data());
+    const char* last = first + from.size();
+    auto err = std::from_chars(first, last, to);
+    if (err.ec != std::errc{})
+        return std::make_error_code(err.ec);
+    if (err.ptr != last)
+        return client_errc::extra_bytes;
+    return error_code();
+}
+
+template <class T>
 error_code parse_text_int(std::span<const unsigned char> from, T& to)
 {
     const char* first = reinterpret_cast<const char*>(from.data());
@@ -44,6 +96,96 @@ error_code parse_text_int(std::span<const unsigned char> from, T& to)
 
 template <class T>
 error_code parse_binary_int(std::span<const unsigned char> from, T& to)
+{
+    if (from.size() != sizeof(T))
+        return client_errc::protocol_value_error;
+    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data());
+    return {};
+}
+
+template <class T>
+error_code parse_text_float4(std::span<const unsigned char> from, T& to)
+{
+    if (from.size() != sizeof(T))
+        return client_errc::protocol_value_error;
+    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data());
+    return {};
+}
+
+template <class T>
+error_code parse_binary_float4(std::span<const unsigned char> from, T& to)
+{
+    if (from.size() != sizeof(T))
+        return client_errc::protocol_value_error;
+    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data());
+    return {};
+}
+
+template <class T>
+error_code parse_text_float8(std::span<const unsigned char> from, T& to)
+{
+    if (from.size() != sizeof(T))
+        return client_errc::protocol_value_error;
+    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data());
+    return {};
+}
+
+template <class T>
+error_code parse_binary_float8(std::span<const unsigned char> from, T& to)
+{
+    if (from.size() != sizeof(T))
+        return client_errc::protocol_value_error;
+    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data());
+    return {};
+}
+
+template <class T>
+error_code parse_text_numeric(std::span<const unsigned char> from, T& to)
+{
+    if (from.size() != sizeof(T))
+        return client_errc::protocol_value_error;
+    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data());
+    return {};
+}
+
+template <class T>
+error_code parse_binary_numeric(std::span<const unsigned char> from, T& to)
+{
+    if (from.size() != sizeof(T))
+        return client_errc::protocol_value_error;
+    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data());
+    return {};
+}
+
+template <class T>
+error_code parse_text_text(std::span<const unsigned char> from, T& to)
+{
+    if (from.size() != sizeof(T))
+        return client_errc::protocol_value_error;
+    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data());
+    return {};
+}
+
+template <class T>
+error_code parse_binary_text(std::span<const unsigned char> from, T& to)
+{
+    if (from.size() != sizeof(T))
+        return client_errc::protocol_value_error;
+    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data());
+    return {};
+}
+
+template <class T>
+error_code parse_text_varchar(std::span<const unsigned char> from, T& to)
+{
+    if (from.size() != sizeof(T))
+        return client_errc::protocol_value_error;
+    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data());
+    return {};
+}
+
+template <class T>
+error_code parse_binary_varchar(std::span<const unsigned char> from, T& to)
 {
     if (from.size() != sizeof(T))
         return client_errc::protocol_value_error;

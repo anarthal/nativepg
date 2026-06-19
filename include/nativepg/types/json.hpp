@@ -15,31 +15,8 @@ namespace nativepg::types {
 using boost::system::error_code;
 
 // Type mapping & wrapping
-// Tags to distinguish json vs jsonb at the type level (same structure, different OIDs)
-struct json_tag {};
-struct jsonb_tag {};
-
-template <typename Tag>
-class basic_pg_json
-{
-    boost::json::value storage_;
-public:
-    basic_pg_json() = default;
-
-    explicit basic_pg_json(boost::json::value val)
-        : storage_(std::move(val)) {}
-
-    bool has_key(std::string_view key) const {
-        if (!storage_.is_object()) return false;
-        return storage_.as_object().contains(key);
-    }
-
-    const boost::json::value& get() const { return storage_; }
-    boost::json::value& get() { return storage_; }
-};
-
-using pg_json  = basic_pg_json<json_tag>;
-using pg_jsonb = basic_pg_json<jsonb_tag>;
+typedef boost::json::value pg_json; // OID 114
+typedef boost::json::value pg_jsonb; // OID 3802
 
 
 // JSON => pg_json (TEXT)
@@ -53,8 +30,9 @@ inline error_code parse_text_json(std::span<const unsigned char> from, T& to)
     error_code ec{};
 
     auto val = boost::json::parse(json_text, ec);
+
     if (!ec)
-        to = T(std::move(val));
+        to.swap(val);
     return ec;
 }
 

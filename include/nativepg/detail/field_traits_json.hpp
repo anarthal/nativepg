@@ -15,62 +15,45 @@ namespace nativepg::detail {
 template <class T>
 struct field_is_compatible;
 
-// JSON
+// JSON & JSONB
 template <>
-struct field_is_compatible<types::pg_json>
+struct field_is_compatible<boost::json::value>
 {
     static inline boost::system::error_code call(const protocol::field_description& desc)
     {
-        return desc.type_oid == 114 ? boost::system::error_code() : client_errc::incompatible_field_type;
+        return (desc.type_oid == 114 || desc.type_oid == 3802) ? boost::system::error_code() : client_errc::incompatible_field_type;
     }
 };
 
-// JSONB
-template <>
-struct field_is_compatible<types::pg_jsonb>
-{
-    static inline boost::system::error_code call(const protocol::field_description& desc)
-    {
-        return desc.type_oid == 3802 ? boost::system::error_code() : client_errc::incompatible_field_type;
-    }
-};
 
 template <class T>
 struct field_parse;
 
-// JSON — fully defined inline, no .cpp needed
+// JSON => boost::json::value
 template <>
-struct field_parse<types::pg_json>
+struct field_parse<boost::json::value>
 {
     static inline boost::system::error_code call(
         field_view from,
         const protocol::field_description& desc,
-        types::pg_json& to
+        boost::json::value& to
     )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
-        return desc.fmt_code == protocol::format_code::text
-            ? types::parse_text_json(from.data(), to)
-            : types::parse_binary_json(from.data(), to);
-    }
-};
 
-// JSONB —
-template <>
-struct field_parse<types::pg_jsonb>
-{
-    static inline boost::system::error_code call(
-        field_view from,
-        const protocol::field_description& desc,
-        types::pg_jsonb& to
-    )
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        return desc.fmt_code == protocol::format_code::text
-            ? types::parse_text_jsonb(from.data(), to)
-            : types::parse_binary_jsonb(from.data(), to);
+        if (desc.type_oid == 3802 /*jsonb*/)
+        {
+            return desc.fmt_code == protocol::format_code::text
+                ? types::parse_text_jsonb(from.data(), to)
+                : types::parse_binary_jsonb(from.data(), to);
+        }
+        else
+        {
+            return desc.fmt_code == protocol::format_code::text
+                ? types::parse_text_json(from.data(), to)
+                : types::parse_binary_json(from.data(), to);
+        }
     }
 };
 

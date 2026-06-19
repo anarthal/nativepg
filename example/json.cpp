@@ -35,13 +35,13 @@ using namespace nativepg;
 
 struct json_row
 {
-    types::pg_json j;
+    boost::json::value j;
 };
 BOOST_DESCRIBE_STRUCT(json_row, (), (j))
 
 struct jsonb_row
 {
-    types::pg_jsonb jb;
+    boost::json::value jb;
 };
 BOOST_DESCRIBE_STRUCT(jsonb_row, (), (jb))
 
@@ -70,7 +70,7 @@ static asio::awaitable<void> json_text_example(connection& conn)
     if (err.extended_error::code != boost::system::errc::success)
         std::cerr << "JSON TEXT operation results in Error: " << err.code.what() << ": " << err.diag.message() << " (in " << duration << ")" << std::endl;
     else
-        std::cout << "JSON TEXT select result: " << boost::json::serialize(select_vec[0].j.get()) << " (in " << duration << ")" << std::endl;
+        std::cout << "JSON TEXT select result: " << select_vec[0].j << " (in " << duration << ")" << std::endl;
 }
 
 // JSON to types::pg_json (BINARY)
@@ -98,7 +98,7 @@ static asio::awaitable<void> json_binary_example(connection& conn)
     if (err.extended_error::code != boost::system::errc::success)
         std::cerr << "JSON BINARY Error: " << err.code.what() << ": " << err.diag.message() << " (in " << duration << ")" << std::endl;
     else
-        std::cout << "JSON BINARY select result: " << boost::json::serialize(select_vec[0].j.get()) << " (in " << duration << ")" << std::endl;
+        std::cout << "JSON BINARY select result: " << boost::json::serialize(select_vec[0].j) << " (in " << duration << ")" << std::endl;
 }
 
 
@@ -126,7 +126,7 @@ static asio::awaitable<void> jsonb_text_example(connection& conn)
     if (err.extended_error::code != boost::system::errc::success)
         std::cerr << "JSONB TEXT operation results in Error: " << err.code.what() << ": " << err.diag.message() << " (in " << duration << ")" << std::endl;
     else
-        std::cout << "JSONB TEXT select result: " << boost::json::serialize(select_vec[0].jb.get()) << " (in " << duration << ")" << std::endl;
+        std::cout << "JSONB TEXT select result: " << boost::json::serialize(select_vec[0].jb) << " (in " << duration << ")" << std::endl;
 }
 
 // JSONB to types::pg_jsonb (BINARY)
@@ -154,7 +154,7 @@ static asio::awaitable<void> jsonb_binary_example(connection& conn)
     if (err.extended_error::code != boost::system::errc::success)
         std::cerr << "JSONB BINARY Error: " << err.code.what() << ": " << err.diag.message() << " (in " << duration << ")" << std::endl;
     else
-        std::cout << "JSONB BINARY select result: " << boost::json::serialize(select_vec[0].jb.get()) << " (in " << duration << ")" << std::endl;
+        std::cout << "JSONB BINARY select result: " << boost::json::serialize(select_vec[0].jb) << " (in " << duration << ")" << std::endl;
 }
 
 static asio::awaitable<void> co_main()

@@ -123,4 +123,8 @@ struct field_parse<T>
 
 #include "field_traits_datetime.hpp"
 
+#ifdef NATIVEPG_JSON
+#include "field_traits_json.hpp"
+#endif
+
 #endif

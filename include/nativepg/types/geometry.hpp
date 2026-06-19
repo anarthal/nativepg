@@ -41,6 +41,8 @@ public:
 
     void set(geometry_t g) { _storage = std::move(g); }
 
+    const geometry_t& get() const noexcept { return _storage; }
+
     //operator geometry_t&() { return _storage; }
 
 private:

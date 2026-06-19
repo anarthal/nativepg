@@ -104,6 +104,8 @@ target_link_libraries(nativepg_datetime_example PRIVATE nativepg)
 
 add_executable(nativepg_geometry_example example/geometry.cpp)
 target_link_libraries(nativepg_geometry_example PRIVATE nativepg)
+add_executable(nativepg_geometry_hotspots_example example/geometry_hotspots.cpp)
+target_link_libraries(nativepg_geometry_hotspots_example PRIVATE nativepg)
 
 if (NATIVEPG_COROSIO_API)
     add_executable(nativepg_co_connection example/co_connection.cpp)

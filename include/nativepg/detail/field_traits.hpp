@@ -128,6 +128,8 @@ struct field_parse<T>
 
 #include "field_traits_datetime.hpp"
 
+#ifdef NATIVEPG_GEOMETRY
 #include "field_traits_geometry.hpp"
+#endif
 
 #endif

@@ -5,6 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#define NATIVEPG_GEOMETRY
+
 #include <boost/asio/as_tuple.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
@@ -24,6 +26,7 @@
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
+#include "nativepg/types/geometry.hpp"
 
 namespace asio = boost::asio;
 using namespace nativepg;

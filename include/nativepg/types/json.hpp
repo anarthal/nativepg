@@ -56,7 +56,7 @@ inline error_code parse_text_jsonb(std::span<const unsigned char> from, T& to)
 
     auto val = boost::json::parse(json_text, ec);
     if (!ec)
-        to = T(std::move(val));
+        to.swap(val);
     return ec;
 }
 

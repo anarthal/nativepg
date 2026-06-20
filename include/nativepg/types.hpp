@@ -5,6 +5,7 @@
 #ifndef NATIVEPG_TYPES_HPP
 #define NATIVEPG_TYPES_HPP
 
+#include "types/base.hpp"
 #include "types/datetime.hpp"
 
 #endif  // NATIVEPG_TYPES_HPP

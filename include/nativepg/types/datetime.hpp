@@ -8,7 +8,6 @@
 #include <charconv>
 #include <chrono>
 #include <cctype>
-#include <cstring>
 #include <span>
 #include <string_view>
 #include <system_error>
@@ -351,7 +350,7 @@ constexpr error_code parse_text_time(std::span<const unsigned char> from, T& to)
     std::string_view sv{reinterpret_cast<const char*>(from.data()), from.size()};
     sv = detail::trim(sv);
     std::size_t pos = 0;
-    std::chrono::microseconds out;
+    std::chrono::microseconds out{};
     auto ec = detail::parse_time_prefix(sv, pos, out);
     if (ec)
         return ec;

@@ -348,3 +348,61 @@ handler_setup_result check_close::setup(const request& req, std::size_t offset)
     err_ = {};
     return check_setup_impl(req, offset, request_message_type::close);
 }
+
+void dynamic_resultset_response::on_message(const any_request_message& msg, std::size_t)
+{
+    struct visitor
+    {
+        dynamic_resultset_response& self;
+
+        // Ignore messages that might or might not appear in exec
+        void operator()(protocol::bind_complete) const {}
+        void operator()(protocol::parse_complete) const {}
+
+        // Metadata
+        void operator()(const protocol::row_description& msg) const
+        {
+            BOOST_ASSERT(self.state_ == state_t::parsing_meta);
+            self.obj_->set_row_description(msg);
+            self.state_ = state_t::parsing_data;
+        }
+
+        // Data
+        void operator()(const protocol::data_row& msg) const
+        {
+            BOOST_ASSERT(self.state_ == state_t::parsing_data);
+            self.obj_->add_row(msg);
+        }
+
+        // EOF
+        void operator()(protocol::command_complete msg) const
+        {
+            BOOST_ASSERT(self.state_ == state_t::parsing_data);
+            self.obj_->set_command_complete_tag(msg.tag);
+            self.state_ = state_t::done;
+        }
+
+        void operator()(protocol::portal_suspended) const
+        {
+            BOOST_ASSERT(self.state_ == state_t::parsing_data);
+            self.obj_->set_portal_suspended(true);
+            self.state_ = state_t::done;
+        }
+
+        // Errors
+        void operator()(const protocol::error_response& msg) const
+        {
+            detail::maybe_store_error(msg, self.err_);
+            self.state_ = state_t::done;
+        }
+
+        // The rest of the messages shouldn't arrive
+        // TODO: manage multi-queries, empty queries, skipped messages
+        void operator()(const protocol::close_complete&) const { BOOST_ASSERT(false); }
+        void operator()(const protocol::parameter_description&) const { BOOST_ASSERT(false); }
+        void operator()(const protocol::empty_query_response&) const { BOOST_ASSERT(false); }
+        void operator()(message_skipped) const { BOOST_ASSERT(false); }
+    };
+
+    boost::variant2::visit(visitor{*this}, msg);
+}

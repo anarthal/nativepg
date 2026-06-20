@@ -6,7 +6,7 @@
 
 #include <boost/system/error_code.hpp>
 
-#include "nativepg/types/datetime.hpp"
+#include "nativepg/types.hpp"
 
 namespace nativepg::detail {
 
@@ -92,7 +92,7 @@ template <>
 struct field_parse<std::chrono::sys_days>
 {
     static boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+        field_view from,
         const protocol::field_description& desc,
         std::chrono::sys_days& to
     );
@@ -103,7 +103,7 @@ template <>
 struct field_parse<std::chrono::microseconds>
 {
     static boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+        field_view from,
         const protocol::field_description& desc,
         std::chrono::microseconds& to
     );
@@ -114,7 +114,7 @@ template <>
 struct field_parse<types::pg_timetz>
 {
     static boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+        field_view from,
         const protocol::field_description& desc,
         types::pg_timetz& to
     );
@@ -125,7 +125,7 @@ template <>
 struct field_parse<types::pg_timestamp>
 {
     static boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+        field_view from,
         const protocol::field_description& desc,
         types::pg_timestamp& to
     );
@@ -136,7 +136,7 @@ template <>
 struct field_parse<types::pg_timestamptz>
 {
     static boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+        field_view from,
         const protocol::field_description& desc,
         types::pg_timestamptz& to
     );
@@ -147,7 +147,7 @@ template <>
 struct field_parse<types::pg_interval>
 {
     static boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+        field_view from,
         const protocol::field_description& desc,
         types::pg_interval& to
     );
@@ -156,7 +156,7 @@ struct field_parse<types::pg_interval>
 
 
 // DATE => std::chrono::sys_days
-inline boost::system::error_code nativepg::detail::field_parse<std::chrono::sys_days>::call(
+static inline boost::system::error_code nativepg::detail::field_parse<std::chrono::sys_days>::call(
     std::optional<std::span<const unsigned char>> from,
     const protocol::field_description& desc,
     std::chrono::sys_days& to
@@ -227,7 +227,7 @@ inline boost::system::error_code nativepg::detail::field_parse<types::pg_timesta
 
 // INTERVAL => pg_interval
 inline boost::system::error_code nativepg::detail::field_parse<types::pg_interval>::call(
-    std::optional<std::span<const unsigned char>> from,
+    field_view from,
     const protocol::field_description& desc,
     types::pg_interval& to
 )

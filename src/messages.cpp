@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
+#include "nativepg/field_view.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/bind.hpp"
@@ -433,17 +434,19 @@ boost::system::error_code nativepg::protocol::parse(
 }
 
 // Each field is: Int32 size + Byte<n>
-std::optional<boost::span<const unsigned char>> nativepg::protocol::detail::forward_traits<
-    std::optional<boost::span<const unsigned char>>>::dereference(const unsigned char* data)
+nativepg::field_view nativepg::protocol::detail::forward_traits<nativepg::field_view>::dereference(
+    const unsigned char* data
+)
 {
     auto size = boost::endian::load_big_s32(data);
     if (size == -1)
-        return std::nullopt;
-    return boost::span<const unsigned char>(data + 4u, static_cast<std::size_t>(size));
+        return {};
+    return std::span<const unsigned char>(data + 4u, static_cast<std::size_t>(size));
 }
 
-const unsigned char* nativepg::protocol::detail::forward_traits<
-    std::optional<boost::span<const unsigned char>>>::advance(const unsigned char* data)
+const unsigned char* nativepg::protocol::detail::forward_traits<nativepg::field_view>::advance(
+    const unsigned char* data
+)
 {
     auto size = boost::endian::load_big_s32(data);
     return data + 4u + (size > 0 ? size : 0);
@@ -480,10 +483,7 @@ boost::system::error_code nativepg::protocol::parse(boost::span<const unsigned c
     const auto* values_end = ctx.first();
 
     // Set the output value
-    to.columns = forward_parsing_view<std::optional<boost::span<const unsigned char>>>(
-        num_columns,
-        {values_begin, values_end}
-    );
+    to.columns = forward_parsing_view<nativepg::field_view>(num_columns, {values_begin, values_end});
 
     // Done
     return ctx.check();

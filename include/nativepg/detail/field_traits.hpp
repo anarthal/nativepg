@@ -12,10 +12,11 @@
 #include <boost/system/error_code.hpp>
 
 #include <concepts>
-#include <optional>
+#include <span>
 #include <string_view>
 
 #include "nativepg/client_errc.hpp"
+#include "nativepg/field_view.hpp"
 #include "nativepg/protocol/describe.hpp"
 
 // TODO: at some point we will need to expose some customization
@@ -45,15 +46,11 @@ template <class T>
     requires std::assignable_from<T&, std::string_view>
 struct field_parse<T>
 {
-    static inline boost::system::error_code call(
-        std::optional<boost::span<const unsigned char>> from,
-        const protocol::field_description&,
-        T& to
-    )
+    static inline boost::system::error_code call(field_view from, const protocol::field_description&, T& to)
     {
-        if (!from.has_value())
+        if (from.is_null())
             return client_errc::unexpected_null;
-        auto data = *from;
+        auto data = from.data();
         to = std::string_view(reinterpret_cast<const char*>(data.data()), data.size());
         return {};
     }

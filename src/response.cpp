@@ -6,9 +6,14 @@
 //
 
 #include <boost/assert.hpp>
+#include <boost/endian/conversion.hpp>
+#include <boost/system/error_code.hpp>
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
+#include <cstdint>
+#include <cstring>
 #include <span>
 
 #include "nativepg/client_errc.hpp"

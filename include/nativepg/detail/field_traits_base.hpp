@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_DETAIL_FIELD_BASE_HPP
-#define NATIVEPG_DETAIL_FIELD_BASE_HPP
+#ifndef NATIVEPG_DETAIL_FIELD_TRAITS_BASE_HPP
+#define NATIVEPG_DETAIL_FIELD_TRAITS_BASE_HPP
 
 #include <boost/multiprecision/cpp_dec_float.hpp>
 #include <boost/system/error_code.hpp>
@@ -337,7 +337,5 @@ struct field_parse<types::pg_numeric>
 
 
 }// namespace nativepg::detail
-
-#include "field_traits_datetime.hpp"
 
 #endif

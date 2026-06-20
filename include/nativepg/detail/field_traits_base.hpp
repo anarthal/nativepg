@@ -11,7 +11,6 @@
 #include <boost/multiprecision/cpp_dec_float.hpp>
 #include <boost/system/error_code.hpp>
 
-#include <optional>
 #include <span>
 #include <string_view>
 
@@ -44,7 +43,7 @@ template <class T>
 struct field_is_compatible;
 
 template <>
-struct field_is_compatible<types::pg_bool>
+struct field_is_compatible<bool>
 {
     static inline boost::system::error_code call(
         const protocol::field_description& desc
@@ -52,19 +51,12 @@ struct field_is_compatible<types::pg_bool>
     {
         if (desc.type_oid == bool_oid)
             return boost::system::error_code{};
-        /*
-        diag = diagnostics{
-            "Expected PostgreSQL bool (OID 16) but got OID " +
-            std::to_string(desc.type_oid) +
-            " for field '" + std::string(desc.name) + "'"
-        };
-        */
         return client_errc::incompatible_field_type;
     }
 };
 
 template <>
-struct field_is_compatible<types::pg_bytea>
+struct field_is_compatible<std::vector<std::byte>>
 {
     static inline boost::system::error_code call(const protocol::field_description& desc)
     {
@@ -92,7 +84,7 @@ struct field_is_compatible<std::int32_t>
 {
     static inline boost::system::error_code call(const protocol::field_description& desc)
     {
-        if (desc.type_oid == int4_oid)
+        if (desc.type_oid == int4_oid || desc.type_oid == int2_oid)
             return  boost::system::error_code{};
 
         return client_errc::incompatible_field_type;
@@ -104,7 +96,7 @@ struct field_is_compatible<std::int64_t>
 {
     static inline boost::system::error_code call(const protocol::field_description& desc)
     {
-        if (desc.type_oid == int8_oid)
+        if (desc.type_oid == int8_oid || desc.type_oid == int4_oid || desc.type_oid == int2_oid)
             return  boost::system::error_code{};
 
         return client_errc::incompatible_field_type;
@@ -112,7 +104,7 @@ struct field_is_compatible<std::int64_t>
 };
 
 template <>
-struct field_is_compatible<types::pg_float4>
+struct field_is_compatible<float>
 {
     static inline boost::system::error_code call(const protocol::field_description& desc)
     {
@@ -124,7 +116,7 @@ struct field_is_compatible<types::pg_float4>
 };
 
 template <>
-struct field_is_compatible<types::pg_float8>
+struct field_is_compatible<double>
 {
     static inline boost::system::error_code call(const protocol::field_description& desc)
     {
@@ -136,7 +128,7 @@ struct field_is_compatible<types::pg_float8>
 };
 
 template <>
-struct field_is_compatible<types::pg_numeric>
+struct field_is_compatible<boost::multiprecision::cpp_dec_float_50>
 {
     static inline boost::system::error_code call(const protocol::field_description& desc)
     {
@@ -148,7 +140,7 @@ struct field_is_compatible<types::pg_numeric>
 };
 
 template <>
-struct field_is_compatible<types::pg_text>
+struct field_is_compatible<std::string_view>
 {
     static inline boost::system::error_code call(const protocol::field_description& desc)
     {
@@ -159,41 +151,42 @@ struct field_is_compatible<types::pg_text>
     }
 };
 
+
 // --- Parse
 template <class T>
 struct field_parse;
 
 template <>
-struct field_parse<types::pg_bool>
+struct field_parse<bool>
 {
     static inline boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+        const field_view& from,
         const protocol::field_description& desc,
         bool& to
     )
     {
-        if (!from.has_value())
+        if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == bool_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_bool(*from, to)
-                                                        : types::parse_binary_bool(*from, to);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_bool(from.data(), to)
+                                                        : types::parse_binary_bool(from.data(), to);
     }
 };
 
 template <>
-struct field_parse<types::pg_bytea>
+struct field_parse<std::vector<std::byte>>
 {
     static inline boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+        const field_view& from,
         const protocol::field_description& desc,
-        types::pg_bytea& to
+        std::vector<std::byte>& to
     )
     {
-        if (!from.has_value())
+        if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == bytea_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_bytea(*from, to)
-                                                        : types::parse_binary_bytea(*from, to);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_bytea(from.data(), to)
+                                                        : types::parse_binary_bytea(from.data(), to);
     }
 };
 
@@ -201,16 +194,16 @@ template <>
 struct field_parse<std::int16_t>
 {
     static inline boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+        const field_view& from,
         const protocol::field_description& desc,
         std::int16_t& to
     )
     {
-        if (!from.has_value())
+        if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == int2_oid || desc.type_oid == int4_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_int(*from, to)
-                                                            : types::parse_binary_int(*from, to);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_int(from.data(), to)
+                                                            : types::parse_binary_int(from.data(), to);
     }
 };
 
@@ -218,14 +211,14 @@ template <>
 struct field_parse<std::int32_t>
 {
     static inline boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+        const field_view& from,
         const protocol::field_description& desc,
         std::int32_t& to
     )
     {
-        if (!from.has_value())
+        if (from.is_null())
             return client_errc::unexpected_null;
-        auto data = *from;
+        auto data = from.data();
         switch (desc.type_oid)
         {
             case int2_oid:
@@ -248,14 +241,14 @@ template <>
 struct field_parse<std::int64_t>
 {
     static inline boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+        const field_view& from,
         const protocol::field_description& desc,
         std::int64_t& to
     )
     {
-        if (!from.has_value())
+        if (from.is_null())
             return client_errc::unexpected_null;
-        auto data = *from;
+        auto data = from.data();
         switch (desc.type_oid)
         {
             case int2_oid:
@@ -283,53 +276,53 @@ struct field_parse<std::int64_t>
 };
 
 template <>
-struct field_parse<types::pg_float4>
+struct field_parse<float>
 {
     static inline boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+        const field_view& from,
         const protocol::field_description& desc,
         float& to
     )
     {
-        if (!from.has_value())
+        if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == float4_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_float4(*from, to)
-                                                        : types::parse_binary_float4(*from, to);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_float4(from.data(), to)
+                                                        : types::parse_binary_float4(from.data(), to);
     }
 };
 
 template <>
-struct field_parse<types::pg_float8>
+struct field_parse<double>
 {
     static inline boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+        const field_view& from,
         const protocol::field_description& desc,
         double& to
     )
     {
-        if (!from.has_value())
+        if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == float8_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_float8(*from, to)
-                                                        : types::parse_binary_float8(*from, to);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_float8(from.data(), to)
+                                                        : types::parse_binary_float8(from.data(), to);
     }
 };
 
 template <>
-struct field_parse<types::pg_numeric>
+struct field_parse<boost::multiprecision::cpp_dec_float_50>
 {
     static inline boost::system::error_code call(
-        std::optional<std::span<const unsigned char>> from,
+        const field_view& from,
         const protocol::field_description& desc,
-        types::pg_numeric& to
+        boost::multiprecision::cpp_dec_float_50& to
     )
     {
-        if (!from.has_value())
+        if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == numeric_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_numeric(*from, to)
-                                                        : types::parse_binary_numeric(*from, to);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_numeric(from.data(), to)
+                                                        : types::parse_binary_numeric(from.data(), to);
     }
 };
 

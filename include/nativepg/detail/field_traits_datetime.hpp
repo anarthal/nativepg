@@ -91,153 +91,109 @@ struct field_parse;
 template <>
 struct field_parse<std::chrono::sys_days>
 {
-    static boost::system::error_code call(
-        field_view from,
+    static inline boost::system::error_code call(
+        const field_view& from,
         const protocol::field_description& desc,
         std::chrono::sys_days& to
-    );
+    )
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(desc.type_oid == date_oid);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_date(from.data(), to)
+                                                            : types::parse_binary_date(from.data(), to);
+    }
 };
 
 // TIME
 template <>
 struct field_parse<std::chrono::microseconds>
 {
-    static boost::system::error_code call(
-        field_view from,
+    static inline boost::system::error_code call(
+        const field_view& from,
         const protocol::field_description& desc,
         std::chrono::microseconds& to
-    );
+    )
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(desc.type_oid == time_oid);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_time(from.data(), to)
+                                                            : types::parse_binary_time(from.data(), to);
+    }
 };
 
 // TIMETZ
 template <>
 struct field_parse<types::pg_timetz>
 {
-    static boost::system::error_code call(
-        field_view from,
+    static inline boost::system::error_code call(
+        const field_view& from,
         const protocol::field_description& desc,
         types::pg_timetz& to
-    );
+    )
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(desc.type_oid == timetz_oid);
+        return desc.fmt_code == protocol::format_code::text ? parse_text_timetz(from.data(), to)
+                                                            : parse_binary_timetz(from.data(), to);
+    }
 };
 
 // TIMESTAMP
 template <>
 struct field_parse<types::pg_timestamp>
 {
-    static boost::system::error_code call(
-        field_view from,
+    static inline boost::system::error_code call(
+        const field_view& from,
         const protocol::field_description& desc,
         types::pg_timestamp& to
-    );
+    )
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(desc.type_oid == timestamp_oid);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_timestamp(from.data(), to)
+                                                            : types::parse_binary_timestamp(from.data(), to);
+    }
 };
 
 // TIMESTAMPTZ
 template <>
 struct field_parse<types::pg_timestamptz>
 {
-    static boost::system::error_code call(
-        field_view from,
+    static inline boost::system::error_code call(
+        const field_view& from,
         const protocol::field_description& desc,
         types::pg_timestamptz& to
-    );
+    )
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(desc.type_oid == timestamptz_oid);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_timestamptz(from.data(), to)
+                                                            : types::parse_binary_timestamptz(from.data(), to);
+    }
 };
 
 // INTERVAL
 template <>
 struct field_parse<types::pg_interval>
 {
-    static boost::system::error_code call(
-        field_view from,
+    static inline boost::system::error_code call(
+        const field_view& from,
         const protocol::field_description& desc,
         types::pg_interval& to
-    );
+    )
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(desc.type_oid == interval_oid);
+        return desc.fmt_code == protocol::format_code::text ? parse_text_interval(from.data(), to)
+                                                            : parse_binary_interval(from.data(), to);
+    }
 };
-
-
-
-// DATE => std::chrono::sys_days
-static inline boost::system::error_code nativepg::detail::field_parse<std::chrono::sys_days>::call(
-    std::optional<std::span<const unsigned char>> from,
-    const protocol::field_description& desc,
-    std::chrono::sys_days& to
-)
-{
-    if (!from.has_value())
-        return client_errc::unexpected_null;
-    BOOST_ASSERT(desc.type_oid == date_oid);
-    return desc.fmt_code == protocol::format_code::text ? types::parse_text_date(*from, to)
-                                                        : types::parse_binary_date(*from, to);
-}
-
-// TIME => std::chrono::microseconds
-inline boost::system::error_code nativepg::detail::field_parse<std::chrono::microseconds>::call(
-    std::optional<std::span<const unsigned char>> from,
-    const protocol::field_description& desc,
-    std::chrono::microseconds& to
-)
-{
-    if (!from.has_value())
-        return client_errc::unexpected_null;
-    BOOST_ASSERT(desc.type_oid == time_oid);
-    return desc.fmt_code == protocol::format_code::text ? types::parse_text_time(*from, to)
-                                                        : types::parse_binary_time(*from, to);
-}
-
-// TIMETZ => pg_timetz
-inline boost::system::error_code nativepg::detail::field_parse<types::pg_timetz>::call(
-    std::optional<std::span<const unsigned char>> from,
-    const protocol::field_description& desc,
-    types::pg_timetz& to
-)
-{
-    if (!from.has_value())
-        return client_errc::unexpected_null;
-    BOOST_ASSERT(desc.type_oid == timetz_oid);
-    return desc.fmt_code == protocol::format_code::text ? parse_text_timetz(*from, to)
-                                                        : parse_binary_timetz(*from, to);
-}
-
-// TIMESTAMP => pg_timestamp
-inline boost::system::error_code nativepg::detail::field_parse<types::pg_timestamp>::call(
-    std::optional<std::span<const unsigned char>> from,
-    const protocol::field_description& desc,
-    types::pg_timestamp& to
-)
-{
-    if (!from.has_value())
-        return client_errc::unexpected_null;
-    BOOST_ASSERT(desc.type_oid == timestamp_oid);
-    return desc.fmt_code == protocol::format_code::text ? types::parse_text_timestamp(*from, to)
-                                                        : types::parse_binary_timestamp(*from, to);
-}
-
-// TIMESTAMPTZ => pg_timestamptz
-inline boost::system::error_code nativepg::detail::field_parse<types::pg_timestamptz>::call(
-    std::optional<std::span<const unsigned char>> from,
-    const protocol::field_description& desc,
-    types::pg_timestamptz& to
-)
-{
-    if (!from.has_value())
-        return client_errc::unexpected_null;
-    BOOST_ASSERT(desc.type_oid == timestamptz_oid);
-    return desc.fmt_code == protocol::format_code::text ? types::parse_text_timestamptz(*from, to)
-                                                        : types::parse_binary_timestamptz(*from, to);
-}
-
-// INTERVAL => pg_interval
-inline boost::system::error_code nativepg::detail::field_parse<types::pg_interval>::call(
-    field_view from,
-    const protocol::field_description& desc,
-    types::pg_interval& to
-)
-{
-    if (!from.has_value())
-        return client_errc::unexpected_null;
-    BOOST_ASSERT(desc.type_oid == interval_oid);
-    return desc.fmt_code == protocol::format_code::text ? parse_text_interval(*from, to)
-                                                        : parse_binary_interval(*from, to);
-}
 
 }
 #endif  // NATIVEPG_FIELD_TRAITS_DATETIME_HPP

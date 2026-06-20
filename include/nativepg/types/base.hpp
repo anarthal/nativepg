@@ -19,31 +19,20 @@ using boost::system::error_code;
 
 
 /*
-| Type      | Category | OID  | Storage size                                                                |
-|-----------|----------|------|-----------------------------------------------------------------------------|
-| bool      | base     | 16   | 1 byte                                                                      |
-| bytea     | base     | 17   | variable (1 or 4 bytes header + actual binary data)                         |
-| int2      | base     | 21   | 2 bytes                                                                     |
-| int4      | base     | 23   | 4 bytes                                                                     |
-| int8      | base     | 20   | 8 bytes                                                                     |
-| float4    | base     | 700  | 4 bytes                                                                     |
-| float8    | base     | 701  | 8 bytes                                                                     |
-| numeric   | base     | 1700 | variable (numeric header + actual digits packed into 2-byte components)     |
-| text      | base     | 25   | variable (1 or 4 bytes header + actual string data)                         |
-| varchar   | base     | 1043 | variable (1 or 4 bytes header + actual string data)                         |
+ Type mapping
+| Type      | Category | OID  | C++ type                                | Storage size                                                                |
+|-----------|----------|------|-----------------------------------------|-----------------------------------------------------------------------------|
+| bool      | base     | 16   | bool                                    | 1 byte                                                                      |
+| bytea     | base     | 17   | std::vector<std::byte>>                 | variable (1 or 4 bytes header + actual binary data)                         |
+| int2      | base     | 21   | std::int16_t                            | 2 bytes                                                                     |
+| int4      | base     | 23   | std::int32_t                            | 4 bytes                                                                     |
+| int8      | base     | 20   | std::int64_t                            | 8 bytes                                                                     |
+| float4    | base     | 700  | float                                   | 4 bytes                                                                     |
+| float8    | base     | 701  | double                                  | 8 bytes                                                                     |
+| numeric   | base     | 1700 | boost::multiprecision::cpp_dec_float_50 | variable (numeric header + actual digits packed into 2-byte components)     |
+| text      | base     | 25   | std::string_view                        | variable (1 or 4 bytes header + actual string data)                         |
+| varchar   | base     | 1043 | std::string_view                        | variable (1 or 4 bytes header + actual string data)                         |
 */
-
-// Type mapping
-using pg_bool = bool;
-using pg_bytea = std::vector<std::byte>;
-using pg_int2 = std::int16_t;
-using pg_int4 = std::int32_t;
-using pg_int8 = std::int64_t;
-using pg_float4 = float;
-using pg_float8 = double;
-using pg_numeric = boost::multiprecision::cpp_dec_float_50;
-using pg_text = std::string_view;
-using pg_varchar = std::string_view;
 
 
 namespace detail {
@@ -86,7 +75,7 @@ T parse_floating_point(std::string_view sv) {
 
 }
 
-//BOOL => pg_bool;
+//BOOL => bool;
 template <class T = bool>
 constexpr  error_code parse_text_bool(std::span<const unsigned char> from, T& to)
 {
@@ -100,7 +89,7 @@ constexpr  error_code parse_text_bool(std::span<const unsigned char> from, T& to
     return error_code{};
 }
 
-template <class T = pg_bool>
+template <class T = bool>
 constexpr error_code parse_binary_bool(std::span<const unsigned char> from, T& to)
 {
     if (from.size() != 1)
@@ -109,8 +98,8 @@ constexpr error_code parse_binary_bool(std::span<const unsigned char> from, T& t
     return error_code{};
 }
 
-//BYTEA => pg_bytea;
-template <class T = pg_bytea>
+//BYTEA => std::vector<std::byte>>;
+template <class T = std::vector<std::byte>>
 constexpr error_code parse_text_bytea(std::span<const unsigned char> from, T& to)
 {
     // PostgreSQL text format for bytea is \x followed by hex pairs
@@ -133,7 +122,7 @@ constexpr error_code parse_text_bytea(std::span<const unsigned char> from, T& to
     return error_code{};
 }
 
-template <class T = pg_bytea>
+template <class T = std::vector<std::byte>>
 constexpr error_code parse_binary_bytea(std::span<const unsigned char> from, T& to)
 {
     // Binary format is raw bytes — copy directly
@@ -144,7 +133,7 @@ constexpr error_code parse_binary_bytea(std::span<const unsigned char> from, T& 
     return error_code{};
 }
 
-// INT => pg_int
+// INT => std::int_t
 template <class T>
 constexpr error_code parse_text_int(std::span<const unsigned char> from, T& to)
 {
@@ -166,8 +155,8 @@ constexpr error_code parse_binary_int(std::span<const unsigned char> from, T& to
 }
 
 
-// FLOAT4 => pg_float4
-template <class T = pg_float4>
+// FLOAT4 => float
+template <class T = float>
 constexpr error_code parse_text_float4(std::span<const unsigned char> from, T& to)
 {
     if (from.size() > sizeof(T))
@@ -178,7 +167,7 @@ constexpr error_code parse_text_float4(std::span<const unsigned char> from, T& t
     return {};
 }
 
-template <class T = pg_float4>
+template <class T = double>
 constexpr error_code parse_binary_float4(std::span<const unsigned char> from, T& to)
 {
     if (from.size() != sizeof(T))
@@ -188,8 +177,8 @@ constexpr error_code parse_binary_float4(std::span<const unsigned char> from, T&
     return {};
 }
 
-// FLOAT8 => pg_float8
-template <class T = pg_float8>
+// FLOAT8 => double
+template <class T = double>
 constexpr error_code parse_text_float8(std::span<const unsigned char> from, T& to)
 {
     if (from.size() > sizeof(T))
@@ -201,7 +190,7 @@ constexpr error_code parse_text_float8(std::span<const unsigned char> from, T& t
     return {};
 }
 
-template <class T = pg_float8>
+template <class T = double>
 constexpr error_code parse_binary_float8(std::span<const unsigned char> from, T& to)
 {
     if (from.size() != sizeof(T))
@@ -212,7 +201,7 @@ constexpr error_code parse_binary_float8(std::span<const unsigned char> from, T&
 }
 
 // NUMERIC => pg_numeric
-template <class T = pg_numeric>
+template <class T = boost::multiprecision::cpp_dec_float_50>
 constexpr error_code parse_text_numeric(std::span<const unsigned char> from, T& to)
 {
     std::string_view sv{reinterpret_cast<const char*>(from.data()), from.size()};
@@ -225,7 +214,7 @@ constexpr error_code parse_text_numeric(std::span<const unsigned char> from, T& 
     return {};
 }
 
-template <class T = pg_numeric>
+template <class T = boost::multiprecision::cpp_dec_float_50>
 constexpr error_code parse_binary_numeric(std::span<const unsigned char> from, T& to)
 {
     // PostgreSQL binary numeric wire format:
@@ -334,8 +323,8 @@ constexpr error_code parse_binary_numeric(std::span<const unsigned char> from, T
     return {};
 }
 
-// TEXT => pg_text
-template <class T = pg_text>
+// TEXT => std::string_view
+template <class T = std::string_view>
 constexpr error_code parse_text_text(std::span<const unsigned char> from, T& to)
 {
     if (from.size() != sizeof(T))
@@ -344,7 +333,7 @@ constexpr error_code parse_text_text(std::span<const unsigned char> from, T& to)
     return {};
 }
 
-template <class T = pg_text>
+template <class T = std::string_view>
 constexpr error_code parse_binary_text(std::span<const unsigned char> from, T& to)
 {
     if (from.size() != sizeof(T))
@@ -354,7 +343,7 @@ constexpr error_code parse_binary_text(std::span<const unsigned char> from, T& t
 }
 
 // VARCHAR => pg_varchar
-template <class T = pg_varchar>
+template <class T = std::string_view>
 constexpr error_code parse_text_varchar(std::span<const unsigned char> from, T& to)
 {
     if (from.size() != sizeof(T))
@@ -363,7 +352,7 @@ constexpr error_code parse_text_varchar(std::span<const unsigned char> from, T& 
     return {};
 }
 
-template <class T = pg_varchar>
+template <class T = std::string_view>
 constexpr error_code parse_binary_varchar(std::span<const unsigned char> from, T& to)
 {
     if (from.size() != sizeof(T))
@@ -377,7 +366,7 @@ constexpr error_code parse_binary_varchar(std::span<const unsigned char> from, T
 }
 
 template <class T>
-inline std::basic_ostream<T>& operator<<(std::basic_ostream<T>& os, const nativepg::types::pg_bytea& bytes)
+inline std::basic_ostream<T>& operator<<(std::basic_ostream<T>& os, const std::vector<std::byte>& bytes)
 {
     os << "0x";
     for (auto byte : bytes)

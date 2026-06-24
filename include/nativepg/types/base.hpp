@@ -2,7 +2,7 @@
 #define NATIVEPG_TYPES_BASE_HPP
 
 #include <boost/endian/conversion.hpp>
-#include <boost/multiprecision/fwd.hpp>
+#include <boost/multiprecision/cpp_dec_float.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <charconv>
@@ -10,10 +10,16 @@
 #include <span>
 #include <string_view>
 #include <system_error>
+#include <vector>
+#include <limits>
+#include <cstdint>
+#include <cstddef>
+
 
 #include "nativepg/client_errc.hpp"
 
-namespace nativepg::types {
+namespace nativepg {
+namespace types {
 
 using boost::system::error_code;
 
@@ -29,51 +35,29 @@ using boost::system::error_code;
 | int8      | base     | 20   | std::int64_t                            | 8 bytes                                                                     |
 | float4    | base     | 700  | float                                   | 4 bytes                                                                     |
 | float8    | base     | 701  | double                                  | 8 bytes                                                                     |
-| numeric   | base     | 1700 | boost::multiprecision::cpp_dec_float_50 | variable (numeric header + actual digits packed into 2-byte components)     |
+| numeric   | base     | 1700 | boost::multiprecision::cpp_dec_float_100 | variable (numeric header + actual digits packed into 2-byte components)     |
 | text      | base     | 25   | std::string_view                        | variable (1 or 4 bytes header + actual string data)                         |
 | varchar   | base     | 1043 | std::string_view                        | variable (1 or 4 bytes header + actual string data)                         |
 */
 
+constexpr std::size_t max_digits_text = 25;
 
 namespace detail {
 
 template <typename T>
-T parse_int(std::string_view sv) {
+constexpr error_code parse_text_to_number(std::string_view sv, T& to) {
     T result = 0;
-
-    // std::from_chars expects pointers to the start and end of the characters
     auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), result);
+    if (ec == std::errc{} && ptr == sv.data() + sv.size())
+        to = std::move(result); // Success
+    else
+        return client_errc::protocol_value_error;
 
-    if (ec == std::errc()) {
-        return result; // Success
-    } else if (ec == std::errc::result_out_of_range) {
-        // Handle overflow/underflow for 16-bit boundaries (-32768 to 32767)
-    } else if (ec == std::errc::invalid_argument) {
-        // Handle parsing failures (e.g. text instead of numbers)
-    }
-
-    return 0;
-}
-
-template <typename T>
-T parse_floating_point(std::string_view sv) {
-    T result = 0.0;
-
-    // Optional third argument defaults to std::chars_format::general
-    auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), result);
-
-    if (ec == std::errc()) {
-        return result;
-    } else if (ec == std::errc::result_out_of_range) {
-        //std::cout << "Error: Value overflows double boundaries.\n";
-    } else if (ec == std::errc::invalid_argument) {
-        //std::cout << "Error: Not a valid floating point representation.\n";
-    }
-
-    return 0;
+    return {};
 }
 
 }
+
 
 //BOOL => bool;
 template <class T = bool>
@@ -86,7 +70,7 @@ constexpr  error_code parse_text_bool(std::span<const unsigned char> from, T& to
         to = false;
     else
         return client_errc::protocol_value_error;
-    return error_code{};
+    return {};
 }
 
 template <class T = bool>
@@ -95,7 +79,7 @@ constexpr error_code parse_binary_bool(std::span<const unsigned char> from, T& t
     if (from.size() != 1)
         return client_errc::protocol_value_error;
     to = from[0] != 0;
-    return error_code{};
+    return {};
 }
 
 //BYTEA => std::vector<std::byte>>;
@@ -119,7 +103,7 @@ constexpr error_code parse_text_bytea(std::span<const unsigned char> from, T& to
             return client_errc::protocol_value_error;
         to.push_back(static_cast<std::byte>(byte));
     }
-    return error_code{};
+    return {};
 }
 
 template <class T = std::vector<std::byte>>
@@ -130,19 +114,18 @@ constexpr error_code parse_binary_bytea(std::span<const unsigned char> from, T& 
     to.reserve(from.size());
     for (auto byte : from)
         to.push_back(static_cast<std::byte>(byte));
-    return error_code{};
+    return {};
 }
 
 // INT => std::int_t
 template <class T>
 constexpr error_code parse_text_int(std::span<const unsigned char> from, T& to)
 {
-    if (from.size() > sizeof(T))
+    if (from.size() > max_digits_text)
         return client_errc::protocol_value_error;
 
     std::string_view sv{reinterpret_cast<const char*>(from.data()), from.size()};
-    to = detail::parse_int<T>(sv);
-    return {};
+    return detail::parse_text_to_number<T>(sv, to);
 }
 
 template <class T>
@@ -155,20 +138,19 @@ constexpr error_code parse_binary_int(std::span<const unsigned char> from, T& to
 }
 
 
-// FLOAT4 => float
-template <class T = float>
-constexpr error_code parse_text_float4(std::span<const unsigned char> from, T& to)
+// FLOAT => float
+template <class T>
+constexpr error_code parse_text_float(std::span<const unsigned char> from, T& to)
 {
-    if (from.size() > sizeof(T))
+    if (from.size() > max_digits_text)
         return client_errc::protocol_value_error;
 
     std::string_view sv{reinterpret_cast<const char*>(from.data()), from.size()};
-    to = detail::parse_floating_point<T>(sv);
-    return {};
+    return detail::parse_text_to_number<T>(sv, to);
 }
 
-template <class T = double>
-constexpr error_code parse_binary_float4(std::span<const unsigned char> from, T& to)
+template <class T>
+constexpr error_code parse_binary_float(std::span<const unsigned char> from, T& to)
 {
     if (from.size() != sizeof(T))
         return client_errc::protocol_value_error;
@@ -177,191 +159,110 @@ constexpr error_code parse_binary_float4(std::span<const unsigned char> from, T&
     return {};
 }
 
-// FLOAT8 => double
-template <class T = double>
-constexpr error_code parse_text_float8(std::span<const unsigned char> from, T& to)
-{
-    if (from.size() > sizeof(T))
-        return client_errc::protocol_value_error;
 
-    std::string_view sv{reinterpret_cast<const char*>(from.data()), from.size()};
-
-    to = detail::parse_floating_point<T>(sv);
-    return {};
-}
-
-template <class T = double>
-constexpr error_code parse_binary_float8(std::span<const unsigned char> from, T& to)
-{
-    if (from.size() != sizeof(T))
-        return client_errc::protocol_value_error;
-
-    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data());
-    return {};
-}
-
-// NUMERIC => pg_numeric
-template <class T = boost::multiprecision::cpp_dec_float_50>
-constexpr error_code parse_text_numeric(std::span<const unsigned char> from, T& to)
+// NUMERIC => boost::multiprecision::cpp_dec_float_50 or cpp_dec_float_100
+// NOTE: Both numeric parse methods are inline because Boost.Multiprecision can't work constexpr.
+template <class T>
+inline error_code parse_text_numeric(std::span<const unsigned char> from, T& to)
 {
     std::string_view sv{reinterpret_cast<const char*>(from.data()), from.size()};
     // Boost.Multiprecision accepts decimal strings including "NaN"
     try {
-        to = T{std::string(sv)};
+        to = T(sv);
     } catch (...) {
         return client_errc::protocol_value_error;
     }
     return {};
 }
 
-template <class T = boost::multiprecision::cpp_dec_float_50>
-constexpr error_code parse_binary_numeric(std::span<const unsigned char> from, T& to)
+template <class T>
+inline error_code parse_binary_numeric(std::span<const unsigned char> from, T& to)
 {
-    // PostgreSQL binary numeric wire format:
-    //   int16  ndigits  -- number of base-10000 groups
-    //   int16  weight   -- index of the most-significant group (0 = units group)
-    //   int16  sign     -- 0x0000=positive, 0x4000=negative, 0xC000=NaN
-    //   int16  dscale   -- display scale (ignored here)
-    //   int16  digits[] -- ndigits groups, each 0..9999, big-endian
-
-    constexpr std::size_t header_size = 4 * sizeof(std::int16_t);
-    if (from.size() < header_size)
+    if (from.size() < 8) {
         return client_errc::protocol_value_error;
+    }
 
-    auto load16 = [&](std::size_t offset) -> std::int16_t {
-        return boost::endian::endian_load<std::int16_t, 2, boost::endian::order::big>(from.data() + offset);
-    };
+    // 1. Safely load header fields from Big-Endian network data
+    auto ndigits = boost::endian::endian_load<uint16_t, 2, boost::endian::order::big>(from.data() + 0);
+    auto weight  = boost::endian::endian_load<int16_t,  2, boost::endian::order::big>(from.data() + 2);
+    auto sign    = boost::endian::endian_load<uint16_t, 2, boost::endian::order::big>(from.data() + 4);
+    auto dscale  = boost::endian::endian_load<uint16_t, 2, boost::endian::order::big>(from.data() + 6);
 
-    const std::int16_t ndigits = load16(0);
-    const std::int16_t weight  = load16(2);
-    const std::int16_t sign    = load16(4);
-    // dscale at offset 6 is not needed for value reconstruction
-
-    constexpr std::int16_t sign_positive = 0x0000;
-    constexpr std::int16_t sign_negative = 0x4000;
-    constexpr std::int16_t sign_nan      = static_cast<std::int16_t>(0xC000);
-
-    if (sign == sign_nan)
-    {
-        to = T{"NaN"};
+    // Handle NaN state
+    if (sign == 0xC000) {
+        to = std::numeric_limits<T>::quiet_NaN();
         return {};
     }
-    if (sign != sign_positive && sign != sign_negative)
-        return client_errc::protocol_value_error;
-    if (ndigits < 0)
-        return client_errc::protocol_value_error;
-    if (from.size() < header_size + static_cast<std::size_t>(ndigits) * 2)
-        return client_errc::protocol_value_error;
-
-    // Reconstruct the value as a string to feed into Boost.Multiprecision.
-    // Each base-10000 digit group contributes exactly 4 decimal digits.
-    // weight is the power of 10000 for the first (most significant) group:
-    //   group[0] = value * 10000^weight
-    std::string s;
-    s.reserve(ndigits * 4 + 4);
-
-    if (sign == sign_negative)
-        s += '-';
-
-    for (std::int16_t i = 0; i < ndigits; ++i)
-    {
-        uint16_t group = static_cast<std::uint16_t>(
-            boost::endian::endian_load<std::int16_t, 2, boost::endian::order::big>(
-                from.data() + header_size + i * 2));
-
-        // Determine if this group straddles the decimal point
-        // weight==0 means group[0] is the units (10000^0) group.
-        // The decimal point sits between weight and weight+1 (in group indices).
-        std::int16_t pos = weight - i;  // power-of-10000 for this group
-
-        if (i == 0)
-        {
-            // First group: write without leading zeros
-            s += std::to_string(group);
-        }
-        else
-        {
-            // Subsequent groups: always pad to 4 digits
-            char buf[5];
-            std::snprintf(buf, sizeof(buf), "%04u", static_cast<unsigned>(group));
-            s += buf;
-        }
-
-        // Insert decimal point after the units group (pos==0)
-        if (pos == 0 && i < ndigits - 1)
-            s += '.';
+    // infinity
+    else if (sign == 0xD000) {
+        to = std::numeric_limits<T>::infinity();
+        return {};
+    }
+    // -infinity
+    else if (sign == 0xF000) {
+        to = -std::numeric_limits<T>::infinity();
+        return {};
     }
 
-    // If weight >= ndigits, all groups are above the decimal point —
-    // append trailing zeros to reach the correct magnitude.
-    if (weight >= ndigits)
-    {
-        for (std::int16_t i = ndigits; i <= weight; ++i)
-            s += "0000";
-    }
-
-    // If weight < 0, all groups are fractional — prepend "0.000..." prefix.
-    if (weight < -1)
-    {
-        std::string prefix = "0.";
-        for (std::int16_t i = -1; i > weight; --i)
-            prefix += "0000";
-        s = (sign == sign_negative ? "-" : "") + prefix + s.substr(sign == sign_negative ? 1 : 0);
-    }
-    else if (weight == -1)
-    {
-        // All groups are purely fractional (e.g. 0.xxxx)
-        std::string frac = s.substr(sign == sign_negative ? 1 : 0);
-        s = (sign == sign_negative ? "-0." : "0.") + frac;
-    }
-
-    try {
-        to = T{s};
-    } catch (...) {
+    // Validate expected payload length (8 bytes header + 2 bytes per digit)
+    if (from.size() < 8UL + (ndigits * 2)) {
         return client_errc::protocol_value_error;
     }
+
+    T result = 0;
+    const T base_10k = 10000;
+
+    // 2. Accumulate the Base-10000 digit tokens
+    for (uint16_t i = 0; i < ndigits; ++i) {
+        // Calculate offset for current 16-bit digit chunk
+        std::size_t offset = 8 + (i * 2);
+        auto raw_digit = boost::endian::endian_load<uint16_t, 2, boost::endian::order::big>(from.data() + offset);
+
+        // Calculate the place value exponent: 10000 ^ (weight - i)
+        T place_value = boost::multiprecision::pow(base_10k, weight - i);
+
+        result += T(raw_digit) * place_value;
+    }
+
+    // 3. Enforce the PostgreSQL target display scale (Truncation / Rounding)
+    if (dscale > 0)
+    {
+        T multiplier = boost::multiprecision::pow(T(10), dscale);
+
+        // Round to the target decimal scale matching PostgreSQL engine specs
+        result = boost::multiprecision::round(result * multiplier) / multiplier;
+    }
+    else
+    {
+        // If dscale is 0, it is a strict integer representation
+        result = boost::multiprecision::round(result);
+    }
+
+    // 4. Apply the parsed sign flag
+    if (sign == 0x4000) {
+        result = -result;
+    }
+
+    to = std::move(result);
+
     return {};
 }
 
-// TEXT => std::string_view
-template <class T = std::string_view>
+
+// TEXT | VARCHAR => std::string_view or std::string
+template <class T>
 constexpr error_code parse_text_text(std::span<const unsigned char> from, T& to)
 {
-    if (from.size() != sizeof(T))
-        return client_errc::protocol_value_error;
-    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data());
+    to = T{reinterpret_cast<const char*>(from.data()), from.size()};
     return {};
 }
 
-template <class T = std::string_view>
+template <class T>
 constexpr error_code parse_binary_text(std::span<const unsigned char> from, T& to)
 {
-    if (from.size() != sizeof(T))
-        return client_errc::protocol_value_error;
-    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data());
+    to = T{reinterpret_cast<const char*>(from.data()), from.size()};
     return {};
 }
-
-// VARCHAR => pg_varchar
-template <class T = std::string_view>
-constexpr error_code parse_text_varchar(std::span<const unsigned char> from, T& to)
-{
-    if (from.size() != sizeof(T))
-        return client_errc::protocol_value_error;
-    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data());
-    return {};
-}
-
-template <class T = std::string_view>
-constexpr error_code parse_binary_varchar(std::span<const unsigned char> from, T& to)
-{
-    if (from.size() != sizeof(T))
-        return client_errc::protocol_value_error;
-    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data());
-    return {};
-}
-
-
 
 }
 
@@ -372,6 +273,8 @@ inline std::basic_ostream<T>& operator<<(std::basic_ostream<T>& os, const std::v
     for (auto byte : bytes)
         os << std::format("{:02x}", static_cast<int>(byte));
     return os;
+}
+
 }
 
 #endif  // NATIVEPG_TYPES_BASE_HPP

@@ -128,7 +128,7 @@ struct field_is_compatible<double>
 };
 
 template <>
-struct field_is_compatible<boost::multiprecision::cpp_dec_float_50>
+struct field_is_compatible<boost::multiprecision::cpp_dec_float_100>
 {
     static inline boost::system::error_code call(const protocol::field_description& desc)
     {
@@ -287,8 +287,8 @@ struct field_parse<float>
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == float4_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_float4(from.data(), to)
-                                                        : types::parse_binary_float4(from.data(), to);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_float<float>(from.data(), to)
+                                                        : types::parse_binary_float<float>(from.data(), to);
     }
 };
 
@@ -304,18 +304,18 @@ struct field_parse<double>
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == float8_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_float8(from.data(), to)
-                                                        : types::parse_binary_float8(from.data(), to);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_float<double>(from.data(), to)
+                                                        : types::parse_binary_float<double>(from.data(), to);
     }
 };
 
 template <>
-struct field_parse<boost::multiprecision::cpp_dec_float_50>
+struct field_parse<boost::multiprecision::cpp_dec_float_100>
 {
     static inline boost::system::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
-        boost::multiprecision::cpp_dec_float_50& to
+        boost::multiprecision::cpp_dec_float_100& to
     )
     {
         if (from.is_null())
@@ -323,6 +323,23 @@ struct field_parse<boost::multiprecision::cpp_dec_float_50>
         BOOST_ASSERT(desc.type_oid == numeric_oid);
         return desc.fmt_code == protocol::format_code::text ? types::parse_text_numeric(from.data(), to)
                                                         : types::parse_binary_numeric(from.data(), to);
+    }
+};
+
+template <>
+struct field_parse<std::string_view>
+{
+    static inline boost::system::error_code call(
+        const field_view& from,
+        const protocol::field_description& desc,
+        std::string_view& to
+    )
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(desc.type_oid == text_oid || desc.type_oid == varchar_oid);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_text(from.data(), to)
+                                                        : types::parse_binary_text(from.data(), to);
     }
 };
 

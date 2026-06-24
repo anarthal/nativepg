@@ -92,7 +92,7 @@ static asio::awaitable<void> co_main()
     if (update_err.code)
         print_err("Update result: ", update_err);
     else
-        std::cout << "Update successfully\n";
+        std::cout << "Updated successfully\n";
 
     // Select
     request select_req;
@@ -131,7 +131,7 @@ static asio::awaitable<void> co_main()
     auto finish = Time::now();
     fsec fs = finish - start;
     auto d = std::chrono::duration_cast<ms>(fs);
-    std::cout << d.count() << " ms (" << fs.count() << "s )\n";
+    std::cout << "Timing result: " << d.count() << " ms (" << fs.count() << "s )\n";
 }
 
 int main()

@@ -29,9 +29,12 @@ struct count
 };
 BOOST_DESCRIBE_STRUCT(count, (), (amount))
 
-static void print_err(const char* prefix, const extended_error& err)
+static void print_err(const char* prefix, std::error_code err, const diagnostics& diag)
 {
-    std::cout << prefix << err.code.what() << ": " << err.diag.message() << '\n';
+    std::cout << prefix << ": " << err << ": " << err.message();
+    if (!diag.message().empty())
+        std::cout << ": " << diag.message();
+    std::cout << '\n';
 }
 
 static capy::task<> co_main()
@@ -64,8 +67,9 @@ static capy::task<> co_main()
     create_req.add_query("CREATE TABLE IF NOT EXISTS ciusdd ( id bigserial primary key , name text not null, postal_code integer)", {});
     response create_res{check()};
     auto [create_ec] = co_await conn.exec(create_req, create_res, &diag);
-    print_err("Operation result", create_ec, diag);
-    if (!create_ec)
+    if (create_ec)
+        print_err("Create result: ", create_ec, diag);
+    else
         std::cout << "Created successfully\n";
 
     // Insert
@@ -77,9 +81,9 @@ static capy::task<> co_main()
     //  or insert_req.add_dml("INSERT INTO ciusdd (name, postal_code) VALUES ('Bert', 1000), ('Ernie', 2000)"); // So default empty params
     //  or insert_res.affected_rows(); ???
     response insert_res{check()};
-    auto [insert_err] = co_await conn.async_exec(insert_req, insert_res, asio::as_tuple);
-    if (insert_err.code)
-        print_err("Insert result: ", insert_err);
+    auto [insert_ec] = co_await conn.exec(insert_req, insert_res, &diag);
+    if (insert_ec)
+        print_err("Insert result: ", insert_ec, diag);
     else
         std::cout << "Inserted successfully\n";
 
@@ -87,20 +91,20 @@ static capy::task<> co_main()
     request update_req;
     update_req.add_query("UPDATE ciusdd SET postal_code = 3000", {});
     response update_res{check()};
-    auto [update_err] = co_await conn.async_exec(update_req, update_res, asio::as_tuple);
-    if (update_err.code)
-        print_err("Update result: ", update_err);
+    auto [update_ec] = co_await conn.exec(update_req, update_res, &diag);
+    if (update_ec)
+        print_err("Update result: ", update_ec, diag);
     else
-        std::cout << "Update successfully\n";
+        std::cout << "Updated successfully\n";
 
     // Select
     request select_req;
     select_req.add_query("select count(*) as amount from ciusdd", {});
     std::vector<count> select_vec;
     response select_res{into(select_vec)};
-    auto [select_err] = co_await conn.async_exec(select_req, select_res, asio::as_tuple);
-    if (select_err.code)
-        print_err("Select result: ", select_err);
+    auto [select_ec] = co_await conn.exec(select_req, select_res, &diag);
+    if (select_ec)
+        print_err("Select result: ", select_ec, diag);
     else
         std::cout << "Selected: " << select_vec[0].amount << " successfully\n";
 
@@ -108,9 +112,9 @@ static capy::task<> co_main()
     request delete_req;
     delete_req.add_query("delete from ciusdd", {});
     response delete_res{check()};
-    auto [delete_err] = co_await conn.async_exec(delete_req, delete_res, asio::as_tuple);
-    if (delete_err.code)
-        print_err("Delete result: ", delete_err);
+    auto [delete_ec] = co_await conn.exec(delete_req, delete_res, &diag);
+    if (delete_ec)
+        print_err("Delete result: ", delete_ec, diag);
     else
         std::cout << "Deleted successfully\n";
 
@@ -118,19 +122,17 @@ static capy::task<> co_main()
     request drop_req;
     drop_req.add_query("drop table ciusdd;", {});
     response drop_res{check()};
-    auto [drop_err] = co_await conn.async_exec(drop_req, drop_res, asio::as_tuple);
-    if (drop_err.code)
-        print_err("Drop result: ", drop_err);
+    auto [drop_ec] = co_await conn.exec(drop_req, drop_res, &diag);
+    if (drop_ec)
+        print_err("Drop result: ", drop_ec, diag);
     else
         std::cout << "Dropped successfully\n";
-
-    std::cout << "Done\n";
 
     // Timing Finish...
     auto finish = Time::now();
     fsec fs = finish - start;
     auto d = std::chrono::duration_cast<ms>(fs);
-    std::cout << d.count() << " ms (" << fs.count() << "s )\n";
+    std::cout << "Timing result: " << d.count() << " ms (" << fs.count() << "s )\n";
 }
 
 int main()

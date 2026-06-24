@@ -8,7 +8,7 @@
 cmake_minimum_required(VERSION 3.10..3.31)
 project(nativepg LANGUAGES CXX)
 
-option(NATIVEPG_COROSIO_API "Whether to build the Corosio API" ON)
+option(NATIVEPG_COROSIO_API "Whether to build the Corosio API" OFF)
 
 find_package(boost_headers REQUIRED)
 find_package(OpenSSL REQUIRED)

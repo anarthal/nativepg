@@ -8,7 +8,7 @@
 cmake_minimum_required(VERSION 3.10..3.31)
 project(nativepg LANGUAGES CXX)
 
-option(NATIVEPG_COROSIO_API "Whether to build the Corosio API" OFF)
+option(NATIVEPG_COROSIO_API "Whether to build the Corosio API" ON)
 
 find_package(boost_headers REQUIRED)
 find_package(OpenSSL REQUIRED)
@@ -103,6 +103,9 @@ target_link_libraries(nativepg_example PRIVATE nativepg)
 add_executable(nativepg_datetime_example example/datetime.cpp)
 target_link_libraries(nativepg_datetime_example PRIVATE nativepg)
 
+add_executable(nativepg_asio_dml_example example/asio_dml.cpp)
+target_link_libraries(nativepg_asio_dml_example PRIVATE nativepg)
+
 if (NATIVEPG_COROSIO_API)
     add_executable(nativepg_co_connection example/co_connection.cpp)
     target_link_libraries(nativepg_co_connection PRIVATE nativepg_corosio)
@@ -121,4 +124,7 @@ if (NATIVEPG_COROSIO_API)
 
     add_executable(nativepg_copy_out example/copy_out.cpp)
     target_link_libraries(nativepg_copy_out PRIVATE nativepg_corosio)
+
+    add_executable(nativepg_co_dml example/co_dml.cpp)
+    target_link_libraries(nativepg_co_dml PRIVATE nativepg_corosio)
 endif()

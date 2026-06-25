@@ -103,6 +103,9 @@ target_link_libraries(nativepg_example PRIVATE nativepg)
 add_executable(nativepg_datetime_example example/datetime.cpp)
 target_link_libraries(nativepg_datetime_example PRIVATE nativepg)
 
+add_executable(nativepg_asio_dml_example example/asio_dml.cpp)
+target_link_libraries(nativepg_asio_dml_example PRIVATE nativepg)
+
 if (NATIVEPG_COROSIO_API)
     add_executable(nativepg_co_connection example/co_connection.cpp)
     target_link_libraries(nativepg_co_connection PRIVATE nativepg_corosio)
@@ -121,4 +124,7 @@ if (NATIVEPG_COROSIO_API)
 
     add_executable(nativepg_copy_out example/copy_out.cpp)
     target_link_libraries(nativepg_copy_out PRIVATE nativepg_corosio)
+
+    add_executable(nativepg_co_dml_example example/co_dml.cpp)
+    target_link_libraries(nativepg_co_dml_example PRIVATE nativepg_corosio)
 endif()

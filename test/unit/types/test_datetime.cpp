@@ -67,7 +67,7 @@ void test__parse_binary_date__success()
 void test__parse_text_time__success()
 {
     // Arrange
-    std::chrono::microseconds us;
+    std::chrono::microseconds us{};
     std::string str = "21:06:19";
     boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     std::stringstream ss;
@@ -85,7 +85,7 @@ void test__parse_text_time__success()
 void test__parse_binary_time__success()
 {
     // Arrange
-    std::chrono::microseconds us;
+    std::chrono::microseconds us{};
     std::string str = "21:06:19";
     // 21:06:19 as bigendian microseconds data
     static constexpr unsigned char pg_time_210619[] = {

@@ -14,6 +14,10 @@
 #include <boost/describe/class.hpp>
 
 #include <iostream>
+#include <chrono>
+#include <vector>
+#include <cstdint>
+
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
@@ -23,39 +27,32 @@ using namespace nativepg;
 namespace capy = boost::capy;
 namespace corosio = boost::corosio;
 
-struct count
+struct row_count
 {
     std::int64_t amount;
 };
-BOOST_DESCRIBE_STRUCT(count, (), (amount))
+BOOST_DESCRIBE_STRUCT(row_count, (), (amount))
 
-static void print_err(const char* prefix, std::error_code err, const diagnostics& diag)
+static void print_err(const char* prefix, const std::error_code& err, const diagnostics& diag)
 {
-    std::cout << prefix << ": " << err << ": " << err.message();
-    if (!diag.message().empty())
-        std::cout << ": " << diag.message();
-    std::cout << '\n';
+    std::cerr << prefix << err.message() << ": " << diag.message() << '\n';
 }
 
 static capy::task<> co_main()
 {
     // Timing Start...
-    typedef std::chrono::high_resolution_clock Time;
-    typedef std::chrono::milliseconds ms;
-    typedef std::chrono::duration<float> fsec;
-    auto start = Time::now();
-
+    using clock = std::chrono::steady_clock;
+    using ms = std::chrono::milliseconds;
+    auto start = clock::now();
 
     // Create a connection
     co_connection conn{co_await capy::this_coro::executor};
     diagnostics diag;
 
     // Connect
-    auto [ec] = co_await conn.connect(
+    if (auto [ec] = co_await conn.connect(
         {.hostname = "localhost", .username = "postgres", .password = "secret", .database = "postgres"},
-        &diag
-    );
-    if (ec)
+        &diag); ec)
     {
         print_err("Error connecting", ec, diag);
         co_return;
@@ -64,75 +61,82 @@ static capy::task<> co_main()
 
     // Create
     request create_req;
-    create_req.add_query("CREATE TABLE IF NOT EXISTS ciusdd ( id bigserial primary key , name text not null, postal_code integer)", {});
+    create_req.add_query("CREATE TABLE IF NOT EXISTS persons ( id bigserial primary key , name text not null, postal_code integer)", {});
     response create_res{check()};
-    auto [create_ec] = co_await conn.exec(create_req, create_res, &diag);
-    if (create_ec)
+    if (auto [create_ec] = co_await conn.exec(create_req, create_res, &diag); create_ec)
+    {
         print_err("Create result: ", create_ec, diag);
-    else
-        std::cout << "Created successfully\n";
+        co_return;
+    }
+    std::cout << "Created successfully\n";
 
     // Insert
     request insert_req;
-    insert_req.add_query("INSERT INTO ciusdd (name, postal_code) VALUES ('Bert', 1000), ('Ernie', 2000)", {});
-    // insert, update, and delete statements can return the number of affected rows. How to catch them?
-    // In other languages dml statements have there own execute(_scalar) method.
-    //e.g. insert_req.add_scalar("INSERT INTO ciusdd (name, postal_code) VALUES ('Bert', 1000), ('Ernie', 2000)"); // So default empty params
-    //  or insert_req.add_dml("INSERT INTO ciusdd (name, postal_code) VALUES ('Bert', 1000), ('Ernie', 2000)"); // So default empty params
-    //  or insert_res.affected_rows(); ???
+    insert_req.add_query("INSERT INTO persons (name, postal_code) VALUES ('Bert', 1000), ('Ernie', 2000)", {});
     response insert_res{check()};
-    auto [insert_ec] = co_await conn.exec(insert_req, insert_res, &diag);
-    if (insert_ec)
+    if (auto [insert_ec] = co_await conn.exec(insert_req, insert_res, &diag); insert_ec)
+    {
         print_err("Insert result: ", insert_ec, diag);
-    else
-        std::cout << "Inserted successfully\n";
+        co_return;
+    }
+    std::cout << "Inserted successfully\n";
 
     // Update
     request update_req;
-    update_req.add_query("UPDATE ciusdd SET postal_code = 3000", {});
+    update_req.add_query("UPDATE persons SET postal_code = $1", {3000});
     response update_res{check()};
-    auto [update_ec] = co_await conn.exec(update_req, update_res, &diag);
-    if (update_ec)
+    if (auto [update_ec] = co_await conn.exec(update_req, update_res, &diag); update_ec)
+    {
         print_err("Update result: ", update_ec, diag);
-    else
-        std::cout << "Updated successfully\n";
+        co_return;
+    }
+    std::cout << "Updated successfully\n";
 
     // Select
     request select_req;
-    select_req.add_query("select count(*) as amount from ciusdd", {});
-    std::vector<count> select_vec;
+    select_req.add_query("select count(*) as amount from persons", {});
+    std::vector<row_count> select_vec;
     response select_res{into(select_vec)};
-    auto [select_ec] = co_await conn.exec(select_req, select_res, &diag);
-    if (select_ec)
+    if (auto [select_ec] = co_await conn.exec(select_req, select_res, &diag); select_ec)
+    {
         print_err("Select result: ", select_ec, diag);
-    else
-        std::cout << "Selected: " << select_vec[0].amount << " successfully\n";
+        co_return;
+    }
+    else if (select_vec.empty())
+    {
+        std::cerr << "Select count(*) resulted in empty result. This should never happen." << std::endl;
+        co_return;
+    }
+    std::cout << "Selected: " << select_vec[0].amount << " successfully\n";
 
     // Delete
     request delete_req;
-    delete_req.add_query("delete from ciusdd", {});
+    delete_req.add_query("delete from persons", {});
     response delete_res{check()};
-    auto [delete_ec] = co_await conn.exec(delete_req, delete_res, &diag);
-    if (delete_ec)
+    if (auto [delete_ec] = co_await conn.exec(delete_req, delete_res, &diag); delete_ec)
+    {
         print_err("Delete result: ", delete_ec, diag);
-    else
-        std::cout << "Deleted successfully\n";
+        co_return;
+    }
+    std::cout << "Deleted successfully\n";
 
     // Drop
     request drop_req;
-    drop_req.add_query("drop table ciusdd;", {});
+    drop_req.add_query("drop table persons", {});
     response drop_res{check()};
-    auto [drop_ec] = co_await conn.exec(drop_req, drop_res, &diag);
-    if (drop_ec)
+    if (auto [drop_ec] = co_await conn.exec(drop_req, drop_res, &diag); drop_ec)
+    {
         print_err("Drop result: ", drop_ec, diag);
-    else
-        std::cout << "Dropped successfully\n";
+        co_return;
+    }
+    std::cout << "Dropped successfully\n";
 
     // Timing Finish...
-    auto finish = Time::now();
-    fsec fs = finish - start;
-    auto d = std::chrono::duration_cast<ms>(fs);
-    std::cout << "Timing result: " << d.count() << " ms (" << fs.count() << "s )\n";
+    auto finish = clock::now();
+    auto d = std::chrono::duration_cast<ms>(finish - start);
+    std::cout << "Timing result: " << d.count() << " [ms]\n";
+
+    std::cout << "Done\n";
 }
 
 int main()
@@ -145,9 +149,8 @@ int main()
         ctx.get_executor(),
         []() {
            // Runs when the main coroutine finishes normally
-           std::cout << "Done\n";
         },
-        [](std::exception_ptr exc) {
+        [](const std::exception_ptr& exc) {
             // Runs when the main coroutine finishes with an exception
             try {
                std::rethrow_exception(exc);

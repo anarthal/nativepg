@@ -125,6 +125,6 @@ if (NATIVEPG_COROSIO_API)
     add_executable(nativepg_copy_out example/copy_out.cpp)
     target_link_libraries(nativepg_copy_out PRIVATE nativepg_corosio)
 
-    add_executable(nativepg_co_dml example/co_dml.cpp)
-    target_link_libraries(nativepg_co_dml PRIVATE nativepg_corosio)
+    add_executable(nativepg_co_dml_example example/co_dml.cpp)
+    target_link_libraries(nativepg_co_dml_example PRIVATE nativepg_corosio)
 endif()

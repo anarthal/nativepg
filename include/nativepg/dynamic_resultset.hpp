@@ -183,7 +183,7 @@ public:
 };
 
 // A random-access, span-like view over a row's values.
-// Elements are materialized on access. A NULL value is represented as an empty optional.
+// Elements are materialized on access.
 class row_view
 {
     std::span<const detail::offset_and_length> values_;

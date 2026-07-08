@@ -371,6 +371,7 @@ void dynamic_resultset_response::on_message(const any_request_message& msg, std:
         void operator()(const protocol::data_row& msg) const
         {
             BOOST_ASSERT(self.state_ == state_t::parsing_data);
+            // TODO: check that the number of rows matches with what we received in the field description
             self.obj_->add_row(msg);
         }
 

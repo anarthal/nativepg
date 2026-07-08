@@ -41,10 +41,10 @@ public:
 
     // data() will return empty if is_null() == true
     constexpr std::span<const unsigned char> data() const noexcept { return {data_, size_}; }
-    constexpr std::string_view data_str() const noexcept
-    {
-        return {reinterpret_cast<const char*>(data_), size_};
-    }
+
+    // Not constexpr because of the cast.
+    // Use only if you know that your values use the text format (unchecked).
+    std::string_view data_str() const noexcept { return {reinterpret_cast<const char*>(data_), size_}; }
 };
 
 // TODO: should we make this equality_comparable?

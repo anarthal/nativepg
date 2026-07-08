@@ -386,8 +386,8 @@ public:
         friend iterator operator-(iterator it, difference_type n) noexcept { return it -= n; }
         friend difference_type operator-(iterator lhs, iterator rhs) noexcept
         {
-            // TODO: this is UB when num_columns is zero
-            return (lhs.it_ - rhs.it_) / static_cast<difference_type>(lhs.num_columns_);
+            return lhs.num_columns_ ? (lhs.it_ - rhs.it_) / static_cast<difference_type>(lhs.num_columns_)
+                                    : 0;
         }
 
         friend bool operator==(iterator lhs, iterator rhs) noexcept { return lhs.it_ == rhs.it_; }

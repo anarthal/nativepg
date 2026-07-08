@@ -462,6 +462,7 @@ class dynamic_resultset
 public:
     dynamic_resultset() = default;
 
+    // Clears the resultset, allowing for memory re-use
     void clear()
     {
         field_descr_.clear();
@@ -471,7 +472,8 @@ public:
         portal_suspended_ = false;
     }
 
-    // TODO: these methods should be private?
+    // Part of the unstable API. Should only be used by
+    // response authors.
     void set_row_description(const protocol::row_description& row_descr)
     {
         clear();
@@ -490,6 +492,8 @@ public:
         }
     }
 
+    // Part of the unstable API. Should only be used by
+    // response authors.
     void add_row(const protocol::data_row& row)
     {
         // TODO: I think this assert can technically trigger,
@@ -504,11 +508,18 @@ public:
         }
     }
 
+    // Part of the unstable API. Should only be used by
+    // response authors.
     void set_command_complete_tag(std::string_view tag) { command_complete_tag_ = insert_data(tag); }
 
+    // Part of the unstable API. Should only be used by
+    // response authors.
     void set_portal_suspended(bool value) { portal_suspended_ = value; }
 
+    // Retrieves the field descriptions (one per column)
     field_descriptions_view field_descriptions() const noexcept { return {field_descr_, data_.data()}; }
+
+    // Retrieves the rows
     rows_view rows() const noexcept { return {values_, field_descr_.size(), data_.data()}; }
 
     // This is equivalent to PQcmdStatus
@@ -518,6 +529,9 @@ public:
     {
         return command_complete_tag_.to_string_view(data_.data());
     }
+
+    // True if the query finished with portal suspended, meaning that
+    // the portal can be executed again for more rows
     bool portal_suspended() const noexcept { return portal_suspended_; }
 };
 

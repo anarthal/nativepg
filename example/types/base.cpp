@@ -31,7 +31,7 @@ using namespace nativepg;
 
 struct test_row
 {
-    std::string_view title;
+    std::string title;
     bool b;
     std::vector<std::byte> ba;
     std::int16_t i2;
@@ -43,13 +43,12 @@ struct test_row
     float f4;
     double f8_a;
     double f8_b;
-    boost::multiprecision::cpp_dec_float_100 n;
-    std::string_view t;
-    std::string_view v;
+    std::string t;
+    std::string v;
 };
-BOOST_DESCRIBE_STRUCT(test_row, (), (title, b, ba, i2, i4_a, i4_b, i8_a, i8_b, i8_c, f4, f8_a, f8_b, n, t, v))
+BOOST_DESCRIBE_STRUCT(test_row, (), (title, b, ba, i2, i4_a, i4_b, i8_a, i8_b, i8_c, f4, f8_a, f8_b, t, v))
 
-static void print_err(const char* prefix, std::error_code err, const diagnostics& diag)
+static void print_err(const char* prefix, const std::error_code err, const diagnostics& diag)
 {
     std::cerr << prefix << ": " << err << ": " << err.message();
     if (!diag.message().empty())
@@ -77,7 +76,6 @@ SELECT  'Test values' as title,
         8.0::float4 as f4,
         9.0::float8 as f8_a,
         10.0::float8 as f8_b,
-        11.21061977::numeric as n,
         'twelve'::text as t,
         E'\xE2\x82\xAC'::varchar as v
 UNION ALL
@@ -94,7 +92,6 @@ SELECT
     '-Infinity'::float4 as f4,
     '-Infinity'::float8 as f8_a,
     '-Infinity'::float8 as f8_b,
-    '-99999999999999999999999999999999999999999999999999.99999999999999999999999999999999999999999999999999'::numeric as n, -- Supported in PostgreSQL 14+
     ''::text as t, -- Empty string is lexicographically the smallest text
     ''::varchar as v -- Empty string is lexicographically the smallest varchar
 UNION ALL
@@ -111,7 +108,6 @@ SELECT
     'Infinity'::float4 as f4,
     'Infinity'::float8 as f8_a,
     'Infinity'::float8 as f8_b,
-    '99999999999999999999999999999999999999999999999999.99999999999999999999999999999999999999999999999999'::numeric as n,
     repeat(chr(1114111), 1)::text as t, -- Highest valid Unicode character (U+10FFFF)
     repeat(chr(1114111), 1)::varchar as v -- Highest valid Unicode character (U+10FFFF)
     )sql", {});
@@ -134,23 +130,22 @@ SELECT
     {
         std::cout << std::boolalpha;
         std::cout << "BASE TEXT   select result: (in " << duration << ")" << std::endl;
-        for (const auto& row : select_vec)
+        for (const auto& [title, b, ba, i2, i4_a, i4_b, i8_a, i8_b, i8_c, f4, f8_a, f8_b, t, v] : select_vec)
         {
-            std::cout << " | " << row.title
-                 << " | " << row.b
-                 << " | " << row.ba
-                 << " | " << row.i2
-                 << " | " << row.i4_a
-                 << " | " << row.i4_b
-                 << " | " << row.i8_a
-                 << " | " << row.i8_b
-                 << " | " << row.i8_c
-                 << " | " << row.f4
-                 << " | " << row.f8_a
-                 << " | " << row.f8_b
-                 << " | " << row.n.str(100)
-                 << " | " << row.t
-                 << " | " << row.v
+            std::cout << " | " << title
+                 << " | " << b
+                 << " | " << ba
+                 << " | " << i2
+                 << " | " << i4_a
+                 << " | " << i4_b
+                 << " | " << i8_a
+                 << " | " << i8_b
+                 << " | " << i8_c
+                 << " | " << f4
+                 << " | " << f8_a
+                 << " | " << f8_b
+                 << " | " << t
+                 << " | " << v
             << std::endl;
         }
         std::cout << std::endl;
@@ -161,7 +156,7 @@ template <typename T>
 static asio::awaitable<void> execute_and_print_binary_response(
     connection& conn,
     statement<T>& stmnt,
-    std::initializer_list<parameter_ref> params)
+    const std::initializer_list<parameter_ref> params)
 {
     // Use the prepared statement
     request req{false};
@@ -172,10 +167,9 @@ static asio::awaitable<void> execute_and_print_binary_response(
     std::vector<test_row> select_vec;
     response res{into(select_vec)};
 
-    auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
-
     // Print results
-    if (err.extended_error::code != boost::system::errc::success)
+    if (auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
+        err.extended_error::code != boost::system::errc::success)
         std::cerr << "BASE BINARY operation results in Error: " << err.code.what() << ": " << err.diag.message() <<  std::endl;
     else
     {
@@ -192,7 +186,6 @@ static asio::awaitable<void> execute_and_print_binary_response(
                   << " | " << select_vec[0].f4
                   << " | " << select_vec[0].f8_a
                   << " | " << select_vec[0].f8_b
-                  << " | " << select_vec[0].n.str(100)
                   << " | " << select_vec[0].t
                   << " | " << select_vec[0].v << std::endl;
     }
@@ -221,24 +214,23 @@ static asio::awaitable<void> base_binary_example(connection& conn)
                  $10::text::float4 as f4,
                  $11::text::float8 as f8_a,
                  $12::text::float8 as f8_b,
-                 $13::text::numeric as n,
-                 $14::text as t,
-                 $15::varchar as v
+                 $13::text as t,
+                 $14::varchar as v
     )sql", select_stmt);
     req.add_sync();
 
     // Actually prepare the statements
     response res{check_parse()};
-    auto [err] = co_await conn.async_exec(req, res,asio::as_tuple);
-    if (err.extended_error::code != boost::system::errc::success)
+    if (auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
+        err.extended_error::code != boost::system::errc::success)
     {
         print_err("Error preparing", err.code, diag);
         co_return;
     }
 
-    co_await execute_and_print_binary_response(conn, select_stmt, { "Test values", "true", "\x21\x06\x77", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11.21061977", "twelve", "\xE2\x82\xAC"});
-    co_await execute_and_print_binary_response(conn, select_stmt, { "Minimum values", "false", "", "-32767", "-32767", "-2147483647", "-32767", "-2147483647", "-9223372036854775807", "-Infinity", "-Infinity", "-Infinity", "-99999999999999999999999999999999999999999999999999.99999999999999999999999999999999999999999999999999", "", ""});
-    co_await execute_and_print_binary_response(conn, select_stmt, { "Maximum values", "true", "\x0F", "32767", "32767", "2147483647", "32767", "2147483647", "9223372036854775807", "Infinity", "Infinity", "Infinity", "99999999999999999999999999999999999999999999999999.99999999999999999999999999999999999999999999999999", "n/a", "n/a"});
+    co_await execute_and_print_binary_response(conn, select_stmt, { "Test values", "true", "\x21\x06\x77", "2", "3", "4", "5", "6", "7", "8", "9", "10", "twelve", "\xE2\x82\xAC"});
+    co_await execute_and_print_binary_response(conn, select_stmt, { "Minimum values", "false", "", "-32767", "-32767", "-2147483647", "-32767", "-2147483647", "-9223372036854775807", "-Infinity", "-Infinity", "-Infinity", "", ""});
+    co_await execute_and_print_binary_response(conn, select_stmt, { "Maximum values", "true", "\x0F", "32767", "32767", "2147483647", "32767", "2147483647", "9223372036854775807", "Infinity", "Infinity", "Infinity", "n/a", "n/a"});
 
     // Finish timing this method
     auto finish = std::chrono::high_resolution_clock::now();
@@ -251,8 +243,8 @@ static asio::awaitable<void> base_binary_example(connection& conn)
     req.add_sync();
 
     response res_close{check_close()};
-    auto [err_cleanup] = co_await conn.async_exec(req, res_close, asio::as_tuple);
-    if (err_cleanup.extended_error::code != boost::system::errc::success)
+    if (auto [err_cleanup] = co_await conn.async_exec(req, res_close, asio::as_tuple);
+        err_cleanup.extended_error::code != boost::system::errc::success)
     {
         print_err("Error closing", err_cleanup.code, diag);
         co_return;
@@ -282,7 +274,7 @@ int main()
 {
     asio::io_context ctx;
 
-    asio::co_spawn(ctx, co_main(), [](std::exception_ptr exc) {
+    asio::co_spawn(ctx, co_main(), [](const std::exception_ptr& exc) {
         if (exc)
             std::rethrow_exception(exc);
     });

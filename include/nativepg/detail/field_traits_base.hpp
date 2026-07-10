@@ -222,7 +222,7 @@ struct field_parse<std::int32_t>
                                                                     : types::parse_binary_int(data, to);
             }
 
-            default: BOOST_ASSERT(false);
+            default: BOOST_ASSERT(false); return {};
         }
     }
 };
@@ -260,7 +260,7 @@ struct field_parse<std::int64_t>
             case int8_oid:
                 return desc.fmt_code == protocol::format_code::text ? types::parse_text_int(data, to)
                                                                     : types::parse_binary_int(data, to);
-            default: BOOST_ASSERT(false);
+            default: BOOST_ASSERT(false); return {};
         }
     }
 };

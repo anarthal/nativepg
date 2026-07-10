@@ -100,7 +100,7 @@ endif()
 add_executable(nativepg_example example/nativepg.cpp)
 target_link_libraries(nativepg_example PRIVATE nativepg)
 
-add_executable(nativepg_datetime_example example/datetime.cpp)
+add_executable(nativepg_datetime_example example/types/datetime.cpp)
 target_link_libraries(nativepg_datetime_example PRIVATE nativepg)
 
 if (NATIVEPG_COROSIO_API)

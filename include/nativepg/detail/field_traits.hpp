@@ -122,5 +122,6 @@ struct field_parse<T>
 }  // namespace nativepg::detail
 
 #include "field_traits_datetime.hpp"
+#include "field_traits_numeric.hpp"
 
 #endif

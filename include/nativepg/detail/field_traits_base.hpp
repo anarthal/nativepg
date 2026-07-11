@@ -8,13 +8,11 @@
 #ifndef NATIVEPG_DETAIL_FIELD_TRAITS_BASE_HPP
 #define NATIVEPG_DETAIL_FIELD_TRAITS_BASE_HPP
 
-#include <boost/multiprecision/cpp_dec_float.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <span>
-#include <string_view>
+#include <string>
 
-#include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/base.hpp"
 
@@ -119,7 +117,7 @@ struct field_is_compatible<double>
 {
     static inline boost::system::error_code call(const protocol::field_description& desc)
     {
-        if (desc.type_oid == float8_oid)
+        if (desc.type_oid == float8_oid || desc.type_oid == float4_oid)
             return  boost::system::error_code{};
 
         return client_errc::incompatible_field_type;
@@ -188,7 +186,7 @@ struct field_parse<std::int16_t>
     {
         if (from.is_null())
             return client_errc::unexpected_null;
-        BOOST_ASSERT(desc.type_oid == int2_oid || desc.type_oid == int4_oid);
+        BOOST_ASSERT(desc.type_oid == int2_oid);
         return desc.fmt_code == protocol::format_code::text ? types::parse_text_int(from.data(), to)
                                                             : types::parse_binary_int(from.data(), to);
     }
@@ -222,7 +220,9 @@ struct field_parse<std::int32_t>
                                                                     : types::parse_binary_int(data, to);
             }
 
-            default: BOOST_ASSERT(false); return {};
+            default:
+                BOOST_ASSERT(false);
+                return {client_errc::incompatible_field_type};
         }
     }
 };
@@ -260,7 +260,9 @@ struct field_parse<std::int64_t>
             case int8_oid:
                 return desc.fmt_code == protocol::format_code::text ? types::parse_text_int(data, to)
                                                                     : types::parse_binary_int(data, to);
-            default: BOOST_ASSERT(false); return {};
+            default:
+                BOOST_ASSERT(false);
+                return {client_errc::incompatible_field_type};
         }
     }
 };
@@ -293,9 +295,26 @@ struct field_parse<double>
     {
         if (from.is_null())
             return client_errc::unexpected_null;
-        BOOST_ASSERT(desc.type_oid == float8_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_float<double>(from.data(), to)
-                                                        : types::parse_binary_float<double>(from.data(), to);
+        BOOST_ASSERT(desc.type_oid == float8_oid || desc.type_oid == float4_oid);
+        switch (desc.type_oid)
+        {
+            case float8_oid:
+            {
+                return desc.fmt_code == protocol::format_code::text ? types::parse_text_float<double>(from.data(), to)
+                                                                : types::parse_binary_float<double>(from.data(), to);
+            }
+            case float4_oid:
+            {
+                float value{};
+                const auto ec = desc.fmt_code == protocol::format_code::text ? types::parse_text_float<float>(from.data(), value)
+                                                                : types::parse_binary_float<float>(from.data(), value);
+                to = value;
+                return ec;
+            }
+            default:
+                BOOST_ASSERT(false);
+                return {client_errc::incompatible_field_type};
+        }
     }
 };
 
@@ -316,9 +335,6 @@ struct field_parse<std::string>
                                                         : types::parse_binary_text(from.data(), to);
     }
 };
-
-
-
 
 }// namespace nativepg::detail
 

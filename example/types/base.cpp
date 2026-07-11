@@ -16,7 +16,7 @@
 #include <exception>
 #include <iomanip>
 #include <iostream>
-#include <string_view>
+#include <string>
 #include <vector>
 #include <chrono>
 
@@ -75,7 +75,7 @@ SELECT  'Test values' as title,
         7::int8 as i8_c,
         8.0::float4 as f4,
         9.0::float8 as f8_a,
-        10.0::float8 as f8_b,
+        10.0::float4 as f8_b,
         'twelve'::text as t,
         E'\xE2\x82\xAC'::varchar as v
 UNION ALL
@@ -91,14 +91,14 @@ SELECT
     -9223372036854775807::int8 as i8_c,
     '-Infinity'::float4 as f4,
     '-Infinity'::float8 as f8_a,
-    '-Infinity'::float8 as f8_b,
+    '-Infinity'::float4 as f8_b,
     ''::text as t, -- Empty string is lexicographically the smallest text
     ''::varchar as v -- Empty string is lexicographically the smallest varchar
 UNION ALL
 SELECT
     'Maximum values' as title,
     true as b, -- Maximum boolean value
-    E'\\xFF'::bytea as ba, -- Single highest-byte representation (or repeat \xFF for larger sequences)
+    E'\\x0F'::bytea as ba,
     32767::int2 as i2,
     32767::int2 as i4_a,
     2147483647::int4 as i4_b,
@@ -107,7 +107,7 @@ SELECT
     9223372036854775807::int8 as i8_c,
     'Infinity'::float4 as f4,
     'Infinity'::float8 as f8_a,
-    'Infinity'::float8 as f8_b,
+    'Infinity'::float4 as f8_b,
     repeat(chr(1114111), 1)::text as t, -- Highest valid Unicode character (U+10FFFF)
     repeat(chr(1114111), 1)::varchar as v -- Highest valid Unicode character (U+10FFFF)
     )sql", {});
@@ -115,7 +115,6 @@ SELECT
     // Structures to parse the response into
     std::vector<test_row> select_vec;
     response res{into(select_vec)};
-    diagnostics diag;
 
     auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
 
@@ -195,7 +194,6 @@ static asio::awaitable<void> base_binary_example(connection& conn)
 {
     // Start timing this operation
     auto start = std::chrono::high_resolution_clock::now();
-    diagnostics diag;
 
     statement<std::string_view> select_stmt{"base_bintest"};
 
@@ -213,7 +211,7 @@ static asio::awaitable<void> base_binary_example(connection& conn)
                  $9::text::int8 as i8_c,
                  $10::text::float4 as f4,
                  $11::text::float8 as f8_a,
-                 $12::text::float8 as f8_b,
+                 $12::text::float4 as f8_b,
                  $13::text as t,
                  $14::varchar as v
     )sql", select_stmt);
@@ -224,7 +222,7 @@ static asio::awaitable<void> base_binary_example(connection& conn)
     if (auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
         err.extended_error::code != boost::system::errc::success)
     {
-        print_err("Error preparing", err.code, diag);
+        print_err("Error preparing", err.code, err.diag);
         co_return;
     }
 
@@ -246,15 +244,13 @@ static asio::awaitable<void> base_binary_example(connection& conn)
     if (auto [err_cleanup] = co_await conn.async_exec(req, res_close, asio::as_tuple);
         err_cleanup.extended_error::code != boost::system::errc::success)
     {
-        print_err("Error closing", err_cleanup.code, diag);
+        print_err("Error closing", err_cleanup.code, err_cleanup.diag);
         co_return;
     }
 }
 
 static asio::awaitable<void> co_main()
 {
-    diagnostics diag;
-
     // Create a connection
     connection conn{co_await asio::this_coro::executor};
 

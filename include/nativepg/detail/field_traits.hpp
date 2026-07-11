@@ -8,7 +8,6 @@
 #ifndef NATIVEPG_DETAIL_FIELD_TRAITS_HPP
 #define NATIVEPG_DETAIL_FIELD_TRAITS_HPP
 
-#include <boost/multiprecision/cpp_dec_float.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <concepts>
@@ -46,11 +45,11 @@ template <class T>
     requires std::assignable_from<T&, std::string_view>
 struct field_parse<T>
 {
-    static inline boost::system::error_code call(field_view from, const protocol::field_description&, T& to)
+    static inline boost::system::error_code call(const field_view from, const protocol::field_description&, T& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
-        auto data = from.data();
+        const auto data = from.data();
         to = std::string_view(reinterpret_cast<const char*>(data.data()), data.size());
         return {};
     }

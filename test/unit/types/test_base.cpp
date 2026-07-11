@@ -8,7 +8,6 @@
 #include <boost/core/lightweight_test.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/multiprecision/cpp_dec_float.hpp>
-#include <boost/math/special_functions/fpclassify.hpp> // boost::math::isnan
 
 #include <string>
 #include <sstream>
@@ -141,7 +140,7 @@ void test__parse_text_bytea__success()
     BOOST_TEST_EQ(ss.str(), "0x21061977");
 }
 
-void test__parse_binary_bytea__success()
+void test_parse_binary_bytea_success()
 {
     // Arrange
     std::vector<std::byte> ba;
@@ -281,7 +280,7 @@ int main()
 
     // BYTEA
     test__parse_text_bytea__success();
-    test__parse_binary_bytea__success();
+    test_parse_binary_bytea_success();
 
     // INT2
     test__parse_text_int__success<std::int16_t, std::numeric_limits<std::int16_t>::min()>();
@@ -309,7 +308,6 @@ int main()
     test__parse_text_float__success<double, std::numeric_limits<double>::max()>();
     test__parse_binary_float__success<double, std::numeric_limits<double>::min()>();
     test__parse_binary_float__success<double, std::numeric_limits<double>::max()>();
-
 
     // TEXT / VARCHAR
     test_parse_text_text_success<std::string>("The quick brown fox jumps over the lazy dog!");

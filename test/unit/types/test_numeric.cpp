@@ -9,6 +9,8 @@
 
 #include <boost/core/lightweight_test.hpp>
 #include <boost/system/error_code.hpp>
+#include <boost/multiprecision/cpp_dec_float.hpp>
+#include <boost/multiprecision/number.hpp>
 
 #include <string>
 #include <sstream>
@@ -16,28 +18,28 @@
 #include <limits>
 #include <span>
 
+#include "nativepg/types/numeric.hpp"
 #include "nativepg/detail/field_traits.hpp"
 #include "nativepg/protocol/describe.hpp"
 
-#include "nativepg/types/numeric.hpp"
 
 using namespace nativepg;
 namespace mp = boost::multiprecision;
 
 namespace {
 
-template <std::size_t TDigits, typename T = mp::number<mp::cpp_dec_float<TDigits>>>
+template <const std::size_t TDigits, typename T = mp::number<mp::cpp_dec_float<TDigits>>>
 void test_parse_text_numeric_success(const T& in_val)
 {
     // Arrange
     T out_val;
     std::stringstream ss;
     ss << std::setprecision(std::numeric_limits<T>::max_digits10) << in_val;
-    std::string str = ss.str();
+    const std::string str = ss.str();
     boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
 
     // Act
-    auto err = types::parse_text_numeric<TDigits, T>(data, out_val);
+    auto err = types::parse_text_numeric(data, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
@@ -48,13 +50,13 @@ void test_parse_text_numeric_success(const T& in_val)
 }
 
 template <std::size_t TDigits, typename T = mp::number<mp::cpp_dec_float<TDigits>>>
-void test__parse_binary_numeric__success(std::span<const unsigned char> wire, const T& expected)
+void test_parse_binary_numeric_success(std::span<const unsigned char> wire, const T& expected)
 {
     // Arrange
     T out_val;
 
     // Act
-    auto err = types::parse_binary_numeric<TDigits, T>(wire, out_val);
+    auto err = types::parse_binary_numeric(wire, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
@@ -62,6 +64,33 @@ void test__parse_binary_numeric__success(std::span<const unsigned char> wire, co
         BOOST_TEST(boost::math::isnan(out_val));   // NaN != NaN, so compare by predicate
     else
         BOOST_TEST_EQ(out_val, expected);
+}
+
+template <const std::size_t TDigits, class T = mp::number<mp::cpp_dec_float<TDigits>>>
+void test_parse_text_numeric_digits_fit(const std::string str, boost::system::error_code expected)
+{
+    // Arrange
+    T out_val;
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+
+    // Act
+    auto ec = types::parse_text_numeric(data, out_val);
+
+    // Assert
+    BOOST_TEST_EQ(ec.value(), expected.value());
+}
+
+template <std::size_t TDigits, typename T = mp::number<mp::cpp_dec_float<TDigits>>>
+void test_parse_binary_numeric_digits_fit(std::span<const unsigned char> wire, boost::system::error_code expected)
+{
+    // Arrange
+    T out_val;
+
+    // Act
+    auto ec = types::parse_binary_numeric(wire, out_val);
+
+    // Assert
+    BOOST_TEST_EQ(ec.value(), expected.value());
 }
 
 }  // namespace
@@ -100,28 +129,45 @@ int main()
         0x00, 0x01,  0x00, 0x02,  0x00, 0x00,  0x00, 0x00,
         0x00, 0x01
     };
+    // 123456789012345 -> ndigits=4, weight=3, sign=0x0000, dscale=0
+    // base-10000 groups (MSB first): 123, 4567, 8901, 2345
+    static constexpr unsigned char pg_15digits[] = {
+        0x00, 0x04,   0x00, 0x03,   0x00, 0x00,   0x00, 0x00,   // header
+        0x00, 0x7B,   0x11, 0xD7,   0x22, 0xC5,   0x09, 0x29,   // 123 4567 8901 2345
+    };
     using dec50 = boost::multiprecision::cpp_dec_float_50;
     test_parse_text_numeric_success<50>(std::numeric_limits<dec50>::min());
     test_parse_text_numeric_success<50>(std::numeric_limits<dec50>::max());
     test_parse_text_numeric_success<50>(std::numeric_limits<dec50>::quiet_NaN());
-    test__parse_binary_numeric__success<50>(pg_num_1234_5678, dec50("1234.5678"));
-    test__parse_binary_numeric__success<50>(pg_num_zero, dec50(0));
-    test__parse_binary_numeric__success<50>(pg_num_neg, dec50("-1234.5678"));
-    test__parse_binary_numeric__success<50>(pg_num_nan, dec50("NaN"));
-    test__parse_binary_numeric__success<50>(pg_num_infinity_pos, dec50("inf"));
-    test__parse_binary_numeric__success<50>(pg_num_infinity_neg, dec50("-inf"));
-    test__parse_binary_numeric__success<50>(pg_num_1e8, dec50("100000000"));
+    test_parse_binary_numeric_success<50>(pg_num_1234_5678, dec50("1234.5678"));
+    test_parse_binary_numeric_success<50>(pg_num_zero, dec50(0));
+    test_parse_binary_numeric_success<50>(pg_num_neg, dec50("-1234.5678"));
+    test_parse_binary_numeric_success<50>(pg_num_nan, dec50("NaN"));
+    test_parse_binary_numeric_success<50>(pg_num_infinity_pos, dec50("inf"));
+    test_parse_binary_numeric_success<50>(pg_num_infinity_neg, dec50("-inf"));
+    test_parse_binary_numeric_success<50>(pg_num_1e8, dec50("100000000"));
     using dec100 = boost::multiprecision::cpp_dec_float_100;
     test_parse_text_numeric_success<100>(std::numeric_limits<dec100>::min());
     test_parse_text_numeric_success<100>(std::numeric_limits<dec100>::max());
     test_parse_text_numeric_success<100>(std::numeric_limits<dec100>::quiet_NaN());
-    test__parse_binary_numeric__success<100>(pg_num_1234_5678, dec100("1234.5678"));
-    test__parse_binary_numeric__success<100>(pg_num_zero, dec100(0));
-    test__parse_binary_numeric__success<100>(pg_num_neg, dec100("-1234.5678"));
-    test__parse_binary_numeric__success<100>(pg_num_nan, dec100("NaN"));
-    test__parse_binary_numeric__success<100>(pg_num_infinity_pos, dec100("inf"));
-    test__parse_binary_numeric__success<100>(pg_num_infinity_neg, dec100("-inf"));
-    test__parse_binary_numeric__success<100>(pg_num_1e8, dec100("100000000"));
+    test_parse_binary_numeric_success<100>(pg_num_1234_5678, dec100("1234.5678"));
+    test_parse_binary_numeric_success<100>(pg_num_zero, dec100(0));
+    test_parse_binary_numeric_success<100>(pg_num_neg, dec100("-1234.5678"));
+    test_parse_binary_numeric_success<100>(pg_num_nan, dec100("NaN"));
+    test_parse_binary_numeric_success<100>(pg_num_infinity_pos, dec100("inf"));
+    test_parse_binary_numeric_success<100>(pg_num_infinity_neg, dec100("-inf"));
+    test_parse_binary_numeric_success<100>(pg_num_1e8, dec100("100000000"));
+
+
+    // Check types that do not fit
+    const boost::system::error_code failure =  nativepg::make_error_code(client_errc::incompatible_response_length);
+    test_parse_text_numeric_digits_fit<14>("123456789012345", failure);
+    test_parse_binary_numeric_digits_fit<14>(pg_15digits, failure);
+
+    // Check types that fit
+    const boost::system::error_code success =  nativepg::make_error_code(client_errc::success);
+    test_parse_text_numeric_digits_fit<16>("123456789012345", success);
+    test_parse_binary_numeric_digits_fit<16>(pg_15digits, success);
 
     return boost::report_errors();
 }

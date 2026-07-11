@@ -31,15 +31,13 @@ inline constexpr std::int32_t numeric_oid = 1700;
 template <class T>
 struct field_is_compatible;
 
-template <std::size_t TDigits>
-struct field_is_compatible<mp::number<mp::cpp_dec_float<TDigits>>>
+template <unsigned Digits, class Exp, class Alloc, mp::expression_template_option ET>
+struct field_is_compatible<mp::number<mp::cpp_dec_float<Digits, Exp, Alloc>, ET>>
 {
-    static inline boost::system::error_code call(const protocol::field_description& desc)
+    static boost::system::error_code call(const protocol::field_description& desc)
     {
-        if (desc.type_oid == numeric_oid)
-            return boost::system::error_code{};
-
-        return client_errc::incompatible_field_type;
+        return desc.type_oid == numeric_oid ? boost::system::error_code{}
+        : client_errc::incompatible_field_type;
     }
 };
 
@@ -48,20 +46,22 @@ struct field_is_compatible<mp::number<mp::cpp_dec_float<TDigits>>>
 template <class T>
 struct field_parse;
 
-template <std::size_t TDigits>
-struct field_parse<mp::number<mp::cpp_dec_float<TDigits>>>
+template <unsigned Digits, class Exp, class Alloc, mp::expression_template_option ET>
+struct field_parse<mp::number<mp::cpp_dec_float<Digits, Exp, Alloc>, ET>>
 {
-    static inline boost::system::error_code call(
+    using number_t = mp::number<mp::cpp_dec_float<Digits, Exp, Alloc>, ET>;
+
+    static boost::system::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
-        mp::cpp_dec_float<TDigits>& to
-    )
+        number_t& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == numeric_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_numeric<TDigits>(from.data(), to)
-                                                        : types::parse_binary_numeric<TDigits>(from.data(), to);
+        return desc.fmt_code == protocol::format_code::text
+                 ? types::parse_text_numeric(from.data(), to)
+                 : types::parse_binary_numeric(from.data(), to);
     }
 };
 

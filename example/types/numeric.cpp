@@ -58,23 +58,24 @@ static asio::awaitable<void> numeric_text_example(connection& conn)
     // Compose our request
     request req;
     req.add_query(R"sql(
-SELECT  'Test values' as title,
-        11.21061977::numeric as n25,
-        11.21061977::numeric as n50,
-        11.21061977::numeric as n100,
+select *
+from (SELECT 'Test values'                   as title,
+             '11.21061977'::numeric(25, 10)  as n25,
+             '11.21061977'::numeric(50, 10)  as n50,
+             '11.21061977'::numeric(100, 10) as n100) alias
 UNION ALL
 SELECT
     'Minimum values' as title,
-    '-9999999999999999999999999.99999999999999999999999999'::numeric as n25,
-    '-99999999999999999999999999999999999999999999999999.99999999999999999999999999999999999999999999999999'::numeric as n50,
-    '-9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999.9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999'::numeric as n100
+    '-999999999999999.999999999'::numeric(25, 10) as n25,
+    '-999999999999999999999999999999.999999999'::numeric(50, 10) as n50,
+    '-999999999999999999999999999999999999999999999.999999999'::numeric(100, 10) as n100
 UNION ALL
 SELECT
     'Maximum values' as title,
-    '9999999999999999999999999.99999999999999999999999999'::numeric as n25,
-    '99999999999999999999999999999999999999999999999999.99999999999999999999999999999999999999999999999999'::numeric as n50,
-    '9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999.9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999'::numeric as n100
-    )sql", {});
+    '999999999999999.999999999'::numeric(25, 10) as n25,
+    '999999999999999999999999999999.999999999'::numeric(50, 10) as n50,
+    '999999999999999999999999999999999999999999999.999999999'::numeric(100, 10) as n100
+   )sql", {});
 
     // Structures to parse the response into
     std::vector<test_row> select_vec;
@@ -97,9 +98,9 @@ SELECT
         for (const auto& row : select_vec)
         {
             std::cout << " | " << row.title
-                 << " | " << row.n25.str(25, std::ios_base::fixed)
-                 << " | " << row.n50.str(50, std::ios_base::fixed)
-                 << " | " << row.n100.str(100, std::ios_base::fixed)
+                 << " | " << row.n25.str(25)
+                 << " | " << row.n50.str(50)
+                 << " | " << row.n100.str(100)
             << std::endl;
         }
         std::cout << std::endl;
@@ -130,9 +131,9 @@ static asio::awaitable<void> execute_and_print_binary_response(
     {
         std::cout << std::boolalpha;
         std::cout << "NUMERIC BINARY select result: | " << select_vec[0].title
-                  << " | " << select_vec[0].n25.str(25, std::ios_base::fixed)
-                  << " | " << select_vec[0].n50.str(50, std::ios_base::fixed)
-                  << " | " << select_vec[0].n100.str(100, std::ios_base::fixed)
+                  << " | " << select_vec[0].n25.str(25)
+                  << " | " << select_vec[0].n50.str(50)
+                  << " | " << select_vec[0].n100.str(100)
                   << std::endl;
     }
 }
@@ -149,9 +150,9 @@ static asio::awaitable<void> numeric_binary_example(connection& conn)
     request req{false};  // Turns off autosync for better efficiency
     req.add_prepare(R"sql(
         SELECT  $1 as title,
-                 $13::text::numeric(25) as n25,
-                 $13::text::numeric(50 as n50,
-                 $13::text::numeric(100) as n100
+                 $2::text::numeric(25, 10) as n25,
+                 $3::text::numeric(50, 10) as n50,
+                 $4::text::numeric(100, 10) as n100
     )sql", select_stmt);
     req.add_sync();
 
@@ -164,9 +165,9 @@ static asio::awaitable<void> numeric_binary_example(connection& conn)
         co_return;
     }
 
-    co_await execute_and_print_binary_response(conn, select_stmt, { "Test values", "11.21061977", "987743455366.345555555", "99999999999999999999999999999999999999999999999999.99999999999999999999999999999999999999999999999999"});
-    co_await execute_and_print_binary_response(conn, select_stmt, { "Minimum values", "-2147483647", "-1234567890.1234567890", "-99999999999999999999999999999999999999999999999999.99999999999999999999999999999999999999999999999999"});
-    co_await execute_and_print_binary_response(conn, select_stmt, { "Maximum values", "2147483647", "1234567890.1234567890", "99999999999999999999999999999999999999999999999999.99999999999999999999999999999999999999999999999999"});
+    co_await execute_and_print_binary_response(conn, select_stmt, { "Test values", "11.21061977", "11.21061977", "11.21061977"});
+    co_await execute_and_print_binary_response(conn, select_stmt, { "Minimum values", "-999999999999999.9999999999", "-999999999999999999999999999999.999999999", "-999999999999999999999999999999999999999999999.999999999"});
+    co_await execute_and_print_binary_response(conn, select_stmt, { "Maximum values", "999999999999999.9999999999", "999999999999999999999999999999.999999999", "999999999999999999999999999999999999999999999.999999999"});
 
     // Finish timing this method
     auto finish = std::chrono::high_resolution_clock::now();

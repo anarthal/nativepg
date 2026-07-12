@@ -64,7 +64,12 @@ public:
         diagnostics* diag = nullptr
     );
 
-    boost::capy::io_task<> exec(const request& req, diagnostics* diag = nullptr);
+    template <response_handler ResponseHandler>
+    boost::capy::io_task<> exec(const request& req, ResponseHandler handler, diagnostics* diag = nullptr)
+    {
+        // Keep the handler alive
+        co_return co_await exec(req, response_handler_ref(&handler), diag);
+    }
 
     boost::capy::io_task<> read_notifications(std::vector<notification_event>& output);
 };

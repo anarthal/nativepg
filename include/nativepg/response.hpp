@@ -395,7 +395,9 @@ public:
         requires std::constructible_from<decltype(handlers_), Args&&...>
     explicit response(Args&&... args)
         : handlers_(std::forward<Args>(args)...),
-          vtable_(std::apply([](auto&... h) { return std::array<response_handler_ref, N>{h...}; }, handlers_))
+          vtable_(
+              std::apply([](auto&... h) { return std::array<response_handler_ref, N>{&h...}; }, handlers_)
+          )
     {
     }
 

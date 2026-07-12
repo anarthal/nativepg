@@ -10,11 +10,14 @@
 #include <boost/corosio/io_context.hpp>
 #include <boost/describe/class.hpp>
 
+#include <concepts>
 #include <iostream>
+#include <type_traits>
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/response.hpp"
+#include "nativepg/response_handler.hpp"
 
 using namespace nativepg;
 namespace capy = boost::capy;
@@ -67,7 +70,7 @@ static capy::task<> co_main()
     std::vector<myrow> vec;
     response res{check_execute(), into(vec)};
 
-    auto [ec2] = co_await conn.exec(req, res, &diag);
+    auto [ec2] = co_await conn.exec(req, &res, &diag);
     print_err("Operation result", ec2, diag);
     print_err("Q1 result", std::get<0>(res.handlers()).result());
     print_err("Q2 result", std::get<1>(res.handlers()).result());

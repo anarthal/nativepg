@@ -15,16 +15,14 @@
 #include <boost/multiprecision/number.hpp>
 #include <boost/system/error_code.hpp>
 
-#include <span>
-#include <string_view>
-#include <limits>
 #include <cstdint>
 #include <cstddef>
-
+#include <limits>
+#include <ranges>
+#include <span>
+#include <string_view>
 
 #include "nativepg/client_errc.hpp"
-
-
 
 namespace nativepg::types {
 
@@ -41,84 +39,59 @@ namespace mp = boost::multiprecision;
 
 namespace detail {
 
-// Counts significant decimal digits of a Postgres numeric text value.
-// Ignores sign, decimal point, leading zeros, and trailing zeros.
-// Non-digit tails (NaN / Infinity / exponent) stop the scan.
-inline std::size_t count_significant_digits(std::string_view s) noexcept
+// Note: Only needed to guard losing precision. E.g. if postgresql type fits into the Boost C++ type.
+inline std::size_t count_significant_digits_text(const std::string_view s) noexcept
 {
-    std::size_t i = 0;
-    if (i < s.size() && (s[i] == '+' || s[i] == '-'))
-        ++i;
+    std::string_view ws = s;
 
-    std::size_t sig = 0;             // significant digits confirmed
-    std::size_t pending_zeros = 0;   // zeros after first non-zero, not yet confirmed
-    bool seen_nonzero = false;
-
-    for (; i < s.size(); ++i)
-    {
-        const char c = s[i];
-        if (c == '.')
-            continue;                // scale marker, not a digit
-        if (c < '0' || c > '9')
-            break;                   // 'e'/'E', end of NaN/Inf, etc.
-
-        if (c == '0')
-        {
-            if (seen_nonzero)
-                ++pending_zeros;     // could be interior; decide when we see next non-zero
-            // leading zeros: ignored
-        }
-        else
-        {
-            seen_nonzero = true;
-            sig += pending_zeros + 1; // absorb the interior zeros
-            pending_zeros = 0;
-        }
+    if (!ws.empty() && (ws[0] == '+' || ws[0] == '-')) {
+        ws.remove_prefix(1);
     }
-    return sig;                      // trailing zeros intentionally dropped
+
+    const auto non_digit = std::ranges::find_if(ws, [](const char c) {
+        return (c < '0' || c > '9') && c != '.';
+    });
+
+    std::string_view numeric_part = ws.substr(0, std::distance(ws.begin(), non_digit));
+
+    auto sig_digits_view = numeric_part
+                         | std::views::filter([](const char c) { return c != '.'; })
+                         | std::views::drop_while([](const char c) { return c == '0'; })
+                         | std::views::reverse
+                         | std::views::drop_while([](const char c) { return c == '0'; });
+
+    return static_cast<std::size_t>(std::ranges::distance(sig_digits_view));
 }
 
-// Counts significant decimal digits carried by a Postgres numeric binary
-// payload's base-10000 digit groups (most significant first). Consistent with
-// count_significant_digits: leading and trailing zeros are excluded.
-// `groups` must point at the first group, with at least `ndigits` groups readable.
+// Note: Only needed to guard losing precision. E.g. if postgresql type fits into the Boost C++ type.
 inline std::size_t count_significant_digits_binary(
-    std::uint16_t ndigits,
+    const std::uint16_t ndigits,
     const unsigned char* groups) noexcept
 {
     if (ndigits == 0)
         return 0;
 
-    const auto load = [](const unsigned char* p) {
-        return boost::endian::endian_load<std::uint16_t, 2, boost::endian::order::big>(p);
+    const auto load = [groups](const std::size_t i) {
+        return boost::endian::endian_load<std::uint16_t, 2, boost::endian::order::big>(groups + i * 2);
     };
 
     // The most significant group is rendered without leading zeros.
-    const std::uint16_t first = load(groups);
+    const std::uint16_t first = load(0);
     const std::size_t lead_width = first >= 1000 ? 4 : first >= 100 ? 3 : first >= 10 ? 2 : 1;
-
     const std::size_t total = lead_width + static_cast<std::size_t>(ndigits - 1) * 4;
 
-    // Drop trailing zeros, walking up from the least significant group.
-    std::size_t trailing = 0;
-    for (int i = static_cast<int>(ndigits) - 1; i >= 0; --i)
-    {
-        std::uint16_t g = load(groups + i * 2);
-        const std::size_t width = (i == 0) ? lead_width : 4;
-        if (g == 0)
-        {
-            trailing += width;   // whole group is zero
-            continue;
-        }
-        std::size_t z = 0;
-        while (z < width && (g % 10) == 0)
-        {
-            g /= 10;
-            ++z;
-        }
-        trailing += z;
-        break;
-    }
+    const auto zero_groups = static_cast<std::size_t>(std::ranges::distance(
+        std::views::iota(std::size_t{0}, std::size_t{ndigits})
+        | std::views::reverse
+        | std::views::take_while([&](const std::size_t i) { return load(i) == 0; })));
+
+    if (zero_groups == ndigits)
+        return 0;
+
+    std::size_t trailing = zero_groups * 4;
+    for (std::uint16_t g = load(ndigits - 1 - zero_groups); g % 10 == 0; g /= 10)
+        ++trailing;
+
     return total - trailing;
 }
 
@@ -131,7 +104,7 @@ inline error_code parse_text_numeric(const std::span<const unsigned char> from, 
     std::string_view sv{reinterpret_cast<const char*>(from.data()), from.size()};
 
     constexpr auto type_digits = static_cast<std::size_t>(std::numeric_limits<T>::digits10);
-    if (detail::count_significant_digits(sv) > type_digits)
+    if (detail::count_significant_digits_text(sv) > type_digits)
         return client_errc::incompatible_response_length;
 
     try {

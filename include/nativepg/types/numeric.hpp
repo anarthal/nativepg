@@ -34,12 +34,12 @@ namespace mp = boost::multiprecision;
  Type mapping
 | Type      | Category | OID  | C++ type                                | Storage size                                                                |
 |-----------|----------|------|-----------------------------------------|-----------------------------------------------------------------------------|
-| numeric   | base     | 1700 | boost::multiprecision::number<cpp_dec_float<DIGITS>> Variable (numeric header + actual digits packed into 2-byte components)     |
+| numeric   | numeric  | 1700 | boost::multiprecision::number<cpp_dec_float<DIGITS>> Variable (numeric header + actual digits packed into 2-byte components)     |
 */
 
 namespace detail {
 
-// Note: Only needed to guard losing precision. E.g. if postgresql type fits into the Boost C++ type.
+// Note: Only needed to guard losing precision. E.g. if the postgresql type fits into the Boost C++ type.
 inline std::size_t count_significant_digits_text(const std::string_view s) noexcept
 {
     std::string_view ws = s;

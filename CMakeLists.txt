@@ -94,6 +94,7 @@ if (BUILD_TESTING)
     add_unit_test(""                test_extended_error_disposition)
     add_unit_test(""                test_extended_error_boost_system)
     add_unit_test(types             test_numeric)
+    add_unit_test(types             test_decimal)
     add_unit_test(types             test_datetime)
 endif()
 
@@ -103,6 +104,9 @@ target_link_libraries(nativepg_example PRIVATE nativepg)
 
 add_executable(nativepg_numeric_example example/types/numeric.cpp)
 target_link_libraries(nativepg_numeric_example PRIVATE nativepg)
+
+add_executable(nativepg_decimal_example example/types/decimal.cpp)
+target_link_libraries(nativepg_decimal_example PRIVATE nativepg)
 
 add_executable(nativepg_datetime_example example/types/datetime.cpp)
 target_link_libraries(nativepg_datetime_example PRIVATE nativepg)

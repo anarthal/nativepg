@@ -12,6 +12,7 @@
 #include <boost/asio/async_result.hpp>
 #include <boost/asio/compose.hpp>
 #include <boost/asio/connect.hpp>
+#include <boost/asio/consign.hpp>
 #include <boost/asio/deferred.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/write.hpp>
@@ -20,6 +21,8 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <type_traits>
+#include <utility>
 
 #include "nativepg/connect_params.hpp"
 #include "nativepg/extended_error.hpp"
@@ -176,6 +179,21 @@ public:
         },
             token,
             impl_->sock
+        );
+    }
+
+    template <
+        response_handler ResponseHandler,
+        boost::asio::completion_token_for<void(extended_error)> CompletionToken = boost::asio::deferred_t>
+    auto async_exec(const request& req, ResponseHandler&& handler, CompletionToken&& token = {})
+    {
+        // TODO: use associated allocator
+        auto ptr = std::make_unique<std::decay_t<ResponseHandler>>(std::forward<ResponseHandler>(handler));
+        response_handler_ref href{ptr.get()};
+        return async_exec(
+            req,
+            href,
+            boost::asio::consign(std::forward<CompletionToken>(token), std::move(ptr))
         );
     }
 };

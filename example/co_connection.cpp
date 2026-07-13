@@ -10,14 +10,11 @@
 #include <boost/corosio/io_context.hpp>
 #include <boost/describe/class.hpp>
 
-#include <concepts>
 #include <iostream>
-#include <type_traits>
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/response.hpp"
-#include "nativepg/response_handler.hpp"
 
 using namespace nativepg;
 namespace capy = boost::capy;

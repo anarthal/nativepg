@@ -70,6 +70,10 @@ static asio::awaitable<void> co_main()
     for (const auto& r : vec2)
         std::cout << "Got row (2): " << r.f1 << ", " << r.f3 << std::endl;
 
+    request req2;
+    req2.add_simple_query("SELECT 1");
+    co_await conn.async_exec(req2, check());
+
     std::cout << "Done\n";
 }
 

@@ -17,7 +17,6 @@
 #include <vector>
 
 #include "nativepg/co_multiplexed_connection.hpp"
-#include "nativepg/extended_error.hpp"
 #include "nativepg/notification_event.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response.hpp"

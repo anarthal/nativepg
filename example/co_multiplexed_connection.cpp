@@ -37,11 +37,6 @@ static void print_err(const char* prefix, std::error_code err, const diagnostics
     std::cout << '\n';
 }
 
-static void print_err(const char* prefix, const extended_error& err)
-{
-    print_err(prefix, err.code, err.diag);
-}
-
 static capy::io_task<> run_request(co_multiplexed_connection& conn)
 {
     // Compose our request

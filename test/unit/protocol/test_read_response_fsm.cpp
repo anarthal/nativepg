@@ -88,7 +88,7 @@ struct fixture
 {
     request req;
     mock_handler handler;
-    read_response_fsm fsm{&req, handler};
+    read_response_fsm fsm{&req, &handler};
 
     void check(
         std::initializer_list<on_msg_args> expected,

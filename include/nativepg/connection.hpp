@@ -193,7 +193,7 @@ public:
         return async_exec(
             req,
             href,
-            boost::asio::consign(std::forward<CompletionToken>(token, std::move(ptr)))
+            boost::asio::consign(std::forward<CompletionToken>(token), std::move(ptr))
         );
     }
 };

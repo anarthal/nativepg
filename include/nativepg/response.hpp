@@ -380,42 +380,87 @@ public:
     const extended_error& result() const { return err_; }
 };
 
+namespace detail {
+
+template <class H0, class... HRest>
+handler_setup_result response_setup(
+    const request& req,
+    std::size_t initial_offset,
+    std::size_t* out_offsets,
+    H0& h0,
+    HRest&... hrest
+)
+{
+    // Setup the first handler
+    handler_setup_result h0_res = h0.setup(req, initial_offset);
+
+    // Exit on failure
+    if (h0_res.ec)
+        return h0_res;
+
+    // Store the offset
+    *out_offsets = h0_res.offset;
+
+    // Prevent infinite recursion
+    if constexpr (sizeof...(HRest) == 0u)
+    {
+        return h0_res.offset;
+    }
+    else
+    {
+        // Recursively setup the rest of the handlers
+        return response_setup(req, h0_res.offset, out_offsets + 1, hrest...);
+    }
+}
+
+template <class H0, class... HRest>
+const extended_error* response_get_result(const H0& h0, const HRest&... hrest)
+{
+    // Get the result for the first handler
+    const extended_error& err = h0.result();
+
+    // If it is an error, return this one
+    if (err.code)
+        return &err;
+
+    // Prevent infinite recursion
+    if constexpr (sizeof...(HRest) == 0u)
+    {
+        return nullptr;
+    }
+    else
+    {
+        // Recursively look for the other handlers
+        return response_get_result(hrest...);
+    }
+}
+
+}  // namespace detail
+
 template <response_handler... Handlers>
 class response
 {
     static inline constexpr std::size_t N = sizeof...(Handlers);
 
     std::tuple<Handlers...> handlers_;
-    std::array<response_handler_ref, N> vtable_;
     std::array<std::size_t, N> offsets_{};
     std::size_t current_{};
 
 public:
     template <class... Args>
         requires std::constructible_from<decltype(handlers_), Args&&...>
-    explicit response(Args&&... args)
-        : handlers_(std::forward<Args>(args)...),
-          vtable_(
-              std::apply([](auto&... h) { return std::array<response_handler_ref, N>{&h...}; }, handlers_)
-          )
+    explicit response(Args&&... args) : handlers_(std::forward<Args>(args)...)
     {
     }
 
-    // TODO: implement move, at least
-    response(response&&) = delete;
-    response& operator=(response&&) = delete;
-
     handler_setup_result setup(const request& req, std::size_t offset)
     {
-        for (std::size_t i = 0u; i < N; ++i)
-        {
-            handler_setup_result res = vtable_[i].setup(req, offset);
-            if (res.ec)
-                return res;
-            offsets_[i] = res.offset;
-            offset = res.offset;
-        }
-        return {offset};
+        return std::apply(
+            [this, &req, offset](auto&... h) {
+                return detail::response_setup(req, offset, offsets_.data(), h...);
+            },
+            handlers_
+        );
     }
 
     void on_message(const any_request_message& msg, std::size_t offset)
@@ -426,19 +471,19 @@ public:
         BOOST_ASSERT(offset < offsets_[current_]);
 
         // Hand the message to the appropriate handler
-        vtable_[current_].on_message(msg, offset);
+        boost::mp11::mp_with_index<N>(current_, [this, &msg, offset](auto I) {
+            std::get<I>(handlers_).on_message(msg, offset);
+        });
     }
 
     const extended_error& result() const
     {
         static_assert(N > 0);
-        for (auto& elm : vtable_)
-        {
-            const auto& res = elm.result();
-            if (res.code)
-                return res;
-        }
-        return vtable_[0].result();
+        const auto* res = std::apply(
+            [](const auto&... h) { return detail::response_get_result(h...); },
+            handlers_
+        );
+        return res != nullptr ? *res : std::get<0>(handlers_).result();
     }
 
     const auto& handlers() const& { return handlers_; }

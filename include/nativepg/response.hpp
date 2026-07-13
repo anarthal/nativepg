@@ -233,7 +233,7 @@ class resultset_callback_t
     };
 
 public:
-    template <class Cb>
+    template <std::invocable<T&&> Cb>
     explicit resultset_callback_t(Cb&& cb) : cb_(std::forward<Cb>(cb))
     {
     }

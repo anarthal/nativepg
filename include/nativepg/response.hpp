@@ -101,6 +101,7 @@ class resultset_callback_t
     std::vector<field_view> random_access_data_;
     extended_error err_;
     Callback cb_;
+    bool portal_suspended_{};
 
     void store_error(boost::system::error_code ec)
     {
@@ -224,8 +225,11 @@ class resultset_callback_t
 
         void operator()(protocol::command_complete) const { on_done(); }
 
-        // TODO: this should be transmitted to the user somehow
-        void operator()(protocol::portal_suspended) const { on_done(); }
+        void operator()(protocol::portal_suspended) const
+        {
+            self.portal_suspended_ = true;
+            on_done();
+        }
 
         // If any of the messages we expect was skipped due to a previous error,
         // that's an error
@@ -240,6 +244,9 @@ public:
 
     handler_setup_result setup(const request& req, std::size_t offset)
     {
+        state_ = state_t::parsing_meta;
+        err_ = {};
+        portal_suspended_ = false;
         return detail::resultset_setup(req, offset);
     }
 
@@ -249,6 +256,9 @@ public:
     }
 
     const extended_error& result() const { return err_; }
+
+    // TODO: do we want this embedded in the handler?
+    bool portal_suspended() const { return portal_suspended_; }
 };
 
 // Helper to create resultset callbacks

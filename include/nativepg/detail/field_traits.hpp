@@ -45,7 +45,11 @@ template <class T>
     requires std::assignable_from<T&, std::string_view>
 struct field_parse<T>
 {
-    static inline boost::system::error_code call(const field_view from, const protocol::field_description&, T& to)
+    static inline boost::system::error_code call(
+        const field_view from,
+        const protocol::field_description&,
+        T& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -55,7 +59,7 @@ struct field_parse<T>
     }
 };
 
-}// namespace nativepg::detail
+}  // namespace nativepg::detail
 
 #include "field_traits_base.hpp"
 #include "field_traits_datetime.hpp"

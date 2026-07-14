@@ -13,12 +13,12 @@
 #include <boost/asio/this_coro.hpp>
 #include <boost/describe/class.hpp>
 
+#include <chrono>
 #include <exception>
 #include <iomanip>
 #include <iostream>
 #include <string>
 #include <vector>
-#include <chrono>
 
 #include "nativepg/connection.hpp"
 #include "nativepg/extended_error.hpp"
@@ -48,9 +48,7 @@ struct test_row
 };
 BOOST_DESCRIBE_STRUCT(test_row, (), (title, b, ba, i2, i4_a, i4_b, i8_a, i8_b, i8_c, f4, f8_a, f8_b, t, v))
 
-
-template <class T = std::vector<std::byte>>
-static inline std::basic_ostream<T>& operator<<(std::basic_ostream<T>& os, const std::vector<std::byte>& bytes)
+static inline std::ostream& operator<<(std::ostream& os, const std::vector<std::byte>& bytes)
 {
     if (bytes.empty() || (bytes.size() == 1 && bytes[0] == std::byte{0x00}))
     {
@@ -81,7 +79,8 @@ static asio::awaitable<void> base_text_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_query(R"sql(
+    req.add_query(
+        R"sql(
 SELECT  'Test values' as title,
         true as b,
         E'\x21\x06\x77'::bytea as ba,
@@ -128,7 +127,9 @@ SELECT
     'Infinity'::float4 as f8_b,
     repeat(chr(1114111), 1)::text as t, -- Highest valid Unicode character (U+10FFFF)
     repeat(chr(1114111), 1)::varchar as v -- Highest valid Unicode character (U+10FFFF)
-    )sql", {});
+    )sql",
+        {}
+    );
 
     // Structures to parse the response into
     std::vector<test_row> select_vec;
@@ -142,28 +143,17 @@ SELECT
 
     // Print results
     if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "BASE TEXT operation results in Error: " << err.code.what() << ": " << err.diag.message() << " (in " << duration << ")" << std::endl;
+        std::cerr << "BASE TEXT operation results in Error: " << err.code.what() << ": " << err.diag.message()
+                  << " (in " << duration << ")" << std::endl;
     else
     {
         std::cout << std::boolalpha;
         std::cout << "BASE TEXT   select result: (in " << duration << ")" << std::endl;
         for (const auto& [title, b, ba, i2, i4_a, i4_b, i8_a, i8_b, i8_c, f4, f8_a, f8_b, t, v] : select_vec)
         {
-            std::cout << " | " << title
-                 << " | " << b
-                 << " | " << ba
-                 << " | " << i2
-                 << " | " << i4_a
-                 << " | " << i4_b
-                 << " | " << i8_a
-                 << " | " << i8_b
-                 << " | " << i8_c
-                 << " | " << f4
-                 << " | " << f8_a
-                 << " | " << f8_b
-                 << " | " << t
-                 << " | " << v
-            << std::endl;
+            std::cout << " | " << title << " | " << b << " | " << ba << " | " << i2 << " | " << i4_a << " | "
+                      << i4_b << " | " << i8_a << " | " << i8_b << " | " << i8_c << " | " << f4 << " | "
+                      << f8_a << " | " << f8_b << " | " << t << " | " << v << std::endl;
         }
         std::cout << std::endl;
     }
@@ -173,7 +163,8 @@ template <typename T>
 static asio::awaitable<void> execute_and_print_binary_response(
     connection& conn,
     statement<T>& stmnt,
-    const std::initializer_list<parameter_ref> params)
+    const std::initializer_list<parameter_ref> params
+)
 {
     // Use the prepared statement
     request req{false};
@@ -187,24 +178,17 @@ static asio::awaitable<void> execute_and_print_binary_response(
     // Print results
     if (auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
         err.extended_error::code != boost::system::errc::success)
-        std::cerr << "BASE BINARY operation results in Error: " << err.code.what() << ": " << err.diag.message() <<  std::endl;
+        std::cerr << "BASE BINARY operation results in Error: " << err.code.what() << ": "
+                  << err.diag.message() << std::endl;
     else
     {
         std::cout << std::boolalpha;
-        std::cout << "BASE BINARY select result: | " << select_vec[0].title
-                  << " | " << select_vec[0].b
-                  << " | " << select_vec[0].ba
-                  << " | " << select_vec[0].i2
-                  << " | " << select_vec[0].i4_a
-                  << " | " << select_vec[0].i4_b
-                  << " | " << select_vec[0].i8_a
-                  << " | " << select_vec[0].i8_b
-                  << " | " << select_vec[0].i8_c
-                  << " | " << select_vec[0].f4
-                  << " | " << select_vec[0].f8_a
-                  << " | " << select_vec[0].f8_b
-                  << " | " << select_vec[0].t
-                  << " | " << select_vec[0].v << std::endl;
+        std::cout << "BASE BINARY select result: | " << select_vec[0].title << " | " << select_vec[0].b
+                  << " | " << select_vec[0].ba << " | " << select_vec[0].i2 << " | " << select_vec[0].i4_a
+                  << " | " << select_vec[0].i4_b << " | " << select_vec[0].i8_a << " | " << select_vec[0].i8_b
+                  << " | " << select_vec[0].i8_c << " | " << select_vec[0].f4 << " | " << select_vec[0].f8_a
+                  << " | " << select_vec[0].f8_b << " | " << select_vec[0].t << " | " << select_vec[0].v
+                  << std::endl;
     }
 }
 
@@ -217,7 +201,8 @@ static asio::awaitable<void> base_binary_example(connection& conn)
 
     // Compose our request
     request req{false};  // Turns off autosync for better efficiency
-    req.add_prepare(R"sql(
+    req.add_prepare(
+        R"sql(
         SELECT  $1 as title,
                  $2::text::bool as b,
                  $3::bytea as ba,
@@ -232,7 +217,9 @@ static asio::awaitable<void> base_binary_example(connection& conn)
                  $12::text::float4 as f8_b,
                  $13::text as t,
                  $14::varchar as v
-    )sql", select_stmt);
+    )sql",
+        select_stmt
+    );
     req.add_sync();
 
     // Actually prepare the statements
@@ -244,9 +231,60 @@ static asio::awaitable<void> base_binary_example(connection& conn)
         co_return;
     }
 
-    co_await execute_and_print_binary_response(conn, select_stmt, { "Test values", "true", "\x21\x06\x77", "2", "3", "4", "5", "6", "7", "8", "9", "10", "twelve", "\xE2\x82\xAC"});
-    co_await execute_and_print_binary_response(conn, select_stmt, { "Minimum values", "false", "", "-32767", "-32767", "-2147483647", "-32767", "-2147483647", "-9223372036854775807", "-Infinity", "-Infinity", "-Infinity", "", ""});
-    co_await execute_and_print_binary_response(conn, select_stmt, { "Maximum values", "true", "\x0F", "32767", "32767", "2147483647", "32767", "2147483647", "9223372036854775807", "Infinity", "Infinity", "Infinity", "n/a", "n/a"});
+    co_await execute_and_print_binary_response(
+        conn,
+        select_stmt,
+        {"Test values",
+         "true",
+         "\x21\x06\x77",
+         "2",
+         "3",
+         "4",
+         "5",
+         "6",
+         "7",
+         "8",
+         "9",
+         "10",
+         "twelve",
+         "\xE2\x82\xAC"}
+    );
+    co_await execute_and_print_binary_response(
+        conn,
+        select_stmt,
+        {"Minimum values",
+         "false",
+         "",
+         "-32767",
+         "-32767",
+         "-2147483647",
+         "-32767",
+         "-2147483647",
+         "-9223372036854775807",
+         "-Infinity",
+         "-Infinity",
+         "-Infinity",
+         "",
+         ""}
+    );
+    co_await execute_and_print_binary_response(
+        conn,
+        select_stmt,
+        {"Maximum values",
+         "true",
+         "\x0F",
+         "32767",
+         "32767",
+         "2147483647",
+         "32767",
+         "2147483647",
+         "9223372036854775807",
+         "Infinity",
+         "Infinity",
+         "Infinity",
+         "n/a",
+         "n/a"}
+    );
 
     // Finish timing this method
     auto finish = std::chrono::high_resolution_clock::now();
@@ -295,6 +333,3 @@ int main()
 
     ctx.run();
 }
-
-
-

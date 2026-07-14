@@ -21,15 +21,15 @@
 #include <string_view>
 #include <vector>
 
-
 #include "nativepg/client_errc.hpp"
+#include "nativepg/field_view.hpp"
 
 namespace nativepg {
 namespace types {
 
 using boost::system::error_code;
 
-
+// clang-format off
 /*
  Type mapping
 | Type      | Category | OID  | C++ type                                | Storage size                                                                |
@@ -44,25 +44,26 @@ using boost::system::error_code;
 | text      | base     | 25   | std::string                             | variable (1 or 4 bytes header + actual string data)                         |
 | varchar   | base     | 1043 | std::string                             | variable (1 or 4 bytes header + actual string data)                         |
 */
+// clang-format on
 
 namespace detail {
 
 template <typename T>
-static inline error_code parse_text_to_number(const std::string_view& sv, T& to) {
+constexpr error_code parse_text_to_number(const std::string_view& sv, T& to)
+{
     T result = 0;
     auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), result);
     if (ec == std::errc{} && ptr == sv.data() + sv.size())
-        to = std::move(result); // Success
+        to = std::move(result);  // Success
     else
         return client_errc::protocol_value_error;
 
     return {};
 }
 
-}
+}  // namespace detail
 
-
-//BOOL => bool;
+// BOOL => bool;
 template <class T = bool>
 constexpr error_code parse_text_bool(const field_view& from, T& to)
 {
@@ -84,9 +85,9 @@ constexpr error_code parse_binary_bool(const field_view& from, T& to)
     return {};
 }
 
-//BYTEA => std::vector<std::byte>>;
+// BYTEA => std::vector<std::byte>>;
 template <class T = std::vector<std::byte>>
-static error_code parse_text_bytea(const field_view& from, T& to)
+constexpr error_code parse_text_bytea(const field_view& from, T& to)
 {
     // PostgresSQL text format for bytea is \x followed by hex pairs
     std::string_view sv = from.data_str();
@@ -121,7 +122,7 @@ constexpr error_code parse_binary_bytea(const field_view& from, T& to)
 
 // INT => std::int_t
 template <class T>
-static inline error_code parse_text_int(const field_view& from, T& to)
+constexpr error_code parse_text_int(const field_view& from, T& to)
 {
     const std::string_view sv = from.data_str();
     return detail::parse_text_to_number<T>(sv, to);
@@ -138,7 +139,7 @@ constexpr error_code parse_binary_int(const field_view& from, T& to)
 
 // FLOAT => float
 template <class T>
-static inline error_code parse_text_float(const field_view& from, T& to)
+constexpr error_code parse_text_float(const field_view& from, T& to)
 {
     const std::string_view sv = from.data_str();
     return detail::parse_text_to_number<T>(sv, to);
@@ -165,13 +166,12 @@ constexpr error_code parse_text_text(const field_view& from, T& to)
 template <class T = std::string>
 constexpr error_code parse_binary_text(const field_view& from, T& to)
 {
-    //TODO What about different text encodings?
+    // TODO What about different text encodings?
     to.assign(from.data_str());
     return {};
 }
 
-}
-
-}
+}  // namespace types
+}  // namespace nativepg
 
 #endif  // NATIVEPG_TYPES_BASE_HPP

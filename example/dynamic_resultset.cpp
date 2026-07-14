@@ -52,9 +52,8 @@ static capy::task<> co_main()
 
     // Structures to parse the response into
     dynamic_resultset res;
-    dynamic_resultset_response handler{res};
 
-    auto [ec2] = co_await conn.exec(req, handler, &diag);
+    auto [ec2] = co_await conn.exec(req, dynamic_resultset_response{res}, &diag);
     if (ec2)
     {
         print_err("Operation result", ec2, diag);

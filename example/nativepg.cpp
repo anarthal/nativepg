@@ -60,7 +60,7 @@ static asio::awaitable<void> co_main()
     std::vector<myrow> vec1, vec2;
     response res{into(vec1), into(vec2)};
 
-    auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
+    auto [err] = co_await conn.async_exec(req, &res, asio::as_tuple);
     print_err("Operation result: ", err);
     print_err("Q1 result: ", std::get<0>(res.handlers()).result());
     print_err("Q2 result: ", std::get<1>(res.handlers()).result());
@@ -69,6 +69,10 @@ static asio::awaitable<void> co_main()
         std::cout << "Got row (1): " << r.f1 << ", " << r.f3 << std::endl;
     for (const auto& r : vec2)
         std::cout << "Got row (2): " << r.f1 << ", " << r.f3 << std::endl;
+
+    request req2;
+    req2.add_simple_query("SELECT 1");
+    co_await conn.async_exec(req2, check());
 
     std::cout << "Done\n";
 }

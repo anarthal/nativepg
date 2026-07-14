@@ -236,12 +236,6 @@ capy::io_task<> co_connection::exec(const request& req, response_handler_ref han
     }
 }
 
-capy::io_task<> co_connection::exec(const request& req, diagnostics* diag)
-{
-    check handler;
-    co_return co_await exec(req, handler, diag);
-}
-
 void co_connection::setup_request(const request& req, response_handler_ref handler)
 {
     return impl_->setup_request(req, handler);

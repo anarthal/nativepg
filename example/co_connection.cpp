@@ -67,7 +67,7 @@ static capy::task<> co_main()
     std::vector<myrow> vec;
     response res{check_execute(), into(vec)};
 
-    auto [ec2] = co_await conn.exec(req, res, &diag);
+    auto [ec2] = co_await conn.exec(req, &res, &diag);
     print_err("Operation result", ec2, diag);
     print_err("Q1 result", std::get<0>(res.handlers()).result());
     print_err("Q2 result", std::get<1>(res.handlers()).result());

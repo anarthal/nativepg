@@ -66,7 +66,7 @@ void test_parse_binary_numeric_success(std::span<const unsigned char> wire, cons
 }
 
 template <const std::size_t TDigits, class T = mp::number<mp::cpp_dec_float<TDigits>>>
-void test_parse_text_numeric_digits_fit(const std::string str, boost::system::error_code expected)
+void test_parse_text_numeric_digits_fit(const std::string& str, boost::system::error_code expected)
 {
     // Arrange
     T out_val;

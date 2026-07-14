@@ -8,6 +8,7 @@
 #include <boost/core/lightweight_test.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <cmath>
 #include <cstdint>
 #include <iomanip>
 #include <limits>

@@ -41,7 +41,7 @@ struct field_is_compatible;
 template <>
 struct field_is_compatible<bool>
 {
-    static inline boost::system::error_code call(const protocol::field_description& desc)
+    static boost::system::error_code call(const protocol::field_description& desc)
     {
         if (desc.type_oid == bool_oid)
             return boost::system::error_code{};
@@ -52,7 +52,7 @@ struct field_is_compatible<bool>
 template <>
 struct field_is_compatible<std::vector<std::byte>>
 {
-    static inline boost::system::error_code call(const protocol::field_description& desc)
+    static boost::system::error_code call(const protocol::field_description& desc)
     {
         if (desc.type_oid == bytea_oid)
             return boost::system::error_code{};
@@ -64,7 +64,7 @@ struct field_is_compatible<std::vector<std::byte>>
 template <>
 struct field_is_compatible<std::int16_t>
 {
-    static inline boost::system::error_code call(const protocol::field_description& desc)
+    static boost::system::error_code call(const protocol::field_description& desc)
     {
         if (desc.type_oid == int2_oid)
             return boost::system::error_code{};
@@ -76,7 +76,7 @@ struct field_is_compatible<std::int16_t>
 template <>
 struct field_is_compatible<std::int32_t>
 {
-    static inline boost::system::error_code call(const protocol::field_description& desc)
+    static boost::system::error_code call(const protocol::field_description& desc)
     {
         if (desc.type_oid == int4_oid || desc.type_oid == int2_oid)
             return boost::system::error_code{};
@@ -88,7 +88,7 @@ struct field_is_compatible<std::int32_t>
 template <>
 struct field_is_compatible<std::int64_t>
 {
-    static inline boost::system::error_code call(const protocol::field_description& desc)
+    static boost::system::error_code call(const protocol::field_description& desc)
     {
         if (desc.type_oid == int8_oid || desc.type_oid == int4_oid || desc.type_oid == int2_oid)
             return boost::system::error_code{};
@@ -100,7 +100,7 @@ struct field_is_compatible<std::int64_t>
 template <>
 struct field_is_compatible<float>
 {
-    static inline boost::system::error_code call(const protocol::field_description& desc)
+    static boost::system::error_code call(const protocol::field_description& desc)
     {
         if (desc.type_oid == float4_oid)
             return boost::system::error_code{};
@@ -112,7 +112,7 @@ struct field_is_compatible<float>
 template <>
 struct field_is_compatible<double>
 {
-    static inline boost::system::error_code call(const protocol::field_description& desc)
+    static boost::system::error_code call(const protocol::field_description& desc)
     {
         if (desc.type_oid == float8_oid || desc.type_oid == float4_oid)
             return boost::system::error_code{};
@@ -124,7 +124,7 @@ struct field_is_compatible<double>
 template <>
 struct field_is_compatible<std::string>
 {
-    static inline boost::system::error_code call(const protocol::field_description& desc)
+    static boost::system::error_code call(const protocol::field_description& desc)
     {
         if (desc.type_oid == text_oid || desc.type_oid == varchar_oid)
             return boost::system::error_code{};
@@ -140,7 +140,7 @@ struct field_parse;
 template <>
 struct field_parse<bool>
 {
-    static inline boost::system::error_code call(
+    static boost::system::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         bool& to
@@ -149,15 +149,15 @@ struct field_parse<bool>
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == bool_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_bool(from.data(), to)
-                                                            : types::parse_binary_bool(from.data(), to);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_bool(from, to)
+                                                            : types::parse_binary_bool(from, to);
     }
 };
 
 template <>
 struct field_parse<std::vector<std::byte>>
 {
-    static inline boost::system::error_code call(
+    static boost::system::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         std::vector<std::byte>& to
@@ -166,15 +166,15 @@ struct field_parse<std::vector<std::byte>>
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == bytea_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_bytea(from.data(), to)
-                                                            : types::parse_binary_bytea(from.data(), to);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_bytea(from, to)
+                                                            : types::parse_binary_bytea(from, to);
     }
 };
 
 template <>
 struct field_parse<std::int16_t>
 {
-    static inline boost::system::error_code call(
+    static boost::system::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         std::int16_t& to
@@ -183,15 +183,15 @@ struct field_parse<std::int16_t>
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == int2_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_int(from.data(), to)
-                                                            : types::parse_binary_int(from.data(), to);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_int(from, to)
+                                                            : types::parse_binary_int(from, to);
     }
 };
 
 template <>
 struct field_parse<std::int32_t>
 {
-    static inline boost::system::error_code call(
+    static boost::system::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         std::int32_t& to
@@ -199,22 +199,21 @@ struct field_parse<std::int32_t>
     {
         if (from.is_null())
             return client_errc::unexpected_null;
-        const auto data = from.data();
         switch (desc.type_oid)
         {
             case int2_oid:
             {
                 std::int16_t value{};
                 const auto ec = desc.fmt_code == protocol::format_code::text
-                                    ? types::parse_text_int(data, value)
-                                    : types::parse_binary_int(data, value);
+                                    ? types::parse_text_int(from, value)
+                                    : types::parse_binary_int(from, value);
                 to = value;
                 return ec;
             }
             case int4_oid:
             {
-                return desc.fmt_code == protocol::format_code::text ? types::parse_text_int(data, to)
-                                                                    : types::parse_binary_int(data, to);
+                return desc.fmt_code == protocol::format_code::text ? types::parse_text_int(from, to)
+                                                                    : types::parse_binary_int(from, to);
             }
 
             default: BOOST_ASSERT(false); return {client_errc::incompatible_field_type};
@@ -225,7 +224,7 @@ struct field_parse<std::int32_t>
 template <>
 struct field_parse<std::int64_t>
 {
-    static inline boost::system::error_code call(
+    static boost::system::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         std::int64_t& to
@@ -233,15 +232,14 @@ struct field_parse<std::int64_t>
     {
         if (from.is_null())
             return client_errc::unexpected_null;
-        const auto data = from.data();
         switch (desc.type_oid)
         {
             case int2_oid:
             {
                 std::int16_t value{};
                 const auto ec = desc.fmt_code == protocol::format_code::text
-                                    ? types::parse_text_int(data, value)
-                                    : types::parse_binary_int(data, value);
+                                    ? types::parse_text_int(from, value)
+                                    : types::parse_binary_int(from, value);
                 to = value;
                 return ec;
             }
@@ -249,14 +247,14 @@ struct field_parse<std::int64_t>
             {
                 std::int32_t value{};
                 const auto ec = desc.fmt_code == protocol::format_code::text
-                                    ? types::parse_text_int(data, value)
-                                    : types::parse_binary_int(data, value);
+                                    ? types::parse_text_int(from, value)
+                                    : types::parse_binary_int(from, value);
                 to = value;
                 return ec;
             }
             case int8_oid:
-                return desc.fmt_code == protocol::format_code::text ? types::parse_text_int(data, to)
-                                                                    : types::parse_binary_int(data, to);
+                return desc.fmt_code == protocol::format_code::text ? types::parse_text_int(from, to)
+                                                                    : types::parse_binary_int(from, to);
             default: BOOST_ASSERT(false); return {client_errc::incompatible_field_type};
         }
     }
@@ -265,7 +263,7 @@ struct field_parse<std::int64_t>
 template <>
 struct field_parse<float>
 {
-    static inline boost::system::error_code call(
+    static boost::system::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         float& to
@@ -274,16 +272,15 @@ struct field_parse<float>
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == float4_oid);
-        return desc.fmt_code == protocol::format_code::text
-                   ? types::parse_text_float<float>(from.data(), to)
-                   : types::parse_binary_float<float>(from.data(), to);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_float<float>(from, to)
+                                                            : types::parse_binary_float<float>(from, to);
     }
 };
 
 template <>
 struct field_parse<double>
 {
-    static inline boost::system::error_code call(
+    static boost::system::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         double& to
@@ -297,15 +294,15 @@ struct field_parse<double>
             case float8_oid:
             {
                 return desc.fmt_code == protocol::format_code::text
-                           ? types::parse_text_float<double>(from.data(), to)
-                           : types::parse_binary_float<double>(from.data(), to);
+                           ? types::parse_text_float<double>(from, to)
+                           : types::parse_binary_float<double>(from, to);
             }
             case float4_oid:
             {
                 float value{};
                 const auto ec = desc.fmt_code == protocol::format_code::text
-                                    ? types::parse_text_float<float>(from.data(), value)
-                                    : types::parse_binary_float<float>(from.data(), value);
+                                    ? types::parse_text_float<float>(from, value)
+                                    : types::parse_binary_float<float>(from, value);
                 to = value;
                 return ec;
             }
@@ -317,7 +314,7 @@ struct field_parse<double>
 template <>
 struct field_parse<std::string>
 {
-    static inline boost::system::error_code call(
+    static boost::system::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         std::string& to
@@ -326,8 +323,8 @@ struct field_parse<std::string>
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == text_oid || desc.type_oid == varchar_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_text(from.data(), to)
-                                                            : types::parse_binary_text(from.data(), to);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_text(from, to)
+                                                            : types::parse_binary_text(from, to);
     }
 };
 

@@ -417,7 +417,6 @@ void test_parse_binary_float_success(const unsigned char (&in_val)[N])
     }
 }
 
-
 template <typename T>
 void test_parse_text_float_garbage_error()
 {
@@ -484,11 +483,16 @@ void test_parse_binary_text_success(const T& in_val)
 
     if constexpr (std::is_same_v<T, std::string_view>)
     {
-        NATIVEPG_TEST_EQ((const void*)out_val.data(), (const void*)data.data());  // zero-copy: aliases input
+        NATIVEPG_TEST_EQ(
+            static_cast<const void*>(out_val.data()),
+            static_cast<const void*>(data.data())
+        );  // zero-copy: aliases input
     }
     else
     {
-        NATIVEPG_TEST((const void*)out_val.data() != (const void*)data.data());  // std::string: owns a copy
+        NATIVEPG_TEST(
+            static_cast<const void*>(out_val.data()) != static_cast<const void*>(data.data())
+        );  // std::string: owns a copy
     }
 }
 
@@ -666,17 +670,17 @@ int main()
     test_parse_binary_float_success<double, -std::numeric_limits<double>::infinity()>();
 
     // float4
-    static constexpr unsigned char pg_float4_inf[]  = {0x7F, 0x80, 0x00, 0x00};
+    static constexpr unsigned char pg_float4_inf[] = {0x7F, 0x80, 0x00, 0x00};
     static constexpr unsigned char pg_float4_ninf[] = {0xFF, 0x80, 0x00, 0x00};
-    static constexpr unsigned char pg_float4_nan[]  = {0x7F, 0xC0, 0x00, 0x00};
+    static constexpr unsigned char pg_float4_nan[] = {0x7F, 0xC0, 0x00, 0x00};
     test_parse_binary_float_success(pg_float4_inf);
     test_parse_binary_float_success(pg_float4_ninf);
     test_parse_binary_float_success(pg_float4_nan);
 
     // float8
-    static constexpr unsigned char pg_float8_inf[]  = {0x7F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    static constexpr unsigned char pg_float8_inf[] = {0x7F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     static constexpr unsigned char pg_float8_ninf[] = {0xFF, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    static constexpr unsigned char pg_float8_nan[]  = {0x7F, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    static constexpr unsigned char pg_float8_nan[] = {0x7F, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     test_parse_binary_float_success(pg_float8_inf);
     test_parse_binary_float_success(pg_float8_ninf);
     test_parse_binary_float_success(pg_float8_nan);

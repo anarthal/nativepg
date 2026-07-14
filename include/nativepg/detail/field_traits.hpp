@@ -31,7 +31,7 @@ template <class T>
     requires std::assignable_from<T&, std::string_view>
 struct field_is_compatible<T>
 {
-    static inline boost::system::error_code call(const protocol::field_description&)
+    static boost::system::error_code call(const protocol::field_description&)
     {
         return boost::system::error_code{};
     }
@@ -45,11 +45,7 @@ template <class T>
     requires std::assignable_from<T&, std::string_view>
 struct field_parse<T>
 {
-    static inline boost::system::error_code call(
-        const field_view from,
-        const protocol::field_description&,
-        T& to
-    )
+    static boost::system::error_code call(const field_view from, const protocol::field_description&, T& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;

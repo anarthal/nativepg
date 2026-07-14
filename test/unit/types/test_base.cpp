@@ -339,7 +339,19 @@ void test_parse_text_float_success()
 
     // Assert
     NATIVEPG_TEST_EQ(err, boost::system::errc::success);
-    NATIVEPG_TEST_EQ(out_val, in_val);
+    if (std::isnan(in_val))
+    {
+        NATIVEPG_TEST(std::isnan(out_val));
+    }
+    else if (std::isinf(in_val))
+    {
+        NATIVEPG_TEST(std::isinf(out_val));
+        NATIVEPG_TEST_EQ(std::signbit(out_val), std::signbit(in_val));
+    }
+    else
+    {
+        NATIVEPG_TEST_EQ(out_val, in_val);
+    }
 }
 
 template <typename T, T in_val>
@@ -356,8 +368,54 @@ void test_parse_binary_float_success()
 
     // Assert
     NATIVEPG_TEST_EQ(err, boost::system::errc::success);
-    NATIVEPG_TEST_EQ(out_val, in_val);
+    if (std::isnan(in_val))
+    {
+        NATIVEPG_TEST(std::isnan(out_val));
+    }
+    else if (std::isinf(in_val))
+    {
+        NATIVEPG_TEST(std::isinf(out_val));
+        NATIVEPG_TEST_EQ(std::signbit(out_val), std::signbit(in_val));
+    }
+    else
+    {
+        NATIVEPG_TEST_EQ(out_val, in_val);
+    }
 }
+
+template <std::size_t N>
+void test_parse_binary_float_success(const unsigned char (&in_val)[N])
+{
+    static_assert(N == sizeof(float) || N == sizeof(double), "Unsupported byte width for a PostgreSQL float");
+    using T = std::conditional_t<N == sizeof(float), float, double>;
+
+    // Arrange
+    T out_val{};
+    boost::span<const unsigned char> data(in_val);
+    field_view fv{data};
+
+    // Act
+    auto err = types::parse_binary_float<T>(fv, out_val);
+
+    // Assert
+    NATIVEPG_TEST_EQ(err, boost::system::errc::success);
+
+    const T expected = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(in_val);
+    if (std::isnan(expected))
+    {
+        NATIVEPG_TEST(std::isnan(out_val));
+    }
+    else if (std::isinf(expected))
+    {
+        NATIVEPG_TEST(std::isinf(out_val));
+        NATIVEPG_TEST_EQ(std::signbit(out_val), std::signbit(expected));
+    }
+    else
+    {
+        NATIVEPG_TEST_EQ(out_val, expected);
+    }
+}
+
 
 template <typename T>
 void test_parse_text_float_garbage_error()
@@ -585,13 +643,43 @@ int main()
     // FLOAT4
     test_parse_text_float_success<float, std::numeric_limits<float>::min()>();
     test_parse_text_float_success<float, std::numeric_limits<float>::max()>();
+    test_parse_text_float_success<float, std::numeric_limits<float>::quiet_NaN()>();
+    test_parse_text_float_success<float, std::numeric_limits<float>::infinity()>();
+    test_parse_text_float_success<float, -std::numeric_limits<float>::infinity()>();
     test_parse_binary_float_success<float, std::numeric_limits<float>::min()>();
     test_parse_binary_float_success<float, std::numeric_limits<float>::max()>();
+    test_parse_binary_float_success<float, std::numeric_limits<float>::quiet_NaN()>();
+    test_parse_binary_float_success<float, std::numeric_limits<float>::infinity()>();
+    test_parse_binary_float_success<float, -std::numeric_limits<float>::infinity()>();
+
     // FLOAT8
     test_parse_text_float_success<double, std::numeric_limits<double>::min()>();
     test_parse_text_float_success<double, std::numeric_limits<double>::max()>();
+    test_parse_text_float_success<double, std::numeric_limits<double>::quiet_NaN()>();
+    test_parse_text_float_success<double, std::numeric_limits<double>::infinity()>();
+    test_parse_text_float_success<double, -std::numeric_limits<double>::infinity()>();
     test_parse_binary_float_success<double, std::numeric_limits<double>::min()>();
     test_parse_binary_float_success<double, std::numeric_limits<double>::max()>();
+    test_parse_binary_float_success<double, std::numeric_limits<double>::quiet_NaN()>();
+    test_parse_binary_float_success<double, std::numeric_limits<double>::infinity()>();
+    test_parse_binary_float_success<double, -std::numeric_limits<double>::infinity()>();
+
+    // float4
+    static constexpr unsigned char pg_float4_inf[]  = {0x7F, 0x80, 0x00, 0x00};
+    static constexpr unsigned char pg_float4_ninf[] = {0xFF, 0x80, 0x00, 0x00};
+    static constexpr unsigned char pg_float4_nan[]  = {0x7F, 0xC0, 0x00, 0x00};
+    test_parse_binary_float_success(pg_float4_inf);
+    test_parse_binary_float_success(pg_float4_ninf);
+    test_parse_binary_float_success(pg_float4_nan);
+
+    // float8
+    static constexpr unsigned char pg_float8_inf[]  = {0x7F, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    static constexpr unsigned char pg_float8_ninf[] = {0xFF, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    static constexpr unsigned char pg_float8_nan[]  = {0x7F, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    test_parse_binary_float_success(pg_float8_inf);
+    test_parse_binary_float_success(pg_float8_ninf);
+    test_parse_binary_float_success(pg_float8_nan);
+
     // Invalid FLOAT paths
     test_parse_text_float_garbage_error<float>();
     test_parse_text_float_garbage_error<double>();

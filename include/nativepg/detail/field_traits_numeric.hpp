@@ -14,19 +14,15 @@
 #include <boost/multiprecision/number.hpp>
 #include <boost/system/error_code.hpp>
 
-#include <span>
-
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/numeric.hpp"
-
 
 namespace nativepg::detail {
 
 namespace mp = boost::multiprecision;
 
 inline constexpr std::int32_t numeric_oid = 1700;
-
 
 template <class T>
 struct field_is_compatible;
@@ -37,10 +33,9 @@ struct field_is_compatible<mp::number<mp::cpp_dec_float<Digits, Exp, Alloc>, ET>
     static boost::system::error_code call(const protocol::field_description& desc)
     {
         return desc.type_oid == numeric_oid ? boost::system::error_code{}
-        : client_errc::incompatible_field_type;
+                                            : client_errc::incompatible_field_type;
     }
 };
-
 
 // --- Parse
 template <class T>
@@ -54,19 +49,18 @@ struct field_parse<mp::number<mp::cpp_dec_float<Digits, Exp, Alloc>, ET>>
     static boost::system::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
-        number_t& to)
+        number_t& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == numeric_oid);
-        return desc.fmt_code == protocol::format_code::text
-                 ? types::parse_text_numeric(from.data(), to)
-                 : types::parse_binary_numeric(from.data(), to);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_numeric(from, to)
+                                                            : types::parse_binary_numeric(from, to);
     }
 };
 
-
-}// namespace nativepg::detail
+}  // namespace nativepg::detail
 #endif
 
 #endif

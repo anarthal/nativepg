@@ -13,12 +13,9 @@
 #include <boost/decimal.hpp>
 #include <boost/system/error_code.hpp>
 
-#include <span>
-
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/decimal.hpp"
-
 
 namespace nativepg::detail {
 
@@ -30,44 +27,41 @@ template <class T>
 struct field_is_compatible;
 
 template <class T>
-    requires std::same_as<T, bd::decimal32_t> ||
-             std::same_as<T, bd::decimal64_t> ||
+    requires std::same_as<T, bd::decimal32_t> || std::same_as<T, bd::decimal64_t> ||
              std::same_as<T, bd::decimal128_t>
 struct field_is_compatible<T>
 {
     static boost::system::error_code call(const protocol::field_description& desc)
     {
         return desc.type_oid == decimal_oid ? boost::system::error_code{}
-        : client_errc::incompatible_field_type;
+                                            : client_errc::incompatible_field_type;
     }
 };
-
 
 // --- Parse
 template <class T>
 struct field_parse;
 
 template <class T>
-    requires std::same_as<T, bd::decimal32_t> ||
-             std::same_as<T, bd::decimal64_t> ||
+    requires std::same_as<T, bd::decimal32_t> || std::same_as<T, bd::decimal64_t> ||
              std::same_as<T, bd::decimal128_t>
 struct field_parse<T>
 {
     static boost::system::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
-        T& to)
+        T& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == decimal_oid);
-        return desc.fmt_code == protocol::format_code::text
-                 ? types::parse_text_decimal(from.data(), to)
-                 : types::parse_binary_decimal(from.data(), to);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_decimal(from, to)
+                                                            : types::parse_binary_decimal(from, to);
     }
 };
 
-}// namespace nativepg::detail
+}  // namespace nativepg::detail
 #endif
 
 #endif

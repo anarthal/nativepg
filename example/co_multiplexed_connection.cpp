@@ -37,28 +37,20 @@ static void print_err(const char* prefix, std::error_code err, const diagnostics
     std::cout << '\n';
 }
 
-static void print_err(const char* prefix, const extended_error& err)
-{
-    print_err(prefix, err.code, err.diag);
-}
-
 static capy::io_task<> run_request(co_multiplexed_connection& conn)
 {
     // Compose our request
     request req;
-    req.add_query("SELECT * FROM myt' WHERE f1 <> $1", {"abc"});
-    req.add_query("SELECT * FROM myt WHERE f1 <> 'abc'", {});
+    req.add_query("SELECT * FROM myt WHERE f1 <> $1", {"abc"});
+    req.add_query("SELECT * FROM myt WHERE f1 = 'abc'", {});
 
     // Structures to parse the response into
     std::vector<myrow> vec1, vec2;
-    response res{into(vec1), into(vec2)};
 
     // Execute it
     diagnostics diag;
-    auto [ec2] = co_await conn.exec(req, res, &diag);
+    auto [ec2] = co_await conn.exec(req, response{into(vec1), into(vec2)}, &diag);
     print_err("Operation result", ec2, diag);
-    print_err("Q1 result", std::get<0>(res.handlers()).result());
-    print_err("Q2 result", std::get<1>(res.handlers()).result());
 
     for (const auto& r : vec1)
         std::cout << "Got row (1): " << r.f1 << ", " << r.f3 << std::endl;

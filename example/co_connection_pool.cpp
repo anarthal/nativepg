@@ -88,9 +88,8 @@ static capy::io_task<std::string> get_employee_details(co_connection_pool& pool,
     req.add_query("SELECT first_name, last_name FROM employee WHERE id = $1", {employee_id});
 
     std::vector<employee> rows;
-    response res{into(rows)};
 
-    auto [ec_exec] = co_await pconn->exec(req, res);
+    auto [ec_exec] = co_await pconn->exec(req, into(rows));
     if (ec_exec)
         co_return {ec_exec, {}};
 

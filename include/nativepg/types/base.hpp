@@ -64,12 +64,11 @@ static inline error_code parse_text_to_number(const std::string_view& sv, T& to)
 
 //BOOL => bool;
 template <class T = bool>
-constexpr error_code parse_text_bool(const std::span<const unsigned char> from, T& to)
+constexpr error_code parse_text_bool(const field_view& from, T& to)
 {
-    if (const std::string_view sv{reinterpret_cast<const char*>(from.data()), from.size()};
-        sv == "t" || sv == "true")
+    if (const std::string_view sv = from.data_str(); sv == "t")
         to = true;
-    else if (sv == "f" || sv == "false")
+    else if (sv == "f")
         to = false;
     else
         return client_errc::protocol_value_error;
@@ -77,20 +76,20 @@ constexpr error_code parse_text_bool(const std::span<const unsigned char> from, 
 }
 
 template <class T = bool>
-constexpr error_code parse_binary_bool(const std::span<const unsigned char> from, T& to)
+constexpr error_code parse_binary_bool(const field_view& from, T& to)
 {
-    if (from.size() != 1)
+    if (from.data().size() != 1)
         return client_errc::protocol_value_error;
-    to = from[0] != 0;
+    to = from.data()[0] != 0;
     return {};
 }
 
 //BYTEA => std::vector<std::byte>>;
 template <class T = std::vector<std::byte>>
-static error_code parse_text_bytea(const std::span<const unsigned char> from, T& to)
+static error_code parse_text_bytea(const field_view& from, T& to)
 {
     // PostgresSQL text format for bytea is \x followed by hex pairs
-    std::string_view sv{reinterpret_cast<const char*>(from.data()), from.size()};
+    std::string_view sv = from.data_str();
     if (sv.size() < 2 || sv[0] != '\\' || sv[1] != 'x')
         return client_errc::protocol_value_error;
     sv.remove_prefix(2);
@@ -110,92 +109,67 @@ static error_code parse_text_bytea(const std::span<const unsigned char> from, T&
 }
 
 template <class T = std::vector<std::byte>>
-constexpr error_code parse_binary_bytea(const std::span<const unsigned char> from, T& to)
+constexpr error_code parse_binary_bytea(const field_view& from, T& to)
 {
     // Binary format is raw bytes — copy directly
     to.clear();
-    to.reserve(from.size());
-    for (auto byte : from)
+    to.reserve(from.data().size());
+    for (auto byte : from.data())
         to.push_back(static_cast<std::byte>(byte));
     return {};
 }
 
 // INT => std::int_t
 template <class T>
-static inline error_code parse_text_int(const std::span<const unsigned char> from, T& to)
+static inline error_code parse_text_int(const field_view& from, T& to)
 {
-    if (const std::size_t max_chars = std::numeric_limits<T>::digits10 + 2; from.size() > max_chars)
-        // TODO: More specific error message?
-        return client_errc::protocol_value_error;
-
-    const std::string_view sv{reinterpret_cast<const char*>(from.data()), from.size()};
+    const std::string_view sv = from.data_str();
     return detail::parse_text_to_number<T>(sv, to);
 }
 
 template <class T>
-constexpr error_code parse_binary_int(const std::span<const unsigned char> from, T& to)
+constexpr error_code parse_binary_int(const field_view& from, T& to)
 {
-    if (from.size() != sizeof(T))
+    if (from.data().size() != sizeof(T))
         return client_errc::protocol_value_error;
-    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data());
+    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data().data());
     return {};
 }
 
 // FLOAT => float
 template <class T>
-static inline error_code parse_text_float(const std::span<const unsigned char> from, T& to)
+static inline error_code parse_text_float(const field_view& from, T& to)
 {
-    if (const std::size_t max_chars = std::max(std::numeric_limits<T>::max_exponent10 + 6, /*-infinity*/ 9);
-        from.size() > max_chars)
-        return client_errc::protocol_value_error;
-
-    const std::string_view s{reinterpret_cast<const char*>(from.data()), from.size()};
-    return detail::parse_text_to_number<T>(s, to);
+    const std::string_view sv = from.data_str();
+    return detail::parse_text_to_number<T>(sv, to);
 }
 
 template <class T>
-constexpr error_code parse_binary_float(const std::span<const unsigned char> from, T& to)
+constexpr error_code parse_binary_float(const field_view& from, T& to)
 {
-    if (from.size() != sizeof(T))
+    if (from.data().size() != sizeof(T))
         return client_errc::protocol_value_error;
 
-    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data());
+    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data().data());
     return {};
 }
 
 // TEXT | VARCHAR => std::string
 template <class T = std::string>
-constexpr error_code parse_text_text(const std::span<const unsigned char> from, T& to)
+constexpr error_code parse_text_text(const field_view& from, T& to)
 {
-    to = T{reinterpret_cast<const char*>(from.data()), from.size()};
+    to.assign(from.data_str());
     return {};
 }
 
 template <class T = std::string>
-constexpr error_code parse_binary_text(const std::span<const unsigned char> from, T& to)
+constexpr error_code parse_binary_text(const field_view& from, T& to)
 {
     //TODO What about different text encodings?
-    to = T{reinterpret_cast<const char*>(from.data()), from.size()};
+    to.assign(from.data_str());
     return {};
 }
 
-}
-
-template <class T = std::vector<std::byte>>
-static inline std::basic_ostream<T>& operator<<(std::basic_ostream<T>& os, const std::vector<std::byte>& bytes)
-{
-    if (bytes.empty() || (bytes.size() == 1 && bytes[0] == std::byte{0x00}))
-    {
-        os << "0x00";
-    }
-    else
-    {
-        os << "0x";
-        for (auto byte : bytes)
-            os << std::format("{:02x}", static_cast<int>(byte));
-    }
-
-    return os;
 }
 
 }

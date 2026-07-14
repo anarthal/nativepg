@@ -25,38 +25,41 @@ using namespace nativepg;
 
 namespace {
 
+template <class T = std::vector<std::byte>>
+static inline std::basic_ostream<T>& operator<<(std::basic_ostream<T>& os, const std::vector<std::byte>& bytes)
+{
+    if (bytes.empty() || (bytes.size() == 1 && bytes[0] == std::byte{0x00}))
+    {
+        os << "0x00";
+    }
+    else
+    {
+        os << "0x";
+        for (auto byte : bytes)
+            os << std::format("{:02x}", static_cast<int>(byte));
+    }
+
+    return os;
+}
+
 // BOOL
-void test__parse_text_bool__t_success()
+void test_parse_text_bool_t_success()
 {
     // Arrange
     bool b = false;
     std::string str = "t";
     boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    field_view fv{data};
 
     // Act
-    auto err = types::parse_text_bool(data, b);
+    auto err = types::parse_text_bool(fv, b);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
     BOOST_TEST_EQ(b, true);
 }
 
-void test__parse_text_bool__true_success()
-{
-    // Arrange
-    bool b = false;
-    std::string str = "true";
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
-
-    // Act
-    auto err = types::parse_text_bool(data, b);
-
-    // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
-    BOOST_TEST_EQ(b, true);
-}
-
-void test__parse_binary_bool__t_success()
+void test_parse_binary_bool_t_success()
 {
     // Arrange
     bool b = false;
@@ -64,46 +67,33 @@ void test__parse_binary_bool__t_success()
         0x1
     };
     boost::span<const unsigned char> data(pg_bool);
+    field_view fv{data};
 
     // Act
-    auto err = types::parse_binary_bool(data, b);
+    auto err = types::parse_binary_bool(fv, b);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
     BOOST_TEST_EQ(b, true);
 }
 
-void test__parse_text_bool__f_success()
+void test_parse_text_bool_f_success()
 {
     // Arrange
     bool b = true;
     std::string str = "f";
     boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    field_view fv{data};
 
     // Act
-    auto err = types::parse_text_bool(data, b);
+    auto err = types::parse_text_bool(fv, b);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
     BOOST_TEST_EQ(b, false);
 }
 
-void test__parse_text_bool__false_success()
-{
-    // Arrange
-    bool b = true;
-    std::string str = "false";
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
-
-    // Act
-    auto err = types::parse_text_bool(data, b);
-
-    // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
-    BOOST_TEST_EQ(b, false);
-}
-
-void test__parse_binary_bool__f_success()
+void test_parse_binary_bool_f_success()
 {
     // Arrange
     bool b = true;
@@ -111,9 +101,10 @@ void test__parse_binary_bool__f_success()
         0x0
     };
     boost::span<const unsigned char> data(pg_bool);
+    field_view fv{data};
 
     // Act
-    auto err = types::parse_binary_bool(data, b);
+    auto err = types::parse_binary_bool(fv, b);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
@@ -122,15 +113,16 @@ void test__parse_binary_bool__f_success()
 
 
 // BYTEA
-void test__parse_text_bytea__success()
+void test_parse_text_bytea_success()
 {
     // Arrange
     std::vector<std::byte> ba;
     std::string str = "\\x21061977";
     boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    field_view fv{data};
 
     // Act
-    auto err = types::parse_text_bytea(data, ba);
+    auto err = types::parse_text_bytea(fv, ba);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
@@ -148,9 +140,10 @@ void test_parse_binary_bytea_success()
         0x21, 0x06, 0x19, 0x77
     };
     boost::span<const unsigned char> data(pg_bytea);
+    field_view fv{data};
 
     // Act
-    auto err = types::parse_binary_bytea(data, ba);
+    auto err = types::parse_binary_bytea(fv, ba);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
@@ -162,15 +155,16 @@ void test_parse_binary_bytea_success()
 
 // INT
 template <typename T, T in_val>
-void test__parse_text_int__success()
+void test_parse_text_int_success()
 {
     // Arrange
     T out_val;
     std::string str = std::to_string(in_val);
     boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    field_view fv{data};
 
     // Act
-    auto err = types::parse_text_int<T>(data, out_val);
+    auto err = types::parse_text_int<T>(fv, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
@@ -178,15 +172,16 @@ void test__parse_text_int__success()
 }
 
 template <typename T, T in_val>
-void test__parse_binary_int__success()
+void test_parse_binary_int_success()
 {
     // Arrange
     T out_val;
     std::vector<uint8_t> buffer(sizeof(T));
     boost::endian::endian_store<T, sizeof(T), boost::endian::order::big>(buffer.data(), in_val);
+    field_view fv{buffer};
 
     // Act
-    auto err = types::parse_binary_int<T>(buffer, out_val);
+    auto err = types::parse_binary_int<T>(fv, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
@@ -196,7 +191,7 @@ void test__parse_binary_int__success()
 
 // FLOAT
 template <typename T, T in_val>
-void test__parse_text_float__success()
+void test_parse_text_float_success()
 {
     // Arrange
     T out_val;
@@ -204,9 +199,10 @@ void test__parse_text_float__success()
     ss << std::setprecision(std::numeric_limits<T>::max_digits10) << in_val;
     std::string str = ss.str();
     boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    field_view fv{data};
 
     // Act
-    auto err = types::parse_text_float<T>(data, out_val);
+    auto err = types::parse_text_float<T>(fv, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
@@ -214,15 +210,16 @@ void test__parse_text_float__success()
 }
 
 template <typename T, T in_val>
-void test__parse_binary_float__success()
+void test_parse_binary_float_success()
 {
     // Arrange
     T out_val;
     std::vector<uint8_t> buffer(sizeof(T));
     boost::endian::endian_store<T, sizeof(T), boost::endian::order::big>(buffer.data(), in_val);
+    field_view fv{buffer};
 
     // Act
-    auto err = types::parse_binary_float<T>(buffer, out_val);
+    auto err = types::parse_binary_float<T>(fv, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
@@ -236,9 +233,10 @@ void test_parse_text_text_success(const T& in_val)
     T out_val;
     const std::string str = in_val;
     boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    field_view fv{data};
 
     // Act
-    auto err = types::parse_text_text<T>(data, out_val);
+    auto err = types::parse_text_text<T>(fv, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
@@ -246,15 +244,16 @@ void test_parse_text_text_success(const T& in_val)
 }
 
 template <typename T = std::string>
-void test__parse_binary_text__success(const T& in_val)
+void test_parse_binary_text_success(const T& in_val)
 {
     // Arrange
     T out_val;
     const std::string_view str = in_val;
     boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    field_view fv{data};
 
     // Act
-    auto err = types::parse_binary_text<T>(data, out_val);
+    auto err = types::parse_binary_text<T>(fv, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
@@ -271,47 +270,45 @@ void test__parse_binary_text__success(const T& in_val)
 int main()
 {
     // BOOL
-    test__parse_text_bool__t_success();
-    test__parse_text_bool__true_success();
-    test__parse_binary_bool__t_success();
-    test__parse_text_bool__f_success();
-    test__parse_text_bool__false_success();
-    test__parse_binary_bool__f_success();
+    test_parse_text_bool_t_success();
+    test_parse_binary_bool_t_success();
+    test_parse_text_bool_f_success();
+    test_parse_binary_bool_f_success();
 
     // BYTEA
-    test__parse_text_bytea__success();
+    test_parse_text_bytea_success();
     test_parse_binary_bytea_success();
 
     // INT2
-    test__parse_text_int__success<std::int16_t, std::numeric_limits<std::int16_t>::min()>();
-    test__parse_text_int__success<std::int16_t, std::numeric_limits<std::int16_t>::max()>();
-    test__parse_binary_int__success<std::int16_t, std::numeric_limits<std::int16_t>::min()>();
-    test__parse_binary_int__success<std::int16_t, std::numeric_limits<std::int16_t>::max()>();
+    test_parse_text_int_success<std::int16_t, std::numeric_limits<std::int16_t>::min()>();
+    test_parse_text_int_success<std::int16_t, std::numeric_limits<std::int16_t>::max()>();
+    test_parse_binary_int_success<std::int16_t, std::numeric_limits<std::int16_t>::min()>();
+    test_parse_binary_int_success<std::int16_t, std::numeric_limits<std::int16_t>::max()>();
     // INT4
-    test__parse_text_int__success<std::int32_t, std::numeric_limits<std::int32_t>::min()>();
-    test__parse_text_int__success<std::int32_t, std::numeric_limits<std::int32_t>::max()>();
-    test__parse_binary_int__success<std::int32_t, std::numeric_limits<std::int32_t>::min()>();
-    test__parse_binary_int__success<std::int32_t, std::numeric_limits<std::int32_t>::max()>();
+    test_parse_text_int_success<std::int32_t, std::numeric_limits<std::int32_t>::min()>();
+    test_parse_text_int_success<std::int32_t, std::numeric_limits<std::int32_t>::max()>();
+    test_parse_binary_int_success<std::int32_t, std::numeric_limits<std::int32_t>::min()>();
+    test_parse_binary_int_success<std::int32_t, std::numeric_limits<std::int32_t>::max()>();
     // INT8
-    test__parse_text_int__success<std::int64_t, std::numeric_limits<std::int64_t>::min()>();
-    test__parse_text_int__success<std::int64_t, std::numeric_limits<std::int64_t>::max()>();
-    test__parse_binary_int__success<std::int64_t, std::numeric_limits<std::int64_t>::min()>();
-    test__parse_binary_int__success<std::int64_t, std::numeric_limits<std::int64_t>::max()>();
+    test_parse_text_int_success<std::int64_t, std::numeric_limits<std::int64_t>::min()>();
+    test_parse_text_int_success<std::int64_t, std::numeric_limits<std::int64_t>::max()>();
+    test_parse_binary_int_success<std::int64_t, std::numeric_limits<std::int64_t>::min()>();
+    test_parse_binary_int_success<std::int64_t, std::numeric_limits<std::int64_t>::max()>();
 
     // FLOAT4
-    test__parse_text_float__success<float, std::numeric_limits<float>::min()>();
-    test__parse_text_float__success<float, std::numeric_limits<float>::max()>();
-    test__parse_binary_float__success<float, std::numeric_limits<float>::min()>();
-    test__parse_binary_float__success<float, std::numeric_limits<float>::max()>();
+    test_parse_text_float_success<float, std::numeric_limits<float>::min()>();
+    test_parse_text_float_success<float, std::numeric_limits<float>::max()>();
+    test_parse_binary_float_success<float, std::numeric_limits<float>::min()>();
+    test_parse_binary_float_success<float, std::numeric_limits<float>::max()>();
     // FLOAT8
-    test__parse_text_float__success<double, std::numeric_limits<double>::min()>();
-    test__parse_text_float__success<double, std::numeric_limits<double>::max()>();
-    test__parse_binary_float__success<double, std::numeric_limits<double>::min()>();
-    test__parse_binary_float__success<double, std::numeric_limits<double>::max()>();
+    test_parse_text_float_success<double, std::numeric_limits<double>::min()>();
+    test_parse_text_float_success<double, std::numeric_limits<double>::max()>();
+    test_parse_binary_float_success<double, std::numeric_limits<double>::min()>();
+    test_parse_binary_float_success<double, std::numeric_limits<double>::max()>();
 
     // TEXT / VARCHAR
     test_parse_text_text_success<std::string>("The quick brown fox jumps over the lazy dog!");
-    test__parse_binary_text__success<std::string>("The quick brown fox jumps over the lazy dog!");
+    test_parse_binary_text_success<std::string>("The quick brown fox jumps over the lazy dog!");
 
     return boost::report_errors();
 }

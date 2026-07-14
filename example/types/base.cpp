@@ -48,6 +48,24 @@ struct test_row
 };
 BOOST_DESCRIBE_STRUCT(test_row, (), (title, b, ba, i2, i4_a, i4_b, i8_a, i8_b, i8_c, f4, f8_a, f8_b, t, v))
 
+
+template <class T = std::vector<std::byte>>
+static inline std::basic_ostream<T>& operator<<(std::basic_ostream<T>& os, const std::vector<std::byte>& bytes)
+{
+    if (bytes.empty() || (bytes.size() == 1 && bytes[0] == std::byte{0x00}))
+    {
+        os << "0x00";
+    }
+    else
+    {
+        os << "0x";
+        for (auto byte : bytes)
+            os << std::format("{:02x}", static_cast<int>(byte));
+    }
+
+    return os;
+}
+
 static void print_err(const char* prefix, const std::error_code err, const diagnostics& diag)
 {
     std::cerr << prefix << ": " << err << ": " << err.message();
@@ -277,3 +295,6 @@ int main()
 
     ctx.run();
 }
+
+
+

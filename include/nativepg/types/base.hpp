@@ -11,6 +11,7 @@
 #include <boost/endian/conversion.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <algorithm>
 #include <charconv>
 #include <cstddef>
 #include <format>

@@ -18,7 +18,7 @@ namespace nativepg::protocol {
 
 // Parses the tag that the server sends, which contains
 // useful info if the command contains certain statements.
-// Returns an error if the tag does not conform to the spec:
+// If the tag does not conform to the spec, returns an error and does not modify the input.
 //   https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-COMMANDCOMPLETE
 boost::system::error_code parse_command_complete_tag(
     std::string_view tag,

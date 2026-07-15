@@ -5,12 +5,11 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#define NATIVEPG_USE_DECIMAL_TYPES 1
-
 #include <boost/core/lightweight_test.hpp>
 #include <boost/decimal.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <cstdint>
 #include <iomanip>
 #include <limits>
 #include <span>
@@ -20,6 +19,7 @@
 #include "nativepg/detail/field_traits.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/decimal.hpp"
+#include "test_utils.hpp"
 
 using namespace nativepg;
 namespace bd = boost::decimal;
@@ -42,11 +42,15 @@ void test_parse_text_decimal_success(const T& in_val)
     auto err = types::parse_text_decimal(data, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    NATIVEPG_TEST_EQ(err, boost::system::error_code{});
     if (bd::isnan(in_val))
-        BOOST_TEST(bd::isnan(out_val));  // NaN != NaN, so compare by predicate
+    {
+        NATIVEPG_TEST(bd::isnan(out_val));  // NaN != NaN, so compare by predicate
+    }
     else
-        BOOST_TEST_EQ(out_val, in_val);
+    {
+        NATIVEPG_TEST_EQ(out_val, in_val);
+    }
 }
 
 template <typename T>
@@ -61,11 +65,15 @@ void test_parse_binary_decimal_success(std::span<const unsigned char> wire, cons
     auto err = types::parse_binary_decimal(wire, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    NATIVEPG_TEST_EQ(err, boost::system::error_code{});
     if (bd::isnan(expected))
-        BOOST_TEST(bd::isnan(out_val));  // NaN != NaN, so compare by predicate
+    {
+        NATIVEPG_TEST(bd::isnan(out_val));  // NaN != NaN, so compare by predicate
+    }
     else
-        BOOST_TEST_EQ(out_val, expected);
+    {
+        NATIVEPG_TEST_EQ(out_val, expected);
+    }
 }
 
 // Verifies a text literal (e.g. one with a leading '+' sign, or leading/trailing zeros) parses to the
@@ -84,8 +92,8 @@ void test_parse_text_decimal_from_str(const std::string& str, const T& expected)
     auto err = types::parse_text_decimal(data, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
-    BOOST_TEST_EQ(out_val, expected);
+    NATIVEPG_TEST_EQ(err, boost::system::error_code{});
+    NATIVEPG_TEST_EQ(out_val, expected);
 }
 
 template <typename T>
@@ -101,7 +109,7 @@ void test_parse_text_decimal_error(const std::string& str, boost::system::error_
     auto ec = types::parse_text_decimal(data, out_val);
 
     // Assert
-    BOOST_TEST_EQ(ec.value(), expected.value());
+    NATIVEPG_TEST_EQ(ec, expected);
 }
 
 template <typename T>
@@ -116,7 +124,93 @@ void test_parse_binary_decimal_error(std::span<const unsigned char> wire, boost:
     auto ec = types::parse_binary_decimal(wire, out_val);
 
     // Assert
-    BOOST_TEST_EQ(ec.value(), expected.value());
+    NATIVEPG_TEST_EQ(ec, expected);
+}
+
+// Builds a field_description with the given type OID and format code (the rest of the fields are
+// irrelevant to type parsing)
+protocol::field_description make_field_description(
+    std::int32_t type_oid,
+    protocol::format_code fmt_code = protocol::format_code::text
+)
+{
+    return {
+        .name = "field",
+        .table_oid = 0,
+        .column_attribute = 0,
+        .type_oid = type_oid,
+        .type_length = 0,
+        .type_modifier = 0,
+        .fmt_code = fmt_code,
+    };
+}
+
+//
+// detail::field_is_compatible / detail::field_parse (field_traits_decimal.hpp)
+//
+void test_field_is_compatible_decimal_success()
+{
+    NATIVEPG_TEST_EQ(
+        detail::field_is_compatible<bd::decimal64_t>::call(make_field_description(detail::decimal_oid)),
+        boost::system::error_code{}
+    );
+}
+
+void test_field_is_compatible_decimal_incompatible_error()
+{
+    NATIVEPG_TEST_EQ(
+        detail::field_is_compatible<bd::decimal64_t>::call(make_field_description(23 /* int4 oid */)),
+        boost::system::error_code(client_errc::incompatible_field_type)
+    );
+}
+
+void test_field_parse_decimal_unexpected_null_error()
+{
+    // Arrange
+    bd::decimal64_t out_val;
+    field_view fv;  // NULL
+    const auto desc = make_field_description(detail::decimal_oid);
+
+    // Act
+    auto err = detail::field_parse<bd::decimal64_t>::call(fv, desc, out_val);
+
+    // Assert
+    NATIVEPG_TEST_EQ(err, boost::system::error_code(client_errc::unexpected_null));
+}
+
+void test_field_parse_decimal_text_success()
+{
+    // Arrange
+    bd::decimal64_t out_val;
+    const std::string str = "1234.5678";
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    field_view fv{data};
+    const auto desc = make_field_description(detail::decimal_oid, protocol::format_code::text);
+
+    // Act
+    auto err = detail::field_parse<bd::decimal64_t>::call(fv, desc, out_val);
+
+    // Assert
+    NATIVEPG_TEST_EQ(err, boost::system::error_code{});
+    NATIVEPG_TEST_EQ(out_val, bd::decimal64_t{"1234.5678"});
+}
+
+void test_field_parse_decimal_binary_success()
+{
+    // Arrange
+    bd::decimal64_t out_val;
+    // 1234.5678: ndigits=2, weight=0, sign=0x0000, dscale=4, groups 1234/5678
+    static constexpr unsigned char pg_num_1234_5678[] =
+        {0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x04, 0xD2, 0x16, 0x2E};
+    field_view fv{pg_num_1234_5678};
+    const auto desc = make_field_description(detail::decimal_oid, protocol::format_code::binary);
+
+    // Act
+    auto err = detail::field_parse<bd::decimal64_t>::call(fv, desc, out_val);
+
+    // Assert
+    NATIVEPG_TEST_EQ(err, boost::system::error_code{});
+    NATIVEPG_TEST_EQ(out_val, bd::decimal64_t{1234.5678});
 }
 
 // Unlike numeric.hpp's arbitrary-precision types, decimal.hpp performs no significant-digit check:
@@ -130,8 +224,8 @@ void test_parse_text_decimal_precision_loss()
     const std::string str = "123456789.123456";  // 15 significant digits, more than decimal32_t can hold
     std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     auto err = types::parse_text_decimal(data, out_val);
-    BOOST_TEST_EQ(err, boost::system::errc::success);
-    BOOST_TEST_EQ(out_val, bd::decimal32_t{str});
+    NATIVEPG_TEST_EQ(err, boost::system::error_code{});
+    NATIVEPG_TEST_EQ(out_val, bd::decimal32_t{str});
 }
 
 }  // namespace
@@ -211,9 +305,7 @@ int main()
     test_parse_binary_decimal_success(pg_num_round, d128("1234.57"));
 
     // Malformed text input: must not throw out of parse_text_decimal, and must report protocol_value_error.
-    const boost::system::error_code parse_error = nativepg::make_error_code(
-        client_errc::protocol_value_error
-    );
+    const boost::system::error_code parse_error(client_errc::protocol_value_error);
     test_parse_text_decimal_error<d32>("abc", parse_error);
     test_parse_text_decimal_error<d32>("", parse_error);
     test_parse_text_decimal_error<d32>("12.3.4", parse_error);
@@ -226,6 +318,12 @@ int main()
     test_parse_binary_decimal_error<d32>(pg_too_short, parse_error);
     test_parse_binary_decimal_error<d32>(pg_truncated, parse_error);
 
+    // detail::field_is_compatible / detail::field_parse (field_traits_decimal.hpp)
+    test_field_is_compatible_decimal_success();
+    test_field_is_compatible_decimal_incompatible_error();
+    test_field_parse_decimal_unexpected_null_error();
+    test_field_parse_decimal_text_success();
+    test_field_parse_decimal_binary_success();
 
     return boost::report_errors();
 };

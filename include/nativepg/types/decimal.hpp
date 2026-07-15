@@ -8,12 +8,18 @@
 #ifndef NATIVEPG_TYPES_DECIMAL_HPP
 #define NATIVEPG_TYPES_DECIMAL_HPP
 
-#ifdef NATIVEPG_USE_DECIMAL_TYPES
-#ifndef BOOST_DECIMAL_HAS_STD_STRING_VIEW
-#define BOOST_DECIMAL_HAS_STD_STRING_VIEW
+// This header is opt-in: only include it (or nativepg/detail/field_traits_decimal.hpp) if you need to
+// parse PostgreSQL "decimal"/"numeric" values into boost::decimal types. Doing so keeps the (heavier)
+// Boost.Decimal headers, and the associated field_traits specializations, out of translation units that
+// don't use this feature.
+#if !__has_include(<boost/decimal/decimal32_t.hpp>)
+#error \
+    "nativepg/types/decimal.hpp requires Boost.Decimal (Boost >= 1.87). Update Boost or avoid including this header."
 #endif
 
-#include <boost/decimal.hpp>
+#include <boost/decimal/decimal128_t.hpp>
+#include <boost/decimal/decimal32_t.hpp>
+#include <boost/decimal/decimal64_t.hpp>
 #include <boost/endian/conversion.hpp>
 #include <boost/system/error_code.hpp>
 
@@ -21,17 +27,13 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <ranges>
 #include <string_view>
-#include <system_error>
+#include <utility>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/field_view.hpp"
 
 namespace nativepg::types {
-
-using boost::system::error_code;
-namespace bd = boost::decimal;
 
 /*
  Type mapping
@@ -47,23 +49,23 @@ namespace detail {
 }
 
 template <class T>
-    requires std::same_as<T, bd::decimal32_t> || std::same_as<T, bd::decimal64_t> ||
-             std::same_as<T, bd::decimal128_t>
+    requires std::same_as<T, boost::decimal::decimal32_t> || std::same_as<T, boost::decimal::decimal64_t> ||
+             std::same_as<T, boost::decimal::decimal128_t>
 error_code parse_text_decimal(const field_view& from, T& to)
 {
     const std::string_view sv = from.data_str();
 
     // Note: from_chars is noexcept and parses in place, avoiding the heap allocation that the
     // throwing string constructor would incur on malformed input.
-    const auto res = bd::from_chars(sv, to);
-    if (res.ec != std::errc{} || res.ptr != sv.data() + sv.size())
+    if (const auto res = boost::decimal::from_chars(sv, to);
+        res.ec != std::errc{} || res.ptr != sv.data() + sv.size())
         return client_errc::protocol_value_error;
     return {};
 }
 
 template <class T>
-    requires std::same_as<T, bd::decimal32_t> || std::same_as<T, bd::decimal64_t> ||
-             std::same_as<T, bd::decimal128_t>
+    requires std::same_as<T, boost::decimal::decimal32_t> || std::same_as<T, boost::decimal::decimal64_t> ||
+             std::same_as<T, boost::decimal::decimal128_t>
 error_code parse_binary_decimal(const field_view& from, T& to)
 {
     const auto bytes = from.data();
@@ -117,7 +119,7 @@ error_code parse_binary_decimal(const field_view& from, T& to)
         );
 
         // Calculate the place value exponent: 10000 ^ (weight - i)
-        T place_value = bd::pow(base_10k, weight - i);
+        T place_value = boost::decimal::pow(base_10k, weight - i);
 
         result += T(raw_digit) * place_value;
     }
@@ -125,15 +127,15 @@ error_code parse_binary_decimal(const field_view& from, T& to)
     // 3. Enforce the PostgreSQL target display scale (Truncation / Rounding)
     if (dscale > 0)
     {
-        T multiplier = bd::pow(T(10), dscale);
+        T multiplier = boost::decimal::pow(T(10), dscale);
 
         // Round to the target decimal scale matching PostgreSQL engine specs
-        result = bd::round(result * multiplier) / multiplier;
+        result = boost::decimal::round(result * multiplier) / multiplier;
     }
     else
     {
         // If dscale is 0, it is a strict integer representation
-        result = bd::round(result);
+        result = boost::decimal::round(result);
     }
 
     // 4. Apply the parsed sign flag
@@ -149,6 +151,8 @@ error_code parse_binary_decimal(const field_view& from, T& to)
 
 }  // namespace nativepg::types
 
-#endif
+// Registers field_is_compatible<T>/field_parse<T> for boost::decimal types. Included here (rather than
+// force-included by field_traits.hpp) so that only TUs opting into this header pay for it.
+#include "nativepg/detail/field_traits_decimal.hpp"
 
 #endif  // NATIVEPG_TYPES_DECIMAL_HPP

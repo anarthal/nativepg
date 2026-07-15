@@ -5,8 +5,6 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#define NATIVEPG_USE_NUMERIC_TYPES 1
-
 #include <boost/asio/as_tuple.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
@@ -18,8 +16,8 @@
 
 #include <chrono>
 #include <exception>
-#include <iomanip>
 #include <iostream>
+#include <string>
 #include <string_view>
 #include <vector>
 

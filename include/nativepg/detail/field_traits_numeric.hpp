@@ -8,11 +8,15 @@
 #ifndef NATIVEPG_DETAIL_FIELD_TRAITS_NUMERIC_HPP
 #define NATIVEPG_DETAIL_FIELD_TRAITS_NUMERIC_HPP
 
-#ifdef NATIVEPG_USE_NUMERIC_TYPES
+// This header is opt-in: it's included by nativepg/types/numeric.hpp, which is itself opt-in. Don't
+// include it directly unless you also need nativepg/types/numeric.hpp's parsing functions.
 
+#include <boost/assert.hpp>
 #include <boost/multiprecision/cpp_dec_float.hpp>
 #include <boost/multiprecision/number.hpp>
 #include <boost/system/error_code.hpp>
+
+#include <cstdint>
 
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/describe.hpp"
@@ -20,15 +24,14 @@
 
 namespace nativepg::detail {
 
-namespace mp = boost::multiprecision;
-
 inline constexpr std::int32_t numeric_oid = 1700;
 
 template <class T>
 struct field_is_compatible;
 
-template <unsigned Digits, class Exp, class Alloc, mp::expression_template_option ET>
-struct field_is_compatible<mp::number<mp::cpp_dec_float<Digits, Exp, Alloc>, ET>>
+template <unsigned Digits, class Exp, class Alloc, boost::multiprecision::expression_template_option ET>
+struct field_is_compatible<
+    boost::multiprecision::number<boost::multiprecision::cpp_dec_float<Digits, Exp, Alloc>, ET>>
 {
     static boost::system::error_code call(const protocol::field_description& desc)
     {
@@ -41,15 +44,14 @@ struct field_is_compatible<mp::number<mp::cpp_dec_float<Digits, Exp, Alloc>, ET>
 template <class T>
 struct field_parse;
 
-template <unsigned Digits, class Exp, class Alloc, mp::expression_template_option ET>
-struct field_parse<mp::number<mp::cpp_dec_float<Digits, Exp, Alloc>, ET>>
+template <unsigned Digits, class Exp, class Alloc, boost::multiprecision::expression_template_option ET>
+struct field_parse<
+    boost::multiprecision::number<boost::multiprecision::cpp_dec_float<Digits, Exp, Alloc>, ET>>
 {
-    using number_t = mp::number<mp::cpp_dec_float<Digits, Exp, Alloc>, ET>;
-
     static boost::system::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
-        number_t& to
+        boost::multiprecision::number<boost::multiprecision::cpp_dec_float<Digits, Exp, Alloc>, ET>& to
     )
     {
         if (from.is_null())
@@ -61,6 +63,5 @@ struct field_parse<mp::number<mp::cpp_dec_float<Digits, Exp, Alloc>, ET>>
 };
 
 }  // namespace nativepg::detail
-#endif
 
 #endif

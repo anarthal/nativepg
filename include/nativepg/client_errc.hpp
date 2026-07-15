@@ -16,9 +16,6 @@ const boost::system::error_category& get_client_category();
 
 enum class client_errc : int
 {
-    /// Check for success
-    success = 0,
-
     /// An incomplete message was received from the server (indicates a deserialization error or
     /// packet mismatch).
     incomplete_message = 1,

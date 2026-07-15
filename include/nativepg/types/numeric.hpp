@@ -8,7 +8,14 @@
 #ifndef NATIVEPG_TYPES_NUMERIC_HPP
 #define NATIVEPG_TYPES_NUMERIC_HPP
 
-#ifdef NATIVEPG_USE_NUMERIC_TYPES
+// This header is opt-in: only include it (or nativepg/detail/field_traits_numeric.hpp) if you need to
+// parse PostgreSQL "numeric" values into boost::multiprecision types. Doing so keeps the (heavier)
+// Boost.Multiprecision headers, and the associated field_traits specializations, out of translation units
+// that don't use this feature.
+#if !__has_include(<boost/multiprecision/cpp_dec_float.hpp>)
+#error \
+    "nativepg/types/numeric.hpp requires Boost.Multiprecision. Ensure it's available or avoid including this header."
+#endif
 
 #include <boost/endian/conversion.hpp>
 #include <boost/multiprecision/cpp_dec_float.hpp>
@@ -20,14 +27,12 @@
 #include <limits>
 #include <ranges>
 #include <string_view>
+#include <utility>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/field_view.hpp"
 
 namespace nativepg::types {
-
-using boost::system::error_code;
-namespace mp = boost::multiprecision;
 
 // clang-format off
 /*
@@ -180,7 +185,7 @@ error_code parse_binary_numeric(const field_view& from, T& to)
         );
 
         // Calculate the place value exponent: 10000 ^ (weight - i)
-        T place_value = mp::pow(base_10k, weight - i);
+        T place_value = boost::multiprecision::pow(base_10k, weight - i);
 
         result += T(raw_digit) * place_value;
     }
@@ -188,15 +193,15 @@ error_code parse_binary_numeric(const field_view& from, T& to)
     // 3. Enforce the PostgreSQL target display scale (Truncation / Rounding)
     if (dscale > 0)
     {
-        T multiplier = mp::pow(T(10), dscale);
+        T multiplier = boost::multiprecision::pow(T(10), dscale);
 
         // Round to the target decimal scale matching PostgreSQL engine specs
-        result = mp::round(result * multiplier) / multiplier;
+        result = boost::multiprecision::round(result * multiplier) / multiplier;
     }
     else
     {
         // If dscale is 0, it is a strict integer representation
-        result = mp::round(result);
+        result = boost::multiprecision::round(result);
     }
 
     // 4. Apply the parsed sign flag
@@ -212,6 +217,8 @@ error_code parse_binary_numeric(const field_view& from, T& to)
 
 }  // namespace nativepg::types
 
-#endif
+// Registers field_is_compatible<T>/field_parse<T> for boost::multiprecision types. Included here (rather
+// than force-included by field_traits.hpp) so that only TUs opting into this header pay for it.
+#include "nativepg/detail/field_traits_numeric.hpp"
 
 #endif  // NATIVEPG_TYPES_NUMERIC_HPP

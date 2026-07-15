@@ -8,10 +8,17 @@
 #ifndef NATIVEPG_DETAIL_FIELD_TRAITS_DECIMAL_HPP
 #define NATIVEPG_DETAIL_FIELD_TRAITS_DECIMAL_HPP
 
-#ifdef NATIVEPG_USE_DECIMAL_TYPES
+// This header is opt-in: it's included by nativepg/types/decimal.hpp, which is itself opt-in. Don't
+// include it directly unless you also need nativepg/types/decimal.hpp's parsing functions.
 
-#include <boost/decimal.hpp>
+#include <boost/assert.hpp>
+#include <boost/decimal/decimal128_t.hpp>
+#include <boost/decimal/decimal32_t.hpp>
+#include <boost/decimal/decimal64_t.hpp>
 #include <boost/system/error_code.hpp>
+
+#include <concepts>
+#include <cstdint>
 
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/describe.hpp"
@@ -19,16 +26,14 @@
 
 namespace nativepg::detail {
 
-namespace bd = boost::decimal;
-
 inline constexpr std::int32_t decimal_oid = 1700; /* same as numeric_oid */
 
 template <class T>
 struct field_is_compatible;
 
 template <class T>
-    requires std::same_as<T, bd::decimal32_t> || std::same_as<T, bd::decimal64_t> ||
-             std::same_as<T, bd::decimal128_t>
+    requires std::same_as<T, boost::decimal::decimal32_t> || std::same_as<T, boost::decimal::decimal64_t> ||
+             std::same_as<T, boost::decimal::decimal128_t>
 struct field_is_compatible<T>
 {
     static boost::system::error_code call(const protocol::field_description& desc)
@@ -43,8 +48,8 @@ template <class T>
 struct field_parse;
 
 template <class T>
-    requires std::same_as<T, bd::decimal32_t> || std::same_as<T, bd::decimal64_t> ||
-             std::same_as<T, bd::decimal128_t>
+    requires std::same_as<T, boost::decimal::decimal32_t> || std::same_as<T, boost::decimal::decimal64_t> ||
+             std::same_as<T, boost::decimal::decimal128_t>
 struct field_parse<T>
 {
     static boost::system::error_code call(
@@ -62,6 +67,5 @@ struct field_parse<T>
 };
 
 }  // namespace nativepg::detail
-#endif
 
 #endif

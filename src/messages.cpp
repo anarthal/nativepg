@@ -15,6 +15,7 @@
 #include <boost/variant2/variant.hpp>
 
 #include <array>
+#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -33,6 +34,7 @@
 #include "nativepg/protocol/cancel_request.hpp"
 #include "nativepg/protocol/close.hpp"
 #include "nativepg/protocol/command_complete.hpp"
+#include "nativepg/protocol/command_complete_tag.hpp"
 #include "nativepg/protocol/common.hpp"
 #include "nativepg/protocol/copy.hpp"
 #include "nativepg/protocol/data_row.hpp"
@@ -52,6 +54,7 @@
 #include "parse_context.hpp"
 
 using namespace nativepg::protocol;
+using namespace std::string_view_literals;
 
 namespace {
 
@@ -1123,4 +1126,96 @@ std::size_t nativepg::protocol::message_missing_bytes(std::span<const unsigned c
 
     // We have enough data
     return 0u;
+}
+
+static constexpr const char* skip_prefix(std::string_view tag, std::string_view prefix)
+{
+    if (tag.starts_with(prefix))
+        return tag.data() + prefix.size();
+    return nullptr;
+}
+
+static boost::system::error_code parse_affected_rows(
+    const char* p,
+    const char* end,
+    std::optional<std::uint64_t>& output
+)
+{
+    std::uint64_t num;
+    auto [ptr, ec] = std::from_chars(p, end, num);
+    if (ec != std::errc{})
+        return std::make_error_code(ec);
+    if (ptr != end)
+        return nativepg::client_errc::extra_bytes;
+    output = num;
+    return {};
+}
+
+boost::system::error_code nativepg::protocol::parse_command_complete_tag(
+    std::string_view tag,
+    std::optional<std::uint64_t>& output
+)
+{
+    // From the spec
+    // https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-COMMANDCOMPLETE:
+    //   For an INSERT command, the tag is INSERT oid rows, where rows is the number of rows inserted. oid
+    //     used to be the object ID of the inserted row if rows was 1 and the target table had OIDs, but OIDs
+    //     system columns are not supported anymore; therefore oid is always 0.
+    //   For a DELETE command, the tag is DELETE rows where rows is the number of rows deleted.
+    //   For an UPDATE command, the tag is UPDATE rows where rows is the number of rows updated.
+    //   For a MERGE command, the tag is MERGE rows where rows is the number of rows inserted, updated, or
+    //     deleted.
+    //   For a SELECT or CREATE TABLE AS command, the tag is SELECT rows where rows is the number of rows
+    //     retrieved.
+    //   For a MOVE command, the tag is MOVE rows where rows is the number of rows the cursor's position has
+    //     been changed by.
+    //   For a FETCH command, the tag is FETCH rows where rows is the number of rows that have been retrieved
+    //     from the cursor.
+    //   For a COPY command, the tag is COPY rows where rows is the number of rows copied. (Note: the row
+    //     count appears only in PostgreSQL 8.2 and later.)
+
+    output.reset();
+
+    if (const char* p = skip_prefix(tag, "INSERT"))
+    {
+        const char* end = tag.data() + tag.size();
+
+        // Skip whitespace
+        if (p == end)
+            return client_errc::incomplete_message;
+        if (*p++ != ' ')
+            return {};  // not the command we're looking for
+
+        // Skip the OID
+        while (true)
+        {
+            if (p == end)
+                return client_errc::incomplete_message;
+            if (*p++ == ' ')
+                break;
+        }
+
+        // Parse the affected rows
+        return parse_affected_rows(p, end, output);
+    }
+    else if (
+        (p = skip_prefix(tag, "DELETE")) || (p = skip_prefix(tag, "UPDATE")) ||
+        (p = skip_prefix(tag, "MERGE")) || (p = skip_prefix(tag, "SELECT")) ||
+        (p = skip_prefix(tag, "MOVE")) || (p = skip_prefix(tag, "FETCH")) || (p = skip_prefix(tag, "COPY"))
+    )
+    {
+        const char* end = tag.data() + tag.size();
+
+        // Skip whitespace
+        if (p == end)
+            return client_errc::incomplete_message;
+        if (*p++ != ' ')
+            return {};  // not the command we're looking for
+
+        return parse_affected_rows(p, end, output);
+    }
+    else
+    {
+        return {};
+    }
 }

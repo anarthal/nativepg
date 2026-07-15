@@ -16,6 +16,7 @@
 #include <system_error>
 #include <vector>
 
+#include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/command_complete_tag.hpp"
 
 using namespace nativepg;
@@ -150,7 +151,7 @@ void test_success()
 void test_error()
 {
     {
-        // Insert rows not a number
+        // INSERT, rows not a number
         std::optional<std::uint64_t> rows{42};
         BOOST_TEST_EQ(
             parse_command_complete_tag(heap_string{"INSERT 0 bad"}, rows),
@@ -158,18 +159,107 @@ void test_error()
         );
         BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
     }
-
-    // Insert rows <0
-    // Insert rows > u64 max
-    // Insert rows hex
-    // Insert EOF after space but before rows
-    // Insert only one space between INSERT and row count, no OID
-    // Insert two spaces between OID and row count
-    // Insert two spaces between INSERT and OID
-    // Insert no space between INSERT and OID
-    // Insert alone
-
-    // Value left as is
+    {
+        // INSERT, rows <0
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"INSERT 0 -1"}, rows),
+            std::make_error_code(std::errc::invalid_argument)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // INSERT, rows > u64 max
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"INSERT 0 18446744073709551616"}, rows),
+            std::make_error_code(std::errc::result_out_of_range)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // INSERT, extra bytes
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"INSERT 0 2 bad"}, rows),
+            error_code(client_errc::extra_bytes)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // INSERT, rows hex, with leading 0x
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"INSERT 0 0xff"}, rows),
+            error_code(client_errc::extra_bytes)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // INSERT, rows hex, without leading 0x
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"INSERT 0 ff"}, rows),
+            std::make_error_code(std::errc::invalid_argument)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // INSERT, EOF after space but before rows
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"INSERT 0 "}, rows),
+            std::make_error_code(std::errc::invalid_argument)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // INSERT, only one space between INSERT and row count, no OID: the row count is
+        // consumed as the OID, and we hit EOF looking for the space before the row count
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"INSERT 5"}, rows),
+            error_code(client_errc::incomplete_message)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // INSERT, two spaces between OID and row count: from_chars chokes on the leading space
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"INSERT 0  2"}, rows),
+            std::make_error_code(std::errc::invalid_argument)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // INSERT, two spaces between INSERT and OID: the OID is empty, the row count is
+        // consumed as the OID, leaving trailing bytes
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"INSERT  0 2"}, rows),
+            error_code(client_errc::extra_bytes)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // INSERT, no space between INSERT and OID
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"INSERT0 2"}, rows),
+            error_code(client_errc::protocol_value_error)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // INSERT, no OID or row count
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"INSERT"}, rows),
+            error_code(client_errc::incomplete_message)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
 }
 
 }  // namespace

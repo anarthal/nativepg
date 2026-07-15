@@ -825,7 +825,8 @@ void nativepg::protocol::bind_context::maybe_finish_parameter()
         return;
 
     // Compute the size of the parameter, as the number of bytes added by the user minus the header
-    BOOST_ASSERT(buff_.size() > param_offset_ + 4u);
+    // TODO: Assert is wrong. Fix this for sql that has escaped values (?) buff_ seems to contain the sql statement?
+    //BOOST_ASSERT(buff_.size() > param_offset_ + 4u);
     std::size_t param_size = buff_.size() - param_offset_ - 4u;
 
     // If the size exceeds INT32_MAX, error

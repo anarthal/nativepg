@@ -81,12 +81,6 @@ void test_success()
         BOOST_TEST_EQ(printable_opt{rows}, 0u);
     }
     {
-        // INSERT, zero affected rows
-        std::optional<std::uint64_t> rows;
-        BOOST_TEST_EQ(parse_command_complete_tag(heap_string{"INSERT 0 0"}, rows), error_code());
-        BOOST_TEST_EQ(printable_opt{rows}, 0u);
-    }
-    {
         // INSERT, OID is not a number (we discard the OID so we tolerate this)
         std::optional<std::uint64_t> rows;
         BOOST_TEST_EQ(parse_command_complete_tag(heap_string{"INSERT bad 2"}, rows), error_code());
@@ -161,6 +155,25 @@ void test_success()
         BOOST_TEST_EQ(parse_command_complete_tag(heap_string{"TRUNCATE TABLE"}, rows), error_code());
         BOOST_TEST_NOT(rows.has_value());
     }
+    {
+        // If the command has one of the recognized keywords as a prefix,
+        // we treat it as an unrecognized tag
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(parse_command_complete_tag(heap_string{"MOVEABLE 42"}, rows), error_code());
+        BOOST_TEST_NOT(rows.has_value());
+    }
+    {
+        // Same, for INSERT
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(parse_command_complete_tag(heap_string{"INSERTED 0 42"}, rows), error_code());
+        BOOST_TEST_NOT(rows.has_value());
+    }
+    {
+        // Empty tags don't cause errors
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(parse_command_complete_tag("", rows), error_code());
+        BOOST_TEST_NOT(rows.has_value());
+    }
 }
 
 void test_error()
@@ -173,7 +186,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"INSERT 0 bad"}, rows),
             std::make_error_code(std::errc::invalid_argument)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // INSERT, rows <0
@@ -182,7 +195,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"INSERT 0 -1"}, rows),
             std::make_error_code(std::errc::invalid_argument)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // INSERT, rows > u64 max
@@ -191,7 +204,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"INSERT 0 18446744073709551616"}, rows),
             std::make_error_code(std::errc::result_out_of_range)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // INSERT, extra bytes
@@ -200,7 +213,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"INSERT 0 2 bad"}, rows),
             error_code(client_errc::extra_bytes)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // INSERT, rows hex, with leading 0x
@@ -209,7 +222,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"INSERT 0 0xff"}, rows),
             error_code(client_errc::extra_bytes)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // INSERT, rows hex, without leading 0x
@@ -218,7 +231,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"INSERT 0 ff"}, rows),
             std::make_error_code(std::errc::invalid_argument)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // INSERT, EOF after space but before rows
@@ -227,7 +240,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"INSERT 0 "}, rows),
             std::make_error_code(std::errc::invalid_argument)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // INSERT, only one space between INSERT and row count, no OID: the row count is
@@ -237,7 +250,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"INSERT 5"}, rows),
             error_code(client_errc::incomplete_message)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // INSERT, two spaces between OID and row count: from_chars chokes on the leading space
@@ -246,7 +259,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"INSERT 0  2"}, rows),
             std::make_error_code(std::errc::invalid_argument)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // INSERT, two spaces between INSERT and OID: the OID is empty, the row count is
@@ -256,16 +269,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"INSERT  0 2"}, rows),
             error_code(client_errc::extra_bytes)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
-    }
-    {
-        // INSERT, no space between INSERT and OID
-        std::optional<std::uint64_t> rows{42};
-        BOOST_TEST_EQ(
-            parse_command_complete_tag(heap_string{"INSERT0 2"}, rows),
-            error_code(client_errc::protocol_value_error)
-        );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // INSERT, no OID or row count
@@ -274,7 +278,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"INSERT"}, rows),
             error_code(client_errc::incomplete_message)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
 
     // We use SELECT as a representative of the commands with only the row count
@@ -285,7 +289,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"SELECT bad"}, rows),
             std::make_error_code(std::errc::invalid_argument)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // SELECT, row count < 0
@@ -294,7 +298,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"SELECT -1"}, rows),
             std::make_error_code(std::errc::invalid_argument)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // SELECT, row count > u64 max
@@ -303,7 +307,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"SELECT 18446744073709551616"}, rows),
             std::make_error_code(std::errc::result_out_of_range)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // SELECT, trailing bytes after row count
@@ -312,7 +316,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"SELECT 2 bad"}, rows),
             error_code(client_errc::extra_bytes)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // SELECT, row count is hex with 0x prefix: from_chars parses the leading 0 then
@@ -322,7 +326,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"SELECT 0xff"}, rows),
             error_code(client_errc::extra_bytes)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // SELECT, row count is hex without 0x prefix
@@ -331,7 +335,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"SELECT ff"}, rows),
             std::make_error_code(std::errc::invalid_argument)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // SELECT, two spaces between SELECT and row count: from_chars chokes on the leading space
@@ -340,7 +344,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"SELECT  2"}, rows),
             std::make_error_code(std::errc::invalid_argument)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // SELECT, row count is empty
@@ -349,16 +353,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"SELECT "}, rows),
             std::make_error_code(std::errc::invalid_argument)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
-    }
-    {
-        // SELECT, no space between SELECT and row count
-        std::optional<std::uint64_t> rows{42};
-        BOOST_TEST_EQ(
-            parse_command_complete_tag(heap_string{"SELECT2"}, rows),
-            error_code(client_errc::protocol_value_error)
-        );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // SELECT, alone
@@ -367,7 +362,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"SELECT"}, rows),
             error_code(client_errc::incomplete_message)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
 
     // Smoke test the other commands: they share the SELECT code path, so just
@@ -379,7 +374,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"DELETE"}, rows),
             error_code(client_errc::incomplete_message)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // UPDATE, alone
@@ -388,7 +383,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"UPDATE"}, rows),
             error_code(client_errc::incomplete_message)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // MERGE, alone
@@ -397,7 +392,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"MERGE"}, rows),
             error_code(client_errc::incomplete_message)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // MOVE, alone
@@ -406,7 +401,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"MOVE"}, rows),
             error_code(client_errc::incomplete_message)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // FETCH, alone
@@ -415,7 +410,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"FETCH"}, rows),
             error_code(client_errc::incomplete_message)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
     {
         // COPY, alone
@@ -424,7 +419,7 @@ void test_error()
             parse_command_complete_tag(heap_string{"COPY"}, rows),
             error_code(client_errc::incomplete_message)
         );
-        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+        BOOST_TEST_NOT(rows.has_value());
     }
 }
 

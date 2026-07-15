@@ -9,7 +9,6 @@
 #include <boost/charconv/limits.hpp>
 #include <boost/core/span.hpp>
 #include <boost/endian/conversion.hpp>
-#include <boost/system/detail/error_code.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/system/result.hpp>
 #include <boost/throw_exception.hpp>
@@ -1175,6 +1174,8 @@ boost::system::error_code nativepg::protocol::parse_command_complete_tag(
     //   For a COPY command, the tag is COPY rows where rows is the number of rows copied. (Note: the row
     //     count appears only in PostgreSQL 8.2 and later.)
 
+    output.reset();
+
     if (const char* p = skip_prefix(tag, "INSERT"))
     {
         const char* end = tag.data() + tag.size();
@@ -1183,7 +1184,7 @@ boost::system::error_code nativepg::protocol::parse_command_complete_tag(
         if (p == end)
             return client_errc::incomplete_message;
         if (*p++ != ' ')
-            return client_errc::protocol_value_error;
+            return {};  // not the command we're looking for
 
         // Skip the OID
         while (true)
@@ -1209,13 +1210,12 @@ boost::system::error_code nativepg::protocol::parse_command_complete_tag(
         if (p == end)
             return client_errc::incomplete_message;
         if (*p++ != ' ')
-            return client_errc::protocol_value_error;
+            return {};  // not the command we're looking for
 
         return parse_affected_rows(p, end, output);
     }
     else
     {
-        output.reset();
         return {};
     }
 }

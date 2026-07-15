@@ -54,13 +54,13 @@ struct printable_opt
 void test_success()
 {
     {
-        // Insert
+        // INSERT
         std::optional<std::uint64_t> rows;
         BOOST_TEST_EQ(parse_command_complete_tag(heap_string{"INSERT 0 2"}, rows), error_code());
         BOOST_TEST_EQ(printable_opt{rows}, 2u);
     }
     {
-        // Insert rows u64 max
+        // INSERT, rows u64 max
         std::optional<std::uint64_t> rows;
         BOOST_TEST_EQ(
             parse_command_complete_tag(heap_string{"INSERT 0 18446744073709551615"}, rows),
@@ -69,31 +69,49 @@ void test_success()
         BOOST_TEST_EQ(printable_opt{rows}, (std::numeric_limits<std::uint64_t>::max)());
     }
     {
-        // Insert with oid non-zero (deprecated, but we should be able to parse it)
+        // INSERT, oid non-zero (deprecated, but we should be able to parse it)
         std::optional<std::uint64_t> rows;
         BOOST_TEST_EQ(parse_command_complete_tag(heap_string{"INSERT 42 2"}, rows), error_code());
         BOOST_TEST_EQ(printable_opt{rows}, 2u);
     }
     {
-        // Insert with zero affected rows
+        // INSERT, zero affected rows
         std::optional<std::uint64_t> rows;
         BOOST_TEST_EQ(parse_command_complete_tag(heap_string{"INSERT 0 0"}, rows), error_code());
         BOOST_TEST_EQ(printable_opt{rows}, 0u);
     }
     {
-        // Select some rows
+        // INSERT, zero affected rows
+        std::optional<std::uint64_t> rows;
+        BOOST_TEST_EQ(parse_command_complete_tag(heap_string{"INSERT 0 0"}, rows), error_code());
+        BOOST_TEST_EQ(printable_opt{rows}, 0u);
+    }
+    {
+        // INSERT, OID is not a number (we discard the OID so we tolerate this)
+        std::optional<std::uint64_t> rows;
+        BOOST_TEST_EQ(parse_command_complete_tag(heap_string{"INSERT bad 2"}, rows), error_code());
+        BOOST_TEST_EQ(printable_opt{rows}, 2u);
+    }
+    {
+        // INSERT, OID is empty (we discard the OID so we tolerate this)
+        std::optional<std::uint64_t> rows;
+        BOOST_TEST_EQ(parse_command_complete_tag(heap_string{"INSERT  4"}, rows), error_code());
+        BOOST_TEST_EQ(printable_opt{rows}, 4u);
+    }
+    {
+        // SELECT, row count > 0
         std::optional<std::uint64_t> rows;
         BOOST_TEST_EQ(parse_command_complete_tag(heap_string{"SELECT 10"}, rows), error_code());
         BOOST_TEST_EQ(printable_opt{rows}, 10u);
     }
     {
-        // Select zero rows
+        // SELECT, row count = 0
         std::optional<std::uint64_t> rows;
         BOOST_TEST_EQ(parse_command_complete_tag(heap_string{"SELECT 0"}, rows), error_code());
         BOOST_TEST_EQ(printable_opt{rows}, 0u);
     }
     {
-        // Select u64 max
+        // SELECT, row count = u64 max
         std::optional<std::uint64_t> rows;
         BOOST_TEST_EQ(
             parse_command_complete_tag(heap_string{"SELECT 18446744073709551615"}, rows),
@@ -102,37 +120,37 @@ void test_success()
         BOOST_TEST_EQ(printable_opt{rows}, (std::numeric_limits<std::uint64_t>::max)());
     }
     {
-        // Delete some rows
+        // DELETE
         std::optional<std::uint64_t> rows;
         BOOST_TEST_EQ(parse_command_complete_tag(heap_string{"DELETE 3"}, rows), error_code());
         BOOST_TEST_EQ(printable_opt{rows}, 3u);
     }
     {
-        // Update some rows
+        // UPDATE
         std::optional<std::uint64_t> rows;
         BOOST_TEST_EQ(parse_command_complete_tag(heap_string{"UPDATE 5"}, rows), error_code());
         BOOST_TEST_EQ(printable_opt{rows}, 5u);
     }
     {
-        // Fetch some rows
+        // FETCH
         std::optional<std::uint64_t> rows;
         BOOST_TEST_EQ(parse_command_complete_tag(heap_string{"FETCH 7"}, rows), error_code());
         BOOST_TEST_EQ(printable_opt{rows}, 7u);
     }
     {
-        // Merge some rows
+        // MERGE
         std::optional<std::uint64_t> rows;
         BOOST_TEST_EQ(parse_command_complete_tag(heap_string{"MERGE 9"}, rows), error_code());
         BOOST_TEST_EQ(printable_opt{rows}, 9u);
     }
     {
-        // Move some rows
+        // MOVE
         std::optional<std::uint64_t> rows;
         BOOST_TEST_EQ(parse_command_complete_tag(heap_string{"MOVE 11"}, rows), error_code());
         BOOST_TEST_EQ(printable_opt{rows}, 11u);
     }
     {
-        // Copy some rows
+        // COPY
         std::optional<std::uint64_t> rows;
         BOOST_TEST_EQ(parse_command_complete_tag(heap_string{"COPY 13"}, rows), error_code());
         BOOST_TEST_EQ(printable_opt{rows}, 13u);
@@ -143,9 +161,6 @@ void test_success()
         BOOST_TEST_EQ(parse_command_complete_tag(heap_string{"TRUNCATE TABLE"}, rows), error_code());
         BOOST_TEST_NOT(rows.has_value());
     }
-
-    // Insert OID is not a number
-    // Insert OID is empty
 }
 
 void test_error()

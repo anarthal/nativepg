@@ -157,7 +157,7 @@ void test_success()
     }
     {
         // Truncate table (no row count): the tag carries no affected-rows info
-        std::optional<std::uint64_t> rows;
+        std::optional<std::uint64_t> rows{42};
         BOOST_TEST_EQ(parse_command_complete_tag(heap_string{"TRUNCATE TABLE"}, rows), error_code());
         BOOST_TEST_NOT(rows.has_value());
     }
@@ -165,6 +165,7 @@ void test_success()
 
 void test_error()
 {
+    // INSERT
     {
         // INSERT, rows not a number
         std::optional<std::uint64_t> rows{42};
@@ -271,6 +272,156 @@ void test_error()
         std::optional<std::uint64_t> rows{42};
         BOOST_TEST_EQ(
             parse_command_complete_tag(heap_string{"INSERT"}, rows),
+            error_code(client_errc::incomplete_message)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+
+    // We use SELECT as a representative of the commands with only the row count
+    {
+        // SELECT, row count is not a number
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"SELECT bad"}, rows),
+            std::make_error_code(std::errc::invalid_argument)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // SELECT, row count < 0
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"SELECT -1"}, rows),
+            std::make_error_code(std::errc::invalid_argument)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // SELECT, row count > u64 max
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"SELECT 18446744073709551616"}, rows),
+            std::make_error_code(std::errc::result_out_of_range)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // SELECT, trailing bytes after row count
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"SELECT 2 bad"}, rows),
+            error_code(client_errc::extra_bytes)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // SELECT, row count is hex with 0x prefix: from_chars parses the leading 0 then
+        // chokes on the trailing 'xff'
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"SELECT 0xff"}, rows),
+            error_code(client_errc::extra_bytes)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // SELECT, row count is hex without 0x prefix
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"SELECT ff"}, rows),
+            std::make_error_code(std::errc::invalid_argument)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // SELECT, two spaces between SELECT and row count: from_chars chokes on the leading space
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"SELECT  2"}, rows),
+            std::make_error_code(std::errc::invalid_argument)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // SELECT, row count is empty
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"SELECT "}, rows),
+            std::make_error_code(std::errc::invalid_argument)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // SELECT, no space between SELECT and row count
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"SELECT2"}, rows),
+            error_code(client_errc::protocol_value_error)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // SELECT, alone
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"SELECT"}, rows),
+            error_code(client_errc::incomplete_message)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+
+    // Smoke test the other commands: they share the SELECT code path, so just
+    // check that each is recognized and reports the "alone" error
+    {
+        // DELETE, alone
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"DELETE"}, rows),
+            error_code(client_errc::incomplete_message)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // UPDATE, alone
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"UPDATE"}, rows),
+            error_code(client_errc::incomplete_message)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // MERGE, alone
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"MERGE"}, rows),
+            error_code(client_errc::incomplete_message)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // MOVE, alone
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"MOVE"}, rows),
+            error_code(client_errc::incomplete_message)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // FETCH, alone
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"FETCH"}, rows),
+            error_code(client_errc::incomplete_message)
+        );
+        BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified
+    }
+    {
+        // COPY, alone
+        std::optional<std::uint64_t> rows{42};
+        BOOST_TEST_EQ(
+            parse_command_complete_tag(heap_string{"COPY"}, rows),
             error_code(client_errc::incomplete_message)
         );
         BOOST_TEST_EQ(printable_opt{rows}, 42);  // unmodified

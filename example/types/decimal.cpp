@@ -91,12 +91,12 @@ SELECT
 
     // Print results
     if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "NUMERIC TEXT operation results in Error: " << err.code.what() << ": "
+        std::cerr << "DECIMAL TEXT operation results in Error: " << err.code.what() << ": "
                   << err.diag.message() << " (in " << duration << ")" << std::endl;
     else
     {
         std::cout << std::boolalpha;
-        std::cout << "NUMERIC TEXT   select result: (in " << duration << ")" << std::endl;
+        std::cout << "DECIMAL TEXT   select result: (in " << duration << ")" << std::endl;
         for (const auto& row : select_vec)
         {
             std::cout << " | " << row.title << " | " << row.d32 << " | " << row.d64 << " | " << row.d128
@@ -126,12 +126,12 @@ static asio::awaitable<void> execute_and_print_binary_response(
 
     // Print results
     if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "NUMERIC BINARY operation results in Error: " << err.code.what() << ": "
+        std::cerr << "DECIMAL BINARY operation results in Error: " << err.code.what() << ": "
                   << err.diag.message() << std::endl;
     else
     {
         std::cout << std::boolalpha;
-        std::cout << "NUMERIC BINARY select result: | " << select_vec[0].title << " | " << select_vec[0].d32
+        std::cout << "DECIMAL BINARY select result: | " << select_vec[0].title << " | " << select_vec[0].d32
                   << " | " << select_vec[0].d64 << " | " << select_vec[0].d128 << std::endl;
     }
 }

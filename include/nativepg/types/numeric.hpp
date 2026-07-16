@@ -12,10 +12,6 @@
 // parse PostgreSQL "numeric" values into boost::multiprecision types. Doing so keeps the (heavier)
 // Boost.Multiprecision headers, and the associated field_traits specializations, out of translation units
 // that don't use this feature.
-#if !__has_include(<boost/multiprecision/cpp_dec_float.hpp>)
-#error \
-    "nativepg/types/numeric.hpp requires Boost.Multiprecision. Ensure it's available or avoid including this header."
-#endif
 
 #include <boost/endian/conversion.hpp>
 #include <boost/multiprecision/cpp_dec_float.hpp>

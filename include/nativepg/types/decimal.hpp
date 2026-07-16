@@ -12,10 +12,6 @@
 // parse PostgreSQL "decimal"/"numeric" values into boost::decimal types. Doing so keeps the (heavier)
 // Boost.Decimal headers, and the associated field_traits specializations, out of translation units that
 // don't use this feature.
-#if !__has_include(<boost/decimal/decimal32_t.hpp>)
-#error \
-    "nativepg/types/decimal.hpp requires Boost.Decimal (Boost >= 1.87). Update Boost or avoid including this header."
-#endif
 
 #include <boost/decimal/decimal128_t.hpp>
 #include <boost/decimal/decimal32_t.hpp>

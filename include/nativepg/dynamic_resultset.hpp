@@ -18,6 +18,8 @@
 #include <string_view>
 #include <vector>
 
+#include "nativepg/command_info.hpp"
+#include "nativepg/extended_error.hpp"
 #include "nativepg/field_view.hpp"
 #include "nativepg/protocol/common.hpp"
 #include "nativepg/protocol/data_row.hpp"
@@ -533,6 +535,257 @@ public:
     // True if the query finished with portal suspended, meaning that
     // the portal can be executed again for more rows
     bool portal_suspended() const noexcept { return portal_suspended_; }
+};
+
+namespace detail {
+
+struct resultset_descriptor
+{
+    // TODO: variant?
+    extended_error err;
+    command_info info;
+    offset_and_length descr;
+    offset_and_length values;
+};
+
+}  // namespace detail
+
+// A view into a single resultset. The element type of resultsets
+class resultset_view
+{
+    const detail::offsetted_field_description* descr_{};
+    const detail::offset_and_length* values_{};
+    const unsigned char* data_{};
+    const detail::resultset_descriptor* result_{};
+
+public:
+    resultset_view() = default;
+    // TODO: hide
+    resultset_view(
+        const detail::offsetted_field_description* descr,
+        const detail::offset_and_length* values,
+        const unsigned char* data,
+        const detail::resultset_descriptor* result
+    ) noexcept
+        : descr_(descr), values_(values), data_(data), result_(result)
+    {
+    }
+
+    field_descriptions_view field_descriptions() const
+    {
+        return {
+            {descr_ + result_->descr.offset, result_->descr.length},
+            data_
+        };
+    }
+
+    rows_view rows() const
+    {
+        return {
+            {values_ + result_->values.offset, result_->values.length},
+            result_->descr.length,
+            data_
+        };
+    }
+
+    const command_info& info() const { return result_->info; }
+
+    const extended_error& error() const { return result_->err; }
+};
+
+// A sequence of resultsets. Can accommodate the response to any number of SQL commands
+class resultsets
+{
+    std::vector<detail::offsetted_field_description> field_descr_;
+    std::vector<detail::offset_and_length> values_;
+    std::vector<detail::resultset_descriptor> resultsets_;
+    std::vector<unsigned char> data_;
+
+    detail::offset_and_length insert_data(std::span<const unsigned char> value)
+    {
+        // Data coming from the server fulfills this assertion by protocol design
+        BOOST_ASSERT(value.size() != static_cast<std::size_t>(-1));
+        detail::offset_and_length res{.offset = data_.size(), .length = value.size()};
+        data_.insert(data_.end(), value.begin(), value.end());
+        return res;
+    }
+
+    detail::offset_and_length insert_data(std::string_view value)
+    {
+        return insert_data(
+            std::span<const unsigned char>{reinterpret_cast<const unsigned char*>(value.data()), value.size()}
+        );
+    }
+
+public:
+    resultsets() = default;
+
+    // Makes the object empty, allowing for memory re-use
+    void clear()
+    {
+        field_descr_.clear();
+        values_.clear();
+        resultsets_.clear();
+        data_.clear();
+    }
+
+    // Part of the unstable API. Should only be used by
+    // response authors.
+    void add_row_description(const protocol::row_description& row_descr)
+    {
+        field_descr_.reserve(field_descr_.size() + row_descr.field_descriptions.size());
+        for (const auto& descr : row_descr.field_descriptions)
+        {
+            field_descr_.push_back({
+                .name = insert_data(descr.name),
+                .table_oid = descr.table_oid,
+                .column_attribute = descr.column_attribute,
+                .type_oid = descr.type_oid,
+                .type_length = descr.type_length,
+                .type_modifier = descr.type_modifier,
+                .fmt_code = descr.fmt_code,
+            });
+        }
+    }
+
+    // Part of the unstable API. Should only be used by
+    // response authors.
+    void add_row(const protocol::data_row& row)
+    {
+        values_.reserve(row.columns.size());
+        for (const auto fv : row.columns)
+        {
+            if (fv.is_null())
+                values_.push_back({.offset = 0u, .length = static_cast<std::size_t>(-1)});
+            else
+                values_.push_back(insert_data(fv.data()));
+        }
+    }
+
+    void finish_resultset(
+        std::size_t num_rows,
+        std::size_t num_cols,
+        command_info&& info,
+        extended_error&& err
+    )
+    {
+        const std::size_t num_values = num_cols * num_rows;
+
+        BOOST_ASSERT(field_descr_.size() >= num_cols);
+        BOOST_ASSERT(values_.size() >= num_values);
+
+        resultsets_.push_back({
+            .err = std::move(err),
+            .info = std::move(info),
+            .descr = {.offset = field_descr_.size() - num_cols, .length = num_cols  },
+            .values = {.offset = values_.size() - num_values,    .length = num_values},
+        });
+    }
+
+    class iterator
+    {
+        const detail::resultset_descriptor* it_{};
+        const detail::offsetted_field_description* descr_{};
+        const detail::offset_and_length* values_{};
+        const unsigned char* data_{};
+
+        friend class resultsets;
+        iterator(
+            const detail::resultset_descriptor* it,
+            const detail::offsetted_field_description* descr,
+            const detail::offset_and_length* values,
+            const unsigned char* data
+        ) noexcept
+            : it_(it), descr_(descr), values_(values), data_(data)
+        {
+        }
+
+    public:
+        using value_type = resultset_view;
+        using reference = resultset_view;  // prvalue, materialized on deref
+        using pointer = resultset_view;
+        using difference_type = std::ptrdiff_t;
+        using iterator_category = std::random_access_iterator_tag;
+
+        iterator() = default;
+
+        reference operator*() const noexcept { return {descr_, values_, data_, it_}; }
+        reference operator[](difference_type n) const noexcept { return {descr_, values_, data_, it_ + n}; }
+
+        iterator& operator++() noexcept
+        {
+            ++it_;
+            return *this;
+        }
+        iterator operator++(int) noexcept
+        {
+            auto copy = *this;
+            ++it_;
+            return copy;
+        }
+        iterator& operator--() noexcept
+        {
+            --it_;
+            return *this;
+        }
+        iterator operator--(int) noexcept
+        {
+            auto copy = *this;
+            --it_;
+            return copy;
+        }
+        iterator& operator+=(difference_type n) noexcept
+        {
+            it_ += n;
+            return *this;
+        }
+        iterator& operator-=(difference_type n) noexcept
+        {
+            it_ -= n;
+            return *this;
+        }
+
+        friend iterator operator+(iterator it, difference_type n) noexcept { return it += n; }
+        friend iterator operator+(difference_type n, iterator it) noexcept { return it += n; }
+        friend iterator operator-(iterator it, difference_type n) noexcept { return it -= n; }
+        friend difference_type operator-(iterator lhs, iterator rhs) noexcept { return lhs.it_ - rhs.it_; }
+
+        friend bool operator==(iterator lhs, iterator rhs) noexcept { return lhs.it_ == rhs.it_; }
+        friend std::strong_ordering operator<=>(iterator lhs, iterator rhs) noexcept
+        {
+            return lhs.it_ <=> rhs.it_;
+        }
+    };
+
+    using value_type = resultset_view;
+    using size_type = std::size_t;
+    using difference_type = std::ptrdiff_t;
+    using reference = resultset_view;
+    using const_reference = resultset_view;
+    using const_iterator = iterator;
+
+    // Iterators
+    iterator begin() const noexcept
+    {
+        return {resultsets_.data(), field_descr_.data(), values_.data(), data_.data()};
+    }
+    iterator end() const noexcept
+    {
+        return {resultsets_.data() + resultsets_.size(), field_descr_.data(), values_.data(), data_.data()};
+    }
+
+    // Capacity
+    size_type size() const noexcept { return resultsets_.size(); }
+    bool empty() const noexcept { return resultsets_.empty(); }
+
+    // Element access (all materialize a resultset_view by value)
+    reference operator[](size_type i) const noexcept
+    {
+        return {field_descr_.data(), values_.data(), data_.data(), resultsets_.data() + i};
+    }
+    // TODO: at()
+    reference front() const noexcept { return (*this)[0]; }
+    reference back() const noexcept { return (*this)[size() - 1u]; }
 };
 
 }  // namespace nativepg

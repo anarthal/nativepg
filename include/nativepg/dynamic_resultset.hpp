@@ -553,12 +553,24 @@ struct resultset_descriptor
 // A view into a single resultset. The element type of resultsets
 class resultset_view
 {
-    const detail::offsetted_field_description* descr_;
-    const detail::offset_and_length* values_;
-    const unsigned char* data_;
-    const detail::resultset_descriptor* result_;
+    const detail::offsetted_field_description* descr_{};
+    const detail::offset_and_length* values_{};
+    const unsigned char* data_{};
+    const detail::resultset_descriptor* result_{};
 
 public:
+    resultset_view() = default;
+    // TODO: hide
+    resultset_view(
+        const detail::offsetted_field_description* descr,
+        const detail::offset_and_length* values,
+        const unsigned char* data,
+        const detail::resultset_descriptor* result
+    ) noexcept
+        : descr_(descr), values_(values), data_(data), result_(result)
+    {
+    }
+
     field_descriptions_view field_descriptions() const
     {
         return {
@@ -671,6 +683,111 @@ public:
             .values = {.offset = values_.size() - num_values,    .length = num_values},
         });
     }
+
+    class iterator
+    {
+        const detail::resultset_descriptor* it_{};
+        const detail::offsetted_field_description* descr_{};
+        const detail::offset_and_length* values_{};
+        const unsigned char* data_{};
+
+        friend class resultsets;
+        iterator(
+            const detail::resultset_descriptor* it,
+            const detail::offsetted_field_description* descr,
+            const detail::offset_and_length* values,
+            const unsigned char* data
+        ) noexcept
+            : it_(it), descr_(descr), values_(values), data_(data)
+        {
+        }
+
+    public:
+        using value_type = resultset_view;
+        using reference = resultset_view;  // prvalue, materialized on deref
+        using pointer = resultset_view;
+        using difference_type = std::ptrdiff_t;
+        using iterator_category = std::random_access_iterator_tag;
+
+        iterator() = default;
+
+        reference operator*() const noexcept { return {descr_, values_, data_, it_}; }
+        reference operator[](difference_type n) const noexcept { return {descr_, values_, data_, it_ + n}; }
+
+        iterator& operator++() noexcept
+        {
+            ++it_;
+            return *this;
+        }
+        iterator operator++(int) noexcept
+        {
+            auto copy = *this;
+            ++it_;
+            return copy;
+        }
+        iterator& operator--() noexcept
+        {
+            --it_;
+            return *this;
+        }
+        iterator operator--(int) noexcept
+        {
+            auto copy = *this;
+            --it_;
+            return copy;
+        }
+        iterator& operator+=(difference_type n) noexcept
+        {
+            it_ += n;
+            return *this;
+        }
+        iterator& operator-=(difference_type n) noexcept
+        {
+            it_ -= n;
+            return *this;
+        }
+
+        friend iterator operator+(iterator it, difference_type n) noexcept { return it += n; }
+        friend iterator operator+(difference_type n, iterator it) noexcept { return it += n; }
+        friend iterator operator-(iterator it, difference_type n) noexcept { return it -= n; }
+        friend difference_type operator-(iterator lhs, iterator rhs) noexcept { return lhs.it_ - rhs.it_; }
+
+        friend bool operator==(iterator lhs, iterator rhs) noexcept { return lhs.it_ == rhs.it_; }
+        friend std::strong_ordering operator<=>(iterator lhs, iterator rhs) noexcept
+        {
+            return lhs.it_ <=> rhs.it_;
+        }
+    };
+
+    using value_type = resultset_view;
+    using size_type = std::size_t;
+    using difference_type = std::ptrdiff_t;
+    using reference = resultset_view;
+    using const_reference = resultset_view;
+    using const_iterator = iterator;
+
+    // Iterators
+    iterator begin() const noexcept
+    {
+        return {resultsets_.data(), field_descr_.data(), values_.data(), data_.data()};
+    }
+    iterator end() const noexcept
+    {
+        return {resultsets_.data() + resultsets_.size(), field_descr_.data(), values_.data(), data_.data()};
+    }
+
+    // Capacity
+    size_type size() const noexcept { return resultsets_.size(); }
+    bool empty() const noexcept { return resultsets_.empty(); }
+
+    // Element access (all materialize a resultset_view by value)
+    reference operator[](size_type i) const noexcept
+    {
+        return {field_descr_.data(), values_.data(), data_.data(), resultsets_.data() + i};
+    }
+    // TODO: at()
+    reference front() const noexcept { return (*this)[0]; }
+    reference back() const noexcept { return (*this)[size() - 1u]; }
 };
 
 }  // namespace nativepg

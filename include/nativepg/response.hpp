@@ -334,7 +334,8 @@ public:
 };
 
 // A response type that checks that a single resultset didn't
-// produce an error, skipping any produced data
+// produce an error, skipping any produced rows.
+// May output a command_info structure containing data like affected rows
 class check_execute
 {
     command_info* info_{};

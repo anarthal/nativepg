@@ -168,11 +168,11 @@ handler_setup_result describe_into::setup(const request& req, std::size_t offset
     return check_setup_impl(req, offset, request_message_type::describe);
 }
 
-void dynamic_resultset_response::on_message(const any_request_message& msg, std::size_t)
+void dynamic_handler::on_message(const any_request_message& msg, std::size_t)
 {
     struct visitor
     {
-        dynamic_resultset_response& self;
+        dynamic_handler& self;
 
         // Ignore messages that might or might not appear in exec
         void operator()(protocol::bind_complete) const {}
@@ -182,7 +182,10 @@ void dynamic_resultset_response::on_message(const any_request_message& msg, std:
         void operator()(const protocol::row_description& msg) const
         {
             BOOST_ASSERT(self.state_ == state_t::parsing_meta);
-            self.obj_->set_row_description(msg);
+            if (self.descr_)
+                self.descr_->assign(msg);
+            if (self.rows_)
+                self.rows_->set_num_columns(msg.field_descriptions.size());
             self.state_ = state_t::parsing_data;
         }
 
@@ -191,21 +194,24 @@ void dynamic_resultset_response::on_message(const any_request_message& msg, std:
         {
             BOOST_ASSERT(self.state_ == state_t::parsing_data);
             // TODO: check that the number of rows matches with what we received in the field description
-            self.obj_->add_row(msg);
+            if (self.rows_)
+                self.rows_->add_row(msg);
         }
 
         // EOF
         void operator()(protocol::command_complete msg) const
         {
             BOOST_ASSERT(self.state_ == state_t::parsing_data);
-            self.obj_->set_command_complete_tag(msg.tag);
+            if (self.info_)
+                detail::from_command_complete(*self.info_, msg);
             self.state_ = state_t::done;
         }
 
         void operator()(protocol::portal_suspended) const
         {
             BOOST_ASSERT(self.state_ == state_t::parsing_data);
-            self.obj_->set_portal_suspended(true);
+            if (self.info_)
+                self.info_->portal_suspended = true;
             self.state_ = state_t::done;
         }
 

@@ -1,9 +1,20 @@
-#ifndef NATIVEPG_FIELD_TRAITS_JSON_HPP
-#define NATIVEPG_FIELD_TRAITS_JSON_HPP
+//
+// Copyright (c) 2025 Ruben Perez Hidalgo (rubenperez038 at gmail dot com)
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
 
-#ifdef NATIVEPG_JSON
+#ifndef NATIVEPG_DETAIL_FIELD_TRAITS_JSON_HPP
+#define NATIVEPG_DETAIL_FIELD_TRAITS_JSON_HPP
 
+// This header is opt-in: it's included by nativepg/types/json.hpp, which is itself opt-in. Don't
+// include it directly unless you also need nativepg/types/json.hpp's parsing functions.
+
+#include <boost/json/value.hpp>
 #include <boost/system/error_code.hpp>
+
+#include <cstdint>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/field_view.hpp"
@@ -11,6 +22,9 @@
 #include "nativepg/types/json.hpp"
 
 namespace nativepg::detail {
+
+inline constexpr std::int32_t json_oid = 114;
+inline constexpr std::int32_t jsonb_oid = 3802;
 
 template <class T>
 struct field_is_compatible;
@@ -21,20 +35,21 @@ struct field_is_compatible<boost::json::value>
 {
     static inline boost::system::error_code call(const protocol::field_description& desc)
     {
-        return (desc.type_oid == 114 || desc.type_oid == 3802) ? boost::system::error_code() : client_errc::incompatible_field_type;
+        return (desc.type_oid == json_oid || desc.type_oid == jsonb_oid)
+                   ? boost::system::error_code()
+                   : client_errc::incompatible_field_type;
     }
 };
-
 
 template <class T>
 struct field_parse;
 
-// JSON => boost::json::value
+// JSON(B) => boost::json::value
 template <>
 struct field_parse<boost::json::value>
 {
     static inline boost::system::error_code call(
-        field_view from,
+        const field_view& from,
         const protocol::field_description& desc,
         boost::json::value& to
     )
@@ -42,22 +57,19 @@ struct field_parse<boost::json::value>
         if (from.is_null())
             return client_errc::unexpected_null;
 
-        if (desc.type_oid == 3802 /*jsonb*/)
+        if (desc.type_oid == jsonb_oid)
         {
-            return desc.fmt_code == protocol::format_code::text
-                ? types::parse_text_jsonb(from.data(), to)
-                : types::parse_binary_jsonb(from.data(), to);
+            return desc.fmt_code == protocol::format_code::text ? types::parse_text_jsonb(from, to)
+                                                                : types::parse_binary_jsonb(from, to);
         }
         else
         {
-            return desc.fmt_code == protocol::format_code::text
-                ? types::parse_text_json(from.data(), to)
-                : types::parse_binary_json(from.data(), to);
+            return desc.fmt_code == protocol::format_code::text ? types::parse_text_json(from, to)
+                                                                : types::parse_binary_json(from, to);
         }
     }
 };
 
 }  // namespace nativepg::detail
 
-#endif  // NATIVEPG_JSON
-#endif  // NATIVEPG_FIELD_TRAITS_JSON_HPP
+#endif  // NATIVEPG_DETAIL_FIELD_TRAITS_JSON_HPP

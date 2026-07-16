@@ -5,30 +5,25 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#define NATIVEPG_JSON 1
-
-#include <boost/json/src.hpp> // inline header-only implementation (or link against Boost.JSON)
-#include <boost/json/serialize.hpp>
-
 #include <boost/asio/as_tuple.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/this_coro.hpp>
 #include <boost/describe/class.hpp>
+#include <boost/json/serialize.hpp>
+#include <boost/json/src.hpp>  // inline header-only implementation (or link against Boost.JSON)
 
+#include <chrono>
 #include <exception>
 #include <iostream>
-#include <string_view>
 #include <vector>
-#include <chrono>
 
-#include "nativepg/types/json.hpp"
-#include "nativepg/response.hpp"
 #include "nativepg/connection.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
-
+#include "nativepg/response.hpp"
+#include "nativepg/types/json.hpp"
 
 namespace asio = boost::asio;
 using namespace nativepg;
@@ -45,7 +40,6 @@ struct jsonb_row
 };
 BOOST_DESCRIBE_STRUCT(jsonb_row, (), (jb))
 
-
 // JSON to types::pg_json (TEXT)
 static asio::awaitable<void> json_text_example(connection& conn)
 {
@@ -54,7 +48,11 @@ static asio::awaitable<void> json_text_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_query("SELECT '{ \"name\": \"John\", \"age\": 30, \"address\": { \"street\": \"Main St\", \"city\": \"New York\" }}'::json as j", {});
+    req.add_query(R"sql(
+        SELECT '{ "name": "John", "age": 30, "address": { "street": "Main St", "city": "New York" }}'::json as j
+        )sql",
+        {}
+    );
 
     // Structures to parse the response into
     std::vector<json_row> select_vec;
@@ -68,9 +66,11 @@ static asio::awaitable<void> json_text_example(connection& conn)
 
     // Print results
     if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "JSON TEXT operation results in Error: " << err.code.what() << ": " << err.diag.message() << " (in " << duration << ")" << std::endl;
+        std::cerr << "JSON TEXT operation results in Error: " << err.code.what() << ": " << err.diag.message()
+                  << " (in " << duration << ")" << std::endl;
     else
-        std::cout << "JSON TEXT select result: " << select_vec[0].j << " (in " << duration << ")" << std::endl;
+        std::cout << "JSON TEXT select result: " << select_vec[0].j << " (in " << duration << ")"
+                  << std::endl;
 }
 
 // JSON to types::pg_json (BINARY)
@@ -81,8 +81,14 @@ static asio::awaitable<void> json_binary_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_prepare("SELECT $1::text::json as j", {"json_bintest"} )
-        .add_execute("json_bintest", {"{ \"name\": \"John\", \"age\": 30, \"address\": { \"street\": \"Main St\", \"city\": \"New York\" }}"}, request::param_format::text, protocol::format_code::binary, 1);
+    req.add_prepare("SELECT $1::text::json as j", {"json_bintest"})
+        .add_execute(
+            "json_bintest",
+            {R"json({ "name": "John", "age": 30, "address": { "street": "Main St", "city": "New York" }})json"},
+            request::param_format::text,
+            protocol::format_code::binary,
+            1
+        );
 
     // Structures to parse the response into
     std::vector<json_row> select_vec;
@@ -96,11 +102,12 @@ static asio::awaitable<void> json_binary_example(connection& conn)
 
     // Print results
     if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "JSON BINARY Error: " << err.code.what() << ": " << err.diag.message() << " (in " << duration << ")" << std::endl;
+        std::cerr << "JSON BINARY Error: " << err.code.what() << ": " << err.diag.message() << " (in "
+                  << duration << ")" << std::endl;
     else
-        std::cout << "JSON BINARY select result: " << boost::json::serialize(select_vec[0].j) << " (in " << duration << ")" << std::endl;
+        std::cout << "JSON BINARY select result: " << boost::json::serialize(select_vec[0].j) << " (in "
+                  << duration << ")" << std::endl;
 }
-
 
 // JSONB to types::pg_jsonb (TEXT)
 static asio::awaitable<void> jsonb_text_example(connection& conn)
@@ -110,7 +117,11 @@ static asio::awaitable<void> jsonb_text_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_query("SELECT '{ \"name\": \"John\", \"age\": 30, \"address\": { \"street\": \"Main St\", \"city\": \"New York\" }}'::jsonb as jb", {});
+    req.add_query(R"sql(
+        SELECT '{ "name": "John", "age": 30, "address": { "street": "Main St", "city": "New York" }}'::jsonb as jb
+        )sql",
+        {}
+    );
 
     // Structures to parse the response into
     std::vector<jsonb_row> select_vec;
@@ -124,9 +135,11 @@ static asio::awaitable<void> jsonb_text_example(connection& conn)
 
     // Print results
     if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "JSONB TEXT operation results in Error: " << err.code.what() << ": " << err.diag.message() << " (in " << duration << ")" << std::endl;
+        std::cerr << "JSONB TEXT operation results in Error: " << err.code.what() << ": "
+                  << err.diag.message() << " (in " << duration << ")" << std::endl;
     else
-        std::cout << "JSONB TEXT select result: " << boost::json::serialize(select_vec[0].jb) << " (in " << duration << ")" << std::endl;
+        std::cout << "JSONB TEXT select result: " << boost::json::serialize(select_vec[0].jb) << " (in "
+                  << duration << ")" << std::endl;
 }
 
 // JSONB to types::pg_jsonb (BINARY)
@@ -137,8 +150,14 @@ static asio::awaitable<void> jsonb_binary_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_prepare("SELECT $1::jsonb as jb", {"jsonb_bintest"} )
-        .add_execute("jsonb_bintest", {"{ \"name\": \"John\", \"age\": 30, \"address\": { \"street\": \"Main St\", \"city\": \"New York\" }}"}, request::param_format::text, protocol::format_code::binary, 1);
+    req.add_prepare("SELECT $1::jsonb as jb", {"jsonb_bintest"})
+        .add_execute(
+            "jsonb_bintest",
+            {R"json({ "name": "John", "age": 30, "address": { "street": "Main St", "city": "New York" }})json"},
+            request::param_format::text,
+            protocol::format_code::binary,
+            1
+        );
 
     // Structures to parse the response into
     std::vector<jsonb_row> select_vec;
@@ -152,9 +171,11 @@ static asio::awaitable<void> jsonb_binary_example(connection& conn)
 
     // Print results
     if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "JSONB BINARY Error: " << err.code.what() << ": " << err.diag.message() << " (in " << duration << ")" << std::endl;
+        std::cerr << "JSONB BINARY Error: " << err.code.what() << ": " << err.diag.message() << " (in "
+                  << duration << ")" << std::endl;
     else
-        std::cout << "JSONB BINARY select result: " << boost::json::serialize(select_vec[0].jb) << " (in " << duration << ")" << std::endl;
+        std::cout << "JSONB BINARY select result: " << boost::json::serialize(select_vec[0].jb) << " (in "
+                  << duration << ")" << std::endl;
 }
 
 static asio::awaitable<void> co_main()

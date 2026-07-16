@@ -98,6 +98,7 @@ if (BUILD_TESTING)
     add_unit_test(types             test_numeric)
     add_unit_test(types             test_decimal)
     add_unit_test(types             test_datetime)
+    add_unit_test(types             test_json)
 endif()
 
 # Examples
@@ -116,7 +117,7 @@ target_link_libraries(nativepg_decimal_example PRIVATE nativepg)
 add_executable(nativepg_datetime_example example/types/datetime.cpp)
 target_link_libraries(nativepg_datetime_example PRIVATE nativepg)
 
-add_executable(nativepg_json_example example/json.cpp)
+add_executable(nativepg_json_example example/types/json.cpp)
 target_link_libraries(nativepg_json_example PRIVATE nativepg)
 
 if (NATIVEPG_COROSIO_API)

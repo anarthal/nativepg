@@ -96,7 +96,12 @@ void test_parse_text_json_empty_is_noop()
 {
     // Arrange
     boost::json::value out_val("sentinel");
-    const auto fv = make_field_view("");
+    // Note: bind the literal to a named variable first — make_field_view's field_view points into the
+    // string's buffer, so the string must outlive it (a temporary bound directly to make_field_view's
+    // by-value/by-const-ref parameter would be destroyed at the end of this statement, leaving fv
+    // dangling for the rest of the function).
+    const std::string str;
+    const auto fv = make_field_view(str);
 
     // Act
     auto err = types::parse_text_json(fv, out_val);
@@ -111,7 +116,9 @@ void test_parse_text_json_malformed_error()
 {
     // Arrange
     boost::json::value out_val;
-    const auto fv = make_field_view("{not valid json");
+    // Note: see test_parse_text_json_empty_is_noop for why str must be a named variable.
+    const std::string str = "{not valid json";
+    const auto fv = make_field_view(str);
 
     // Act
     auto err = types::parse_text_json(fv, out_val);

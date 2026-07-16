@@ -332,7 +332,8 @@ template <class T>
 resultset_callback_t<T, detail::into_handler<T>> into(std::vector<T>& vec, command_info* out_info = nullptr)
 {
     return resultset_callback_t<T, detail::into_handler<T>>{
-        detail::into_handler<T>{vec, out_info}
+        detail::into_handler<T>{vec},
+        out_info
     };
 }
 

@@ -143,4 +143,7 @@ if (NATIVEPG_COROSIO_API)
 
     add_executable(nativepg_update_affected_rows example/update_affected_rows.cpp)
     target_link_libraries(nativepg_update_affected_rows PRIVATE nativepg_corosio)
+
+    add_executable(nativepg_resultsets example/resultsets.cpp)
+    target_link_libraries(nativepg_resultsets PRIVATE nativepg_corosio)
 endif()

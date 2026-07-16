@@ -220,7 +220,7 @@ void dynamic_resultset_response::on_message(const any_request_message& msg, std:
     boost::variant2::visit(visitor{*this}, msg);
 }
 
-void resultsets_handler::on_message(const any_request_message& msg, std::size_t offset)
+void resultsets_handler::on_message(const any_request_message& msg, std::size_t)
 {
     struct visitor
     {

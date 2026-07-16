@@ -442,6 +442,8 @@ class resultsets_handler
     }
 
 public:
+    resultsets_handler(resultsets& r) noexcept : obj_(&r) {}
+
     handler_setup_result setup(const request& req, std::size_t offset)
     {
         obj_->clear();

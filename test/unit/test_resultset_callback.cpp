@@ -333,10 +333,12 @@ void test_command_info_affected_rows()
     BOOST_TEST_EQ(cb.result(), extended_error{});
 
     // command_info was populated
-    BOOST_TEST_EQ(info.command_complete_tag, "SELECT 2");
-    BOOST_TEST(info.affected_rows.has_value());
-    BOOST_TEST_EQ(info.affected_rows.value(), 2u);
-    BOOST_TEST_NOT(info.portal_suspended);
+    const command_info expected_info{
+        .command_complete_tag = "SELECT 2",
+        .affected_rows = 2u,
+        .portal_suspended = false,
+    };
+    BOOST_TEST_EQ(info, expected_info);
 }
 
 // A command_info is still populated when the tag has no affected row count.
@@ -363,9 +365,12 @@ void test_command_info_no_affected_rows()
     BOOST_TEST_EQ(cb.result(), extended_error{});
 
     // command_info records the tag, but there's no affected row count
-    BOOST_TEST_EQ(info.command_complete_tag, "CREATE TABLE");
-    BOOST_TEST_NOT(info.affected_rows.has_value());
-    BOOST_TEST_NOT(info.portal_suspended);
+    const command_info expected_info{
+        .command_complete_tag = "CREATE TABLE",
+        .affected_rows = {},
+        .portal_suspended = false,
+    };
+    BOOST_TEST_EQ(info, expected_info);
 }
 
 // Parsing the tag is best-effort: a malformed tag is recorded verbatim and does
@@ -392,9 +397,12 @@ void test_command_info_invalid_tag()
     BOOST_TEST_EQ(cb.result(), extended_error{});
 
     // The tag is recorded verbatim, but couldn't be parsed into a row count
-    BOOST_TEST_EQ(info.command_complete_tag, "INSERT 0 bad");
-    BOOST_TEST_NOT(info.affected_rows.has_value());
-    BOOST_TEST_NOT(info.portal_suspended);
+    const command_info expected_info{
+        .command_complete_tag = "INSERT 0 bad",
+        .affected_rows = {},
+        .portal_suspended = false,
+    };
+    BOOST_TEST_EQ(info, expected_info);
 }
 
 // A PortalSuspended (rather than CommandComplete) sets the portal_suspended flag
@@ -423,9 +431,12 @@ void test_command_info_portal_suspended()
     BOOST_TEST_EQ(cb.result(), extended_error{});
 
     // portal_suspended is set; there was no CommandComplete tag
-    BOOST_TEST(info.portal_suspended);
-    BOOST_TEST(info.command_complete_tag.empty());
-    BOOST_TEST_NOT(info.affected_rows.has_value());
+    const command_info expected_info{
+        .command_complete_tag = "",
+        .affected_rows = {},
+        .portal_suspended = true,
+    };
+    BOOST_TEST_EQ(info, expected_info);
 }
 
 // Not passing a command_info is fine: the CommandComplete is simply not recorded

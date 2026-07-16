@@ -101,6 +101,8 @@ struct command_info
 
     // True if the max row count specified in an execute message was reached.
     bool portal_suspended{false};
+
+    friend bool operator==(const command_info&, const command_info&) = default;
 };
 
 namespace detail {
@@ -331,10 +333,7 @@ struct into_handler
 template <class T>
 resultset_callback_t<T, detail::into_handler<T>> into(std::vector<T>& vec, command_info* out_info = nullptr)
 {
-    return resultset_callback_t<T, detail::into_handler<T>>{
-        detail::into_handler<T>{vec},
-        out_info
-    };
+    return resultset_callback_t<T, detail::into_handler<T>>{detail::into_handler<T>{vec}, out_info};
 }
 
 // A response type that checks that no operation resulted in an error

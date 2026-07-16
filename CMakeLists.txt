@@ -85,6 +85,7 @@ if (BUILD_TESTING)
     add_unit_test(protocol          test_check_request)
     add_unit_test(protocol          test_next_power_of_2)
     add_unit_test(protocol          test_read_buffer)
+    add_unit_test(protocol          test_command_complete_tag)
     add_unit_test(""                test_field_view)
     add_unit_test(""                test_request)
     add_unit_test(""                test_response)
@@ -93,6 +94,7 @@ if (BUILD_TESTING)
     add_unit_test(""                test_sqlstate)
     add_unit_test(""                test_extended_error_disposition)
     add_unit_test(""                test_extended_error_boost_system)
+    add_unit_test(types             test_base)
     add_unit_test(types             test_datetime)
 endif()
 
@@ -100,7 +102,10 @@ endif()
 add_executable(nativepg_example example/nativepg.cpp)
 target_link_libraries(nativepg_example PRIVATE nativepg)
 
-add_executable(nativepg_datetime_example example/datetime.cpp)
+add_executable(nativepg_base_example example/types/base.cpp)
+target_link_libraries(nativepg_base_example PRIVATE nativepg)
+
+add_executable(nativepg_datetime_example example/types/datetime.cpp)
 target_link_libraries(nativepg_datetime_example PRIVATE nativepg)
 
 add_executable(nativepg_json_example example/json.cpp)
@@ -124,4 +129,13 @@ if (NATIVEPG_COROSIO_API)
 
     add_executable(nativepg_copy_out example/copy_out.cpp)
     target_link_libraries(nativepg_copy_out PRIVATE nativepg_corosio)
+
+    add_executable(nativepg_dynamic_resultset example/dynamic_resultset.cpp)
+    target_link_libraries(nativepg_dynamic_resultset PRIVATE nativepg_corosio)
+
+    add_executable(nativepg_execute_max_rows example/execute_max_rows.cpp)
+    target_link_libraries(nativepg_execute_max_rows PRIVATE nativepg_corosio)
+
+    add_executable(nativepg_update_affected_rows example/update_affected_rows.cpp)
+    target_link_libraries(nativepg_update_affected_rows PRIVATE nativepg_corosio)
 endif()

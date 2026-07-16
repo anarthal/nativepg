@@ -18,6 +18,9 @@ std::ostream& operator<<(std::ostream&, const extended_error&);
 struct handler_setup_result;
 std::ostream& operator<<(std::ostream& os, const handler_setup_result&);
 
+struct command_info;
+std::ostream& operator<<(std::ostream& os, const command_info&);
+
 }  // namespace nativepg
 
 #endif

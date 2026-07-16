@@ -201,7 +201,7 @@ public:
 
         // In any case, clean up other data members, just in case
         elem->req = nullptr;
-        elem->res = null_handler_;
+        elem->res = &null_handler_;
         elem->on_done = &ignore;
     }
 

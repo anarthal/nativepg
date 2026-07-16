@@ -11,21 +11,23 @@
 #include <boost/describe/class.hpp>
 
 #include <iostream>
+#include <string_view>
+#include <vector>
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
 
 using namespace nativepg;
 namespace capy = boost::capy;
 namespace corosio = boost::corosio;
 
-struct myrow
+// TODO: this should probably use the dynamic API
+struct empty
 {
-    std::int32_t f3;
-    std::string f1;
 };
-BOOST_DESCRIBE_STRUCT(myrow, (), (f3, f1))
+BOOST_DESCRIBE_STRUCT(empty, (), ())
 
 static void print_err(const char* prefix, std::error_code err, const diagnostics& diag)
 {
@@ -35,11 +37,6 @@ static void print_err(const char* prefix, std::error_code err, const diagnostics
     std::cout << '\n';
 }
 
-static void print_err(const char* prefix, const extended_error& err)
-{
-    print_err(prefix, err.code, err.diag);
-}
-
 static capy::task<> co_main()
 {
     // Create a connection
@@ -47,11 +44,11 @@ static capy::task<> co_main()
     diagnostics diag;
 
     // Connect
-    auto [ec] = co_await conn.connect(
-        {.hostname = "localhost", .username = "postgres", .password = "secret", .database = "postgres"},
-        &diag
-    );
-    if (ec)
+    if (auto [ec] = co_await conn.connect(
+            {.hostname = "localhost", .username = "postgres", .password = "secret", .database = "postgres"},
+            &diag
+        );
+        ec)
     {
         print_err("Error connecting", ec, diag);
         co_return;
@@ -60,20 +57,19 @@ static capy::task<> co_main()
 
     // Compose our request
     request req;
-    req.add_query("INSERT INTO myt (f1, f3) VALUES ($1, $2)", {"hehe", "bad"});
-    req.add_query("SELECT * FROM myt WHERE f1 <> 'abc'", {});
+    req.add_query("UPDATE myt SET f3 = f3 + 1 WHERE f1 <> $1", {"hehe"});
 
     // Structures to parse the response into
-    std::vector<myrow> vec;
-    response res{check_execute(), into(vec)};
+    std::vector<empty> vec;
+    command_info info;
 
-    auto [ec2] = co_await conn.exec(req, &res, &diag);
-    print_err("Operation result", ec2, diag);
-    print_err("Q1 result", std::get<0>(res.handlers()).result());
-    print_err("Q2 result", std::get<1>(res.handlers()).result());
+    if (auto [ec] = co_await conn.exec(req, into(vec, &info), &diag); ec)
+    {
+        print_err("Error inserting", ec, diag);
+        co_return;
+    }
 
-    for (const auto& r : vec)
-        std::cout << "Got row: " << r.f1 << ", " << r.f3 << std::endl;
+    std::cout << "Affected: " << info.affected_rows.value_or(0u) << " rows\n";
 }
 
 int main()

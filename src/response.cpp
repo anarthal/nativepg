@@ -18,7 +18,6 @@
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/detail/field_traits.hpp"
-#include "nativepg/field_view.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
 #include "nativepg/response_handler.hpp"
@@ -27,189 +26,7 @@ using namespace nativepg;
 using namespace nativepg::types;
 using boost::system::error_code;
 
-// Parsing concrete fields
-namespace {
 
-template <class T>
-error_code parse_text_int(std::span<const unsigned char> from, T& to)
-{
-    const char* first = reinterpret_cast<const char*>(from.data());
-    const char* last = first + from.size();
-    auto err = std::from_chars(first, last, to);
-    if (err.ec != std::errc{})
-        return std::make_error_code(err.ec);
-    if (err.ptr != last)
-        return client_errc::extra_bytes;
-    return error_code();
-}
-
-template <class T>
-error_code parse_binary_int(std::span<const unsigned char> from, T& to)
-{
-    if (from.size() != sizeof(T))
-        return client_errc::protocol_value_error;
-    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data());
-    return {};
-}
-
-}  // namespace
-
-boost::system::error_code nativepg::detail::field_parse<std::int16_t>::call(
-    field_view from,
-    const protocol::field_description& desc,
-    std::int16_t& to
-)
-{
-    if (from.is_null())
-        return client_errc::unexpected_null;
-    BOOST_ASSERT(desc.type_oid == int2_oid);
-    return desc.fmt_code == protocol::format_code::text ? parse_text_int(from.data(), to)
-                                                        : parse_binary_int(from.data(), to);
-}
-
-boost::system::error_code nativepg::detail::field_parse<std::int32_t>::call(
-    field_view from,
-    const protocol::field_description& desc,
-    std::int32_t& to
-)
-{
-    if (from.is_null())
-        return client_errc::unexpected_null;
-    auto data = from.data();
-    switch (desc.type_oid)
-    {
-        case int2_oid:
-        {
-            std::int16_t value{};
-            auto ec = desc.fmt_code == protocol::format_code::text ? parse_text_int(data, value)
-                                                                   : parse_binary_int(data, value);
-            to = value;
-            return ec;
-        }
-        case int4_oid:
-            return desc.fmt_code == protocol::format_code::text ? parse_text_int(data, to)
-                                                                : parse_binary_int(data, to);
-        default: BOOST_ASSERT(false); return {};
-    }
-}
-
-boost::system::error_code nativepg::detail::field_parse<std::int64_t>::call(
-    field_view from,
-    const protocol::field_description& desc,
-    std::int64_t& to
-)
-{
-    if (from.is_null())
-        return client_errc::unexpected_null;
-    auto data = from.data();
-    switch (desc.type_oid)
-    {
-        case int2_oid:
-        {
-            std::int16_t value{};
-            auto ec = desc.fmt_code == protocol::format_code::text ? parse_text_int(data, value)
-                                                                   : parse_binary_int(data, value);
-            to = value;
-            return ec;
-        }
-        case int4_oid:
-        {
-            std::int32_t value{};
-            auto ec = desc.fmt_code == protocol::format_code::text ? parse_text_int(data, value)
-                                                                   : parse_binary_int(data, value);
-            to = value;
-            return ec;
-        }
-        case int8_oid:
-            return desc.fmt_code == protocol::format_code::text ? parse_text_int(data, to)
-                                                                : parse_binary_int(data, to);
-        default: BOOST_ASSERT(false); return {};
-    }
-}
-
-// DATE => std::chrono::sys_days
-boost::system::error_code nativepg::detail::field_parse<std::chrono::sys_days>::call(
-    field_view from,
-    const protocol::field_description& desc,
-    std::chrono::sys_days& to
-)
-{
-    if (from.is_null())
-        return client_errc::unexpected_null;
-    BOOST_ASSERT(desc.type_oid == 1082);
-    return desc.fmt_code == protocol::format_code::text ? parse_text_date(from.data(), to)
-                                                        : parse_binary_date(from.data(), to);
-}
-
-// TIME => std::chrono::microseconds
-boost::system::error_code nativepg::detail::field_parse<std::chrono::microseconds>::call(
-    field_view from,
-    const protocol::field_description& desc,
-    std::chrono::microseconds& to
-)
-{
-    if (from.is_null())
-        return client_errc::unexpected_null;
-    BOOST_ASSERT(desc.type_oid == 1083);
-    return desc.fmt_code == protocol::format_code::text ? parse_text_time(from.data(), to)
-                                                        : parse_binary_time(from.data(), to);
-}
-
-// TIMETZ => pg_timetz
-boost::system::error_code nativepg::detail::field_parse<types::pg_timetz>::call(
-    field_view from,
-    const protocol::field_description& desc,
-    types::pg_timetz& to
-)
-{
-    if (from.is_null())
-        return client_errc::unexpected_null;
-    BOOST_ASSERT(desc.type_oid == 1266);
-    return desc.fmt_code == protocol::format_code::text ? parse_text_timetz(from.data(), to)
-                                                        : parse_binary_timetz(from.data(), to);
-}
-
-// TIMESTAMP => pg_timestamp
-boost::system::error_code nativepg::detail::field_parse<types::pg_timestamp>::call(
-    field_view from,
-    const protocol::field_description& desc,
-    types::pg_timestamp& to
-)
-{
-    if (from.is_null())
-        return client_errc::unexpected_null;
-    BOOST_ASSERT(desc.type_oid == 1114);
-    return desc.fmt_code == protocol::format_code::text ? parse_text_timestamp(from.data(), to)
-                                                        : parse_binary_timestamp(from.data(), to);
-}
-
-// TIMESTAMPTZ => pg_timestamptz
-boost::system::error_code nativepg::detail::field_parse<types::pg_timestamptz>::call(
-    field_view from,
-    const protocol::field_description& desc,
-    types::pg_timestamptz& to
-)
-{
-    if (from.is_null())
-        return client_errc::unexpected_null;
-    BOOST_ASSERT(desc.type_oid == 1184);
-    return desc.fmt_code == protocol::format_code::text ? parse_text_timestamptz(from.data(), to)
-                                                        : parse_binary_timestamptz(from.data(), to);
-}
-
-// INTERVAL => pg_interval
-boost::system::error_code nativepg::detail::field_parse<types::pg_interval>::call(
-    field_view from,
-    const protocol::field_description& desc,
-    types::pg_interval& to
-)
-{
-    if (from.is_null())
-        return client_errc::unexpected_null;
-    BOOST_ASSERT(desc.type_oid == 1186);
-    return desc.fmt_code == protocol::format_code::text ? parse_text_interval(from.data(), to)
-                                                        : parse_binary_interval(from.data(), to);
-}
 
 boost::system::error_code nativepg::detail::compute_pos_map(
     const protocol::row_description& meta,
@@ -347,4 +164,63 @@ handler_setup_result check_close::setup(const request& req, std::size_t offset)
 {
     err_ = {};
     return check_setup_impl(req, offset, request_message_type::close);
+}
+
+void dynamic_resultset_response::on_message(const any_request_message& msg, std::size_t)
+{
+    struct visitor
+    {
+        dynamic_resultset_response& self;
+
+        // Ignore messages that might or might not appear in exec
+        void operator()(protocol::bind_complete) const {}
+        void operator()(protocol::parse_complete) const {}
+
+        // Metadata
+        void operator()(const protocol::row_description& msg) const
+        {
+            BOOST_ASSERT(self.state_ == state_t::parsing_meta);
+            self.obj_->set_row_description(msg);
+            self.state_ = state_t::parsing_data;
+        }
+
+        // Data
+        void operator()(const protocol::data_row& msg) const
+        {
+            BOOST_ASSERT(self.state_ == state_t::parsing_data);
+            // TODO: check that the number of rows matches with what we received in the field description
+            self.obj_->add_row(msg);
+        }
+
+        // EOF
+        void operator()(protocol::command_complete msg) const
+        {
+            BOOST_ASSERT(self.state_ == state_t::parsing_data);
+            self.obj_->set_command_complete_tag(msg.tag);
+            self.state_ = state_t::done;
+        }
+
+        void operator()(protocol::portal_suspended) const
+        {
+            BOOST_ASSERT(self.state_ == state_t::parsing_data);
+            self.obj_->set_portal_suspended(true);
+            self.state_ = state_t::done;
+        }
+
+        // Errors
+        void operator()(const protocol::error_response& msg) const
+        {
+            detail::maybe_store_error(msg, self.err_);
+            self.state_ = state_t::done;
+        }
+
+        // The rest of the messages shouldn't arrive
+        // TODO: manage multi-queries, empty queries, skipped messages
+        void operator()(const protocol::close_complete&) const { BOOST_ASSERT(false); }
+        void operator()(const protocol::parameter_description&) const { BOOST_ASSERT(false); }
+        void operator()(const protocol::empty_query_response&) const { BOOST_ASSERT(false); }
+        void operator()(message_skipped) const { BOOST_ASSERT(false); }
+    };
+
+    boost::variant2::visit(visitor{*this}, msg);
 }

@@ -70,7 +70,7 @@ static capy::task<> co_main()
     req.add_sync();
 
     // Actually prepare the statements
-    if (auto [ec] = co_await conn.exec(req, &diag); ec)
+    if (auto [ec] = co_await conn.exec(req, check(), &diag); ec)
     {
         print_err("Error preparing", ec, diag);
         co_return;
@@ -83,8 +83,7 @@ static capy::task<> co_main()
     req.add_sync();
 
     std::vector<myrow> rows;
-    response resp{into(rows)};
-    if (auto [ec] = co_await conn.exec(req, resp, &diag); ec)
+    if (auto [ec] = co_await conn.exec(req, into(rows), &diag); ec)
     {
         print_err("Error executing", ec, diag);
         co_return;
@@ -100,7 +99,7 @@ static capy::task<> co_main()
     req.add_close_statement(insert_stmt.name);
     req.add_close_statement(select_stmt.name);
     req.add_sync();
-    if (auto [ec] = co_await conn.exec(req, &diag); ec)
+    if (auto [ec] = co_await conn.exec(req, check(), &diag); ec)
     {
         print_err("Error closing", ec, diag);
         co_return;

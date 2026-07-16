@@ -111,8 +111,12 @@ public:
         diagnostics* diag = nullptr
     );
 
-    // Like exec(), but checks for errors, ignoring any incoming data
-    boost::capy::io_task<> exec(const request& req, diagnostics* diag = nullptr);
+    template <response_handler ResponseHandler>
+    boost::capy::io_task<> exec(const request& req, ResponseHandler handler, diagnostics* diag = nullptr)
+    {
+        // Keep the handler alive
+        co_return co_await exec(req, response_handler_ref(&handler), diag);
+    }
 
     // The request and the handler must live until the entire response has been read
     // with exec_some

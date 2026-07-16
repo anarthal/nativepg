@@ -93,6 +93,23 @@ void test_errors()
     BOOST_TEST_EQ(res.result(), expected);
 }
 
+// Response can be copied
+void test_copy()
+{
+    response res{mock_handler<1>{}, mock_handler<2>{}};
+    auto res2 = res;
+    res2 = res;
+}
+
+// Response can be moved
+void test_move()
+{
+    response res{mock_handler<1>{}, mock_handler<2>{}};
+    response res2{mock_handler<1>{}, mock_handler<2>{}};
+    response<mock_handler<1>, mock_handler<2>> res3{std::move(res)};
+    res3 = std::move(res2);
+}
+
 // The deduction guide works correctly
 void test_deduction_guide()
 {
@@ -114,15 +131,18 @@ void test_parse_text_time_text_format()
     std::string str = "21:06:19";
     field_view data({reinterpret_cast<const unsigned char*>(str.data()), str.size()});
     protocol::field_description description{
-        .name = "t", .table_oid = 0, .column_attribute = -1, .type_oid = 1083, .type_length = -1, .type_modifier = -1, .fmt_code = protocol::format_code::text};
+        .name = "t",
+        .table_oid = 0,
+        .column_attribute = -1,
+        .type_oid = 1083,
+        .type_length = -1,
+        .type_modifier = -1,
+        .fmt_code = protocol::format_code::text
+    };
     std::stringstream ss;
 
     // Act
-    auto err = detail::field_parse<std::chrono::microseconds>::call(
-        data,
-        description,
-        us
-    );
+    auto err = detail::field_parse<std::chrono::microseconds>::call(data, description, us);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
@@ -137,21 +157,21 @@ void test_parse_text_time_binary_format()
     std::chrono::microseconds us;
     std::string str = "21:06:19";
     // 21:06:19 as bigendian microseconds data
-    static constexpr unsigned char pg_time_210619[] = {
-        0x00, 0x00, 0x00, 0x11,
-        0xB0, 0xB3, 0x88, 0xC0
-    };
+    static constexpr unsigned char pg_time_210619[] = {0x00, 0x00, 0x00, 0x11, 0xB0, 0xB3, 0x88, 0xC0};
     field_view data(pg_time_210619);
     protocol::field_description description{
-        .name = "t", .table_oid = 0, .column_attribute = -1, .type_oid = 1083, .type_length = -1, .type_modifier = -1, .fmt_code = protocol::format_code::binary};
+        .name = "t",
+        .table_oid = 0,
+        .column_attribute = -1,
+        .type_oid = 1083,
+        .type_length = -1,
+        .type_modifier = -1,
+        .fmt_code = protocol::format_code::binary
+    };
     std::stringstream ss;
 
     // Act: Note can't use parse functions directly so one step higher calling field_parse
-    auto err = detail::field_parse<std::chrono::microseconds>::call(
-        data,
-        description,
-        us
-    );
+    auto err = detail::field_parse<std::chrono::microseconds>::call(data, description, us);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
@@ -167,6 +187,8 @@ int main()
     test_success_two_handlers();
     test_errors();
     test_deduction_guide();
+    test_copy();
+    test_move();
 
     test_parse_text_time_text_format();
     test_parse_text_time_binary_format();

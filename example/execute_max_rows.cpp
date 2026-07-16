@@ -11,9 +11,14 @@
 #include <boost/describe/class.hpp>
 
 #include <iostream>
+#include <span>
+#include <string_view>
+#include <vector>
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/protocol/execute.hpp"
+#include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
 
 using namespace nativepg;
@@ -35,9 +40,12 @@ static void print_err(const char* prefix, std::error_code err, const diagnostics
     std::cout << '\n';
 }
 
-static void print_err(const char* prefix, const extended_error& err)
+static void print_rows(std::span<const myrow> rows)
 {
-    print_err(prefix, err.code, err.diag);
+    std::cout << "Row batch of size: " << rows.size() << '\n';
+    for (const auto& row : rows)
+        std::cout << "{ .f3=" << row.f3 << ", .f1=" << row.f1 << " }\n";
+    std::cout << '\n';
 }
 
 static capy::task<> co_main()
@@ -58,22 +66,57 @@ static capy::task<> co_main()
     }
     std::cout << "Startup complete\n";
 
-    // Compose our request
-    request req;
-    req.add_query("INSERT INTO myt (f1, f3) VALUES ($1, $2)", {"hehe", "bad"});
-    req.add_query("SELECT * FROM myt WHERE f1 <> 'abc'", {});
+    // Initial execution
+    request req_initial{false};  // disable auto-sync
+    statement<std::string_view> stmt{};
+    req_initial.add_query("BEGIN", {})
+        .add_prepare("SELECT * FROM myt WHERE f1 <> $1", stmt)
+        .add_bind(stmt.bind("abc"), request::param_format::select_best, "")
+        .add_describe_portal("")
+        .add(protocol::execute{.portal_name = "", .max_num_rows = 2})
+        .add_sync();
 
-    // Structures to parse the response into
-    std::vector<myrow> vec;
-    response res{check_execute(), into(vec)};
+    // Subsequent executions
+    request req_subsequent{false};
+    req_subsequent.add_describe_portal("")
+        .add(protocol::execute{.portal_name = "", .max_num_rows = 2})
+        .add_sync();
 
-    auto [ec2] = co_await conn.exec(req, &res, &diag);
-    print_err("Operation result", ec2, diag);
-    print_err("Q1 result", std::get<0>(res.handlers()).result());
-    print_err("Q2 result", std::get<1>(res.handlers()).result());
+    // Cleanup
+    request req_final;  // with autosync
+    req_final.add_query("COMMIT", {});
 
-    for (const auto& r : vec)
-        std::cout << "Got row: " << r.f1 << ", " << r.f3 << std::endl;
+    // Start execution
+    std::vector<myrow> rows;
+    command_info info;
+
+    if (auto [ec] = co_await conn.exec(req_initial, response{check_execute(), into(rows, &info)}, &diag); ec)
+    {
+        print_err("Error executing the initial request", ec, diag);
+        co_return;
+    }
+
+    print_rows(rows);
+
+    // Read rows until the portal is exhausted
+    while (info.portal_suspended)
+    {
+        rows.clear();
+        if (auto [ec] = co_await conn.exec(req_subsequent, into(rows, &info), &diag); ec)
+        {
+            print_err("Error executing the follow up request", ec, diag);
+            co_return;
+        }
+
+        print_rows(rows);
+    }
+
+    // Cleanup
+    if (auto [ec] = co_await conn.exec(req_final, check(), &diag); ec)
+    {
+        print_err("Error during cleanup", ec, diag);
+        co_return;
+    }
 }
 
 int main()

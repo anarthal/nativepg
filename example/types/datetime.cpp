@@ -82,9 +82,8 @@ static asio::awaitable<void> date_text_example(connection& conn)
 
     // Structures to parse the response into
     std::vector<date_row> select_vec;
-    response res{into(select_vec)};
 
-    auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
+    auto [err] = co_await conn.async_exec(req, into(select_vec), asio::as_tuple);
 
     // Finish timing this method
     auto finish = std::chrono::high_resolution_clock::now();
@@ -109,9 +108,8 @@ static asio::awaitable<void> date_binary_example(connection& conn)
 
     // Structures to parse the response into
     std::vector<date_row> select_vec;
-    response res{into(select_vec)};
 
-    auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
+    auto [err] = co_await conn.async_exec(req, into(select_vec), asio::as_tuple);
 
     // Finish timing this method
     auto finish = std::chrono::high_resolution_clock::now();
@@ -163,9 +161,8 @@ static asio::awaitable<void> time_binary_example(connection& conn)
 
     // Structures to parse the response into
     std::vector<time_row> time_vec;
-    response res{into(time_vec)};
 
-    auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
+    auto [err] = co_await conn.async_exec(req, into(time_vec), asio::as_tuple);
 
     // Finish timing this method
     auto finish = std::chrono::high_resolution_clock::now();
@@ -191,9 +188,8 @@ static asio::awaitable<void> timetz_text_example(connection& conn)
 
     // Structures to parse the response into
     std::vector<timetz_row> select_vec;
-    response res{into(select_vec)};
 
-    auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
+    auto [err] = co_await conn.async_exec(req, into(select_vec), asio::as_tuple);
 
     // Finish timing this method
     auto finish = std::chrono::high_resolution_clock::now();
@@ -219,9 +215,8 @@ static asio::awaitable<void> timetz_binary_example(connection& conn)
 
     // Structures to parse the response into
     std::vector<timetz_row> select_vec;
-    response res{into(select_vec)};
 
-    auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
+    auto [err] = co_await conn.async_exec(req, into(select_vec), asio::as_tuple);
 
     // Finish timing this method
     auto finish = std::chrono::high_resolution_clock::now();
@@ -247,9 +242,8 @@ static asio::awaitable<void> timestamp_text_example(connection& conn)
 
     // Structures to parse the response into
     std::vector<timestamp_row> select_vec;
-    response res{into(select_vec)};
 
-    auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
+    auto [err] = co_await conn.async_exec(req, into(select_vec), asio::as_tuple);
 
     // Finish timing this method
     auto finish = std::chrono::high_resolution_clock::now();
@@ -275,9 +269,8 @@ static asio::awaitable<void> timestamp_binary_example(connection& conn)
 
     // Structures to parse the response into
     std::vector<timestamp_row> select_vec;
-    response res{into(select_vec)};
 
-    auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
+    auto [err] = co_await conn.async_exec(req, into(select_vec), asio::as_tuple);
 
     // Finish timing this method
     auto finish = std::chrono::high_resolution_clock::now();
@@ -304,9 +297,8 @@ static asio::awaitable<void> timestamptz_text_example(connection& conn)
 
     // Structures to parse the response into
     std::vector<timestamptz_row> select_vec;
-    response res{into(select_vec)};
 
-    auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
+    auto [err] = co_await conn.async_exec(req, into(select_vec), asio::as_tuple);
 
     // Finish timing this method
     auto finish = std::chrono::high_resolution_clock::now();
@@ -332,9 +324,8 @@ static asio::awaitable<void> timestamptz_binary_example(connection& conn)
 
     // Structures to parse the response into
     std::vector<timestamptz_row> select_vec;
-    response res{into(select_vec)};
 
-    auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
+    auto [err] = co_await conn.async_exec(req, into(select_vec), asio::as_tuple);
 
     // Finish timing this method
     auto finish = std::chrono::high_resolution_clock::now();
@@ -361,9 +352,8 @@ static asio::awaitable<void> interval_text_example(connection& conn)
 
     // Structures to parse the response into
     std::vector<interval_row> select_vec;
-    response res{into(select_vec)};
 
-    auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
+    auto [err] = co_await conn.async_exec(req, into(select_vec), asio::as_tuple);
 
     // Finish timing this method
     auto finish = std::chrono::high_resolution_clock::now();
@@ -390,9 +380,8 @@ static asio::awaitable<void> interval_binary_example(connection& conn)
 
     // Structures to parse the response into
     std::vector<interval_row> select_vec;
-    response res{into(select_vec)};
 
-    auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
+    auto [err] = co_await conn.async_exec(req, into(select_vec), asio::as_tuple);
 
     // Finish timing this method
     auto finish = std::chrono::high_resolution_clock::now();
@@ -417,7 +406,7 @@ static asio::awaitable<void> co_main()
 
     // Connect
     co_await conn.async_connect(
-        {.hostname = "localhost", .username = "henry", .password = "", .database = "postgres"}
+        {.hostname = "localhost", .username = "postgres", .password = "secret", .database = "postgres"}
     );
     std::cout << "Startup complete\n";
 

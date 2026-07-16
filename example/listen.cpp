@@ -17,9 +17,9 @@
 #include <vector>
 
 #include "nativepg/co_multiplexed_connection.hpp"
-#include "nativepg/extended_error.hpp"
 #include "nativepg/notification_event.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/response.hpp"
 
 using namespace nativepg;
 namespace capy = boost::capy;
@@ -73,7 +73,7 @@ static capy::io_task<> listener(co_multiplexed_connection& conn)
         // reconnections remove listeners
         if (should_issue_listen(events))
         {
-            if (auto [ec] = co_await conn.exec(req); ec)
+            if (auto [ec] = co_await conn.exec(req, check()); ec)
             {
                 std::cerr << "Error issuing listening: " << ec << ": " << ec.message() << std::endl;
                 co_return {};

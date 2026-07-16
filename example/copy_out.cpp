@@ -57,7 +57,7 @@ static capy::task<> co_main()
 
     // Setup the request for exec_some
     // Important: req and the handler must be kept alive until we finish executing
-    conn.setup_request(req, check_response);
+    conn.setup_request(req, &check_response);
 
     bool done = false;
     while (!done)

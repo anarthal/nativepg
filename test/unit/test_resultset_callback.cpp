@@ -134,6 +134,13 @@ protocol::field_description make_field_descr(
     };
 }
 
+// Verify that we clear the value
+const command_info initial_info{
+    .command_complete_tag = "didn't clear",
+    .affected_rows = 42,
+    .portal_suspended = true,
+};
+
 struct user
 {
     std::int32_t id;
@@ -306,7 +313,7 @@ void test_command_info_affected_rows()
 {
     // Test setup
     std::vector<user> users;
-    command_info info;
+    command_info info{initial_info};
     auto cb = into(users, &info);
     owning_row_description descrs({
         make_field_descr("id", 23, format_code::text),
@@ -338,7 +345,7 @@ void test_command_info_no_affected_rows()
 {
     // Test setup
     std::vector<user> users;
-    command_info info;
+    command_info info{initial_info};
     auto cb = into(users, &info);
     owning_row_description descrs({
         make_field_descr("id", 23, format_code::text),
@@ -367,7 +374,7 @@ void test_command_info_invalid_tag()
 {
     // Test setup
     std::vector<user> users;
-    command_info info;
+    command_info info{initial_info};
     auto cb = into(users, &info);
     owning_row_description descrs({
         make_field_descr("id", 23, format_code::text),
@@ -395,7 +402,7 @@ void test_command_info_portal_suspended()
 {
     // Test setup
     std::vector<user> users;
-    command_info info;
+    command_info info{initial_info};
     auto cb = into(users, &info);
     owning_row_description descrs({
         make_field_descr("id", 23, format_code::text),

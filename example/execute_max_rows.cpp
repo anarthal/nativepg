@@ -18,7 +18,6 @@
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/execute.hpp"
-#include "nativepg/protocol/flush.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
 
@@ -89,9 +88,9 @@ static capy::task<> co_main()
 
     // Start execution
     std::vector<myrow> rows;
-    response resp{check_execute(), into(rows)};
+    command_info info;
 
-    if (auto [ec] = co_await conn.exec(req_initial, &resp, &diag); ec)
+    if (auto [ec] = co_await conn.exec(req_initial, response{check_execute(), into(rows, &info)}, &diag); ec)
     {
         print_err("Error executing the initial request", ec, diag);
         co_return;
@@ -100,11 +99,10 @@ static capy::task<> co_main()
     print_rows(rows);
 
     // Read rows until the portal is exhausted
-    auto& handler = std::get<1>(resp.handlers());
-    while (handler.portal_suspended())
+    while (info.portal_suspended)
     {
         rows.clear();
-        if (auto [ec] = co_await conn.exec(req_subsequent, &handler, &diag); ec)
+        if (auto [ec] = co_await conn.exec(req_subsequent, into(rows, &info), &diag); ec)
         {
             print_err("Error executing the follow up request", ec, diag);
             co_return;

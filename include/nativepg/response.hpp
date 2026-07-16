@@ -15,7 +15,10 @@
 #include <array>
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
+#include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <tuple>
 #include <type_traits>
@@ -30,6 +33,7 @@
 #include "nativepg/field_view.hpp"
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/command_complete.hpp"
+#include "nativepg/protocol/command_complete_tag.hpp"
 #include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/execute.hpp"
@@ -84,6 +88,29 @@ inline void maybe_store_error(const any_request_message& msg, extended_error& to
 
 }  // namespace detail
 
+// Information about the execution of a command included in the
+// CommandComplete / PortalSuspended
+struct command_info
+{
+    // The tag in the CommandComplete message. Akin to PQcmdStatus
+    std::string command_complete_tag{};
+
+    // The rows affected by the command. Only available for a subset of commands.
+    // Shouldn't be taken for granted. Akin to PQcmdStatus
+    std::optional<std::uint64_t> affected_rows{};
+
+    // True if the max row count specified in an execute message was reached.
+    bool portal_suspended{false};
+
+    // TODO: do we want this?
+    void reset()
+    {
+        command_complete_tag.clear();
+        affected_rows.reset();
+        portal_suspended = false;
+    }
+};
+
 // Handles a resultset (i.e. a row_description + data_rows + command_complete)
 // by invoking a user-supplied callback
 template <class T, std::invocable<T&&> Callback>
@@ -101,7 +128,7 @@ class resultset_callback_t
     std::vector<field_view> random_access_data_;
     extended_error err_;
     Callback cb_;
-    bool portal_suspended_{};
+    command_info* info_{};
 
     void store_error(boost::system::error_code ec)
     {
@@ -223,11 +250,26 @@ class resultset_callback_t
             self.state_ = state_t::done;
         }
 
-        void operator()(protocol::command_complete) const { on_done(); }
+        void operator()(protocol::command_complete msg) const
+        {
+            if (auto* info = self.info_)
+            {
+                info->command_complete_tag.assign(msg.tag);
+
+                // Parsing the command tag is best effort. The protocol does not
+                // enforce the format. Extensions and third party tools may send non-conforming tags,
+                // and the format may change in slightly incompatible ways in the future.
+                // libpq does the same.
+                auto ec = protocol::parse_command_complete_tag(msg.tag, info->affected_rows);
+                static_cast<void>(ec);
+            }
+            on_done();
+        }
 
         void operator()(protocol::portal_suspended) const
         {
-            self.portal_suspended_ = true;
+            if (auto* info = self.info_)
+                info->portal_suspended = true;
             on_done();
         }
 
@@ -238,7 +280,8 @@ class resultset_callback_t
 
 public:
     template <std::invocable<T&&> Cb>
-    explicit resultset_callback_t(Cb&& cb) : cb_(std::forward<Cb>(cb))
+    explicit resultset_callback_t(Cb&& cb, command_info* out_info = nullptr)
+        : cb_(std::forward<Cb>(cb)), info_(out_info)
     {
     }
 
@@ -246,7 +289,8 @@ public:
     {
         state_ = state_t::parsing_meta;
         err_ = {};
-        portal_suspended_ = false;
+        if (info_)
+            info_->reset();
         return detail::resultset_setup(req, offset);
     }
 
@@ -256,9 +300,6 @@ public:
     }
 
     const extended_error& result() const { return err_; }
-
-    // TODO: do we want this embedded in the handler?
-    bool portal_suspended() const { return portal_suspended_; }
 };
 
 // Helper to create resultset callbacks
@@ -282,9 +323,11 @@ struct into_handler
 // Resultset callback that output rows into a vector
 // TODO: other allocators
 template <class T>
-resultset_callback_t<T, detail::into_handler<T>> into(std::vector<T>& vec)
+resultset_callback_t<T, detail::into_handler<T>> into(std::vector<T>& vec, command_info* out_info = nullptr)
 {
-    return resultset_callback_t<T, detail::into_handler<T>>{detail::into_handler<T>{vec}};
+    return resultset_callback_t<T, detail::into_handler<T>>{
+        detail::into_handler<T>{vec, out_info}
+    };
 }
 
 // A response type that checks that no operation resulted in an error

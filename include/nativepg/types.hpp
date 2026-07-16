@@ -1,10 +1,14 @@
 //
-// Created by Henry Roeland on 08/02/2026.
+// Copyright (c) 2025 Ruben Perez Hidalgo (rubenperez038 at gmail dot com)
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
 #ifndef NATIVEPG_TYPES_HPP
 #define NATIVEPG_TYPES_HPP
 
+#include "types/base.hpp"
 #include "types/datetime.hpp"
 
 #endif  // NATIVEPG_TYPES_HPP

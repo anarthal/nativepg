@@ -102,7 +102,6 @@ struct command_info
     // True if the max row count specified in an execute message was reached.
     bool portal_suspended{false};
 
-    // TODO: do we want this?
     void reset()
     {
         command_complete_tag.clear();

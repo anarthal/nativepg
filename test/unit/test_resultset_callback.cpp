@@ -26,6 +26,7 @@
 #include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/detail/serialization_context.hpp"
+#include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/parse.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
@@ -132,6 +133,13 @@ protocol::field_description make_field_descr(
         .fmt_code = code
     };
 }
+
+// Verify that we clear the value
+const command_info initial_info{
+    .command_complete_tag = "didn't clear",
+    .affected_rows = 42,
+    .portal_suspended = true,
+};
 
 struct user
 {
@@ -299,6 +307,194 @@ void test_type_conversions()
     BOOST_TEST_ALL_EQ(users.begin(), users.end(), expected_rows.begin(), expected_rows.end());
 }
 
+// If a command_info is supplied, it's populated from the CommandComplete tag,
+// including the affected row count when the tag conveys it
+void test_command_info_affected_rows()
+{
+    // Test setup
+    std::vector<user> users;
+    command_info info{initial_info};
+    auto cb = into(users, &info);
+    owning_row_description descrs({
+        make_field_descr("id", 23, format_code::text),
+        make_field_descr("name", 25, format_code::text),
+    });
+    request req;
+    req.add_simple_query("SELECT 1");
+    BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
+
+    // Messages
+    cb.on_message(descrs, 0u);
+    cb.on_message(owning_data_row({"42", "perico"}), 0u);
+    cb.on_message(owning_data_row({"50", "pepe"}), 0u);
+    cb.on_message(protocol::command_complete{.tag = "SELECT 2"}, 0u);
+
+    // Check result
+    BOOST_TEST_EQ(cb.result(), extended_error{});
+
+    // command_info was populated
+    const command_info expected_info{
+        .command_complete_tag = "SELECT 2",
+        .affected_rows = 2u,
+        .portal_suspended = false,
+    };
+    BOOST_TEST_EQ(info, expected_info);
+}
+
+// A command_info is still populated when the tag has no affected row count.
+// The tag is recorded but affected_rows stays empty.
+void test_command_info_no_affected_rows()
+{
+    // Test setup
+    std::vector<user> users;
+    command_info info{initial_info};
+    auto cb = into(users, &info);
+    owning_row_description descrs({
+        make_field_descr("id", 23, format_code::text),
+        make_field_descr("name", 25, format_code::text),
+    });
+    request req;
+    req.add_simple_query("SELECT 1");
+    BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
+
+    // Messages
+    cb.on_message(descrs, 0u);
+    cb.on_message(protocol::command_complete{.tag = "CREATE TABLE"}, 0u);
+
+    // Check result
+    BOOST_TEST_EQ(cb.result(), extended_error{});
+
+    // command_info records the tag, but there's no affected row count
+    const command_info expected_info{
+        .command_complete_tag = "CREATE TABLE",
+        .affected_rows = {},
+        .portal_suspended = false,
+    };
+    BOOST_TEST_EQ(info, expected_info);
+}
+
+// Parsing the tag is best-effort: a malformed tag is recorded verbatim and does
+// not produce an error, it just leaves affected_rows empty
+void test_command_info_invalid_tag()
+{
+    // Test setup
+    std::vector<user> users;
+    command_info info{initial_info};
+    auto cb = into(users, &info);
+    owning_row_description descrs({
+        make_field_descr("id", 23, format_code::text),
+        make_field_descr("name", 25, format_code::text),
+    });
+    request req;
+    req.add_simple_query("SELECT 1");
+    BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
+
+    // Messages
+    cb.on_message(descrs, 0u);
+    cb.on_message(protocol::command_complete{.tag = "INSERT 0 bad"}, 0u);
+
+    // The invalid tag is tolerated (not surfaced as an error)
+    BOOST_TEST_EQ(cb.result(), extended_error{});
+
+    // The tag is recorded verbatim, but couldn't be parsed into a row count
+    const command_info expected_info{
+        .command_complete_tag = "INSERT 0 bad",
+        .affected_rows = {},
+        .portal_suspended = false,
+    };
+    BOOST_TEST_EQ(info, expected_info);
+}
+
+// A PortalSuspended (rather than CommandComplete) sets the portal_suspended flag
+void test_command_info_portal_suspended()
+{
+    // Test setup
+    std::vector<user> users;
+    command_info info{initial_info};
+    auto cb = into(users, &info);
+    owning_row_description descrs({
+        make_field_descr("id", 23, format_code::text),
+        make_field_descr("name", 25, format_code::text),
+    });
+    request req;
+    req.add_query("SELECT $1", {42});
+    BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(5u));
+
+    // Messages: the max row count in the Execute was reached, so we get a PortalSuspended
+    cb.on_message(protocol::parse_complete{}, 0u);
+    cb.on_message(protocol::bind_complete{}, 1u);
+    cb.on_message(descrs, 2u);
+    cb.on_message(owning_data_row({"42", "perico"}), 3u);
+    cb.on_message(protocol::portal_suspended{}, 3u);
+
+    // Check result
+    BOOST_TEST_EQ(cb.result(), extended_error{});
+
+    // portal_suspended is set; there was no CommandComplete tag
+    const command_info expected_info{
+        .command_complete_tag = "",
+        .affected_rows = {},
+        .portal_suspended = true,
+    };
+    BOOST_TEST_EQ(info, expected_info);
+}
+
+// Not passing a command_info is fine: the CommandComplete is simply not recorded
+void test_null_info_command_complete()
+{
+    // Test setup
+    std::vector<user> users;
+    auto cb = into(users);  // no command_info
+    owning_row_description descrs({
+        make_field_descr("id", 23, format_code::text),
+        make_field_descr("name", 25, format_code::text),
+    });
+    request req;
+    req.add_simple_query("SELECT 1");
+    BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
+
+    // Messages
+    cb.on_message(descrs, 0u);
+    cb.on_message(owning_data_row({"42", "perico"}), 0u);
+    cb.on_message(protocol::command_complete{.tag = "SELECT 1"}, 0u);
+
+    // Check result: no error, rows still collected
+    BOOST_TEST_EQ(cb.result(), extended_error{});
+    std::vector<user> expected_rows{
+        {42, "perico"}
+    };
+    BOOST_TEST_ALL_EQ(users.begin(), users.end(), expected_rows.begin(), expected_rows.end());
+}
+
+// Not passing a command_info is fine even on a PortalSuspended
+void test_null_info_portal_suspended()
+{
+    // Test setup
+    std::vector<user> users;
+    auto cb = into(users);  // no command_info
+    owning_row_description descrs({
+        make_field_descr("id", 23, format_code::text),
+        make_field_descr("name", 25, format_code::text),
+    });
+    request req;
+    req.add_query("SELECT $1", {42});
+    BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(5u));
+
+    // Messages
+    cb.on_message(protocol::parse_complete{}, 0u);
+    cb.on_message(protocol::bind_complete{}, 1u);
+    cb.on_message(descrs, 2u);
+    cb.on_message(owning_data_row({"42", "perico"}), 3u);
+    cb.on_message(protocol::portal_suspended{}, 3u);
+
+    // Check result: no error, rows still collected
+    BOOST_TEST_EQ(cb.result(), extended_error{});
+    std::vector<user> expected_rows{
+        {42, "perico"}
+    };
+    BOOST_TEST_ALL_EQ(users.begin(), users.end(), expected_rows.begin(), expected_rows.end());
+}
+
 // Spotcheck the callback version
 void test_callback()
 {
@@ -330,6 +526,47 @@ void test_callback()
         {50, "pepe"  },
     };
     BOOST_TEST_ALL_EQ(users.begin(), users.end(), expected_rows.begin(), expected_rows.end());
+}
+
+void test_callback_info()
+{
+    // Test setup
+    std::vector<user> users;
+    command_info info{initial_info};
+    auto cb = resultset_callback<user>([&users](user&& u) { users.push_back(std::move(u)); }, &info);
+    owning_row_description descrs({
+        make_field_descr("id", 23, format_code::text),
+        make_field_descr("name", 25, format_code::text),
+    });
+    request req;
+    req.add_simple_query("SELECT 1");
+
+    // Handler setup
+    BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
+
+    // Messages
+    cb.on_message(descrs, 0u);
+    cb.on_message(owning_data_row({"42", "perico"}), 0u);
+    cb.on_message(owning_data_row({"50", "pepe"}), 0u);
+    cb.on_message(protocol::command_complete{"SELECT 18"}, 0u);
+
+    // Check result
+    BOOST_TEST_EQ(cb.result(), extended_error{});
+
+    // Rows
+    std::vector<user> expected_rows{
+        {42, "perico"},
+        {50, "pepe"  },
+    };
+    BOOST_TEST_ALL_EQ(users.begin(), users.end(), expected_rows.begin(), expected_rows.end());
+
+    // Command info
+    const command_info expected_info{
+        .command_complete_tag = "SELECT 18",
+        .affected_rows = 18,
+        .portal_suspended = false,
+    };
+    BOOST_TEST_EQ(info, expected_info);
 }
 
 // If a field is not present, that's an error.
@@ -395,9 +632,17 @@ int main()
     test_binary();
     test_type_conversions();
     test_callback();
+    test_callback_info();
 
     test_error_field_not_present();
     test_error_incompatible_field_type();
+
+    test_command_info_affected_rows();
+    test_command_info_no_affected_rows();
+    test_command_info_invalid_tag();
+    test_command_info_portal_suspended();
+    test_null_info_command_complete();
+    test_null_info_portal_suspended();
 
     return boost::report_errors();
 }

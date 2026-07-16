@@ -96,7 +96,7 @@ struct command_info
     std::string command_complete_tag{};
 
     // The rows affected by the command. Only available for a subset of commands.
-    // Shouldn't be taken for granted. Akin to PQcmdStatus
+    // Shouldn't be taken for granted. Akin to PQcmdTuples
     std::optional<std::uint64_t> affected_rows{};
 
     // True if the max row count specified in an execute message was reached.
@@ -312,9 +312,9 @@ public:
 
 // Helper to create resultset callbacks
 template <class T, std::invocable<T&&> Callback>
-auto resultset_callback(Callback&& cb)
+auto resultset_callback(Callback&& cb, command_info* info = nullptr)
 {
-    return resultset_callback_t<T, std::decay_t<Callback>>{std::forward<Callback>(cb)};
+    return resultset_callback_t<T, std::decay_t<Callback>>{std::forward<Callback>(cb), info};
 }
 
 namespace detail {

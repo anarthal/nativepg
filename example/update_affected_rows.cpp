@@ -26,8 +26,6 @@ namespace corosio = boost::corosio;
 // TODO: this should probably use the dynamic API
 struct empty
 {
-    std::int32_t f3;
-    std::string f1;
 };
 BOOST_DESCRIBE_STRUCT(empty, (), ())
 

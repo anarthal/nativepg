@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "nativepg/extended_error.hpp"
+#include "nativepg/response.hpp"
 #include "nativepg/response_handler.hpp"
 #include "printing.hpp"
 #include "test_utils.hpp"
@@ -59,4 +60,14 @@ std::ostream& nativepg::operator<<(std::ostream& os, const handler_setup_result&
         return os << "{ .ec=" << value.ec << " }";
     else
         return os << "{ .offset=" << value.offset << " }";
+}
+
+std::ostream& nativepg::operator<<(std::ostream& os, const command_info& value)
+{
+    os << "{ .command_complete_tag=" << value.command_complete_tag << ", .affected_rows=";
+    if (value.affected_rows.has_value())
+        os << *value.affected_rows;
+    else
+        os << "<nullopt>";
+    return os << ", .portal_suspended=" << value.portal_suspended << " }";
 }

@@ -15,7 +15,10 @@
 #include <array>
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
+#include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <tuple>
 #include <type_traits>
@@ -30,6 +33,7 @@
 #include "nativepg/field_view.hpp"
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/command_complete.hpp"
+#include "nativepg/protocol/command_complete_tag.hpp"
 #include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/execute.hpp"
@@ -84,6 +88,46 @@ inline void maybe_store_error(const any_request_message& msg, extended_error& to
 
 }  // namespace detail
 
+// Information about the execution of a command included in the
+// CommandComplete / PortalSuspended
+struct command_info
+{
+    // The tag in the CommandComplete message. Akin to PQcmdStatus
+    std::string command_complete_tag{};
+
+    // The rows affected by the command. Only available for a subset of commands.
+    // Shouldn't be taken for granted. Akin to PQcmdTuples
+    std::optional<std::uint64_t> affected_rows{};
+
+    // True if the max row count specified in an execute message was reached.
+    bool portal_suspended{false};
+
+    friend bool operator==(const command_info&, const command_info&) = default;
+};
+
+namespace detail {
+
+inline void reset_info(command_info& obj)
+{
+    obj.command_complete_tag.clear();
+    obj.affected_rows.reset();
+    obj.portal_suspended = false;
+}
+
+inline void from_command_complete(command_info& obj, protocol::command_complete msg)
+{
+    obj.command_complete_tag.assign(msg.tag);
+
+    // Parsing the command tag is best effort. The protocol does not
+    // enforce the format. Extensions and third party tools may send non-conforming tags,
+    // and the format may change in slightly incompatible ways in the future.
+    // libpq does the same.
+    auto ec = protocol::parse_command_complete_tag(msg.tag, obj.affected_rows);
+    static_cast<void>(ec);
+}
+
+}  // namespace detail
+
 // Handles a resultset (i.e. a row_description + data_rows + command_complete)
 // by invoking a user-supplied callback
 template <class T, std::invocable<T&&> Callback>
@@ -101,6 +145,7 @@ class resultset_callback_t
     std::vector<field_view> random_access_data_;
     extended_error err_;
     Callback cb_;
+    command_info* info_{};
 
     void store_error(boost::system::error_code ec)
     {
@@ -222,10 +267,19 @@ class resultset_callback_t
             self.state_ = state_t::done;
         }
 
-        void operator()(protocol::command_complete) const { on_done(); }
+        void operator()(protocol::command_complete msg) const
+        {
+            if (auto* info = self.info_)
+                detail::from_command_complete(*info, msg);
+            on_done();
+        }
 
-        // TODO: this should be transmitted to the user somehow
-        void operator()(protocol::portal_suspended) const { on_done(); }
+        void operator()(protocol::portal_suspended) const
+        {
+            if (auto* info = self.info_)
+                info->portal_suspended = true;
+            on_done();
+        }
 
         // If any of the messages we expect was skipped due to a previous error,
         // that's an error
@@ -234,12 +288,17 @@ class resultset_callback_t
 
 public:
     template <std::invocable<T&&> Cb>
-    explicit resultset_callback_t(Cb&& cb) : cb_(std::forward<Cb>(cb))
+    explicit resultset_callback_t(Cb&& cb, command_info* out_info = nullptr)
+        : cb_(std::forward<Cb>(cb)), info_(out_info)
     {
     }
 
     handler_setup_result setup(const request& req, std::size_t offset)
     {
+        state_ = state_t::parsing_meta;
+        err_ = {};
+        if (info_)
+            detail::reset_info(*info_);
         return detail::resultset_setup(req, offset);
     }
 
@@ -253,9 +312,9 @@ public:
 
 // Helper to create resultset callbacks
 template <class T, std::invocable<T&&> Callback>
-auto resultset_callback(Callback&& cb)
+auto resultset_callback(Callback&& cb, command_info* info = nullptr)
 {
-    return resultset_callback_t<T, std::decay_t<Callback>>{std::forward<Callback>(cb)};
+    return resultset_callback_t<T, std::decay_t<Callback>>{std::forward<Callback>(cb), info};
 }
 
 namespace detail {
@@ -272,9 +331,9 @@ struct into_handler
 // Resultset callback that output rows into a vector
 // TODO: other allocators
 template <class T>
-resultset_callback_t<T, detail::into_handler<T>> into(std::vector<T>& vec)
+resultset_callback_t<T, detail::into_handler<T>> into(std::vector<T>& vec, command_info* out_info = nullptr)
 {
-    return resultset_callback_t<T, detail::into_handler<T>>{detail::into_handler<T>{vec}};
+    return resultset_callback_t<T, detail::into_handler<T>>{detail::into_handler<T>{vec}, out_info};
 }
 
 // A response type that checks that no operation resulted in an error

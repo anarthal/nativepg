@@ -299,6 +299,13 @@ void test_type_conversions()
     BOOST_TEST_ALL_EQ(users.begin(), users.end(), expected_rows.begin(), expected_rows.end());
 }
 
+// Non-NULL info, tag with affected rows
+// Non-NULL info, tag without affected rows
+// Non-NULL info, tag is invalid
+// Non-NULL info, portal suspended
+// NULL info, tag with affected rows
+// NULL info, portal suspended
+
 // Spotcheck the callback version
 void test_callback()
 {

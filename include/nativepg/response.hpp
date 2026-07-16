@@ -101,14 +101,30 @@ struct command_info
 
     // True if the max row count specified in an execute message was reached.
     bool portal_suspended{false};
-
-    void reset()
-    {
-        command_complete_tag.clear();
-        affected_rows.reset();
-        portal_suspended = false;
-    }
 };
+
+namespace detail {
+
+inline void reset_info(command_info& obj)
+{
+    obj.command_complete_tag.clear();
+    obj.affected_rows.reset();
+    obj.portal_suspended = false;
+}
+
+inline void from_command_complete(command_info& obj, protocol::command_complete msg)
+{
+    obj.command_complete_tag.assign(msg.tag);
+
+    // Parsing the command tag is best effort. The protocol does not
+    // enforce the format. Extensions and third party tools may send non-conforming tags,
+    // and the format may change in slightly incompatible ways in the future.
+    // libpq does the same.
+    auto ec = protocol::parse_command_complete_tag(msg.tag, obj.affected_rows);
+    static_cast<void>(ec);
+}
+
+}  // namespace detail
 
 // Handles a resultset (i.e. a row_description + data_rows + command_complete)
 // by invoking a user-supplied callback
@@ -252,16 +268,7 @@ class resultset_callback_t
         void operator()(protocol::command_complete msg) const
         {
             if (auto* info = self.info_)
-            {
-                info->command_complete_tag.assign(msg.tag);
-
-                // Parsing the command tag is best effort. The protocol does not
-                // enforce the format. Extensions and third party tools may send non-conforming tags,
-                // and the format may change in slightly incompatible ways in the future.
-                // libpq does the same.
-                auto ec = protocol::parse_command_complete_tag(msg.tag, info->affected_rows);
-                static_cast<void>(ec);
-            }
+                detail::from_command_complete(*info, msg);
             on_done();
         }
 
@@ -289,7 +296,7 @@ public:
         state_ = state_t::parsing_meta;
         err_ = {};
         if (info_)
-            info_->reset();
+            detail::reset_info(*info_);
         return detail::resultset_setup(req, offset);
     }
 

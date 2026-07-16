@@ -15,10 +15,8 @@
 #include <array>
 #include <concepts>
 #include <cstddef>
-#include <cstdint>
 #include <optional>
 #include <span>
-#include <string>
 #include <string_view>
 #include <tuple>
 #include <type_traits>
@@ -26,6 +24,7 @@
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
+#include "nativepg/command_info.hpp"
 #include "nativepg/detail/field_traits.hpp"
 #include "nativepg/detail/row_traits.hpp"
 #include "nativepg/dynamic_resultset.hpp"
@@ -85,27 +84,6 @@ inline void maybe_store_error(const any_request_message& msg, extended_error& to
     if (err)
         maybe_store_error(*err, to);
 }
-
-}  // namespace detail
-
-// Information about the execution of a command included in the
-// CommandComplete / PortalSuspended
-struct command_info
-{
-    // The tag in the CommandComplete message. Akin to PQcmdStatus
-    std::string command_complete_tag{};
-
-    // The rows affected by the command. Only available for a subset of commands.
-    // Shouldn't be taken for granted. Akin to PQcmdTuples
-    std::optional<std::uint64_t> affected_rows{};
-
-    // True if the max row count specified in an execute message was reached.
-    bool portal_suspended{false};
-
-    friend bool operator==(const command_info&, const command_info&) = default;
-};
-
-namespace detail {
 
 inline void reset_info(command_info& obj)
 {

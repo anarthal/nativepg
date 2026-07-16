@@ -18,6 +18,8 @@
 #include <string_view>
 #include <vector>
 
+#include "nativepg/command_info.hpp"
+#include "nativepg/extended_error.hpp"
 #include "nativepg/field_view.hpp"
 #include "nativepg/protocol/common.hpp"
 #include "nativepg/protocol/data_row.hpp"
@@ -533,6 +535,142 @@ public:
     // True if the query finished with portal suspended, meaning that
     // the portal can be executed again for more rows
     bool portal_suspended() const noexcept { return portal_suspended_; }
+};
+
+namespace detail {
+
+struct resultset_descriptor
+{
+    // TODO: variant?
+    extended_error err;
+    command_info info;
+    offset_and_length descr;
+    offset_and_length values;
+};
+
+}  // namespace detail
+
+// A view into a single resultset. The element type of resultsets
+class resultset_view
+{
+    const detail::offsetted_field_description* descr_;
+    const detail::offset_and_length* values_;
+    const unsigned char* data_;
+    const detail::resultset_descriptor* result_;
+
+public:
+    field_descriptions_view field_descriptions() const
+    {
+        return {
+            {descr_ + result_->descr.offset, result_->descr.length},
+            data_
+        };
+    }
+
+    rows_view rows() const
+    {
+        return {
+            {values_ + result_->values.offset, result_->values.length},
+            result_->descr.length,
+            data_
+        };
+    }
+
+    const command_info& info() const { return result_->info; }
+
+    const extended_error& error() const { return result_->err; }
+};
+
+// A sequence of resultsets. Can accommodate the response to any number of SQL commands
+class resultsets
+{
+    std::vector<detail::offsetted_field_description> field_descr_;
+    std::vector<detail::offset_and_length> values_;
+    std::vector<detail::resultset_descriptor> resultsets_;
+    std::vector<unsigned char> data_;
+
+    detail::offset_and_length insert_data(std::span<const unsigned char> value)
+    {
+        // Data coming from the server fulfills this assertion by protocol design
+        BOOST_ASSERT(value.size() != static_cast<std::size_t>(-1));
+        detail::offset_and_length res{.offset = data_.size(), .length = value.size()};
+        data_.insert(data_.end(), value.begin(), value.end());
+        return res;
+    }
+
+    detail::offset_and_length insert_data(std::string_view value)
+    {
+        return insert_data(
+            std::span<const unsigned char>{reinterpret_cast<const unsigned char*>(value.data()), value.size()}
+        );
+    }
+
+public:
+    resultsets() = default;
+
+    // Makes the object empty, allowing for memory re-use
+    void clear()
+    {
+        field_descr_.clear();
+        values_.clear();
+        resultsets_.clear();
+        data_.clear();
+    }
+
+    // Part of the unstable API. Should only be used by
+    // response authors.
+    void add_row_description(const protocol::row_description& row_descr)
+    {
+        field_descr_.reserve(field_descr_.size() + row_descr.field_descriptions.size());
+        for (const auto& descr : row_descr.field_descriptions)
+        {
+            field_descr_.push_back({
+                .name = insert_data(descr.name),
+                .table_oid = descr.table_oid,
+                .column_attribute = descr.column_attribute,
+                .type_oid = descr.type_oid,
+                .type_length = descr.type_length,
+                .type_modifier = descr.type_modifier,
+                .fmt_code = descr.fmt_code,
+            });
+        }
+    }
+
+    // Part of the unstable API. Should only be used by
+    // response authors.
+    void add_row(const protocol::data_row& row)
+    {
+        // Ensuring that this precondition meets is not this class' responsibility,
+        // but the response type's.
+        BOOST_ASSERT(row.columns.size() == field_descr_.size());
+        for (const auto fv : row.columns)
+        {
+            if (fv.is_null())
+                values_.push_back({.offset = 0u, .length = static_cast<std::size_t>(-1)});
+            else
+                values_.push_back(insert_data(fv.data()));
+        }
+    }
+
+    void finish_resultset(
+        std::size_t num_rows,
+        std::size_t num_cols,
+        command_info&& info,
+        extended_error&& err
+    )
+    {
+        const std::size_t num_values = num_cols * num_rows;
+
+        BOOST_ASSERT(field_descr_.size() >= num_cols);
+        BOOST_ASSERT(values_.size() >= num_values);
+
+        resultsets_.push_back({
+            .err = std::move(err),
+            .info = std::move(info),
+            .descr = {.offset = field_descr_.size() - num_cols, .length = num_cols  },
+            .values = {.offset = values_.size() - num_values,    .length = num_values},
+        });
+    }
 };
 
 }  // namespace nativepg

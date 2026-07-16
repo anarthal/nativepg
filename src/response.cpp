@@ -10,14 +10,11 @@
 #include <boost/system/error_code.hpp>
 
 #include <algorithm>
-#include <charconv>
-#include <chrono>
-#include <cstdint>
 #include <cstring>
 #include <span>
 
 #include "nativepg/client_errc.hpp"
-#include "nativepg/detail/field_traits.hpp"
+#include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
 #include "nativepg/response_handler.hpp"
@@ -25,8 +22,6 @@
 using namespace nativepg;
 using namespace nativepg::types;
 using boost::system::error_code;
-
-
 
 boost::system::error_code nativepg::detail::compute_pos_map(
     const protocol::row_description& meta,
@@ -212,6 +207,72 @@ void dynamic_resultset_response::on_message(const any_request_message& msg, std:
         {
             detail::maybe_store_error(msg, self.err_);
             self.state_ = state_t::done;
+        }
+
+        // The rest of the messages shouldn't arrive
+        // TODO: manage multi-queries, empty queries, skipped messages
+        void operator()(const protocol::close_complete&) const { BOOST_ASSERT(false); }
+        void operator()(const protocol::parameter_description&) const { BOOST_ASSERT(false); }
+        void operator()(const protocol::empty_query_response&) const { BOOST_ASSERT(false); }
+        void operator()(message_skipped) const { BOOST_ASSERT(false); }
+    };
+
+    boost::variant2::visit(visitor{*this}, msg);
+}
+
+void resultsets_handler::on_message(const any_request_message& msg, std::size_t offset)
+{
+    struct visitor
+    {
+        resultsets_handler& self;
+
+        // Ignore messages that might or might not appear in exec
+        void operator()(protocol::bind_complete) const {}
+        void operator()(protocol::parse_complete) const {}
+
+        // Metadata
+        void operator()(const protocol::row_description& msg) const
+        {
+            BOOST_ASSERT(self.state_ == state_t::parsing_meta);
+            self.num_cols_ = msg.field_descriptions.size();
+            self.obj_->add_row_description(msg);
+            self.state_ = state_t::parsing_data;
+        }
+
+        // Data
+        void operator()(const protocol::data_row& msg) const
+        {
+            BOOST_ASSERT(self.state_ == state_t::parsing_data);
+            // TODO: check that the number of rows matches with what we received in the field description
+            self.obj_->add_row(msg);
+            ++self.num_rows_;
+        }
+
+        // EOF
+        void operator()(protocol::command_complete msg) const
+        {
+            BOOST_ASSERT(self.state_ == state_t::parsing_data);
+            command_info info;
+            detail::from_command_complete(info, msg);
+            self.obj_->finish_resultset(self.num_rows_, self.num_cols_, std::move(info), {});
+            self.reset_state();
+        }
+
+        void operator()(protocol::portal_suspended) const
+        {
+            BOOST_ASSERT(self.state_ == state_t::parsing_data);
+            self.obj_->finish_resultset(self.num_rows_, self.num_cols_, {.portal_suspended = true}, {});
+            self.reset_state();
+        }
+
+        // Errors
+        void operator()(const protocol::error_response& msg) const
+        {
+            extended_error err;
+            detail::store_error(msg, err);
+            detail::maybe_store_error(msg, self.err_);
+            self.obj_->finish_resultset(self.num_rows_, self.num_cols_, {}, std::move(err));
+            self.reset_state();
         }
 
         // The rest of the messages shouldn't arrive

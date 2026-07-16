@@ -69,13 +69,16 @@ inline constexpr std::size_t invalid_pos = static_cast<std::size_t>(-1);
 
 handler_setup_result resultset_setup(const request& req, std::size_t offset);
 
+inline void store_error(const protocol::error_response& err, extended_error& to)
+{
+    to.code = parse_sqlstate(err.sqlstate.value_or(std::string_view{}));
+    to.diag.assign(err);
+}
+
 inline void maybe_store_error(const protocol::error_response& err, extended_error& to)
 {
     if (!to.code)
-    {
-        to.code = parse_sqlstate(err.sqlstate.value_or(std::string_view{}));
-        to.diag.assign(err);
-    }
+        store_error(err, to);
 }
 
 inline void maybe_store_error(const any_request_message& msg, extended_error& to)
@@ -413,6 +416,48 @@ public:
         err_ = {};
         return detail::resultset_setup(req, offset);
     }
+    void on_message(const any_request_message& msg, std::size_t);
+    const extended_error& result() const { return err_; }
+};
+
+class resultsets_handler
+{
+    enum class state_t
+    {
+        parsing_meta,
+        parsing_data,
+    };
+
+    resultsets* obj_;
+    extended_error err_;
+    state_t state_{state_t::parsing_meta};
+    std::size_t num_cols_{};
+    std::size_t num_rows_{};
+
+    void reset_state()
+    {
+        state_ = state_t::parsing_meta;
+        num_cols_ = 0u;
+        num_rows_ = 0u;
+    }
+
+public:
+    handler_setup_result setup(const request& req, std::size_t offset)
+    {
+        obj_->clear();
+        state_ = state_t::parsing_meta;
+        err_ = {};
+        reset_state();
+
+        auto res = detail::resultset_setup(req, offset);
+        while (true)
+        {
+            if (res.ec || res.offset >= req.messages().size())
+                return res;
+            res = detail::resultset_setup(req, res.offset);
+        }
+    }
+
     void on_message(const any_request_message& msg, std::size_t);
     const extended_error& result() const { return err_; }
 };

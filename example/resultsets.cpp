@@ -57,11 +57,7 @@ static capy::task<> co_main()
     resultsets res;
 
     auto [ec2] = co_await conn.exec(req, resultsets_handler{res}, &diag);
-    if (ec2)
-    {
-        print_err("Operation result", ec2, diag);
-        co_return;
-    }
+    print_err("Operation result", ec2, diag);
 
     // Print the results
     for (const auto& result : res)

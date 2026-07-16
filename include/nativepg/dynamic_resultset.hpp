@@ -652,9 +652,7 @@ public:
     // response authors.
     void add_row(const protocol::data_row& row)
     {
-        // Ensuring that this precondition meets is not this class' responsibility,
-        // but the response type's.
-        BOOST_ASSERT(row.columns.size() == field_descr_.size());
+        values_.reserve(row.columns.size());
         for (const auto fv : row.columns)
         {
             if (fv.is_null())

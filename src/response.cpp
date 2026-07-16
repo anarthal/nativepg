@@ -270,7 +270,7 @@ void resultsets_handler::on_message(const any_request_message& msg, std::size_t)
         {
             extended_error err;
             detail::store_error(msg, err);
-            detail::maybe_store_error(msg, self.err_);
+            detail::maybe_store_error(msg, self.err_);  // TODO: this is parsing twice
             self.obj_->finish_resultset(self.num_rows_, self.num_cols_, {}, std::move(err));
             self.reset_state();
         }

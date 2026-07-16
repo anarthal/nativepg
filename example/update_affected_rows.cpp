@@ -46,11 +46,11 @@ static capy::task<> co_main()
     diagnostics diag;
 
     // Connect
-    auto [ec] = co_await conn.connect(
-        {.hostname = "localhost", .username = "postgres", .password = "secret", .database = "postgres"},
-        &diag
-    );
-    if (ec)
+    if (auto [ec] = co_await conn.connect(
+            {.hostname = "localhost", .username = "postgres", .password = "secret", .database = "postgres"},
+            &diag
+        );
+        ec)
     {
         print_err("Error connecting", ec, diag);
         co_return;
@@ -65,8 +65,7 @@ static capy::task<> co_main()
     std::vector<empty> vec;
     command_info info;
 
-    auto [ec2] = co_await conn.exec(req, into(vec, &info), &diag);
-    if (ec2)
+    if (auto [ec] = co_await conn.exec(req, into(vec, &info), &diag); ec)
     {
         print_err("Error inserting", ec, diag);
         co_return;

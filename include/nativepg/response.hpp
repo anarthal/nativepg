@@ -463,6 +463,19 @@ public:
     const extended_error& result() const { return err_; }
 };
 
+class describe_into
+{
+    field_descriptions* obj_;
+    extended_error err_;
+
+public:
+    describe_into(field_descriptions& obj) noexcept : obj_(&obj) {}
+
+    handler_setup_result setup(const request& req, std::size_t offset);
+    void on_message(const any_request_message& msg, std::size_t);
+    const extended_error& result() const { return err_; }
+};
+
 namespace detail {
 
 template <class H0, class... HRest>

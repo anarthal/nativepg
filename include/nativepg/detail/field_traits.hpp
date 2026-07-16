@@ -60,8 +60,8 @@ struct field_parse<T>
 #include "field_traits_base.hpp"
 #include "field_traits_datetime.hpp"
 
-#ifdef NATIVEPG_JSON
-#include "field_traits_json.hpp"
-#endif
+// field_traits_numeric.hpp and field_traits_decimal.hpp are intentionally NOT included here: they're
+// opt-in features. Include nativepg/types/numeric.hpp or nativepg/types/decimal.hpp directly (in the TU
+// that needs them) to pull in Boost.Multiprecision/Boost.Decimal support.
 
 #endif

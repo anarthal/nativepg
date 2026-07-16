@@ -29,6 +29,11 @@
 namespace asio = boost::asio;
 using namespace nativepg;
 
+struct empty
+{
+};
+BOOST_DESCRIBE_STRUCT(empty, (), ())
+
 struct row_count
 {
     std::int64_t amount;
@@ -40,7 +45,7 @@ static void print_err(const char* prefix, const extended_error& err)
     std::cerr << prefix << err.code.what() << ": " << err.diag.message() << '\n';
 }
 
-static asio::awaitable<void> co_main()
+static asio::awaitable<void> multiple_executes(connection& conn)
 {
     // Timing Start...
     using clock = std::chrono::steady_clock;
@@ -48,17 +53,6 @@ static asio::awaitable<void> co_main()
     auto start = clock::now();
 
 
-    // Create a connection
-    connection conn{co_await asio::this_coro::executor};
-
-    // Connect
-    if (auto [err] = co_await conn.async_connect(
-        {.hostname = "localhost", .username = "postgres", .password = "secret", .database = "postgres"}, asio::as_tuple); err.code)
-    {
-        print_err("Connect result: ", err);
-        co_return;
-    }
-    std::cout << "Startup complete\n";
 
     // Create
     request create_req;
@@ -136,6 +130,52 @@ static asio::awaitable<void> co_main()
     auto finish = clock::now();
     auto d = std::chrono::duration_cast<ms>(finish - start);
     std::cout << "Timing result: " << d.count() << " [ms]\n";
+}
+
+static asio::awaitable<void> single_execute(connection& conn)
+{
+    // Timing Start...
+    using clock = std::chrono::steady_clock;
+    using ms = std::chrono::milliseconds;
+    auto start = clock::now();
+
+    // Compose our request
+    request req;
+    req.add_query("CREATE TABLE IF NOT EXISTS persons ( id bigserial primary key , name text not null, postal_code integer)", {})
+        .add_query("INSERT INTO persons (name, postal_code) VALUES ('Bert', 1000), ('Ernie', 2000)", {})
+        .add_query("UPDATE persons SET postal_code = $1 WHERE id >= $2", {3000, 0})
+        .add_query("select count(*) as amount from persons", {})
+        .add_query("delete from persons", {})
+        .add_query("drop table persons", {});
+
+    // Structures to parse the response into
+    resultsets ress{};
+    auto [err] = co_await conn.async_exec(req, resultsets_handler{ress}, asio::as_tuple);
+
+    // Finish timing this method
+    auto finish = clock::now();
+    auto duration = std::chrono::duration_cast<ms>(finish - start);
+
+    // Print results
+    if (err.code)
+        print_err("Single execute => result: ", err);
+    else
+        std::cout << "Single execute => Selected: successfully (in " << duration.count() << " [ms])\n";
+}
+
+static asio::awaitable<void> co_main()
+{
+    // Create a connection
+    connection conn{co_await asio::this_coro::executor};
+
+    // Connect
+    co_await conn.async_connect(
+        {.hostname = "localhost", .username = "postgres", .password = "secret", .database = "postgres"}
+    );
+    std::cout << "Startup complete\n";
+
+    co_await multiple_executes(conn);
+    co_await single_execute(conn);
 
     std::cout << "Done\n";
 }

@@ -12,8 +12,8 @@
 #include <string_view>
 #include <vector>
 
+#include "nativepg/command_info.hpp"
 #include "nativepg/extended_error.hpp"
-#include "nativepg/response.hpp"
 #include "nativepg/response_handler.hpp"
 #include "printing.hpp"
 #include "test_utils.hpp"

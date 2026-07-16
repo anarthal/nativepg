@@ -337,17 +337,21 @@ public:
 // produce an error, skipping any produced data
 class check_execute
 {
+    command_info* info_{};
     extended_error err_;
 
 public:
     check_execute() = default;
+    check_execute(command_info& info) noexcept : info_(&info) {}
 
     handler_setup_result setup(const request& req, std::size_t offset)
     {
+        if (info_)
+            detail::reset_info(*info_);
         err_ = {};
         return detail::resultset_setup(req, offset);
     }
-    void on_message(const any_request_message& msg, std::size_t) { detail::maybe_store_error(msg, err_); }
+    void on_message(const any_request_message& msg, std::size_t);
     const extended_error& result() const { return err_; }
 };
 
@@ -391,56 +395,6 @@ public:
     void on_message(const any_request_message& msg, std::size_t) { detail::maybe_store_error(msg, err_); }
     const extended_error& result() const { return err_; }
 };
-
-// A response that reads data into a dynamic_resultset
-class dynamic_handler
-{
-    enum class state_t
-    {
-        parsing_meta,
-        parsing_data,
-        done,
-    };
-
-    field_descriptions* descr_{};
-    rows* rows_{};
-    command_info* info_{};
-    extended_error err_;
-    state_t state_{state_t::parsing_meta};
-
-public:
-    explicit dynamic_handler(field_descriptions* descr, rows* rws, command_info* info) noexcept
-        : descr_(descr), rows_(rws), info_(info)
-    {
-    }
-
-    handler_setup_result setup(const request& req, std::size_t offset)
-    {
-        if (descr_)
-            descr_->clear();
-        if (rows_)
-            rows_->clear();
-        if (info_)
-            detail::reset_info(*info_);
-        state_ = state_t::parsing_meta;
-        err_ = {};
-        return detail::resultset_setup(req, offset);
-    }
-    void on_message(const any_request_message& msg, std::size_t);
-    const extended_error& result() const { return err_; }
-};
-
-inline dynamic_handler into(rows& rws) { return dynamic_handler(nullptr, &rws, nullptr); }
-inline dynamic_handler into(rows& rws, field_descriptions& desc)
-{
-    return dynamic_handler(&desc, &rws, nullptr);
-}
-inline dynamic_handler into(rows& rws, command_info& info) { return dynamic_handler(nullptr, &rws, &info); }
-inline dynamic_handler into(rows& rws, field_descriptions& desc, command_info& info)
-{
-    return dynamic_handler(&desc, &rws, &info);
-}
-inline dynamic_handler into(command_info& info) { return dynamic_handler(nullptr, nullptr, &info); }
 
 class resultsets_handler
 {

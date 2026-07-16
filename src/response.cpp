@@ -168,58 +168,39 @@ handler_setup_result describe_into::setup(const request& req, std::size_t offset
     return check_setup_impl(req, offset, request_message_type::describe);
 }
 
-void dynamic_handler::on_message(const any_request_message& msg, std::size_t)
+void check_execute::on_message(const any_request_message& msg, std::size_t)
 {
     struct visitor
     {
-        dynamic_handler& self;
+        check_execute& self;
 
         // Ignore messages that might or might not appear in exec
         void operator()(protocol::bind_complete) const {}
         void operator()(protocol::parse_complete) const {}
 
-        // Metadata
-        void operator()(const protocol::row_description& msg) const
-        {
-            BOOST_ASSERT(self.state_ == state_t::parsing_meta);
-            if (self.descr_)
-                self.descr_->assign(msg);
-            if (self.rows_)
-                self.rows_->set_num_columns(msg.field_descriptions.size());
-            self.state_ = state_t::parsing_data;
-        }
+        // Ignore metadata
+        void operator()(const protocol::row_description&) const {}
 
-        // Data
-        void operator()(const protocol::data_row& msg) const
-        {
-            BOOST_ASSERT(self.state_ == state_t::parsing_data);
-            // TODO: check that the number of rows matches with what we received in the field description
-            if (self.rows_)
-                self.rows_->add_row(msg);
-        }
+        // Ignore any data
+        void operator()(const protocol::data_row&) const {}
 
         // EOF
         void operator()(protocol::command_complete msg) const
         {
-            BOOST_ASSERT(self.state_ == state_t::parsing_data);
             if (self.info_)
                 detail::from_command_complete(*self.info_, msg);
-            self.state_ = state_t::done;
         }
 
         void operator()(protocol::portal_suspended) const
         {
-            BOOST_ASSERT(self.state_ == state_t::parsing_data);
             if (self.info_)
                 self.info_->portal_suspended = true;
-            self.state_ = state_t::done;
         }
 
         // Errors
         void operator()(const protocol::error_response& msg) const
         {
             detail::maybe_store_error(msg, self.err_);
-            self.state_ = state_t::done;
         }
 
         // The rest of the messages shouldn't arrive

@@ -54,7 +54,9 @@ static capy::task<> co_main()
     // Structures to parse the response into
     command_info info;
 
-    if (auto [ec] = co_await conn.exec(req, into(info), &diag); ec)
+    // check_execute verifies that the command finises successfully,
+    // and outputs extra data (like affected rows) into info
+    if (auto [ec] = co_await conn.exec(req, check_execute(info), &diag); ec)
     {
         print_err("Error inserting", ec, diag);
         co_return;

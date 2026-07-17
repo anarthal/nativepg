@@ -8,11 +8,9 @@
 #include <boost/capy/ex/run_async.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/corosio/io_context.hpp>
-#include <boost/describe/class.hpp>
 
 #include <iostream>
 #include <string_view>
-#include <vector>
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
@@ -22,12 +20,6 @@
 using namespace nativepg;
 namespace capy = boost::capy;
 namespace corosio = boost::corosio;
-
-// TODO: this should probably use the dynamic API
-struct empty
-{
-};
-BOOST_DESCRIBE_STRUCT(empty, (), ())
 
 static void print_err(const char* prefix, std::error_code err, const diagnostics& diag)
 {
@@ -60,10 +52,11 @@ static capy::task<> co_main()
     req.add_query("UPDATE myt SET f3 = f3 + 1 WHERE f1 <> $1", {"hehe"});
 
     // Structures to parse the response into
-    std::vector<empty> vec;
     command_info info;
 
-    if (auto [ec] = co_await conn.exec(req, into(vec, &info), &diag); ec)
+    // check_execute verifies that the command finises successfully,
+    // and outputs extra data (like affected rows) into info
+    if (auto [ec] = co_await conn.exec(req, check_execute(info), &diag); ec)
     {
         print_err("Error inserting", ec, diag);
         co_return;

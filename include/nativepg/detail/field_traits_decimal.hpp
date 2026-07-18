@@ -58,8 +58,6 @@ struct field_parse<T>
         T& to
     )
     {
-        if (from.is_null())
-            return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == decimal_oid);
         return desc.fmt_code == protocol::format_code::text ? types::parse_text_decimal(from, to)
                                                             : types::parse_binary_decimal(from, to);

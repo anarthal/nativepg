@@ -164,20 +164,6 @@ void test_field_is_compatible_decimal_incompatible_error()
     );
 }
 
-void test_field_parse_decimal_unexpected_null_error()
-{
-    // Arrange
-    bd::decimal64_t out_val;
-    field_view fv;  // NULL
-    const auto desc = make_field_description(detail::decimal_oid);
-
-    // Act
-    auto err = detail::field_parse<bd::decimal64_t>::call(fv, desc, out_val);
-
-    // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::error_code(client_errc::unexpected_null));
-}
-
 void test_field_parse_decimal_text_success()
 {
     // Arrange
@@ -321,7 +307,6 @@ int main()
     // detail::field_is_compatible / detail::field_parse (field_traits_decimal.hpp)
     test_field_is_compatible_decimal_success();
     test_field_is_compatible_decimal_incompatible_error();
-    test_field_parse_decimal_unexpected_null_error();
     test_field_parse_decimal_text_success();
     test_field_parse_decimal_binary_success();
 

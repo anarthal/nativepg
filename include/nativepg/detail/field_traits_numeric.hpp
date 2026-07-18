@@ -54,8 +54,6 @@ struct field_parse<
         boost::multiprecision::number<boost::multiprecision::cpp_dec_float<Digits, Exp, Alloc>, ET>& to
     )
     {
-        if (from.is_null())
-            return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == numeric_oid);
         return desc.fmt_code == protocol::format_code::text ? types::parse_text_numeric(from, to)
                                                             : types::parse_binary_numeric(from, to);

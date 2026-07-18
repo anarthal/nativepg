@@ -553,20 +553,6 @@ void test_field_is_compatible_string_success()
     );
 }
 
-void test_field_parse_unexpected_null_error()
-{
-    // Arrange
-    bool b = false;
-    field_view fv;  // NULL
-    const auto desc = make_field_description(detail::bool_oid);
-
-    // Act
-    auto err = detail::field_parse<bool>::call(fv, desc, b);
-
-    // Assert
-    NATIVEPG_TEST_EQ(err, error_code(client_errc::unexpected_null));
-}
-
 void test_field_parse_bool_text_success()
 {
     // Arrange
@@ -701,7 +687,6 @@ int main()
     test_field_is_compatible_int_widening_success();
     test_field_is_compatible_int_narrowing_error();
     test_field_is_compatible_string_success();
-    test_field_parse_unexpected_null_error();
     test_field_parse_bool_text_success();
     test_field_parse_int32_from_int2_wire_success();
 

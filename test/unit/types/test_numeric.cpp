@@ -162,20 +162,6 @@ void test_field_is_compatible_numeric_incompatible_error()
     );
 }
 
-void test_field_parse_numeric_unexpected_null_error()
-{
-    // Arrange
-    mp::number<mp::cpp_dec_float<50>> out_val;
-    field_view fv;  // NULL
-    const auto desc = make_field_description(detail::numeric_oid);
-
-    // Act
-    auto err = detail::field_parse<mp::number<mp::cpp_dec_float<50>>>::call(fv, desc, out_val);
-
-    // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::error_code(client_errc::unexpected_null));
-}
-
 void test_field_parse_numeric_text_success()
 {
     // Arrange
@@ -342,7 +328,6 @@ int main()
     // detail::field_is_compatible / detail::field_parse (field_traits_numeric.hpp)
     test_field_is_compatible_numeric_success();
     test_field_is_compatible_numeric_incompatible_error();
-    test_field_parse_numeric_unexpected_null_error();
     test_field_parse_numeric_text_success();
     test_field_parse_numeric_binary_success();
 

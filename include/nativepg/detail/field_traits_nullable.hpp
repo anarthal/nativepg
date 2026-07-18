@@ -12,9 +12,10 @@
 
 #include <span>
 #include <string>
+#include <optional>
+#include <utility>
 
 #include "nativepg/protocol/describe.hpp"
-#include "nativepg/types/base.hpp"
 
 namespace nativepg::detail {
 
@@ -53,7 +54,8 @@ struct field_parse<std::optional<T>>
         T value{};
         const auto ec = field_parse<T>::call(from, desc, value);
         if (!ec)
-            to = value;
+            // TODO: Check if std::make_optional(value) should be used heir?
+            to = std::move(value);
         return ec;
     }
 };

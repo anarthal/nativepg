@@ -8,6 +8,7 @@
 #ifndef NATIVEPG_TYPES_TRAITS_HPP
 #define NATIVEPG_TYPES_TRAITS_HPP
 
+#include <memory>
 #include <optional>
 #include <type_traits>
 

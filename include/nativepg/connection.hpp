@@ -32,6 +32,7 @@
 #include "nativepg/protocol/startup_fsm.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
+#include "nativepg/types/registry.hpp"
 
 namespace nativepg {
 
@@ -142,12 +143,12 @@ struct exec_op
         }
     }
 };
-
 }  // namespace detail
 
 class connection
 {
     std::unique_ptr<detail::connection_impl> impl_;
+    std::unique_ptr<types::type_registry> registry_;
 
 public:
     explicit connection(boost::asio::any_io_executor ex) : impl_(new detail::connection_impl{std::move(ex)})
@@ -156,6 +157,10 @@ public:
     // TODO: ctor from execution context
 
     boost::asio::any_io_executor get_executor() { return impl_->sock.get_executor(); }
+
+    // Access the type registry loaded by async_load_types(). Only valid after
+    // async_load_types() has completed successfully at least once.
+    const types::type_registry& types() const { return *registry_; }
 
     template <
         boost::asio::completion_token_for<void(extended_error)> CompletionToken = boost::asio::deferred_t>
@@ -196,6 +201,17 @@ public:
             boost::asio::consign(std::forward<CompletionToken>(token), std::move(ptr))
         );
     }
+
+    template <
+        boost::asio::completion_token_for<void(extended_error)> CompletionToken = boost::asio::deferred_t>
+    auto async_load_types(CompletionToken&& token = {})
+    {
+        if (!registry_)
+            registry_ = std::make_unique<types::type_registry>();
+        return registry_->async_load(*impl_, std::forward<CompletionToken>(token));
+    }
+
+
 };
 
 }  // namespace nativepg

@@ -23,12 +23,18 @@ inline constexpr std::int32_t bool_oid = 16;
 
 inline constexpr std::int32_t bytea_oid = 17;
 
+inline constexpr std::int32_t char_oid = 18;
+
 inline constexpr std::int32_t int2_oid = 21;
 inline constexpr std::int32_t int4_oid = 23;
 inline constexpr std::int32_t int8_oid = 20;
 
 inline constexpr std::int32_t float4_oid = 700;
 inline constexpr std::int32_t float8_oid = 701;
+
+inline constexpr std::int32_t name_oid = 19;
+
+inline constexpr std::int32_t oid_oid = 26;
 
 inline constexpr std::int32_t text_oid = 25;
 inline constexpr std::int32_t varchar_oid = 1043;
@@ -55,6 +61,18 @@ struct field_is_compatible<std::vector<std::byte>>
     static boost::system::error_code call(const protocol::field_description& desc)
     {
         if (desc.type_oid == bytea_oid)
+            return boost::system::error_code{};
+
+        return client_errc::incompatible_field_type;
+    }
+};
+
+template <>
+struct field_is_compatible<char>
+{
+    static boost::system::error_code call(const protocol::field_description& desc)
+    {
+        if (desc.type_oid == char_oid)
             return boost::system::error_code{};
 
         return client_errc::incompatible_field_type;
@@ -122,11 +140,23 @@ struct field_is_compatible<double>
 };
 
 template <>
+struct field_is_compatible<std::uint32_t>
+{
+    static boost::system::error_code call(const protocol::field_description& desc)
+    {
+        if (desc.type_oid == oid_oid )
+            return boost::system::error_code{};
+
+        return client_errc::incompatible_field_type;
+    }
+};
+
+template <>
 struct field_is_compatible<std::string>
 {
     static boost::system::error_code call(const protocol::field_description& desc)
     {
-        if (desc.type_oid == text_oid || desc.type_oid == varchar_oid)
+        if (desc.type_oid == text_oid || desc.type_oid == varchar_oid || desc.type_oid == name_oid)
             return boost::system::error_code{};
 
         return client_errc::incompatible_field_type;
@@ -172,6 +202,23 @@ struct field_parse<std::vector<std::byte>>
 };
 
 template <>
+struct field_parse<char>
+{
+    static boost::system::error_code call(
+        const field_view& from,
+        const protocol::field_description& desc,
+        char& to
+    )
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(desc.type_oid == char_oid);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_char(from, to)
+                                                            : types::parse_binary_char(from, to);
+    }
+};
+
+template <>
 struct field_parse<std::int16_t>
 {
     static boost::system::error_code call(
@@ -180,8 +227,6 @@ struct field_parse<std::int16_t>
         std::int16_t& to
     )
     {
-        if (from.is_null())
-            return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == int2_oid);
         return desc.fmt_code == protocol::format_code::text ? types::parse_text_int(from, to)
                                                             : types::parse_binary_int(from, to);
@@ -320,11 +365,24 @@ struct field_parse<std::string>
         std::string& to
     )
     {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        BOOST_ASSERT(desc.type_oid == text_oid || desc.type_oid == varchar_oid);
+        BOOST_ASSERT(desc.type_oid == text_oid || desc.type_oid == varchar_oid || desc.type_oid == name_oid);
         return desc.fmt_code == protocol::format_code::text ? types::parse_text_text(from, to)
                                                             : types::parse_binary_text(from, to);
+    }
+};
+
+template <>
+struct field_parse<std::uint32_t>
+{
+    static boost::system::error_code call(
+        const field_view& from,
+        const protocol::field_description& desc,
+        std::uint32_t& to
+    )
+    {
+        BOOST_ASSERT(desc.type_oid == oid_oid);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_oid(from, to)
+                                                            : types::parse_binary_oid(from, to);
     }
 };
 

@@ -116,6 +116,9 @@ target_link_libraries(nativepg_decimal_example PRIVATE nativepg)
 add_executable(nativepg_datetime_example example/types/datetime.cpp)
 target_link_libraries(nativepg_datetime_example PRIVATE nativepg)
 
+add_executable(nativepg_load_types_example example/types/load_types.cpp)
+target_link_libraries(nativepg_load_types_example PRIVATE nativepg)
+
 if (NATIVEPG_COROSIO_API)
     add_executable(nativepg_co_connection example/co_connection.cpp)
     target_link_libraries(nativepg_co_connection PRIVATE nativepg_corosio)

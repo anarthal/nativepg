@@ -33,15 +33,15 @@ public:
     virtual ~user_defined_type() = default;
 
 
-    boost::system::error_code is_compatible(const protocol::field_description& desc)
+    boost::system::error_code is_compatible(const protocol::field_description&)
     {
         return client_errc::incompatible_field_type;
     }
 
     boost::system::error_code parse(
-        const field_view from,
-        const protocol::field_description& desc,
-        FieldType& to)
+        const field_view,
+        const protocol::field_description&,
+        FieldType&)
     {
         return client_errc::incompatible_field_type;
     }
@@ -54,6 +54,7 @@ auto make_udt(const types::type_info& ti)
 }
 
 }  // namespace nativepg::udt
+
 
 namespace nativepg::detail {
 
@@ -81,8 +82,6 @@ struct field_parse
         return udt->parse(from, desc, to);
     }
 };
-
-
 
 } // namespace nativepg::detail
 

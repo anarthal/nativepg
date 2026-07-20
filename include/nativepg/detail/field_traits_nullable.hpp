@@ -10,15 +10,15 @@
 
 #include <boost/system/error_code.hpp>
 
+#include <optional>
 #include <span>
 #include <string>
-#include <optional>
 #include <utility>
 
 #include "nativepg/protocol/describe.hpp"
+#include "nativepg/types/nullable.hpp"
 
 namespace nativepg::detail {
-
 
 // --- Is a type compatible with what we get from DB?
 template <class T>
@@ -27,6 +27,11 @@ struct field_is_compatible;
 template <typename T>
 struct field_is_compatible<std::optional<T>>
 {
+    static_assert(
+        !types::is_nullable_type_v<T>,
+        "Nested std::optional (e.g. std::optional<std::optional<T>>) is not supported"
+    );
+
     static boost::system::error_code call(const protocol::field_description& desc)
     {
         return field_is_compatible<T>::call(desc);
@@ -40,6 +45,11 @@ struct field_parse;
 template <typename T>
 struct field_parse<std::optional<T>>
 {
+    static_assert(
+        !types::is_nullable_type_v<T>,
+        "Nested std::optional (e.g. std::optional<std::optional<T>>) is not supported"
+    );
+
     static boost::system::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
@@ -51,12 +61,7 @@ struct field_parse<std::optional<T>>
             to.reset();
             return boost::system::error_code{};
         }
-        T value{};
-        const auto ec = field_parse<T>::call(from, desc, value);
-        if (!ec)
-            // TODO: Check if std::make_optional(value) should be used heir?
-            to = std::move(value);
-        return ec;
+        return field_parse<T>::call(from, desc, to.emplace());
     }
 };
 

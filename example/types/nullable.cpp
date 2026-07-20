@@ -114,37 +114,6 @@ SELECT  'Nullable Test values' as title,
     }
 }
 
-template <typename T>
-static asio::awaitable<void> execute_and_print_binary_response(
-    connection& conn,
-    statement<T>& stmnt,
-    const std::initializer_list<parameter_ref> params
-)
-{
-    // Use the prepared statement
-    request req{false};
-    req.add_execute(stmnt.name, params, request::param_format::text, protocol::format_code::binary, 1);
-    req.add_sync();
-
-    // Structures to parse the response into
-    std::vector<test_row> select_vec;
-    response res{into(select_vec)};
-
-    // Print results
-    if (auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
-        err.extended_error::code != boost::system::errc::success)
-        std::cerr << "NULLABLE BINARY operation results in Error: " << err.code.what() << ": "
-                  << err.diag.message() << std::endl;
-    else
-    {
-        std::cout << std::boolalpha;
-        std::cout << "NULLABLE BINARY select result: | " << select_vec[0].title << " | " << select_vec[0].nt_ob
-                  << " | " << select_vec[0].vt_ob << " | " << select_vec[0].nt_f8 << " | " << select_vec[0].vt_f8
-                  << " | " << select_vec[0].nt_t << " | " << select_vec[0].vt_t
-                  << std::endl;
-    }
-}
-
 static asio::awaitable<void> nullable_binary_example(connection& conn)
 {
     // Start timing this operation
@@ -153,8 +122,8 @@ static asio::awaitable<void> nullable_binary_example(connection& conn)
     statement<std::string_view> select_stmt{"nullable_bintest"};
 
     // Compose our request
-    request req{false};  // Turns off autosync for better efficiency
-    req.add_prepare(
+    request req{};
+    req.add_query(
         R"sql(
         SELECT  $1 as title,
                  NULLIF($2::text, 'NULL')::bool as nt_ob,
@@ -163,50 +132,23 @@ static asio::awaitable<void> nullable_binary_example(connection& conn)
                  NULLIF($5::text, 'NULL')::float8 as vt_f8,
                  NULLIF($6::text, 'NULL')::text as nt_t,
                  NULLIF($7::text, 'NULL')::text as vt_t
-    )sql",
-        select_stmt
-    );
-    req.add_sync();
+        )sql", { "Nullable Test values", "NULL", "true", "NULL", "21.1977", "NULL", "Value Test text"}
+            , request::param_format::text, protocol::format_code::binary)
+    ;
 
-    // Actually prepare the statements
-    response res{check_parse()};
-    if (auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
+    std::vector<test_row> select_vec;
+    if (auto [err] = co_await conn.async_exec(req, into(select_vec), asio::as_tuple);
         err.extended_error::code != boost::system::errc::success)
     {
-        print_err("Error preparing", err.code, err.diag);
+        print_err("Error ", err.code, err.diag);
         co_return;
     }
-
-    co_await execute_and_print_binary_response(
-        conn,
-        select_stmt,
-        {
-            "Nullable Test values",
-            "NULL",
-            "true",
-            "NULL",
-            "21.1977",
-            "NULL",
-            "Value Test text"}
-    );
 
     // Finish timing this method
     auto finish = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
 
     std::cout << " (in " << duration << ")" << std::endl;
-
-    req = request{false};  // TODO: replace by clear when we have it
-    req.add_close_statement(select_stmt.name);
-    req.add_sync();
-
-    response res_close{check_close()};
-    if (auto [err_cleanup] = co_await conn.async_exec(req, res_close, asio::as_tuple);
-        err_cleanup.extended_error::code != boost::system::errc::success)
-    {
-        print_err("Error closing", err_cleanup.code, err_cleanup.diag);
-        co_return;
-    }
 }
 
 static asio::awaitable<void> co_main()

@@ -146,6 +146,7 @@ struct field_parse<bool>
         bool& to
     )
     {
+        if (from.is_null()) return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == bool_oid);
         return desc.fmt_code == protocol::format_code::text ? types::parse_text_bool(from, to)
                                                             : types::parse_binary_bool(from, to);
@@ -161,6 +162,7 @@ struct field_parse<std::vector<std::byte>>
         std::vector<std::byte>& to
     )
     {
+        if (from.is_null()) return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == bytea_oid);
         return desc.fmt_code == protocol::format_code::text ? types::parse_text_bytea(from, to)
                                                             : types::parse_binary_bytea(from, to);
@@ -176,6 +178,7 @@ struct field_parse<std::int16_t>
         std::int16_t& to
     )
     {
+        if (from.is_null()) return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == int2_oid);
         return desc.fmt_code == protocol::format_code::text ? types::parse_text_int(from, to)
                                                             : types::parse_binary_int(from, to);
@@ -191,6 +194,7 @@ struct field_parse<std::int32_t>
         std::int32_t& to
     )
     {
+        if (from.is_null()) return client_errc::unexpected_null;
         switch (desc.type_oid)
         {
             case int2_oid:
@@ -222,6 +226,7 @@ struct field_parse<std::int64_t>
         std::int64_t& to
     )
     {
+        if (from.is_null()) return client_errc::unexpected_null;
         switch (desc.type_oid)
         {
             case int2_oid:
@@ -259,6 +264,7 @@ struct field_parse<float>
         float& to
     )
     {
+        if (from.is_null()) return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == float4_oid);
         return desc.fmt_code == protocol::format_code::text ? types::parse_text_float<float>(from, to)
                                                             : types::parse_binary_float<float>(from, to);
@@ -274,6 +280,7 @@ struct field_parse<double>
         double& to
     )
     {
+        if (from.is_null()) return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == float8_oid || desc.type_oid == float4_oid);
         switch (desc.type_oid)
         {
@@ -306,6 +313,7 @@ struct field_parse<std::string>
         std::string& to
     )
     {
+        if (from.is_null()) return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == text_oid || desc.type_oid == varchar_oid);
         return desc.fmt_code == protocol::format_code::text ? types::parse_text_text(from, to)
                                                             : types::parse_binary_text(from, to);

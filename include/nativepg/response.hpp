@@ -42,7 +42,6 @@
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
 #include "nativepg/sqlstate.hpp"
-#include "nativepg/types/nullable.hpp"
 
 // TODO: we need to split this file
 
@@ -221,14 +220,6 @@ class resultset_callback_t
                 using FieldType = std::decay_t<decltype(member)>;
                 const detail::pos_map_entry& ent = self.pos_map_[idx++];
                 const field_view& from = self.random_access_data_[ent.db_index];
-
-                // General check if db nullable matches C++ nullable
-                if (from.is_null() && !types::is_nullable_type_v<FieldType>)
-                {
-                    ec = client_errc::unexpected_null;
-                    return;
-                }
-
                 boost::system::error_code ec2 = detail::field_parse<FieldType>::call(
                     from,
                     ent.descr,

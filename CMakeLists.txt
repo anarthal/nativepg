@@ -63,7 +63,7 @@ target_link_libraries(nativepg_test_utils PUBLIC nativepg)
 # Corosio-dependent test utilities
 if (NATIVEPG_COROSIO_API)
     add_library(nativepg_test_utils_corosio test/test_utils/corosio_utils.cpp)
-    target_link_libraries(nativepg_test_utils_corosio PUBLIC nativepg_corosio)
+    target_link_libraries(nativepg_test_utils_corosio PUBLIC nativepg_corosio nativepg_test_utils)
 endif()
 
 # TODO: rename

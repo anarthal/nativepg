@@ -8,6 +8,7 @@
 #include <boost/assert.hpp>
 #include <boost/assert/source_location.hpp>
 
+#include <cstdlib>
 #include <string>
 #include <string_view>
 #include <vector>

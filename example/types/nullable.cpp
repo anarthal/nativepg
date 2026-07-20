@@ -148,7 +148,10 @@ static asio::awaitable<void> nullable_binary_example(connection& conn)
     auto finish = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
 
-    std::cout << " (in " << duration << ")" << std::endl;
+
+    std::cout << "NULLABLE BINARY select results: " << " (in " << duration << ")" << std::endl << std::boolalpha << " | " << select_vec[0].title << " | " << select_vec[0].nt_ob << " | " << select_vec[0].vt_ob << " | "
+              << select_vec[0].nt_f8 << " | " << select_vec[0].vt_f8 << " | " << select_vec[0].nt_t << " | "
+              << select_vec[0].vt_t;
 }
 
 static asio::awaitable<void> co_main()
@@ -165,7 +168,7 @@ static asio::awaitable<void> co_main()
     co_await nullable_text_example(conn);
     co_await nullable_binary_example(conn);
 
-    std::cout << "Done\n";
+    std::cout << "\nDone\n";
 }
 
 int main()

@@ -24,6 +24,8 @@
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/udt/user_defined_type.hpp"
+#include "nativepg/response.hpp"
+
 
 // CREATE TYPE zoning_type AS ENUM ('Residential', 'Commercial', 'Industrial', 'Agricultural');
 enum zoning_type
@@ -33,9 +35,6 @@ enum zoning_type
     Industrial,
     Agricultural
 };
-
-
-
 
 namespace nativepg::udt {
 
@@ -83,8 +82,6 @@ public:
 };
 
 }
-
-#include "nativepg/response.hpp"
 
 namespace asio = boost::asio;
 using namespace nativepg;

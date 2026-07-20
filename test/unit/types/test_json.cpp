@@ -44,9 +44,7 @@ protocol::field_description make_field_description(
     };
 }
 
-// Builds a field_view over str's bytes. The returned field_view is never NULL, even if str is empty
-// (mirrors how the server represents a zero-length, non-NULL value).
-field_view make_field_view(const std::string& str)
+field_view make_field_view(const std::string_view& str)
 {
     return field_view(
         std::span<const unsigned char>(reinterpret_cast<const unsigned char*>(str.data()), str.size())
@@ -63,10 +61,9 @@ void test_parse_text_json_success()
     const std::string str = boost::json::serialize(
         boost::json::parse(R"({"name":"John","age":30,"tags":["a","b"],"active":true,"score":null})")
     );
-    const auto fv = make_field_view(str);
 
     // Act
-    auto err = types::parse_text_json(fv, out_val);
+    auto err = types::parse_json(str, out_val);
 
     // Assert
     NATIVEPG_TEST_EQ(err, boost::system::error_code{});
@@ -78,10 +75,9 @@ void test_parse_text_json_scalar_success()
     // Arrange: JSON allows any scalar as a top-level value (numbers, strings, bools, null).
     boost::json::value out_val;
     const std::string str = "42";
-    const auto fv = make_field_view(str);
 
     // Act
-    auto err = types::parse_text_json(fv, out_val);
+    auto err = types::parse_json(str, out_val);
 
     // Assert
     NATIVEPG_TEST_EQ(err, boost::system::error_code{});
@@ -101,10 +97,9 @@ void test_parse_text_json_empty_is_noop()
     // by-value/by-const-ref parameter would be destroyed at the end of this statement, leaving fv
     // dangling for the rest of the function).
     const std::string str;
-    const auto fv = make_field_view(str);
 
     // Act
-    auto err = types::parse_text_json(fv, out_val);
+    auto err = types::parse_json(str, out_val);
 
     // Assert
     NATIVEPG_TEST_EQ(err, boost::system::error_code{});
@@ -118,49 +113,14 @@ void test_parse_text_json_malformed_error()
     boost::json::value out_val;
     // Note: see test_parse_text_json_empty_is_noop for why str must be a named variable.
     const std::string str = "{not valid json";
-    const auto fv = make_field_view(str);
 
     // Act
-    auto err = types::parse_text_json(fv, out_val);
+    auto err = types::parse_json(str, out_val);
 
     // Assert: Boost.JSON's parser error is surfaced verbatim (not translated to a nativepg error code).
     NATIVEPG_TEST(err.failed());
 }
 
-// PostgreSQL's binary JSON wire format is identical to the text one; parse_binary_json is a pure
-// pass-through to parse_text_json.
-void test_parse_binary_json_success()
-{
-    // Arrange
-    boost::json::value out_val;
-    const std::string str = R"([1,2,3])";
-    const auto fv = make_field_view(str);
-
-    // Act
-    auto err = types::parse_binary_json(fv, out_val);
-
-    // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::error_code{});
-    NATIVEPG_TEST(out_val == boost::json::parse(str));
-}
-
-//
-// types::parse_text_jsonb / types::parse_binary_jsonb
-//
-void test_parse_text_jsonb_success()
-{
-    // Arrange
-    boost::json::value out_val;
-    const std::string str = boost::json::serialize(boost::json::parse(R"({"street":"Main St"})"));
-    const auto fv = make_field_view(str);
-
-    // Act
-    auto err = types::parse_text_jsonb(fv, out_val);
-
-    // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::error_code{});
-    NATIVEPG_TEST(out_val == boost::json::parse(str));
-}
 
 // Binary JSONB wire format: a single 0x01 version byte, followed by the JSON text (identical to the
 // text-format wire representation).
@@ -359,9 +319,7 @@ int main()
     test_parse_text_json_scalar_success();
     test_parse_text_json_empty_is_noop();
     test_parse_text_json_malformed_error();
-    test_parse_binary_json_success();
 
-    test_parse_text_jsonb_success();
     test_parse_binary_jsonb_success();
     test_parse_binary_jsonb_null_error();
     test_parse_binary_jsonb_bad_version_error();

@@ -19,7 +19,6 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/field_view.hpp"
 #include "nativepg/protocol/describe.hpp"
-#include "nativepg/types/json.hpp"
 
 namespace nativepg::detail {
 
@@ -59,13 +58,13 @@ struct field_parse<boost::json::value>
 
         if (desc.type_oid == jsonb_oid)
         {
-            return desc.fmt_code == protocol::format_code::text ? types::parse_text_jsonb(from, to)
+            return desc.fmt_code == protocol::format_code::text ? types::parse_json(from.data_str(), to)
                                                                 : types::parse_binary_jsonb(from, to);
         }
         else
         {
-            return desc.fmt_code == protocol::format_code::text ? types::parse_text_json(from, to)
-                                                                : types::parse_binary_json(from, to);
+            return desc.fmt_code == protocol::format_code::text ? types::parse_json(from.data_str(), to)
+                                                                : types::parse_json(from.data_str(), to);
         }
     }
 };

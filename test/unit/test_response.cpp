@@ -22,9 +22,9 @@
 #include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
 #include "nativepg/response_handler.hpp"
-#include "printing.hpp"
-#include "response_msg_type.hpp"
-#include "test_utils.hpp"
+#include "test_utils/printing.hpp"
+#include "test_utils/response_msg_type.hpp"
+#include "test_utils/test_utils.hpp"
 
 using namespace nativepg;
 using namespace nativepg::test;

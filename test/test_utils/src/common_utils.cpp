@@ -13,12 +13,12 @@
 #include <string_view>
 #include <vector>
 
-#include "ci_server.hpp"
 #include "nativepg/command_info.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/response_handler.hpp"
-#include "printing.hpp"
-#include "test_utils.hpp"
+#include "test_utils/ci_server.hpp"
+#include "test_utils/printing.hpp"
+#include "test_utils/test_utils.hpp"
 
 namespace {
 

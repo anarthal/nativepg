@@ -12,7 +12,7 @@
 #include <utility>
 
 #include "nativepg/protocol/detail/read_buffer.hpp"
-#include "test_utils.hpp"
+#include "test_utils/test_utils.hpp"
 
 using namespace nativepg;
 using protocol::detail::read_buffer;

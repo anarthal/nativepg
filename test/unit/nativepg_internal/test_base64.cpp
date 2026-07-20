@@ -14,7 +14,7 @@
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg_internal/base64.hpp"
-#include "test_utils.hpp"
+#include "test_utils/test_utils.hpp"
 
 using boost::system::error_code;
 using nativepg::protocol::detail::base64_decode;

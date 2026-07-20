@@ -6,13 +6,16 @@
 #
 
 # Test utils
-add_library(nativepg_test_utils STATIC test_utils/test_utils.cpp)
-target_include_directories(nativepg_test_utils PUBLIC test_utils)
+add_library(nativepg_test_utils STATIC test_utils/src/common_utils.cpp)
+target_include_directories(nativepg_test_utils PUBLIC 
+    test_utils/include
+    ${CMAKE_SOURCE_DIR}/src # access private utilities
+)
 target_link_libraries(nativepg_test_utils PUBLIC nativepg)
 
 # Corosio-dependent test utilities
 if (NATIVEPG_COROSIO_API)
-    add_library(nativepg_test_utils_corosio test_utils/corosio_utils.cpp)
+    add_library(nativepg_test_utils_corosio test_utils/src/corosio_utils.cpp)
     target_link_libraries(nativepg_test_utils_corosio PUBLIC
         nativepg_corosio
         nativepg_test_utils
@@ -23,7 +26,6 @@ endif()
 function (add_unit_test TEST_DIR TEST_NAME)
     set(TARGET_NAME "nativepg_${TEST_NAME}")
     add_executable(${TARGET_NAME} ${TEST_DIR}/${TEST_NAME}.cpp)
-    target_include_directories(${TARGET_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_link_libraries(${TARGET_NAME} PRIVATE nativepg nativepg_test_utils ${ARGN})
     add_test(NAME ${TARGET_NAME} COMMAND ${TARGET_NAME})
     target_compile_options(${TARGET_NAME} PUBLIC -Wall -Wextra -Wpedantic -Werror)

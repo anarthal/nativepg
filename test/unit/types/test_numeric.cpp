@@ -20,7 +20,7 @@
 #include "nativepg/detail/field_traits.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/numeric.hpp"
-#include "test_utils.hpp"
+#include "test_utils/test_utils.hpp"
 
 using namespace nativepg;
 namespace mp = boost::multiprecision;

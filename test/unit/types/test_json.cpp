@@ -20,7 +20,7 @@
 #include "nativepg/detail/field_traits.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/json.hpp"
-#include "test_utils.hpp"
+#include "test_utils/test_utils.hpp"
 
 using namespace nativepg;
 
@@ -120,7 +120,6 @@ void test_parse_text_json_malformed_error()
     // Assert: Boost.JSON's parser error is surfaced verbatim (not translated to a nativepg error code).
     NATIVEPG_TEST(err.failed());
 }
-
 
 // Binary JSONB wire format: a single 0x01 version byte, followed by the JSON text (identical to the
 // text-format wire representation).

@@ -19,7 +19,7 @@
 #include "nativepg/detail/field_traits.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/decimal.hpp"
-#include "test_utils.hpp"
+#include "test_utils/test_utils.hpp"
 
 using namespace nativepg;
 namespace bd = boost::decimal;

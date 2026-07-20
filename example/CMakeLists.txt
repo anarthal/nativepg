@@ -5,6 +5,8 @@
 # file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 #
 
+# TODO: we should link against the optional Boost libraries in these examples
+
 add_executable(nativepg_example nativepg.cpp)
 target_link_libraries(nativepg_example PRIVATE nativepg)
 

@@ -10,7 +10,7 @@
 #include <span>
 
 #include "nativepg/field_view.hpp"
-#include "test_utils.hpp"
+#include "test_utils/test_utils.hpp"
 
 using namespace nativepg;
 

@@ -14,7 +14,7 @@
 #include <vector>
 
 #include "nativepg/protocol/detail/scram_sha256_fsm.hpp"
-#include "test_utils.hpp"
+#include "test_utils/test_utils.hpp"
 
 using boost::system::error_code;
 using nativepg::protocol::detail::scram_sha256_fsm;

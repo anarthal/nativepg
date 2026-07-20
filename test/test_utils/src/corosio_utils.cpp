@@ -16,8 +16,8 @@
 #include <system_error>
 #include <utility>
 
-#include "corosio_utils.hpp"
-#include "printing.hpp"
+#include "test_utils/corosio_utils.hpp"
+#include "test_utils/printing.hpp"
 
 void nativepg::test::run_coroutine_test(boost::capy::task<void> test, boost::source_location loc)
 {

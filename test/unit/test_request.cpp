@@ -18,7 +18,7 @@
 #include "nativepg/protocol/common.hpp"
 #include "nativepg/protocol/sync.hpp"
 #include "nativepg/request.hpp"
-#include "test_utils.hpp"
+#include "test_utils/test_utils.hpp"
 
 using namespace nativepg;
 

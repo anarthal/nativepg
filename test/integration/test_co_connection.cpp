@@ -18,9 +18,9 @@
 #include <string>
 #include <vector>
 
+#include "ci_server.hpp"
 #include "corosio_utils.hpp"
 #include "nativepg/co_connection.hpp"
-#include "nativepg/connect_params.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
@@ -47,20 +47,13 @@ BOOST_DESCRIBE_STRUCT(row_string, (), (value))
 using boost::describe::operators::operator==;
 using boost::describe::operators::operator<<;
 
-constexpr connect_params default_connect_params{
-    .hostname = "localhost",
-    .username = "postgres",
-    .password = "secret",
-    .database = "postgres",
-};
-
 // Exec (potentially with pipelining) works
 capy::task<> test_exec_success()
 {
     // Setup
     diagnostics diag;
     co_connection conn{co_await capy::this_coro::executor};
-    if (!check_success(co_await conn.connect(default_connect_params, &diag), diag))
+    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
         co_return;
 
     // Request and response

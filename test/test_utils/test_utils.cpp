@@ -8,10 +8,12 @@
 #include <boost/assert.hpp>
 #include <boost/assert/source_location.hpp>
 
+#include <cstdlib>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include "ci_server.hpp"
 #include "nativepg/command_info.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/response_handler.hpp"
@@ -51,7 +53,12 @@ void nativepg::test::print_context()
 // --- Printing ---
 std::ostream& nativepg::operator<<(std::ostream& os, const extended_error& err)
 {
-    return os << "{ .code=" << err.code << ", .diag=" << err.diag.message() << "}";
+    return os << "{ .code=" << err.code << ", .diag=" << err.diag << "}";
+}
+
+std::ostream& nativepg::operator<<(std::ostream& os, const diagnostics& value)
+{
+    return os << value.message();
 }
 
 std::ostream& nativepg::operator<<(std::ostream& os, const handler_setup_result& value)
@@ -71,3 +78,12 @@ std::ostream& nativepg::operator<<(std::ostream& os, const command_info& value)
         os << "<nullopt>";
     return os << ", .portal_suspended=" << value.portal_suspended << " }";
 }
+
+static std::string safe_getenv(const char* name, const char* default_value)
+{
+    const char* res = std::getenv(name);
+    return res ? res : default_value;
+}
+
+// --- CI server ---
+std::string nativepg::test::get_host() { return safe_getenv("NATIVEPG_SERVER_HOST", "localhost"); }

@@ -56,6 +56,16 @@ jobs:
       BOOST_CAPY_COMMIT: 98be9fdd59b2099b2f4f3a0f2abd4f3d4034d0a6
       BOOST_COROSIO_COMMIT: 7c636ac971110dda93c5152b45081f635d2ff34c
       BOOST_VERSION: "1.91.0-1"
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: secret
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout
@@ -107,6 +117,8 @@ jobs:
           key: ${{ matrix.id }}-boost-${{ env.BOOST_VERSION }}-${{ env.BOOST_CAPY_COMMIT }}-${{ env.BOOST_COROSIO_COMMIT }}
 
       - name: Build the code and run the tests
+        env:
+          NATIVEPG_SERVER_HOST: postgres
         run: |
           mkdir __build
           cd __build

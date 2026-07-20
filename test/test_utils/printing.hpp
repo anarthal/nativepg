@@ -21,6 +21,9 @@ std::ostream& operator<<(std::ostream& os, const handler_setup_result&);
 struct command_info;
 std::ostream& operator<<(std::ostream& os, const command_info&);
 
+class diagnostics;
+std::ostream& operator<<(std::ostream& os, const diagnostics&);
+
 }  // namespace nativepg
 
 #endif

@@ -56,6 +56,7 @@ add_unit_test(unit/types             test_base)
 add_unit_test(unit/types             test_numeric)
 add_unit_test(unit/types             test_decimal)
 add_unit_test(unit/types             test_datetime)
+add_unit_test(unit/types             test_json)
 
 if (NATIVEPG_COROSIO_API)
     add_unit_test(integration            test_co_connection  nativepg_test_utils_corosio)

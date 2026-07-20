@@ -15,22 +15,20 @@
 #include <boost/describe/class.hpp>
 #include <boost/describe/operators.hpp>
 
-#include <iostream>
 #include <string>
-#include <system_error>
 #include <vector>
 
+#include "corosio_utils.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
-#include "corosio_utils.hpp"
 #include "printing.hpp"
 
 namespace capy = boost::capy;
 using namespace nativepg;
-using nativepg::test::run_coroutine_test;
+using namespace nativepg::test;
 
 namespace {
 
@@ -55,19 +53,6 @@ constexpr connect_params default_connect_params{
     .password = "secret",
     .database = "postgres",
 };
-
-bool check_success(
-    capy::io_result<> res,
-    const diagnostics& diag,
-    boost::source_location loc = BOOST_CURRENT_LOCATION
-)
-{
-    bool ok = BOOST_TEST_EQ(res.ec, std::error_code());
-    ok = BOOST_TEST_EQ(diag, diagnostics()) && ok;
-    if (!ok)
-        std::cerr << "  Called from " << loc << std::endl;
-    return ok;
-}
 
 // Exec (potentially with pipelining) works
 capy::task<> test_exec_success()

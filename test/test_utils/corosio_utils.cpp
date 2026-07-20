@@ -13,9 +13,11 @@
 
 #include <chrono>
 #include <iostream>
+#include <system_error>
 #include <utility>
 
 #include "corosio_utils.hpp"
+#include "printing.hpp"
 
 void nativepg::test::run_coroutine_test(boost::capy::task<void> test, boost::source_location loc)
 {
@@ -35,4 +37,13 @@ void nativepg::test::run_coroutine_test(boost::capy::task<void> test, boost::sou
     // Check that it finished
     if (!BOOST_TEST(finished))
         std::cerr << "  Called from " << loc << std::endl;
+}
+
+bool nativepg::test::check_success(std::error_code ec, const diagnostics& diag, boost::source_location loc)
+{
+    bool ok = BOOST_TEST_EQ(ec, std::error_code());
+    ok = BOOST_TEST_EQ(diag, diagnostics()) && ok;
+    if (!ok)
+        std::cerr << "  Called from " << loc << std::endl;
+    return ok;
 }

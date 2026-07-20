@@ -15,7 +15,6 @@
 #include <boost/describe/class.hpp>
 #include <boost/describe/operators.hpp>
 
-#include <chrono>
 #include <iostream>
 #include <string>
 #include <system_error>
@@ -26,10 +25,12 @@
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
+#include "corosio_utils.hpp"
 #include "printing.hpp"
 
 namespace capy = boost::capy;
 using namespace nativepg;
+using nativepg::test::run_coroutine_test;
 
 namespace {
 
@@ -66,26 +67,6 @@ bool check_success(
     if (!ok)
         std::cerr << "  Called from " << loc << std::endl;
     return ok;
-}
-
-void run_coroutine_test(capy::task<void> test, boost::source_location loc = BOOST_CURRENT_LOCATION)
-{
-    // Set a timeout to the tests, so they don't hang on error
-    constexpr std::chrono::seconds test_timeout{10};
-    bool finished = false;
-    auto wrapper_fn = [test = std::move(test), &finished]() mutable -> capy::task<void> {
-        co_await std::move(test);
-        finished = true;
-    };
-
-    // Actually run the test
-    boost::corosio::io_context ctx;
-    capy::run_async(ctx.get_executor())(wrapper_fn());
-    ctx.run_for(test_timeout);
-
-    // Check that it finished
-    if (!BOOST_TEST(finished))
-        std::cerr << "  Called from " << loc << std::endl;
 }
 
 // Exec (potentially with pipelining) works

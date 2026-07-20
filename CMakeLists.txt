@@ -60,6 +60,12 @@ add_library(nativepg_test_utils STATIC test/test_utils/test_utils.cpp)
 target_include_directories(nativepg_test_utils PUBLIC test/test_utils/)
 target_link_libraries(nativepg_test_utils PUBLIC nativepg)
 
+# Corosio-dependent test utilities
+if (NATIVEPG_COROSIO_API)
+    add_library(nativepg_test_utils_corosio test/test_utils/corosio_utils.cpp)
+    target_link_libraries(nativepg_test_utils_corosio PUBLIC nativepg_corosio)
+endif()
+
 # TODO: rename
 function (add_unit_test TEST_DIR TEST_NAME)
     set(TARGET_NAME "nativepg_${TEST_NAME}")
@@ -100,7 +106,9 @@ if (BUILD_TESTING)
     add_unit_test(unit/types             test_decimal)
     add_unit_test(unit/types             test_datetime)
 
-    add_unit_test(integration            test_co_connection  nativepg_corosio)
+    if (NATIVEPG_COROSIO_API)
+        add_unit_test(integration            test_co_connection  nativepg_test_utils_corosio)
+    endif()
 endif()
 
 # Examples

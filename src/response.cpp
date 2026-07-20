@@ -161,52 +161,46 @@ handler_setup_result check_close::setup(const request& req, std::size_t offset)
     return check_setup_impl(req, offset, request_message_type::close);
 }
 
-void dynamic_resultset_response::on_message(const any_request_message& msg, std::size_t)
+handler_setup_result describe_into::setup(const request& req, std::size_t offset)
+{
+    obj_->clear();
+    err_ = {};
+    return check_setup_impl(req, offset, request_message_type::describe);
+}
+
+void check_execute::on_message(const any_request_message& msg, std::size_t)
 {
     struct visitor
     {
-        dynamic_resultset_response& self;
+        check_execute& self;
 
         // Ignore messages that might or might not appear in exec
         void operator()(protocol::bind_complete) const {}
         void operator()(protocol::parse_complete) const {}
 
-        // Metadata
-        void operator()(const protocol::row_description& msg) const
-        {
-            BOOST_ASSERT(self.state_ == state_t::parsing_meta);
-            self.obj_->set_row_description(msg);
-            self.state_ = state_t::parsing_data;
-        }
+        // Ignore metadata
+        void operator()(const protocol::row_description&) const {}
 
-        // Data
-        void operator()(const protocol::data_row& msg) const
-        {
-            BOOST_ASSERT(self.state_ == state_t::parsing_data);
-            // TODO: check that the number of rows matches with what we received in the field description
-            self.obj_->add_row(msg);
-        }
+        // Ignore any data
+        void operator()(const protocol::data_row&) const {}
 
         // EOF
         void operator()(protocol::command_complete msg) const
         {
-            BOOST_ASSERT(self.state_ == state_t::parsing_data);
-            self.obj_->set_command_complete_tag(msg.tag);
-            self.state_ = state_t::done;
+            if (self.info_)
+                detail::from_command_complete(*self.info_, msg);
         }
 
         void operator()(protocol::portal_suspended) const
         {
-            BOOST_ASSERT(self.state_ == state_t::parsing_data);
-            self.obj_->set_portal_suspended(true);
-            self.state_ = state_t::done;
+            if (self.info_)
+                self.info_->portal_suspended = true;
         }
 
         // Errors
         void operator()(const protocol::error_response& msg) const
         {
             detail::maybe_store_error(msg, self.err_);
-            self.state_ = state_t::done;
         }
 
         // The rest of the messages shouldn't arrive
@@ -279,6 +273,39 @@ void resultsets_handler::on_message(const any_request_message& msg, std::size_t)
         // TODO: manage multi-queries, empty queries, skipped messages
         void operator()(const protocol::close_complete&) const { BOOST_ASSERT(false); }
         void operator()(const protocol::parameter_description&) const { BOOST_ASSERT(false); }
+        void operator()(const protocol::empty_query_response&) const { BOOST_ASSERT(false); }
+        void operator()(message_skipped) const { BOOST_ASSERT(false); }
+    };
+
+    boost::variant2::visit(visitor{*this}, msg);
+}
+
+void describe_into::on_message(const any_request_message& msg, std::size_t)
+{
+    struct visitor
+    {
+        describe_into& self;
+
+        // The row description is the result of a describe (portal or statement).
+        // A no_data reply is delivered by the FSM as an empty row description.
+        void operator()(const protocol::row_description& msg) const { self.obj_->assign(msg); }
+
+        // A describe statement is preceded by a parameter description, which we don't store
+        void operator()(const protocol::parameter_description&) const {}
+
+        // Errors
+        void operator()(const protocol::error_response& msg) const
+        {
+            detail::maybe_store_error(msg, self.err_);
+        }
+
+        // We only handle describe messages, so nothing else should arrive
+        void operator()(protocol::parse_complete) const { BOOST_ASSERT(false); }
+        void operator()(protocol::bind_complete) const { BOOST_ASSERT(false); }
+        void operator()(const protocol::data_row&) const { BOOST_ASSERT(false); }
+        void operator()(protocol::command_complete) const { BOOST_ASSERT(false); }
+        void operator()(protocol::portal_suspended) const { BOOST_ASSERT(false); }
+        void operator()(const protocol::close_complete&) const { BOOST_ASSERT(false); }
         void operator()(const protocol::empty_query_response&) const { BOOST_ASSERT(false); }
         void operator()(message_skipped) const { BOOST_ASSERT(false); }
     };

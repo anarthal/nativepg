@@ -184,6 +184,88 @@ public:
     reference back() const { return descrs_.back().to_field_description(data_); }
 };
 
+// An owning, random-access range of field descriptions (one per column).
+// Elements are materialized on access.
+class field_descriptions
+{
+    std::vector<detail::offsetted_field_description> field_descr_;
+    std::vector<unsigned char> data_;
+
+    detail::offset_and_length insert_data(std::span<const unsigned char> value)
+    {
+        // Data coming from the server fulfills this assertion by protocol design
+        BOOST_ASSERT(value.size() != static_cast<std::size_t>(-1));
+        detail::offset_and_length res{.offset = data_.size(), .length = value.size()};
+        data_.insert(data_.end(), value.begin(), value.end());
+        return res;
+    }
+
+    detail::offset_and_length insert_data(std::string_view value)
+    {
+        return insert_data(
+            std::span<const unsigned char>{reinterpret_cast<const unsigned char*>(value.data()), value.size()}
+        );
+    }
+
+public:
+    using value_type = protocol::field_description;
+    using size_type = std::size_t;
+    using difference_type = std::ptrdiff_t;
+    using reference = protocol::field_description;
+    using const_reference = protocol::field_description;
+    using iterator = field_descriptions_view::iterator;  // TODO
+    using const_iterator = iterator;
+
+    field_descriptions() = default;
+
+    // The elements and their referenced data are owned by us, so the view's
+    // pointers stay valid after the temporary view is gone.
+    field_descriptions_view as_view() const noexcept { return {field_descr_, data_.data()}; }
+
+    operator field_descriptions_view() const noexcept { return as_view(); }
+
+    // Removes all data, allowing for memory re-use
+    void clear()
+    {
+        field_descr_.clear();
+        data_.clear();
+    }
+
+    // Part of the unstable API. Should only be used by
+    // response authors.
+    void assign(const protocol::row_description& row_descr)
+    {
+        clear();
+        field_descr_.reserve(row_descr.field_descriptions.size());
+        for (const auto& descr : row_descr.field_descriptions)
+        {
+            field_descr_.push_back({
+                .name = insert_data(descr.name),
+                .table_oid = descr.table_oid,
+                .column_attribute = descr.column_attribute,
+                .type_oid = descr.type_oid,
+                .type_length = descr.type_length,
+                .type_modifier = descr.type_modifier,
+                .fmt_code = descr.fmt_code,
+            });
+        }
+    }
+
+    // Iterators
+    iterator begin() const noexcept { return as_view().begin(); }
+    iterator end() const noexcept { return as_view().end(); }
+
+    // Capacity
+    size_type size() const noexcept { return field_descr_.size(); }
+    bool empty() const noexcept { return field_descr_.empty(); }
+
+    // Element access (all materialize a field_description by value)
+    reference operator[](size_type i) const { return as_view()[i]; }
+    // TODO: at()
+    reference front() const { return as_view().front(); }
+    reference back() const { return as_view().back(); }
+};
+
 // A random-access, span-like view over a row's values.
 // Elements are materialized on access.
 class row_view
@@ -435,106 +517,6 @@ public:
     // TODO: at()
     reference front() const noexcept { return (*this)[0]; }
     reference back() const noexcept { return (*this)[size() - 1u]; }
-};
-
-class dynamic_resultset
-{
-    std::vector<detail::offsetted_field_description> field_descr_;
-    std::vector<detail::offset_and_length> values_;
-    std::vector<unsigned char> data_;
-    detail::offset_and_length command_complete_tag_{};
-    bool portal_suspended_{false};
-
-    detail::offset_and_length insert_data(std::span<const unsigned char> value)
-    {
-        // Data coming from the server fulfills this assertion by protocol design
-        BOOST_ASSERT(value.size() != static_cast<std::size_t>(-1));
-        detail::offset_and_length res{.offset = data_.size(), .length = value.size()};
-        data_.insert(data_.end(), value.begin(), value.end());
-        return res;
-    }
-
-    detail::offset_and_length insert_data(std::string_view value)
-    {
-        return insert_data(
-            std::span<const unsigned char>{reinterpret_cast<const unsigned char*>(value.data()), value.size()}
-        );
-    }
-
-public:
-    dynamic_resultset() = default;
-
-    // Clears the resultset, allowing for memory re-use
-    void clear()
-    {
-        field_descr_.clear();
-        values_.clear();
-        data_.clear();
-        command_complete_tag_ = {};
-        portal_suspended_ = false;
-    }
-
-    // Part of the unstable API. Should only be used by
-    // response authors.
-    void set_row_description(const protocol::row_description& row_descr)
-    {
-        clear();
-        field_descr_.reserve(row_descr.field_descriptions.size());
-        for (const auto& descr : row_descr.field_descriptions)
-        {
-            field_descr_.push_back({
-                .name = insert_data(descr.name),
-                .table_oid = descr.table_oid,
-                .column_attribute = descr.column_attribute,
-                .type_oid = descr.type_oid,
-                .type_length = descr.type_length,
-                .type_modifier = descr.type_modifier,
-                .fmt_code = descr.fmt_code,
-            });
-        }
-    }
-
-    // Part of the unstable API. Should only be used by
-    // response authors.
-    void add_row(const protocol::data_row& row)
-    {
-        // Ensuring that this precondition meets is not this class' responsibility,
-        // but the response type's.
-        BOOST_ASSERT(row.columns.size() == field_descr_.size());
-        for (const auto fv : row.columns)
-        {
-            if (fv.is_null())
-                values_.push_back({.offset = 0u, .length = static_cast<std::size_t>(-1)});
-            else
-                values_.push_back(insert_data(fv.data()));
-        }
-    }
-
-    // Part of the unstable API. Should only be used by
-    // response authors.
-    void set_command_complete_tag(std::string_view tag) { command_complete_tag_ = insert_data(tag); }
-
-    // Part of the unstable API. Should only be used by
-    // response authors.
-    void set_portal_suspended(bool value) { portal_suspended_ = value; }
-
-    // Retrieves the field descriptions (one per column)
-    field_descriptions_view field_descriptions() const noexcept { return {field_descr_, data_.data()}; }
-
-    // Retrieves the rows
-    rows_view rows() const noexcept { return {values_, field_descr_.size(), data_.data()}; }
-
-    // This is equivalent to PQcmdStatus
-    // TODO: this tag is what libpq uses for PQcmdTuples and PQoidValue,
-    // implement functions to parse it
-    std::string_view command_complete_tag() const noexcept
-    {
-        return command_complete_tag_.to_string_view(data_.data());
-    }
-
-    // True if the query finished with portal suspended, meaning that
-    // the portal can be executed again for more rows
-    bool portal_suspended() const noexcept { return portal_suspended_; }
 };
 
 namespace detail {

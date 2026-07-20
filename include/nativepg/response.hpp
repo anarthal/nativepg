@@ -334,20 +334,25 @@ public:
 };
 
 // A response type that checks that a single resultset didn't
-// produce an error, skipping any produced data
+// produce an error, skipping any produced rows.
+// May output a command_info structure containing data like affected rows
 class check_execute
 {
+    command_info* info_{};
     extended_error err_;
 
 public:
     check_execute() = default;
+    check_execute(command_info& info) noexcept : info_(&info) {}
 
     handler_setup_result setup(const request& req, std::size_t offset)
     {
+        if (info_)
+            detail::reset_info(*info_);
         err_ = {};
         return detail::resultset_setup(req, offset);
     }
-    void on_message(const any_request_message& msg, std::size_t) { detail::maybe_store_error(msg, err_); }
+    void on_message(const any_request_message& msg, std::size_t);
     const extended_error& result() const { return err_; }
 };
 
@@ -392,34 +397,6 @@ public:
     const extended_error& result() const { return err_; }
 };
 
-// A response that reads data into a dynamic_resultset
-class dynamic_resultset_response
-{
-    enum class state_t
-    {
-        parsing_meta,
-        parsing_data,
-        done,
-    };
-
-    dynamic_resultset* obj_;
-    extended_error err_;
-    state_t state_{state_t::parsing_meta};
-
-public:
-    explicit dynamic_resultset_response(dynamic_resultset& obj) noexcept : obj_(&obj) {}
-
-    handler_setup_result setup(const request& req, std::size_t offset)
-    {
-        obj_->clear();
-        state_ = state_t::parsing_meta;
-        err_ = {};
-        return detail::resultset_setup(req, offset);
-    }
-    void on_message(const any_request_message& msg, std::size_t);
-    const extended_error& result() const { return err_; }
-};
-
 class resultsets_handler
 {
     enum class state_t
@@ -459,6 +436,19 @@ public:
         }
     }
 
+    void on_message(const any_request_message& msg, std::size_t);
+    const extended_error& result() const { return err_; }
+};
+
+class describe_into
+{
+    field_descriptions* obj_;
+    extended_error err_;
+
+public:
+    describe_into(field_descriptions& obj) noexcept : obj_(&obj) {}
+
+    handler_setup_result setup(const request& req, std::size_t offset);
     void on_message(const any_request_message& msg, std::size_t);
     const extended_error& result() const { return err_; }
 };

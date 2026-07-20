@@ -51,7 +51,12 @@ void nativepg::test::print_context()
 // --- Printing ---
 std::ostream& nativepg::operator<<(std::ostream& os, const extended_error& err)
 {
-    return os << "{ .code=" << err.code << ", .diag=" << err.diag.message() << "}";
+    return os << "{ .code=" << err.code << ", .diag=" << err.diag << "}";
+}
+
+std::ostream& nativepg::operator<<(std::ostream& os, const diagnostics& value)
+{
+    return os << value.message();
 }
 
 std::ostream& nativepg::operator<<(std::ostream& os, const handler_setup_result& value)

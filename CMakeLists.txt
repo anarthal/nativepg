@@ -105,6 +105,7 @@ if (BUILD_TESTING)
     add_unit_test(unit/types             test_numeric)
     add_unit_test(unit/types             test_decimal)
     add_unit_test(unit/types             test_datetime)
+    add_unit_test(unit/types             test_json)
 
     if (NATIVEPG_COROSIO_API)
         add_unit_test(integration            test_co_connection  nativepg_test_utils_corosio)
@@ -126,6 +127,9 @@ target_link_libraries(nativepg_decimal_example PRIVATE nativepg)
 
 add_executable(nativepg_datetime_example example/types/datetime.cpp)
 target_link_libraries(nativepg_datetime_example PRIVATE nativepg)
+
+add_executable(nativepg_json_example example/types/json.cpp)
+target_link_libraries(nativepg_json_example PRIVATE nativepg)
 
 if (NATIVEPG_COROSIO_API)
     add_executable(nativepg_co_connection example/co_connection.cpp)

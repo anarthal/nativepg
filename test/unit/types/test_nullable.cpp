@@ -12,12 +12,13 @@
 #include <sstream>
 #include <string>
 
+#include "nativepg/types/detail/concepts.hpp"
+#include "nativepg/types/detail/traits.hpp"
 #include "nativepg/types/nullable.hpp"
-#include "nativepg/types/traits.hpp"
-#include "nativepg/types/concepts.hpp"
 #include "test_utils.hpp"
 
 using namespace nativepg::types;
+using namespace nativepg::types::detail;
 using boost::system::error_code;
 
 namespace {

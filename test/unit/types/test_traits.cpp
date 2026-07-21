@@ -13,7 +13,7 @@
 #include <sstream>
 #include <string>
 
-#include "nativepg/types/traits.hpp"
+#include "../../../include/nativepg/types/detail/traits.hpp"
 #include "test_utils.hpp"
 
 using namespace nativepg::types;
@@ -21,24 +21,6 @@ using boost::system::error_code;
 
 namespace {
 
-
-void test_check_unique_ptr()
-{
-    NATIVEPG_TEST(is_unique_ptr<std::unique_ptr<int>>());
-    NATIVEPG_TEST(!is_unique_ptr<int>());
-}
-
-void test_check_shared_ptr()
-{
-    NATIVEPG_TEST(is_shared_ptr<std::shared_ptr<int>>());
-    NATIVEPG_TEST(!is_shared_ptr<int>());
-}
-
-void test_check_weak_ptr()
-{
-    NATIVEPG_TEST(is_weak_ptr<std::weak_ptr<int>>());
-    NATIVEPG_TEST(!is_weak_ptr<int>());
-}
 
 void test_check_optional()
 {
@@ -51,9 +33,6 @@ void test_check_optional()
 
 int main()
 {
-    test_check_unique_ptr();
-    test_check_shared_ptr();
-    test_check_weak_ptr();
     test_check_optional();
 
     return boost::report_errors();

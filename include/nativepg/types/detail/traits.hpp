@@ -5,14 +5,14 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_TYPES_TRAITS_HPP
-#define NATIVEPG_TYPES_TRAITS_HPP
+#ifndef NATIVEPG_TYPES_DETAIL_TRAITS_HPP
+#define NATIVEPG_TYPES_DETAIL_TRAITS_HPP
 
 #include <memory>
 #include <optional>
 #include <type_traits>
 
-namespace nativepg::types {
+namespace nativepg::types::detail {
 
 // std::unique_ptr
 template<typename T>
@@ -58,6 +58,6 @@ inline constexpr bool is_raw_pointer_v = std::is_pointer_v<T>;
 template<typename T>
 inline constexpr bool is_generic_pointer_v = is_smart_pointer_v<T> || is_raw_pointer_v<T>;
 
-}  // namespace nativepg::types
+}  // namespace nativepg::types::detail
 
-#endif  // NATIVEPG_TYPES_TRAITS_HPP
+#endif  // NATIVEPG_TYPES_DETAIL_TRAITS_HPP

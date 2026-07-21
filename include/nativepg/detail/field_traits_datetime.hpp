@@ -100,6 +100,7 @@ struct field_parse<std::chrono::sys_days>
         std::chrono::sys_days& to
     )
     {
+        if (from.is_null()) return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == date_oid);
         return desc.fmt_code == protocol::format_code::text ? types::parse_text_date(from.data(), to)
                                                             : types::parse_binary_date(from.data(), to);
@@ -116,6 +117,7 @@ struct field_parse<std::chrono::microseconds>
         std::chrono::microseconds& to
     )
     {
+        if (from.is_null()) return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == time_oid);
         return desc.fmt_code == protocol::format_code::text ? types::parse_text_time(from.data(), to)
                                                             : types::parse_binary_time(from.data(), to);
@@ -132,6 +134,7 @@ struct field_parse<types::pg_timetz>
         types::pg_timetz& to
     )
     {
+        if (from.is_null()) return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == timetz_oid);
         return desc.fmt_code == protocol::format_code::text ? parse_text_timetz(from.data(), to)
                                                             : parse_binary_timetz(from.data(), to);
@@ -148,6 +151,7 @@ struct field_parse<types::pg_timestamp>
         types::pg_timestamp& to
     )
     {
+        if (from.is_null()) return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == timestamp_oid);
         return desc.fmt_code == protocol::format_code::text ? types::parse_text_timestamp(from.data(), to)
                                                             : types::parse_binary_timestamp(from.data(), to);
@@ -164,6 +168,7 @@ struct field_parse<types::pg_timestamptz>
         types::pg_timestamptz& to
     )
     {
+        if (from.is_null()) return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == timestamptz_oid);
         return desc.fmt_code == protocol::format_code::text
                    ? types::parse_text_timestamptz(from.data(), to)
@@ -181,6 +186,7 @@ struct field_parse<types::pg_interval>
         types::pg_interval& to
     )
     {
+        if (from.is_null()) return client_errc::unexpected_null;
         BOOST_ASSERT(desc.type_oid == interval_oid);
         return desc.fmt_code == protocol::format_code::text ? parse_text_interval(from.data(), to)
                                                             : parse_binary_interval(from.data(), to);

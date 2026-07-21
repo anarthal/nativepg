@@ -10,7 +10,7 @@
 
 #include <type_traits>
 
-#include "nativepg/types/traits.hpp"
+#include "detail/traits.hpp"
 
 namespace nativepg::types {
 
@@ -22,17 +22,17 @@ struct nullable_type_evaluator
     using CleanType = std::remove_cvref_t<T>;
 
     static_assert(
-        !is_raw_pointer_v<CleanType>,
+        !detail::is_raw_pointer_v<CleanType>,
         "Raw pointers are forbidden in NativePG as nullable type. Use std::optional."
     );
 
     static_assert(
-        !is_smart_pointer_v<CleanType>,
+        !detail::is_smart_pointer_v<CleanType>,
         "Smart pointers are not supported in NativePG as nullable type. Use std::optional."
     );
 
     // Only std::optional allowed!
-    static constexpr bool value = is_optional_v<CleanType>;
+    static constexpr bool value = detail::is_optional_v<CleanType>;
 };
 
 template <typename T>

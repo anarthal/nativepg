@@ -219,9 +219,8 @@ class resultset_callback_t
             detail::for_each_member(row, [&ec, &idx, &self = this->self](auto& member) {
                 using FieldType = std::decay_t<decltype(member)>;
                 const detail::pos_map_entry& ent = self.pos_map_[idx++];
-                const field_view& from = self.random_access_data_[ent.db_index];
                 boost::system::error_code ec2 = detail::field_parse<FieldType>::call(
-                    from,
+                    self.random_access_data_.at(ent.db_index),
                     ent.descr,
                     member
                 );

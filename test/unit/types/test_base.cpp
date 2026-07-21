@@ -587,6 +587,20 @@ void test_field_parse_int32_from_int2_wire_success()
     NATIVEPG_TEST_EQ(out_val, 42);
 }
 
+void test_field_parse_unexpected_null_error()
+{
+    // Arrange
+    bool b = false;
+    field_view fv;  // NULL
+    const auto desc = make_field_description(detail::bool_oid);
+
+    // Act
+    auto err = detail::field_parse<bool>::call(fv, desc, b);
+
+    // Assert
+    NATIVEPG_TEST_EQ(err, error_code(client_errc::unexpected_null));
+}
+
 }  // namespace
 
 int main()
@@ -598,6 +612,7 @@ int main()
     test_parse_binary_bool_f_success();
     test_parse_text_bool_invalid_error();
     test_parse_binary_bool_invalid_size_error();
+    test_field_parse_unexpected_null_error();
 
     // BYTEA
     test_parse_text_bytea_success();

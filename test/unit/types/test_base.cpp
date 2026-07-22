@@ -6,10 +6,12 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
+#include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <iomanip>
 #include <limits>
 #include <span>
@@ -17,6 +19,7 @@
 #include <string>
 #include <vector>
 
+#include "nativepg/client_errc.hpp"
 #include "nativepg/detail/field_traits.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/base.hpp"
@@ -234,6 +237,132 @@ void test_parse_text_bytea_invalid_hex_error()
 
     // Act
     auto err = types::parse_text_bytea(fv, ba);
+
+    // Assert
+    BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
+}
+
+// "CHAR" (internal single-byte char)
+void test_parse_text_char_success()
+{
+    // Arrange
+    char c = '\0';
+    std::string str = "z";
+    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    field_view fv{data};
+
+    // Act
+    auto err = types::parse_text_char(fv, c);
+
+    // Assert
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(c, 'z');
+}
+
+void test_parse_binary_char_success()
+{
+    // Arrange
+    char c = '\0';
+    static constexpr unsigned char pg_char[] = {0x7a};  // 'z'
+    boost::span<const unsigned char> data(pg_char);
+    field_view fv{data};
+
+    // Act
+    auto err = types::parse_binary_char(fv, c);
+
+    // Assert
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(c, 'z');
+}
+
+void test_parse_text_char_empty_error()
+{
+    // Arrange
+    char c = '\0';
+    std::string str;  // Empty string is not a valid single-byte char
+    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    field_view fv{data};
+
+    // Act
+    auto err = types::parse_text_char(fv, c);
+
+    // Assert
+    BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
+}
+
+void test_parse_binary_char_wrong_size_error()
+{
+    // Arrange
+    char c = '\0';
+    static constexpr unsigned char pg_char[] = {0x7a, 0x7a};  // Only 1 byte is valid
+    boost::span<const unsigned char> data(pg_char);
+    field_view fv{data};
+
+    // Act
+    auto err = types::parse_binary_char(fv, c);
+
+    // Assert
+    BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
+}
+
+// OID
+void test_parse_text_oid_success()
+{
+    // Arrange
+    std::uint32_t o = 0;
+    std::string str = "5887";
+    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    field_view fv{data};
+
+    // Act
+    auto err = types::parse_text_oid(fv, o);
+
+    // Assert
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(o, 5887u);
+}
+
+void test_parse_binary_oid_success()
+{
+    // Arrange
+    std::uint32_t o = 0;
+    static constexpr unsigned char pg_oid[] = {0x00, 0x00, 0x16, 0xff};  // 5887, big endian
+    boost::span<const unsigned char> data(pg_oid);
+    field_view fv{data};
+
+    // Act
+    auto err = types::parse_binary_oid(fv, o);
+
+    // Assert
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(o, 5887u);
+}
+
+void test_parse_text_oid_garbage_error()
+{
+    // Arrange
+    std::uint32_t o = 0;
+    std::string str = "not_an_oid";
+    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    field_view fv{data};
+
+    // Act
+    auto err = types::parse_text_oid(fv, o);
+
+    // Assert
+    BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
+}
+
+void test_parse_binary_oid_wrong_size_error()
+{
+    // Arrange
+    std::uint32_t o = 0;
+    static constexpr unsigned char pg_oid[] = {0x00, 0x00, 0x16};  // Only 3 bytes, needs 4
+    boost::span<const unsigned char> data(pg_oid);
+    field_view fv{data};
+
+    // Act
+    auto err = types::parse_binary_oid(fv, o);
 
     // Assert
     BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
@@ -550,6 +679,60 @@ void test_field_is_compatible_string_success()
         detail::field_is_compatible<std::string>::call(make_field_description(detail::varchar_oid)),
         boost::system::errc::success
     );
+    BOOST_TEST_EQ(
+        detail::field_is_compatible<std::string>::call(make_field_description(detail::name_oid)),
+        boost::system::errc::success
+    );
+    BOOST_TEST_EQ(
+        detail::field_is_compatible<std::string>::call(make_field_description(detail::bpchar_oid)),
+        boost::system::errc::success
+    );
+}
+
+void test_field_is_compatible_char_success()
+{
+    BOOST_TEST_EQ(
+        detail::field_is_compatible<char>::call(make_field_description(detail::char_oid)),
+        boost::system::errc::success
+    );
+}
+
+void test_field_is_compatible_char_incompatible_error()
+{
+    BOOST_TEST_EQ(
+        detail::field_is_compatible<char>::call(make_field_description(detail::text_oid)),
+        error_code(client_errc::incompatible_field_type)
+    );
+}
+
+void test_field_is_compatible_oid_success()
+{
+    BOOST_TEST_EQ(
+        detail::field_is_compatible<std::uint32_t>::call(make_field_description(detail::oid_oid)),
+        boost::system::errc::success
+    );
+}
+
+void test_field_is_compatible_oid_incompatible_error()
+{
+    BOOST_TEST_EQ(
+        detail::field_is_compatible<std::uint32_t>::call(make_field_description(detail::int4_oid)),
+        error_code(client_errc::incompatible_field_type)
+    );
+}
+
+void test_field_parse_unexpected_null_error()
+{
+    // Arrange
+    bool b = false;
+    field_view fv;  // NULL
+    const auto desc = make_field_description(detail::bool_oid);
+
+    // Act
+    auto err = detail::field_parse<bool>::call(fv, desc, b);
+
+    // Assert
+    BOOST_TEST_EQ(err, error_code(client_errc::unexpected_null));
 }
 
 void test_field_parse_bool_text_success()
@@ -569,6 +752,68 @@ void test_field_parse_bool_text_success()
     BOOST_TEST_EQ(b, true);
 }
 
+void test_field_parse_char_text_success()
+{
+    // Arrange
+    char c = '\0';
+    std::string str = "z";
+    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    field_view fv{data};
+    const auto desc = make_field_description(detail::char_oid, protocol::format_code::text);
+
+    // Act
+    auto err = detail::field_parse<char>::call(fv, desc, c);
+
+    // Assert
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(c, 'z');
+}
+
+void test_field_parse_char_unexpected_null_error()
+{
+    // Arrange
+    char c = '\0';
+    field_view fv;  // NULL
+    const auto desc = make_field_description(detail::char_oid);
+
+    // Act
+    auto err = detail::field_parse<char>::call(fv, desc, c);
+
+    // Assert
+    BOOST_TEST_EQ(err, error_code(client_errc::unexpected_null));
+}
+
+void test_field_parse_oid_text_success()
+{
+    // Arrange
+    std::uint32_t o = 0;
+    std::string str = "5887";
+    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    field_view fv{data};
+    const auto desc = make_field_description(detail::oid_oid, protocol::format_code::text);
+
+    // Act
+    auto err = detail::field_parse<std::uint32_t>::call(fv, desc, o);
+
+    // Assert
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(o, 5887u);
+}
+
+void test_field_parse_oid_unexpected_null_error()
+{
+    // Arrange
+    std::uint32_t o = 0;
+    field_view fv;  // NULL
+    const auto desc = make_field_description(detail::oid_oid);
+
+    // Act
+    auto err = detail::field_parse<std::uint32_t>::call(fv, desc, o);
+
+    // Assert
+    BOOST_TEST_EQ(err, error_code(client_errc::unexpected_null));
+}
+
 void test_field_parse_int32_from_int2_wire_success()
 {
     // Arrange
@@ -584,20 +829,6 @@ void test_field_parse_int32_from_int2_wire_success()
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
     BOOST_TEST_EQ(out_val, 42);
-}
-
-void test_field_parse_unexpected_null_error()
-{
-    // Arrange
-    bool b = false;
-    field_view fv;  // NULL
-    const auto desc = make_field_description(detail::bool_oid);
-
-    // Act
-    auto err = detail::field_parse<bool>::call(fv, desc, b);
-
-    // Assert
-    BOOST_TEST_EQ(err, error_code(client_errc::unexpected_null));
 }
 
 }  // namespace
@@ -619,6 +850,18 @@ int main()
     test_parse_text_bytea_missing_prefix_error();
     test_parse_text_bytea_odd_length_error();
     test_parse_text_bytea_invalid_hex_error();
+
+    // CHAR
+    test_parse_text_char_success();
+    test_parse_binary_char_success();
+    test_parse_text_char_empty_error();
+    test_parse_binary_char_wrong_size_error();
+
+    // OID
+    test_parse_text_oid_success();
+    test_parse_binary_oid_success();
+    test_parse_text_oid_garbage_error();
+    test_parse_binary_oid_wrong_size_error();
 
     // INT2
     test_parse_text_int_success<std::int16_t, std::numeric_limits<std::int16_t>::min()>();
@@ -701,7 +944,16 @@ int main()
     test_field_is_compatible_int_widening_success();
     test_field_is_compatible_int_narrowing_error();
     test_field_is_compatible_string_success();
+    test_field_is_compatible_char_success();
+    test_field_is_compatible_char_incompatible_error();
+    test_field_is_compatible_oid_success();
+    test_field_is_compatible_oid_incompatible_error();
+    test_field_parse_unexpected_null_error();
     test_field_parse_bool_text_success();
+    test_field_parse_char_text_success();
+    test_field_parse_char_unexpected_null_error();
+    test_field_parse_oid_text_success();
+    test_field_parse_oid_unexpected_null_error();
     test_field_parse_int32_from_int2_wire_success();
 
     return boost::report_errors();

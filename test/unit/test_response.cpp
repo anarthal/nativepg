@@ -24,7 +24,7 @@
 #include "nativepg/response_handler.hpp"
 #include "test_utils/printing.hpp"
 #include "test_utils/response_msg_type.hpp"
-#include "test_utils/test_utils.hpp"
+#include "test_utils/test_range_eq.hpp"
 
 using namespace nativepg;
 using namespace nativepg::test;
@@ -77,8 +77,8 @@ void test_success_two_handlers()
         {response_msg_type::data_row,         3u},
         {response_msg_type::command_complete, 3u},
     };
-    NATIVEPG_TEST_CONT_EQ(std::get<0>(res.handlers()).msgs, expected1);
-    NATIVEPG_TEST_CONT_EQ(std::get<1>(res.handlers()).msgs, expected2);
+    test_range_eq(std::get<0>(res.handlers()).msgs, expected1);
+    test_range_eq(std::get<1>(res.handlers()).msgs, expected2);
 }
 
 // The 1st handler that returns an error is chosen as the overall error

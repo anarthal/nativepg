@@ -10,9 +10,10 @@
 #include <span>
 
 #include "nativepg/field_view.hpp"
-#include "test_utils/test_utils.hpp"
+#include "test_utils/test_range_eq.hpp"
 
 using namespace nativepg;
+using namespace nativepg::test;
 
 namespace {
 
@@ -21,7 +22,7 @@ void test_default_constructor()
 {
     field_view f;
     BOOST_TEST(f.is_null());
-    NATIVEPG_TEST_CONT_EQ(f.data(), std::span<const unsigned char>{});
+    test_range_eq(f.data(), std::span<const unsigned char>{});
 }
 
 // Constructor from actual data
@@ -30,7 +31,7 @@ void test_constructor_from_data()
     const unsigned char data[] = {1, 2, 3, 4};
     field_view f{std::span<const unsigned char>(data)};
     BOOST_TEST(!f.is_null());
-    NATIVEPG_TEST_CONT_EQ(f.data(), data);
+    test_range_eq(f.data(), data);
 }
 
 // Constructor from a default-constructed span:
@@ -39,7 +40,7 @@ void test_constructor_from_default_span()
 {
     field_view f{std::span<const unsigned char>{}};
     BOOST_TEST(!f.is_null());
-    NATIVEPG_TEST_CONT_EQ(f.data(), std::span<const unsigned char>{});
+    test_range_eq(f.data(), std::span<const unsigned char>{});
 }
 
 // Constructor from a span with zero size but (possibly) non-null data():
@@ -51,7 +52,7 @@ void test_constructor_from_empty_nonnull_span()
     std::span<const unsigned char> empty_nonnull(data, 0u);
     field_view f{empty_nonnull};
     BOOST_TEST(!f.is_null());
-    NATIVEPG_TEST_CONT_EQ(f.data(), std::span<const unsigned char>{});
+    test_range_eq(f.data(), std::span<const unsigned char>{});
 }
 
 // Functions can be called in a constexpr context.

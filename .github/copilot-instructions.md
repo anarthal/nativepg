@@ -30,8 +30,8 @@
 ## Tests
 
 - Unit tests live in `test/unit/`, mirroring the source area: protocol tests in `test/unit/protocol/`, internal tests in `test/unit/nativepg_internal/`, and type tests in `test/unit/types/`.
-- Tests are standalone executables using `boost::core::lightweight_test`; use `NATIVEPG_TEST`, `NATIVEPG_TEST_EQ`, and `NATIVEPG_TEST_CONT_EQ` from `test/test_utils/test_utils.hpp`, and finish `main` with `boost::report_errors()`.
-- Register each new unit-test source in the `BUILD_TESTING` block in `CMakeLists.txt` using `add_unit_test`. Do not add an unregistered test file.
+- Tests are standalone executables using `boost::core::lightweight_test`; use `test_range_eq` from `test_utils/test_range_eq.hpp` for comparing ranges, and finish `main` with `boost::report_errors()`.
+- Register each new unit-test source in the `BUILD_TESTING` block in `test/CMakeLists.txt` using `nativepg_add_test`. Do not add an unregistered test file.
 - For serialization changes, assert exact payload bytes and the expected protocol-message sequence, following the existing request and protocol tests.
 
 ## Build and validation

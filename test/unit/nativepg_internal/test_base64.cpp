@@ -9,16 +9,18 @@
 #include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <iostream>
 #include <string_view>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg_internal/base64.hpp"
-#include "test_utils/test_utils.hpp"
+#include "test_utils/test_range_eq.hpp"
 
 using boost::system::error_code;
 using nativepg::protocol::detail::base64_decode;
 using nativepg::protocol::detail::base64_encode;
+using namespace nativepg::test;
 
 // Some test cases have been copied from CPython's and Android's base64 test suites
 
@@ -60,8 +62,6 @@ void test_encode()
 {
     for (auto tc : success_cases)
     {
-        nativepg::test::context_frame frame(tc.encoded);
-
         // Setup
         std::vector<unsigned char> dest;
 
@@ -69,7 +69,8 @@ void test_encode()
         base64_encode(tc.raw, dest);
 
         // Check
-        NATIVEPG_TEST_CONT_EQ(dest, tc.encoded)
+        if (!test_range_eq(dest, tc.encoded))
+            std::cerr << "  In test case: " << tc.encoded << std::endl;
     }
 }
 
@@ -85,15 +86,13 @@ void test_encode_non_empty_buffer()
     base64_encode(input, dest);
 
     // Check
-    NATIVEPG_TEST_CONT_EQ(dest, expected)
+    test_range_eq(dest, expected);
 }
 
 void test_decode_success()
 {
     for (auto tc : success_cases)
     {
-        nativepg::test::context_frame frame(tc.encoded);
-
         // Setup
         std::vector<unsigned char> dest;
 
@@ -101,8 +100,8 @@ void test_decode_success()
         auto ec = base64_decode(to_span(tc.encoded), dest);
 
         // Check
-        NATIVEPG_TEST_EQ(ec, error_code())
-        NATIVEPG_TEST_CONT_EQ(dest, tc.raw)
+        if (!BOOST_TEST_EQ(ec, error_code()) || !test_range_eq(dest, tc.raw))
+            std::cerr << "  In test case " << tc.encoded << std::endl;
     }
 }
 
@@ -134,12 +133,11 @@ void test_decode_error()
 
     for (auto tc : cases)
     {
-        nativepg::test::context_frame frame(tc);
-
         // Setup
         std::vector<unsigned char> dest;
         auto ec = base64_decode(to_span(tc), dest);
-        NATIVEPG_TEST_EQ(ec, error_code(nativepg::client_errc::invalid_base64))
+        if (!BOOST_TEST_EQ(ec, error_code(nativepg::client_errc::invalid_base64)))
+            std::cerr << "  In test case " << tc << std::endl;
     }
 }
 

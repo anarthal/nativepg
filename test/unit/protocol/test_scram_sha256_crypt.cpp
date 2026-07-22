@@ -11,9 +11,10 @@
 #include <string_view>
 
 #include "nativepg_internal/scram_sha256_crypt.hpp"
-#include "test_utils/test_utils.hpp"
+#include "test_utils/test_range_eq.hpp"
 
 using namespace nativepg::protocol::detail::scram_sha256;
+using namespace nativepg::test;
 using boost::system::error_code;
 
 namespace {
@@ -63,8 +64,8 @@ void test_success()
     );
 
     BOOST_TEST_EQ(ec, error_code());
-    NATIVEPG_TEST_CONT_EQ(client_proof, expected_client_proof)
-    NATIVEPG_TEST_CONT_EQ(server_signature, expected_server_signature)
+    test_range_eq(client_proof, expected_client_proof);
+    test_range_eq(server_signature, expected_server_signature);
 }
 
 }  // namespace

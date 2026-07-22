@@ -18,9 +18,10 @@
 #include "nativepg/protocol/common.hpp"
 #include "nativepg/protocol/sync.hpp"
 #include "nativepg/request.hpp"
-#include "test_utils/test_utils.hpp"
+#include "test_utils/test_range_eq.hpp"
 
 using namespace nativepg;
+using namespace nativepg::test;
 
 namespace nativepg {
 
@@ -50,8 +51,7 @@ void check_payload(
     std::source_location loc = std::source_location::current()
 )
 {
-    test::context_frame frame{loc};
-    NATIVEPG_TEST_CONT_EQ(req.payload(), expected);
+    test_range_eq(req.payload(), expected, loc);
 }
 
 void check_messages(
@@ -60,8 +60,7 @@ void check_messages(
     std::source_location loc = std::source_location::current()
 )
 {
-    test::context_frame frame{loc};
-    NATIVEPG_TEST_CONT_EQ(req.messages(), expected);
+    test_range_eq(req.messages(), expected, loc);
 }
 
 // Simple query

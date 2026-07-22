@@ -20,7 +20,6 @@
 #include "nativepg/detail/field_traits.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/base.hpp"
-#include "test_utils/test_utils.hpp"
 
 using namespace nativepg;
 using boost::system::error_code;
@@ -74,8 +73,8 @@ void test_parse_text_bool_t_success()
     auto err = types::parse_text_bool(fv, b);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::errc::success);
-    NATIVEPG_TEST_EQ(b, true);
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(b, true);
 }
 
 void test_parse_binary_bool_t_success()
@@ -90,8 +89,8 @@ void test_parse_binary_bool_t_success()
     auto err = types::parse_binary_bool(fv, b);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::errc::success);
-    NATIVEPG_TEST_EQ(b, true);
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(b, true);
 }
 
 void test_parse_text_bool_f_success()
@@ -106,8 +105,8 @@ void test_parse_text_bool_f_success()
     auto err = types::parse_text_bool(fv, b);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::errc::success);
-    NATIVEPG_TEST_EQ(b, false);
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(b, false);
 }
 
 void test_parse_binary_bool_f_success()
@@ -122,8 +121,8 @@ void test_parse_binary_bool_f_success()
     auto err = types::parse_binary_bool(fv, b);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::errc::success);
-    NATIVEPG_TEST_EQ(b, false);
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(b, false);
 }
 
 void test_parse_text_bool_invalid_error()
@@ -138,7 +137,7 @@ void test_parse_text_bool_invalid_error()
     auto err = types::parse_text_bool(fv, b);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, error_code(client_errc::protocol_value_error));
+    BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
 }
 
 void test_parse_binary_bool_invalid_size_error()
@@ -153,7 +152,7 @@ void test_parse_binary_bool_invalid_size_error()
     auto err = types::parse_binary_bool(fv, b);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, error_code(client_errc::protocol_value_error));
+    BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
 }
 
 // BYTEA
@@ -169,11 +168,11 @@ void test_parse_text_bytea_success()
     auto err = types::parse_text_bytea(fv, ba);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::errc::success);
-    NATIVEPG_TEST_EQ(ba.size(), 4u);
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(ba.size(), 4u);
     std::stringstream ss;
     ss << ba;
-    NATIVEPG_TEST_EQ(ss.str(), "0x21061977");
+    BOOST_TEST_EQ(ss.str(), "0x21061977");
 }
 
 void test_parse_binary_bytea_success()
@@ -188,11 +187,11 @@ void test_parse_binary_bytea_success()
     auto err = types::parse_binary_bytea(fv, ba);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::errc::success);
-    NATIVEPG_TEST_EQ(ba.size(), 4u);
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(ba.size(), 4u);
     std::stringstream ss;
     ss << ba;
-    NATIVEPG_TEST_EQ(ss.str(), "0x21061977");
+    BOOST_TEST_EQ(ss.str(), "0x21061977");
 }
 
 void test_parse_text_bytea_missing_prefix_error()
@@ -207,7 +206,7 @@ void test_parse_text_bytea_missing_prefix_error()
     auto err = types::parse_text_bytea(fv, ba);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, error_code(client_errc::protocol_value_error));
+    BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
 }
 
 void test_parse_text_bytea_odd_length_error()
@@ -222,7 +221,7 @@ void test_parse_text_bytea_odd_length_error()
     auto err = types::parse_text_bytea(fv, ba);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, error_code(client_errc::protocol_value_error));
+    BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
 }
 
 void test_parse_text_bytea_invalid_hex_error()
@@ -237,7 +236,7 @@ void test_parse_text_bytea_invalid_hex_error()
     auto err = types::parse_text_bytea(fv, ba);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, error_code(client_errc::protocol_value_error));
+    BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
 }
 
 // INT
@@ -254,8 +253,8 @@ void test_parse_text_int_success()
     auto err = types::parse_text_int<T>(fv, out_val);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::errc::success);
-    NATIVEPG_TEST_EQ(out_val, in_val);
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(out_val, in_val);
 }
 
 template <typename T, T in_val>
@@ -271,8 +270,8 @@ void test_parse_binary_int_success()
     auto err = types::parse_binary_int<T>(fv, out_val);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::errc::success);
-    NATIVEPG_TEST_EQ(out_val, in_val);
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(out_val, in_val);
 }
 
 template <typename T>
@@ -288,7 +287,7 @@ void test_parse_text_int_garbage_error()
     auto err = types::parse_text_int<T>(fv, out_val);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, error_code(client_errc::protocol_value_error));
+    BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
 }
 
 template <typename T>
@@ -305,7 +304,7 @@ void test_parse_text_int_overflow_error()
     auto err = types::parse_text_int<T>(fv, out_val);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, error_code(client_errc::protocol_value_error));
+    BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
 }
 
 template <typename T>
@@ -320,7 +319,7 @@ void test_parse_binary_int_wrong_size_error()
     auto err = types::parse_binary_int<T>(fv, out_val);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, error_code(client_errc::protocol_value_error));
+    BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
 }
 
 // FLOAT
@@ -339,19 +338,19 @@ void test_parse_text_float_success()
     auto err = types::parse_text_float<T>(fv, out_val);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, boost::system::errc::success);
     if (std::isnan(in_val))
     {
-        NATIVEPG_TEST(std::isnan(out_val));
+        BOOST_TEST(std::isnan(out_val));
     }
     else if (std::isinf(in_val))
     {
-        NATIVEPG_TEST(std::isinf(out_val));
-        NATIVEPG_TEST_EQ(std::signbit(out_val), std::signbit(in_val));
+        BOOST_TEST(std::isinf(out_val));
+        BOOST_TEST_EQ(std::signbit(out_val), std::signbit(in_val));
     }
     else
     {
-        NATIVEPG_TEST_EQ(out_val, in_val);
+        BOOST_TEST_EQ(out_val, in_val);
     }
 }
 
@@ -368,19 +367,19 @@ void test_parse_binary_float_success()
     auto err = types::parse_binary_float<T>(fv, out_val);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, boost::system::errc::success);
     if (std::isnan(in_val))
     {
-        NATIVEPG_TEST(std::isnan(out_val));
+        BOOST_TEST(std::isnan(out_val));
     }
     else if (std::isinf(in_val))
     {
-        NATIVEPG_TEST(std::isinf(out_val));
-        NATIVEPG_TEST_EQ(std::signbit(out_val), std::signbit(in_val));
+        BOOST_TEST(std::isinf(out_val));
+        BOOST_TEST_EQ(std::signbit(out_val), std::signbit(in_val));
     }
     else
     {
-        NATIVEPG_TEST_EQ(out_val, in_val);
+        BOOST_TEST_EQ(out_val, in_val);
     }
 }
 
@@ -399,21 +398,21 @@ void test_parse_binary_float_success(const unsigned char (&in_val)[N])
     auto err = types::parse_binary_float<T>(fv, out_val);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, boost::system::errc::success);
 
     const T expected = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(in_val);
     if (std::isnan(expected))
     {
-        NATIVEPG_TEST(std::isnan(out_val));
+        BOOST_TEST(std::isnan(out_val));
     }
     else if (std::isinf(expected))
     {
-        NATIVEPG_TEST(std::isinf(out_val));
-        NATIVEPG_TEST_EQ(std::signbit(out_val), std::signbit(expected));
+        BOOST_TEST(std::isinf(out_val));
+        BOOST_TEST_EQ(std::signbit(out_val), std::signbit(expected));
     }
     else
     {
-        NATIVEPG_TEST_EQ(out_val, expected);
+        BOOST_TEST_EQ(out_val, expected);
     }
 }
 
@@ -430,7 +429,7 @@ void test_parse_text_float_garbage_error()
     auto err = types::parse_text_float<T>(fv, out_val);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, error_code(client_errc::protocol_value_error));
+    BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
 }
 
 template <typename T>
@@ -445,7 +444,7 @@ void test_parse_binary_float_wrong_size_error()
     auto err = types::parse_binary_float<T>(fv, out_val);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, error_code(client_errc::protocol_value_error));
+    BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
 }
 
 template <typename T = std::string>
@@ -461,8 +460,8 @@ void test_parse_text_text_success(const T& in_val)
     auto err = types::parse_text_text<T>(fv, out_val);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::errc::success);
-    NATIVEPG_TEST_EQ(out_val, in_val);
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(out_val, in_val);
 }
 
 template <typename T = std::string>
@@ -478,19 +477,19 @@ void test_parse_binary_text_success(const T& in_val)
     auto err = types::parse_binary_text<T>(fv, out_val);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::errc::success);
-    NATIVEPG_TEST_EQ(out_val, in_val);
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(out_val, in_val);
 
     if constexpr (std::is_same_v<T, std::string_view>)
     {
-        NATIVEPG_TEST_EQ(
+        BOOST_TEST_EQ(
             static_cast<const void*>(out_val.data()),
             static_cast<const void*>(data.data())
         );  // zero-copy: aliases input
     }
     else
     {
-        NATIVEPG_TEST(
+        BOOST_TEST(
             static_cast<const void*>(out_val.data()) != static_cast<const void*>(data.data())
         );  // std::string: owns a copy
     }
@@ -501,7 +500,7 @@ void test_parse_binary_text_success(const T& in_val)
 //
 void test_field_is_compatible_bool_success()
 {
-    NATIVEPG_TEST_EQ(
+    BOOST_TEST_EQ(
         detail::field_is_compatible<bool>::call(make_field_description(detail::bool_oid)),
         boost::system::errc::success
     );
@@ -509,7 +508,7 @@ void test_field_is_compatible_bool_success()
 
 void test_field_is_compatible_bool_incompatible_error()
 {
-    NATIVEPG_TEST_EQ(
+    BOOST_TEST_EQ(
         detail::field_is_compatible<bool>::call(make_field_description(detail::int4_oid)),
         error_code(client_errc::incompatible_field_type)
     );
@@ -518,11 +517,11 @@ void test_field_is_compatible_bool_incompatible_error()
 void test_field_is_compatible_int_widening_success()
 {
     // A smaller wire type is compatible with a wider C++ type
-    NATIVEPG_TEST_EQ(
+    BOOST_TEST_EQ(
         detail::field_is_compatible<std::int32_t>::call(make_field_description(detail::int2_oid)),
         boost::system::errc::success
     );
-    NATIVEPG_TEST_EQ(
+    BOOST_TEST_EQ(
         detail::field_is_compatible<std::int64_t>::call(make_field_description(detail::int4_oid)),
         boost::system::errc::success
     );
@@ -531,11 +530,11 @@ void test_field_is_compatible_int_widening_success()
 void test_field_is_compatible_int_narrowing_error()
 {
     // A wider wire type is not compatible with a narrower C++ type
-    NATIVEPG_TEST_EQ(
+    BOOST_TEST_EQ(
         detail::field_is_compatible<std::int16_t>::call(make_field_description(detail::int4_oid)),
         error_code(client_errc::incompatible_field_type)
     );
-    NATIVEPG_TEST_EQ(
+    BOOST_TEST_EQ(
         detail::field_is_compatible<std::int32_t>::call(make_field_description(detail::int8_oid)),
         error_code(client_errc::incompatible_field_type)
     );
@@ -543,11 +542,11 @@ void test_field_is_compatible_int_narrowing_error()
 
 void test_field_is_compatible_string_success()
 {
-    NATIVEPG_TEST_EQ(
+    BOOST_TEST_EQ(
         detail::field_is_compatible<std::string>::call(make_field_description(detail::text_oid)),
         boost::system::errc::success
     );
-    NATIVEPG_TEST_EQ(
+    BOOST_TEST_EQ(
         detail::field_is_compatible<std::string>::call(make_field_description(detail::varchar_oid)),
         boost::system::errc::success
     );
@@ -564,7 +563,7 @@ void test_field_parse_unexpected_null_error()
     auto err = detail::field_parse<bool>::call(fv, desc, b);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, error_code(client_errc::unexpected_null));
+    BOOST_TEST_EQ(err, error_code(client_errc::unexpected_null));
 }
 
 void test_field_parse_bool_text_success()
@@ -580,8 +579,8 @@ void test_field_parse_bool_text_success()
     auto err = detail::field_parse<bool>::call(fv, desc, b);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::errc::success);
-    NATIVEPG_TEST_EQ(b, true);
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(b, true);
 }
 
 void test_field_parse_int32_from_int2_wire_success()
@@ -597,8 +596,8 @@ void test_field_parse_int32_from_int2_wire_success()
     auto err = detail::field_parse<std::int32_t>::call(fv, desc, out_val);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::errc::success);
-    NATIVEPG_TEST_EQ(out_val, 42);
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(out_val, 42);
 }
 
 }  // namespace

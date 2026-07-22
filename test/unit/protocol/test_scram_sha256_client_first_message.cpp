@@ -11,9 +11,10 @@
 #include <vector>
 
 #include "nativepg_internal/scram_sha256_messages.hpp"
-#include "test_utils/test_utils.hpp"
+#include "test_utils/test_range_eq.hpp"
 
 using namespace nativepg::protocol::detail::scram_sha256;
+using namespace nativepg::test;
 
 namespace {
 
@@ -36,9 +37,9 @@ void test_serialize()
     auto res = serialize(msg, buff);
 
     // Check
-    NATIVEPG_TEST(res.has_value())
-    NATIVEPG_TEST_CONT_EQ(res.value(), client_bare)
-    NATIVEPG_TEST_CONT_EQ(buff, expected)
+    BOOST_TEST(res.has_value());
+    test_range_eq(res.value(), client_bare);
+    test_range_eq(buff, expected);
 }
 
 }  // namespace

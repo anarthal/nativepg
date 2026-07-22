@@ -22,10 +22,10 @@ namespace corosio = boost::corosio;
 
 struct myrow
 {
-    std::int32_t f3;
     std::string f1;
+    std::int32_t f3;
 };
-BOOST_DESCRIBE_STRUCT(myrow, (), (f3, f1))
+BOOST_DESCRIBE_STRUCT(myrow, (), (f1,f3))
 
 static void print_err(const char* prefix, std::error_code err, const diagnostics& diag)
 {
@@ -60,7 +60,7 @@ static capy::task<> co_main()
 
     // Compose our request
     request req;
-    req.add_query("INSERT INTO myt (f1, f3) VALUES ($1, $2)", {"hehe", "bad"});
+    req.add_query("INSERT INTO myt (f1, f3) VALUES ($1, $2)", {"hehe", 42});
     req.add_query("SELECT * FROM myt WHERE f1 <> 'abc'", {});
 
     // Structures to parse the response into

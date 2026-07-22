@@ -18,13 +18,13 @@
 #include <string>
 #include <vector>
 
-#include "ci_server.hpp"
-#include "corosio_utils.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
-#include "printing.hpp"
+#include "test_utils/ci_server.hpp"
+#include "test_utils/corosio_utils.hpp"
+#include "test_utils/printing.hpp"
 
 namespace capy = boost::capy;
 using namespace nativepg;

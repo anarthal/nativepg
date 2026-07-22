@@ -16,7 +16,6 @@
 
 namespace nativepg::test {
 
-// TODO: duplicated
 enum class response_msg_type
 {
     bind_complete,

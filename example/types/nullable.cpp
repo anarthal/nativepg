@@ -24,7 +24,6 @@
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
-#include "nativepg/types/nullable.hpp"
 
 namespace asio = boost::asio;
 using namespace nativepg;

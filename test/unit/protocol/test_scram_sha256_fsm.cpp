@@ -14,10 +14,11 @@
 #include <vector>
 
 #include "nativepg/protocol/detail/scram_sha256_fsm.hpp"
-#include "test_utils.hpp"
+#include "test_utils/test_range_eq.hpp"
 
 using boost::system::error_code;
 using nativepg::protocol::detail::scram_sha256_fsm;
+using namespace nativepg::test;
 
 namespace {
 
@@ -68,12 +69,12 @@ void test_success()
     // on_init writes the client-first message
     auto ec = fsm.on_init(client_nonce_gen, write_buffer);
     BOOST_TEST_EQ(ec, error_code());
-    NATIVEPG_TEST_CONT_EQ(write_buffer, client_first)
+    test_range_eq(write_buffer, client_first);
 
     // on_server_first checks the server-first-message and writes the client-final-message
     ec = fsm.on_server_first(to_span(server_first), password, write_buffer);
     BOOST_TEST_EQ(ec, error_code());
-    NATIVEPG_TEST_CONT_EQ(write_buffer, client_final)
+    test_range_eq(write_buffer, client_final);
 
     // on_server_final checks the server-final-message
     ec = fsm.on_server_final(to_span(server_final));

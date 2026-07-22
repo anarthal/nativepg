@@ -32,7 +32,7 @@
 #include "nativepg/protocol/sync.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
-#include "response_msg_type.hpp"
+#include "test_utils/response_msg_type.hpp"
 
 using namespace nativepg;
 using namespace nativepg::test;

@@ -58,6 +58,7 @@ struct field_parse<T>
 }  // namespace nativepg::detail
 
 #include "field_traits_base.hpp"
+#include "field_traits_nullable.hpp"
 #include "field_traits_datetime.hpp"
 
 // field_traits_numeric.hpp and field_traits_decimal.hpp are intentionally NOT included here: they're

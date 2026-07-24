@@ -29,8 +29,6 @@ using namespace nativepg;
 using namespace nativepg::types;
 using boost::system::error_code;
 
-// TODO: rename to responses
-
 boost::system::error_code nativepg::detail::compute_pos_map(
     const protocol::row_description& meta,
     std::span<const std::string_view> name_table,

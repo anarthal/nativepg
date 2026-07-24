@@ -23,7 +23,7 @@
 #include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/response_handler.hpp"
+#include "nativepg/responses/response_handler.hpp"
 #include "nativepg_internal/check_request.hpp"
 
 namespace nativepg::protocol::detail {

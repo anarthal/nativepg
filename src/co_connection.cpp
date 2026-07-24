@@ -29,7 +29,7 @@
 #include "nativepg/protocol/detail/exec_some_fsm.hpp"
 #include "nativepg/protocol/parse_message.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/response_handler.hpp"
+#include "nativepg/responses/response_handler.hpp"
 
 namespace capy = boost::capy;
 namespace corosio = boost::corosio;

@@ -12,7 +12,7 @@
 
 #include <type_traits>
 
-#include "nativepg/response_handler.hpp"
+#include "nativepg/responses/response_handler.hpp"
 
 namespace nativepg {
 

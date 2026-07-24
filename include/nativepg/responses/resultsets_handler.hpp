@@ -12,7 +12,7 @@
 
 #include "nativepg/dynamic_resultset.hpp"
 #include "nativepg/extended_error.hpp"
-#include "nativepg/response_handler.hpp"
+#include "nativepg/responses/response_handler.hpp"
 
 namespace nativepg {
 

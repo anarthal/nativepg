@@ -10,7 +10,7 @@
 
 #include "nativepg/command_info.hpp"
 #include "nativepg/protocol/command_complete_tag.hpp"
-#include "nativepg/response_handler.hpp"
+#include "nativepg/responses/response_handler.hpp"
 #include "nativepg/sqlstate.hpp"
 
 namespace nativepg::detail {

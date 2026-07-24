@@ -16,9 +16,9 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/response_handler.hpp"
 #include "nativepg/responses/check.hpp"
 #include "nativepg/responses/describe_into.hpp"
+#include "nativepg/responses/response_handler.hpp"
 #include "nativepg/responses/resultset_callback.hpp"
 #include "nativepg/responses/resultsets_handler.hpp"
 

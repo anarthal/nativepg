@@ -8,10 +8,13 @@
 #ifndef NATIVEPG_DYNAMIC_UTILS_HPP
 #define NATIVEPG_DYNAMIC_UTILS_HPP
 
+#include <boost/assert.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <span>
 #include <string_view>
+#include <vector>
 
 #include "nativepg/field_view.hpp"
 #include "nativepg/protocol/common.hpp"
@@ -61,6 +64,26 @@ struct offsetted_field_description
         };
     }
 };
+
+inline detail::offset_and_length insert_data(
+    std::vector<unsigned char>& to,
+    std::span<const unsigned char> value
+)
+{
+    // Data coming from the server fulfills this assertion by protocol design
+    BOOST_ASSERT(value.size() != static_cast<std::size_t>(-1));
+    detail::offset_and_length res{.offset = to.size(), .length = value.size()};
+    to.insert(to.end(), value.begin(), value.end());
+    return res;
+}
+
+inline detail::offset_and_length insert_data(std::vector<unsigned char>& to, std::string_view value)
+{
+    return insert_data(
+        to,
+        std::span<const unsigned char>{reinterpret_cast<const unsigned char*>(value.data()), value.size()}
+    );
+}
 
 }  // namespace nativepg::detail
 

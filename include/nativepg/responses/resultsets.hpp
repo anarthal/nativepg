@@ -21,22 +21,6 @@ class resultsets
     std::vector<detail::resultset_descriptor> resultsets_;
     std::vector<unsigned char> data_;
 
-    detail::offset_and_length insert_data(std::span<const unsigned char> value)
-    {
-        // Data coming from the server fulfills this assertion by protocol design
-        BOOST_ASSERT(value.size() != static_cast<std::size_t>(-1));
-        detail::offset_and_length res{.offset = data_.size(), .length = value.size()};
-        data_.insert(data_.end(), value.begin(), value.end());
-        return res;
-    }
-
-    detail::offset_and_length insert_data(std::string_view value)
-    {
-        return insert_data(
-            std::span<const unsigned char>{reinterpret_cast<const unsigned char*>(value.data()), value.size()}
-        );
-    }
-
 public:
     resultsets() = default;
 
@@ -58,7 +42,7 @@ public:
         for (const auto& descr : row_descr.field_descriptions)
         {
             field_descr_.push_back({
-                .name = insert_data(descr.name),
+                .name = detail::insert_data(data_, descr.name),
                 .table_oid = descr.table_oid,
                 .column_attribute = descr.column_attribute,
                 .type_oid = descr.type_oid,
@@ -79,7 +63,7 @@ public:
             if (fv.is_null())
                 values_.push_back({.offset = 0u, .length = static_cast<std::size_t>(-1)});
             else
-                values_.push_back(insert_data(fv.data()));
+                values_.push_back(detail::insert_data(data_, fv.data()));
         }
     }
 

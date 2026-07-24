@@ -14,8 +14,8 @@
 #include <vector>
 
 #include "ci_server.hpp"
-#include "nativepg/command_info.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/responses/command_info.hpp"
 #include "nativepg/responses/response_handler.hpp"
 #include "printing.hpp"
 #include "test_utils.hpp"

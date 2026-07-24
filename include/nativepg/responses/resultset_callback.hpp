@@ -14,12 +14,12 @@
 #include <cstddef>
 #include <vector>
 
-#include "nativepg/command_info.hpp"
 #include "nativepg/detail/field_traits.hpp"
 #include "nativepg/detail/row_traits.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/field_view.hpp"
 #include "nativepg/protocol/describe.hpp"
+#include "nativepg/responses/command_info.hpp"
 #include "nativepg/responses/detail/response_utils.hpp"
 
 namespace nativepg {

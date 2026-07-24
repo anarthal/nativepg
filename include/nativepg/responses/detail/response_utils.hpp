@@ -8,8 +8,8 @@
 #ifndef NATIVEPG_RESPONSE_UTILS_HPP
 #define NATIVEPG_RESPONSE_UTILS_HPP
 
-#include "nativepg/command_info.hpp"
 #include "nativepg/protocol/command_complete_tag.hpp"
+#include "nativepg/responses/command_info.hpp"
 #include "nativepg/responses/response_handler.hpp"
 #include "nativepg/sqlstate.hpp"
 

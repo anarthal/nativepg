@@ -18,13 +18,13 @@
 #include <string_view>
 #include <vector>
 
-#include "nativepg/command_info.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/field_view.hpp"
 #include "nativepg/protocol/common.hpp"
 #include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/views.hpp"
+#include "nativepg/responses/command_info.hpp"
 
 // TODO: separate compilation
 

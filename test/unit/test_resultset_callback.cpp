@@ -31,7 +31,7 @@
 #include "nativepg/request.hpp"
 #include "nativepg/response.hpp"
 #include "nativepg/response_handler.hpp"
-#include "printing.hpp"
+#include "test_utils/printing.hpp"
 
 using namespace nativepg;
 using boost::system::error_code;

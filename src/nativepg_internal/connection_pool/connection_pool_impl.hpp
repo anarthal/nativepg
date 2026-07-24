@@ -158,7 +158,7 @@ public:
         // Skip this if there is no connection to wait for
         if (!all_conns_.empty())
         {
-            co_await boost::capy::run(std::stop_token())([this] -> boost::capy::task<> {
+            co_await boost::capy::run(std::stop_token())([this]() -> boost::capy::task<> {
                 auto [ec2] = co_await shared_st_.conns_finished_cv.wait();
                 BOOST_ASSERT(!ec2);
                 static_cast<void>(ec2);

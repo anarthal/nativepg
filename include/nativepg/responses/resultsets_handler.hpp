@@ -5,14 +5,14 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_RESULTSETS_HPP
-#define NATIVEPG_RESULTSETS_HPP
+#ifndef NATIVEPG_RESULTSETS_HANDLER_HPP
+#define NATIVEPG_RESULTSETS_HANDLER_HPP
 
 #include <cstddef>
 
-#include "nativepg/dynamic_resultset.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/responses/response_handler.hpp"
+#include "nativepg/responses/resultsets.hpp"
 
 namespace nativepg {
 

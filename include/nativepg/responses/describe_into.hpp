@@ -8,8 +8,8 @@
 #ifndef NATIVEPG_DESCRIBE_INTO_HPP
 #define NATIVEPG_DESCRIBE_INTO_HPP
 
-#include "nativepg/dynamic_resultset.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/responses/field_descriptions.hpp"
 #include "nativepg/responses/response_handler.hpp"
 
 namespace nativepg {

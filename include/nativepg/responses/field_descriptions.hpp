@@ -45,24 +45,7 @@ public:
 
     // Part of the unstable API. Should only be used by
     // response authors.
-    // TODO: move to cpp
-    void assign(const protocol::row_description& row_descr)
-    {
-        clear();
-        field_descr_.reserve(row_descr.field_descriptions.size());
-        for (const auto& descr : row_descr.field_descriptions)
-        {
-            field_descr_.push_back({
-                .name = detail::insert_data(data_, descr.name),
-                .table_oid = descr.table_oid,
-                .column_attribute = descr.column_attribute,
-                .type_oid = descr.type_oid,
-                .type_length = descr.type_length,
-                .type_modifier = descr.type_modifier,
-                .fmt_code = descr.fmt_code,
-            });
-        }
-    }
+    void assign(const protocol::row_description& row_descr);
 
     // Iterators
     iterator begin() const noexcept { return as_view().begin(); }

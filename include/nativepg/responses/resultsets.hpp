@@ -8,10 +8,13 @@
 #ifndef NATIVEPG_RESULTSETS_HPP
 #define NATIVEPG_RESULTSETS_HPP
 
-#include "nativepg/protocol/data_row.hpp"
 #include "nativepg/responses/resultset_view.hpp"
 
 namespace nativepg {
+
+namespace protocol {
+struct data_row;
+}
 
 // A sequence of resultsets. Can accommodate the response to any number of SQL commands
 class resultsets
@@ -36,56 +39,18 @@ public:
     // Part of the unstable API. Should only be used by
     // response authors.
     // TODO: move to cpp
-    void add_row_description(const protocol::row_description& row_descr)
-    {
-        field_descr_.reserve(field_descr_.size() + row_descr.field_descriptions.size());
-        for (const auto& descr : row_descr.field_descriptions)
-        {
-            field_descr_.push_back({
-                .name = detail::insert_data(data_, descr.name),
-                .table_oid = descr.table_oid,
-                .column_attribute = descr.column_attribute,
-                .type_oid = descr.type_oid,
-                .type_length = descr.type_length,
-                .type_modifier = descr.type_modifier,
-                .fmt_code = descr.fmt_code,
-            });
-        }
-    }
+    void add_row_description(const protocol::row_description& row_descr);
 
     // Part of the unstable API. Should only be used by
     // response authors.
-    void add_row(const protocol::data_row& row)
-    {
-        values_.reserve(row.columns.size());
-        for (const auto fv : row.columns)
-        {
-            if (fv.is_null())
-                values_.push_back({.offset = 0u, .length = static_cast<std::size_t>(-1)});
-            else
-                values_.push_back(detail::insert_data(data_, fv.data()));
-        }
-    }
+    void add_row(const protocol::data_row& row);
 
     void finish_resultset(
         std::size_t num_rows,
         std::size_t num_cols,
         command_info&& info,
         extended_error&& err
-    )
-    {
-        const std::size_t num_values = num_cols * num_rows;
-
-        BOOST_ASSERT(field_descr_.size() >= num_cols);
-        BOOST_ASSERT(values_.size() >= num_values);
-
-        resultsets_.push_back({
-            .err = std::move(err),
-            .info = std::move(info),
-            .descr = {.offset = field_descr_.size() - num_cols, .length = num_cols  },
-            .values = {.offset = values_.size() - num_values,    .length = num_values},
-        });
-    }
+    );
 
     class iterator
     {

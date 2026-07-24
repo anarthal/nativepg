@@ -67,20 +67,6 @@ public:
     const extended_error& result() const { return err_; }
 };
 
-// A response that checks that a single parse (e.g. when preparing a statement)
-// didn't produce an error
-class check_bind
-{
-    extended_error err_;
-
-public:
-    check_bind() = default;
-
-    handler_setup_result setup(const request& req, std::size_t offset);
-    void on_message(const any_request_message& msg, std::size_t) { detail::maybe_store_error(msg, err_); }
-    const extended_error& result() const { return err_; }
-};
-
 // A response that checks that a single close didn't produce an error
 class check_close
 {

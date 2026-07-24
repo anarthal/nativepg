@@ -155,12 +155,6 @@ handler_setup_result check_parse::setup(const request& req, std::size_t offset)
     return check_setup_impl(req, offset, request_message_type::parse);
 }
 
-handler_setup_result check_bind::setup(const request& req, std::size_t offset)
-{
-    err_ = {};
-    return check_setup_impl(req, offset, request_message_type::bind);
-}
-
 handler_setup_result check_close::setup(const request& req, std::size_t offset)
 {
     err_ = {};

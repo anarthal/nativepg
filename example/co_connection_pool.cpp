@@ -57,7 +57,7 @@
 
 #include "nativepg/co_connection_pool.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/response.hpp"
+#include "nativepg/responses/into.hpp"
 
 namespace capy = boost::capy;
 namespace corosio = boost::corosio;

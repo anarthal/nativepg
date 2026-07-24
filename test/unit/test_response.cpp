@@ -5,13 +5,17 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+// TODO: move and rename
+
 #include <boost/core/lightweight_test.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <cstddef>
+#include <sstream>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
+#include "nativepg/detail/field_traits.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/field_view.hpp"
 #include "nativepg/protocol/bind.hpp"
@@ -20,8 +24,8 @@
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/parse.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/response.hpp"
 #include "nativepg/response_handler.hpp"
+#include "nativepg/responses/response.hpp"
 #include "printing.hpp"
 #include "response_msg_type.hpp"
 #include "test_utils.hpp"
@@ -124,6 +128,7 @@ void test_deduction_guide()
     static_assert(std::is_same_v<decltype(res), response<h1, h1, h1, h2>>);
 }
 
+// TODO: move this
 void test_parse_text_time_text_format()
 {
     // Arrange

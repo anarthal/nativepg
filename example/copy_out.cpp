@@ -16,7 +16,7 @@
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/response.hpp"
+#include "nativepg/responses/check.hpp"
 
 using namespace nativepg;
 namespace capy = boost::capy;

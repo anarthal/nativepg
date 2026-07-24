@@ -16,12 +16,17 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/response.hpp"
 #include "nativepg/response_handler.hpp"
+#include "nativepg/responses/check.hpp"
+#include "nativepg/responses/describe_into.hpp"
+#include "nativepg/responses/resultset_callback.hpp"
+#include "nativepg/responses/resultsets_handler.hpp"
 
 using namespace nativepg;
 using namespace nativepg::types;
 using boost::system::error_code;
+
+// TODO: rename to responses
 
 boost::system::error_code nativepg::detail::compute_pos_map(
     const protocol::row_description& meta,
@@ -212,6 +217,21 @@ void check_execute::on_message(const any_request_message& msg, std::size_t)
     };
 
     boost::variant2::visit(visitor{*this}, msg);
+}
+
+handler_setup_result resultsets_handler::setup(const request& req, std::size_t offset)
+{
+    obj_->clear();
+    err_ = {};
+    reset_state();
+
+    auto res = detail::resultset_setup(req, offset);
+    while (true)
+    {
+        if (res.ec || res.offset >= req.messages().size())
+            return res;
+        res = detail::resultset_setup(req, res.offset);
+    }
 }
 
 void resultsets_handler::on_message(const any_request_message& msg, std::size_t)

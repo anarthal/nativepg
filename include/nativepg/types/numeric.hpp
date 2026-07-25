@@ -215,6 +215,6 @@ error_code parse_binary_numeric(const field_view& from, T& to)
 
 // Registers field_is_compatible<T>/field_parse<T> for boost::multiprecision types. Included here (rather
 // than force-included by field_traits.hpp) so that only TUs opting into this header pay for it.
-#include "nativepg/detail/field_traits_numeric.hpp"
+#include "nativepg/fields/field_traits_numeric.hpp"
 
 #endif  // NATIVEPG_TYPES_NUMERIC_HPP

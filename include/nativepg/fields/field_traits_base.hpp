@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_DETAIL_FIELD_TRAITS_BASE_HPP
-#define NATIVEPG_DETAIL_FIELD_TRAITS_BASE_HPP
+#ifndef NATIVEPG_FIELDS_FIELD_TRAITS_BASE_HPP
+#define NATIVEPG_FIELDS_FIELD_TRAITS_BASE_HPP
 
 #include <boost/system/error_code.hpp>
 
@@ -18,7 +18,7 @@
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/base.hpp"
 
-namespace nativepg::detail {
+namespace nativepg::fields {
 
 inline constexpr std::int32_t bool_oid = 16;
 
@@ -390,6 +390,6 @@ struct field_parse<std::uint32_t>
     }
 };
 
-}  // namespace nativepg::detail
+}  // namespace nativepg::fields
 
 #endif

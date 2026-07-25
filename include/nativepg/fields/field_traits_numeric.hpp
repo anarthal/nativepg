@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_DETAIL_FIELD_TRAITS_NUMERIC_HPP
-#define NATIVEPG_DETAIL_FIELD_TRAITS_NUMERIC_HPP
+#ifndef NATIVEPG_FIELDS_FIELD_TRAITS_NUMERIC_HPP
+#define NATIVEPG_FIELDS_FIELD_TRAITS_NUMERIC_HPP
 
 // This header is opt-in: it's included by nativepg/types/numeric.hpp, which is itself opt-in. Don't
 // include it directly unless you also need nativepg/types/numeric.hpp's parsing functions.
@@ -22,7 +22,7 @@
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/numeric.hpp"
 
-namespace nativepg::detail {
+namespace nativepg::fields {
 
 inline constexpr std::int32_t numeric_oid = 1700;
 
@@ -61,6 +61,6 @@ struct field_parse<
     }
 };
 
-}  // namespace nativepg::detail
+}  // namespace nativepg::fields
 
 #endif

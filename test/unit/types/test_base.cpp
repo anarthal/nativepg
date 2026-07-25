@@ -20,7 +20,7 @@
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
-#include "nativepg/detail/field_traits.hpp"
+#include "nativepg/fields/field_traits.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/base.hpp"
 
@@ -625,12 +625,12 @@ void test_parse_binary_text_success(const T& in_val)
 }
 
 //
-// detail::field_is_compatible / detail::field_parse (field_traits_base.hpp)
+// fields::field_is_compatible / fields::field_parse (field_traits_base.hpp)
 //
 void test_field_is_compatible_bool_success()
 {
     BOOST_TEST_EQ(
-        detail::field_is_compatible<bool>::call(make_field_description(detail::bool_oid)),
+        fields::field_is_compatible<bool>::call(make_field_description(fields::bool_oid)),
         boost::system::errc::success
     );
 }
@@ -638,7 +638,7 @@ void test_field_is_compatible_bool_success()
 void test_field_is_compatible_bool_incompatible_error()
 {
     BOOST_TEST_EQ(
-        detail::field_is_compatible<bool>::call(make_field_description(detail::int4_oid)),
+        fields::field_is_compatible<bool>::call(make_field_description(fields::int4_oid)),
         error_code(client_errc::incompatible_field_type)
     );
 }
@@ -647,11 +647,11 @@ void test_field_is_compatible_int_widening_success()
 {
     // A smaller wire type is compatible with a wider C++ type
     BOOST_TEST_EQ(
-        detail::field_is_compatible<std::int32_t>::call(make_field_description(detail::int2_oid)),
+        fields::field_is_compatible<std::int32_t>::call(make_field_description(fields::int2_oid)),
         boost::system::errc::success
     );
     BOOST_TEST_EQ(
-        detail::field_is_compatible<std::int64_t>::call(make_field_description(detail::int4_oid)),
+        fields::field_is_compatible<std::int64_t>::call(make_field_description(fields::int4_oid)),
         boost::system::errc::success
     );
 }
@@ -660,11 +660,11 @@ void test_field_is_compatible_int_narrowing_error()
 {
     // A wider wire type is not compatible with a narrower C++ type
     BOOST_TEST_EQ(
-        detail::field_is_compatible<std::int16_t>::call(make_field_description(detail::int4_oid)),
+        fields::field_is_compatible<std::int16_t>::call(make_field_description(fields::int4_oid)),
         error_code(client_errc::incompatible_field_type)
     );
     BOOST_TEST_EQ(
-        detail::field_is_compatible<std::int32_t>::call(make_field_description(detail::int8_oid)),
+        fields::field_is_compatible<std::int32_t>::call(make_field_description(fields::int8_oid)),
         error_code(client_errc::incompatible_field_type)
     );
 }
@@ -672,19 +672,19 @@ void test_field_is_compatible_int_narrowing_error()
 void test_field_is_compatible_string_success()
 {
     BOOST_TEST_EQ(
-        detail::field_is_compatible<std::string>::call(make_field_description(detail::text_oid)),
+        fields::field_is_compatible<std::string>::call(make_field_description(fields::text_oid)),
         boost::system::errc::success
     );
     BOOST_TEST_EQ(
-        detail::field_is_compatible<std::string>::call(make_field_description(detail::varchar_oid)),
+        fields::field_is_compatible<std::string>::call(make_field_description(fields::varchar_oid)),
         boost::system::errc::success
     );
     BOOST_TEST_EQ(
-        detail::field_is_compatible<std::string>::call(make_field_description(detail::name_oid)),
+        fields::field_is_compatible<std::string>::call(make_field_description(fields::name_oid)),
         boost::system::errc::success
     );
     BOOST_TEST_EQ(
-        detail::field_is_compatible<std::string>::call(make_field_description(detail::bpchar_oid)),
+        fields::field_is_compatible<std::string>::call(make_field_description(fields::bpchar_oid)),
         boost::system::errc::success
     );
 }
@@ -692,7 +692,7 @@ void test_field_is_compatible_string_success()
 void test_field_is_compatible_char_success()
 {
     BOOST_TEST_EQ(
-        detail::field_is_compatible<char>::call(make_field_description(detail::char_oid)),
+        fields::field_is_compatible<char>::call(make_field_description(fields::char_oid)),
         boost::system::errc::success
     );
 }
@@ -700,7 +700,7 @@ void test_field_is_compatible_char_success()
 void test_field_is_compatible_char_incompatible_error()
 {
     BOOST_TEST_EQ(
-        detail::field_is_compatible<char>::call(make_field_description(detail::text_oid)),
+        fields::field_is_compatible<char>::call(make_field_description(fields::text_oid)),
         error_code(client_errc::incompatible_field_type)
     );
 }
@@ -708,7 +708,7 @@ void test_field_is_compatible_char_incompatible_error()
 void test_field_is_compatible_oid_success()
 {
     BOOST_TEST_EQ(
-        detail::field_is_compatible<std::uint32_t>::call(make_field_description(detail::oid_oid)),
+        fields::field_is_compatible<std::uint32_t>::call(make_field_description(fields::oid_oid)),
         boost::system::errc::success
     );
 }
@@ -716,7 +716,7 @@ void test_field_is_compatible_oid_success()
 void test_field_is_compatible_oid_incompatible_error()
 {
     BOOST_TEST_EQ(
-        detail::field_is_compatible<std::uint32_t>::call(make_field_description(detail::int4_oid)),
+        fields::field_is_compatible<std::uint32_t>::call(make_field_description(fields::int4_oid)),
         error_code(client_errc::incompatible_field_type)
     );
 }
@@ -726,10 +726,10 @@ void test_field_parse_unexpected_null_error()
     // Arrange
     bool b = false;
     field_view fv;  // NULL
-    const auto desc = make_field_description(detail::bool_oid);
+    const auto desc = make_field_description(fields::bool_oid);
 
     // Act
-    auto err = detail::field_parse<bool>::call(fv, desc, b);
+    auto err = fields::field_parse<bool>::call(fv, desc, b);
 
     // Assert
     BOOST_TEST_EQ(err, error_code(client_errc::unexpected_null));
@@ -742,10 +742,10 @@ void test_field_parse_bool_text_success()
     std::string str = "t";
     boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
-    const auto desc = make_field_description(detail::bool_oid, protocol::format_code::text);
+    const auto desc = make_field_description(fields::bool_oid, protocol::format_code::text);
 
     // Act
-    auto err = detail::field_parse<bool>::call(fv, desc, b);
+    auto err = fields::field_parse<bool>::call(fv, desc, b);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
@@ -759,10 +759,10 @@ void test_field_parse_char_text_success()
     std::string str = "z";
     boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
-    const auto desc = make_field_description(detail::char_oid, protocol::format_code::text);
+    const auto desc = make_field_description(fields::char_oid, protocol::format_code::text);
 
     // Act
-    auto err = detail::field_parse<char>::call(fv, desc, c);
+    auto err = fields::field_parse<char>::call(fv, desc, c);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
@@ -774,10 +774,10 @@ void test_field_parse_char_unexpected_null_error()
     // Arrange
     char c = '\0';
     field_view fv;  // NULL
-    const auto desc = make_field_description(detail::char_oid);
+    const auto desc = make_field_description(fields::char_oid);
 
     // Act
-    auto err = detail::field_parse<char>::call(fv, desc, c);
+    auto err = fields::field_parse<char>::call(fv, desc, c);
 
     // Assert
     BOOST_TEST_EQ(err, error_code(client_errc::unexpected_null));
@@ -790,10 +790,10 @@ void test_field_parse_oid_text_success()
     std::string str = "5887";
     boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
-    const auto desc = make_field_description(detail::oid_oid, protocol::format_code::text);
+    const auto desc = make_field_description(fields::oid_oid, protocol::format_code::text);
 
     // Act
-    auto err = detail::field_parse<std::uint32_t>::call(fv, desc, o);
+    auto err = fields::field_parse<std::uint32_t>::call(fv, desc, o);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
@@ -805,10 +805,10 @@ void test_field_parse_oid_unexpected_null_error()
     // Arrange
     std::uint32_t o = 0;
     field_view fv;  // NULL
-    const auto desc = make_field_description(detail::oid_oid);
+    const auto desc = make_field_description(fields::oid_oid);
 
     // Act
-    auto err = detail::field_parse<std::uint32_t>::call(fv, desc, o);
+    auto err = fields::field_parse<std::uint32_t>::call(fv, desc, o);
 
     // Assert
     BOOST_TEST_EQ(err, error_code(client_errc::unexpected_null));
@@ -821,10 +821,10 @@ void test_field_parse_int32_from_int2_wire_success()
     static constexpr unsigned char pg_int2[] = {0x00, 0x2a};  // 42, big endian
     boost::span<const unsigned char> data(pg_int2);
     field_view fv{data};
-    const auto desc = make_field_description(detail::int2_oid, protocol::format_code::binary);
+    const auto desc = make_field_description(fields::int2_oid, protocol::format_code::binary);
 
     // Act
-    auto err = detail::field_parse<std::int32_t>::call(fv, desc, out_val);
+    auto err = fields::field_parse<std::int32_t>::call(fv, desc, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
@@ -938,7 +938,7 @@ int main()
     test_parse_text_text_success<std::string>("The quick brown fox jumps over the lazy dog!");
     test_parse_binary_text_success<std::string>("The quick brown fox jumps over the lazy dog!");
 
-    // detail::field_is_compatible / detail::field_parse
+    // fields::field_is_compatible / fields::field_parse
     test_field_is_compatible_bool_success();
     test_field_is_compatible_bool_incompatible_error();
     test_field_is_compatible_int_widening_success();

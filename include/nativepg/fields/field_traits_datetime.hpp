@@ -1,6 +1,12 @@
+//
+// Copyright (c) 2025 Ruben Perez Hidalgo (rubenperez038 at gmail dot com)
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
 
-#ifndef NATIVEPG_FIELD_TRAITS_DATETIME_HPP
-#define NATIVEPG_FIELD_TRAITS_DATETIME_HPP
+#ifndef NATIVEPG_FIELDS_FIELD_TRAITS_DATETIME_HPP
+#define NATIVEPG_FIELDS_FIELD_TRAITS_DATETIME_HPP
 
 #include <boost/system/error_code.hpp>
 
@@ -8,7 +14,7 @@
 
 #include "nativepg/types.hpp"
 
-namespace nativepg::detail {
+namespace nativepg::fields {
 
 inline constexpr std::int32_t date_oid = 1082;
 inline constexpr std::int32_t time_oid = 1083;
@@ -193,5 +199,5 @@ struct field_parse<types::pg_interval>
     }
 };
 
-}  // namespace nativepg::detail
-#endif  // NATIVEPG_FIELD_TRAITS_DATETIME_HPP
+}  // namespace nativepg::fields
+#endif  // NATIVEPG_FIELDS_FIELD_TRAITS_DATETIME_HPP

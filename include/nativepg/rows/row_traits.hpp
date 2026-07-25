@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_DETAIL_ROW_TRAITS_HPP
-#define NATIVEPG_DETAIL_ROW_TRAITS_HPP
+#ifndef NATIVEPG_ROWS_ROW_TRAITS_HPP
+#define NATIVEPG_ROWS_ROW_TRAITS_HPP
 
 #include <boost/describe/members.hpp>
 #include <boost/describe/modifiers.hpp>
@@ -15,7 +15,7 @@
 #include <array>
 #include <string_view>
 
-namespace nativepg::detail {
+namespace nativepg::rows {
 
 // TODO: support tuples, Boost.Pfr and C++26 reflection
 namespace describe = boost::describe;
@@ -63,6 +63,6 @@ constexpr void for_each_member(T& row, F&& function)
     boost::mp11::mp_for_each<row_members<T>>([function, &row](auto D) { function(row.*D.pointer); });
 }
 
-}  // namespace nativepg::detail
+}  // namespace nativepg::rows
 
-#endif
+#endif  // NATIVEPG_ROWS_ROW_TRAITS_HPP

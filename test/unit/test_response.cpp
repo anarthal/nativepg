@@ -142,7 +142,7 @@ void test_parse_text_time_text_format()
     std::stringstream ss;
 
     // Act
-    auto err = detail::field_parse<std::chrono::microseconds>::call(data, description, us);
+    auto err = fields::field_parse<std::chrono::microseconds>::call(data, description, us);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
@@ -171,7 +171,7 @@ void test_parse_text_time_binary_format()
     std::stringstream ss;
 
     // Act: Note can't use parse functions directly so one step higher calling field_parse
-    auto err = detail::field_parse<std::chrono::microseconds>::call(data, description, us);
+    auto err = fields::field_parse<std::chrono::microseconds>::call(data, description, us);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);

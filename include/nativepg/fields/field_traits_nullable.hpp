@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_DETAIL_FIELD_TRAITS_NULLABLE_HPP
-#define NATIVEPG_DETAIL_FIELD_TRAITS_NULLABLE_HPP
+#ifndef NATIVEPG_FIELDS_FIELD_TRAITS_NULLABLE_HPP
+#define NATIVEPG_FIELDS_FIELD_TRAITS_NULLABLE_HPP
 
 #include <boost/system/error_code.hpp>
 
@@ -16,7 +16,7 @@
 #include "nativepg/field_view.hpp"
 #include "nativepg/protocol/describe.hpp"
 
-namespace nativepg::detail {
+namespace nativepg::fields {
 
 // Is a type an optional?
 template <class T>
@@ -77,6 +77,6 @@ struct field_parse<std::optional<T>>
     }
 };
 
-}  // namespace nativepg::detail
+}  // namespace nativepg::fields
 
-#endif
+#endif  // NATIVEPG_FIELDS_FIELD_TRAITS_NULLABLE_HPP

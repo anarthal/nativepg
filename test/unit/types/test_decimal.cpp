@@ -16,7 +16,7 @@
 #include <sstream>
 #include <string>
 
-#include "nativepg/detail/field_traits.hpp"
+#include "nativepg/fields/field_traits.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/decimal.hpp"
 
@@ -145,12 +145,12 @@ protocol::field_description make_field_description(
 }
 
 //
-// detail::field_is_compatible / detail::field_parse (field_traits_decimal.hpp)
+// fields::field_is_compatible / fields::field_parse (field_traits_decimal.hpp)
 //
 void test_field_is_compatible_decimal_success()
 {
     BOOST_TEST_EQ(
-        detail::field_is_compatible<bd::decimal64_t>::call(make_field_description(detail::decimal_oid)),
+        fields::field_is_compatible<bd::decimal64_t>::call(make_field_description(fields::decimal_oid)),
         boost::system::error_code{}
     );
 }
@@ -158,7 +158,7 @@ void test_field_is_compatible_decimal_success()
 void test_field_is_compatible_decimal_incompatible_error()
 {
     BOOST_TEST_EQ(
-        detail::field_is_compatible<bd::decimal64_t>::call(make_field_description(23 /* int4 oid */)),
+        fields::field_is_compatible<bd::decimal64_t>::call(make_field_description(23 /* int4 oid */)),
         boost::system::error_code(client_errc::incompatible_field_type)
     );
 }
@@ -168,10 +168,10 @@ void test_field_parse_decimal_unexpected_null_error()
     // Arrange
     bd::decimal64_t out_val;
     field_view fv;  // NULL
-    const auto desc = make_field_description(detail::decimal_oid);
+    const auto desc = make_field_description(fields::decimal_oid);
 
     // Act
-    auto err = detail::field_parse<bd::decimal64_t>::call(fv, desc, out_val);
+    auto err = fields::field_parse<bd::decimal64_t>::call(fv, desc, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::error_code(client_errc::unexpected_null));
@@ -184,10 +184,10 @@ void test_field_parse_decimal_text_success()
     const std::string str = "1234.5678";
     std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
-    const auto desc = make_field_description(detail::decimal_oid, protocol::format_code::text);
+    const auto desc = make_field_description(fields::decimal_oid, protocol::format_code::text);
 
     // Act
-    auto err = detail::field_parse<bd::decimal64_t>::call(fv, desc, out_val);
+    auto err = fields::field_parse<bd::decimal64_t>::call(fv, desc, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::error_code{});
@@ -202,10 +202,10 @@ void test_field_parse_decimal_binary_success()
     static constexpr unsigned char pg_num_1234_5678[] =
         {0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x04, 0xD2, 0x16, 0x2E};
     field_view fv{pg_num_1234_5678};
-    const auto desc = make_field_description(detail::decimal_oid, protocol::format_code::binary);
+    const auto desc = make_field_description(fields::decimal_oid, protocol::format_code::binary);
 
     // Act
-    auto err = detail::field_parse<bd::decimal64_t>::call(fv, desc, out_val);
+    auto err = fields::field_parse<bd::decimal64_t>::call(fv, desc, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::error_code{});
@@ -317,7 +317,7 @@ int main()
     test_parse_binary_decimal_error<d32>(pg_too_short, parse_error);
     test_parse_binary_decimal_error<d32>(pg_truncated, parse_error);
 
-    // detail::field_is_compatible / detail::field_parse (field_traits_decimal.hpp)
+    // fields::field_is_compatible / fields::field_parse (field_traits_decimal.hpp)
     test_field_is_compatible_decimal_success();
     test_field_is_compatible_decimal_incompatible_error();
     test_field_parse_decimal_unexpected_null_error();

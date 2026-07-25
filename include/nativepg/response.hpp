@@ -25,8 +25,8 @@
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/command_info.hpp"
-#include "nativepg/detail/field_traits.hpp"
-#include "nativepg/detail/row_traits.hpp"
+#include "nativepg/fields/field_traits.hpp"
+#include "nativepg/rows/row_traits.hpp"
 #include "nativepg/dynamic_resultset.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/field_view.hpp"
@@ -122,7 +122,7 @@ class resultset_callback_t
     };
 
     state_t state_{state_t::parsing_meta};
-    std::array<detail::pos_map_entry, detail::row_size_v<T>> pos_map_;
+    std::array<detail::pos_map_entry, rows::row_size_v<T>> pos_map_;
     std::vector<field_view> random_access_data_;
     extended_error err_;
     Callback cb_;
@@ -171,7 +171,7 @@ class resultset_callback_t
             self.state_ = state_t::parsing_data;
 
             // Compute the row => C++ map
-            auto ec = detail::compute_pos_map(msg, detail::row_name_table_v<T>, self.pos_map_);
+            auto ec = detail::compute_pos_map(msg, rows::row_name_table_v<T>, self.pos_map_);
             if (ec)
             {
                 self.store_error(ec);
@@ -180,12 +180,12 @@ class resultset_callback_t
 
             // Metadata check
             using type_identities = boost::mp11::
-                mp_transform<std::type_identity, detail::row_field_types_t<T>>;
+                mp_transform<std::type_identity, rows::row_field_types_t<T>>;
             std::size_t idx = 0u;
             boost::mp11::mp_for_each<type_identities>(
                 [&idx, &ec, &pos_map = self.pos_map_](auto type_identity) {
                     using FieldType = typename decltype(type_identity)::type;
-                    auto ec2 = detail::field_is_compatible<FieldType>::call(pos_map[idx++].descr);
+                    auto ec2 = fields::field_is_compatible<FieldType>::call(pos_map[idx++].descr);
                     if (!ec)
                         ec = ec2;
                 }
@@ -216,10 +216,10 @@ class resultset_callback_t
             T row{};
             boost::system::error_code ec;
             std::size_t idx = 0u;
-            detail::for_each_member(row, [&ec, &idx, &self = this->self](auto& member) {
+            rows::for_each_member(row, [&ec, &idx, &self = this->self](auto& member) {
                 using FieldType = std::decay_t<decltype(member)>;
                 const detail::pos_map_entry& ent = self.pos_map_[idx++];
-                boost::system::error_code ec2 = detail::field_parse<FieldType>::call(
+                boost::system::error_code ec2 = fields::field_parse<FieldType>::call(
                     self.random_access_data_.at(ent.db_index),
                     ent.descr,
                     member

@@ -149,6 +149,6 @@ error_code parse_binary_decimal(const field_view& from, T& to)
 
 // Registers field_is_compatible<T>/field_parse<T> for boost::decimal types. Included here (rather than
 // force-included by field_traits.hpp) so that only TUs opting into this header pay for it.
-#include "nativepg/detail/field_traits_decimal.hpp"
+#include "nativepg/fields/field_traits_decimal.hpp"
 
 #endif  // NATIVEPG_TYPES_DECIMAL_HPP

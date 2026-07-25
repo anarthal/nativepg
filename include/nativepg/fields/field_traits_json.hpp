@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_DETAIL_FIELD_TRAITS_JSON_HPP
-#define NATIVEPG_DETAIL_FIELD_TRAITS_JSON_HPP
+#ifndef NATIVEPG_FIELDS_FIELD_TRAITS_JSON_HPP
+#define NATIVEPG_FIELDS_FIELD_TRAITS_JSON_HPP
 
 // This header is opt-in: it's included by nativepg/types/json.hpp, which is itself opt-in. Don't
 // include it directly unless you also need nativepg/types/json.hpp's parsing functions.
@@ -20,7 +20,7 @@
 #include "nativepg/field_view.hpp"
 #include "nativepg/protocol/describe.hpp"
 
-namespace nativepg::detail {
+namespace nativepg::fields {
 
 inline constexpr std::int32_t json_oid = 114;
 inline constexpr std::int32_t jsonb_oid = 3802;
@@ -69,6 +69,6 @@ struct field_parse<boost::json::value>
     }
 };
 
-}  // namespace nativepg::detail
+}  // namespace nativepg::fields
 
-#endif  // NATIVEPG_DETAIL_FIELD_TRAITS_JSON_HPP
+#endif  // NATIVEPG_FIELDS_FIELD_TRAITS_JSON_HPP

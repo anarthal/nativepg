@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_DETAIL_FIELD_TRAITS_HPP
-#define NATIVEPG_DETAIL_FIELD_TRAITS_HPP
+#ifndef NATIVEPG_FIELDS_FIELD_TRAITS_HPP
+#define NATIVEPG_FIELDS_FIELD_TRAITS_HPP
 
 #include <boost/system/error_code.hpp>
 
@@ -19,7 +19,7 @@
 #include "nativepg/protocol/describe.hpp"
 
 // TODO: at some point we will need to expose some customization
-namespace nativepg::detail {
+namespace nativepg::fields {
 
 // --- Is a type compatible with what we get from DB?
 // TODO: string diagnostics
@@ -55,7 +55,7 @@ struct field_parse<T>
     }
 };
 
-}  // namespace nativepg::detail
+}  // namespace nativepg::fields
 
 #include "field_traits_base.hpp"
 #include "field_traits_nullable.hpp"

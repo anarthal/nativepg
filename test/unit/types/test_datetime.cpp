@@ -13,7 +13,7 @@
 #include <sstream>
 #include <string>
 
-#include "nativepg/detail/field_traits.hpp"
+#include "nativepg/fields/field_traits.hpp"
 #include "nativepg/protocol/describe.hpp"
 
 #include "nativepg/types/datetime.hpp"

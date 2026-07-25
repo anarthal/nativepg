@@ -17,7 +17,7 @@
 #include <string>
 #include <vector>
 
-#include "nativepg/detail/field_traits.hpp"
+#include "nativepg/fields/field_traits.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/json.hpp"
 
@@ -202,12 +202,12 @@ void test_parse_binary_jsonb_version_only_is_noop()
 }
 
 //
-// detail::field_is_compatible / detail::field_parse (field_traits_json.hpp)
+// fields::field_is_compatible / fields::field_parse (field_traits_json.hpp)
 //
 void test_field_is_compatible_json_success()
 {
     BOOST_TEST_EQ(
-        detail::field_is_compatible<boost::json::value>::call(make_field_description(detail::json_oid)),
+        fields::field_is_compatible<boost::json::value>::call(make_field_description(fields::json_oid)),
         boost::system::error_code{}
     );
 }
@@ -215,7 +215,7 @@ void test_field_is_compatible_json_success()
 void test_field_is_compatible_jsonb_success()
 {
     BOOST_TEST_EQ(
-        detail::field_is_compatible<boost::json::value>::call(make_field_description(detail::jsonb_oid)),
+        fields::field_is_compatible<boost::json::value>::call(make_field_description(fields::jsonb_oid)),
         boost::system::error_code{}
     );
 }
@@ -223,7 +223,7 @@ void test_field_is_compatible_jsonb_success()
 void test_field_is_compatible_incompatible_error()
 {
     BOOST_TEST_EQ(
-        detail::field_is_compatible<boost::json::value>::call(make_field_description(23 /* int4 oid */)),
+        fields::field_is_compatible<boost::json::value>::call(make_field_description(23 /* int4 oid */)),
         boost::system::error_code(client_errc::incompatible_field_type)
     );
 }
@@ -233,10 +233,10 @@ void test_field_parse_unexpected_null_error()
     // Arrange
     boost::json::value out_val;
     field_view fv;  // NULL
-    const auto desc = make_field_description(detail::json_oid);
+    const auto desc = make_field_description(fields::json_oid);
 
     // Act
-    auto err = detail::field_parse<boost::json::value>::call(fv, desc, out_val);
+    auto err = fields::field_parse<boost::json::value>::call(fv, desc, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::error_code(client_errc::unexpected_null));
@@ -248,10 +248,10 @@ void test_field_parse_json_text_success()
     boost::json::value out_val;
     const std::string str = R"({"k":"v"})";
     const auto fv = make_field_view(str);
-    const auto desc = make_field_description(detail::json_oid, protocol::format_code::text);
+    const auto desc = make_field_description(fields::json_oid, protocol::format_code::text);
 
     // Act
-    auto err = detail::field_parse<boost::json::value>::call(fv, desc, out_val);
+    auto err = fields::field_parse<boost::json::value>::call(fv, desc, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::error_code{});
@@ -264,10 +264,10 @@ void test_field_parse_json_binary_success()
     boost::json::value out_val;
     const std::string str = R"([1,2,3])";
     const auto fv = make_field_view(str);
-    const auto desc = make_field_description(detail::json_oid, protocol::format_code::binary);
+    const auto desc = make_field_description(fields::json_oid, protocol::format_code::binary);
 
     // Act
-    auto err = detail::field_parse<boost::json::value>::call(fv, desc, out_val);
+    auto err = fields::field_parse<boost::json::value>::call(fv, desc, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::error_code{});
@@ -280,10 +280,10 @@ void test_field_parse_jsonb_text_success()
     boost::json::value out_val;
     const std::string str = R"({"k":"v"})";
     const auto fv = make_field_view(str);
-    const auto desc = make_field_description(detail::jsonb_oid, protocol::format_code::text);
+    const auto desc = make_field_description(fields::jsonb_oid, protocol::format_code::text);
 
     // Act
-    auto err = detail::field_parse<boost::json::value>::call(fv, desc, out_val);
+    auto err = fields::field_parse<boost::json::value>::call(fv, desc, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::error_code{});
@@ -299,10 +299,10 @@ void test_field_parse_jsonb_binary_success()
     wire.push_back(static_cast<char>(1));
     wire += json_text;
     const auto fv = make_field_view(wire);
-    const auto desc = make_field_description(detail::jsonb_oid, protocol::format_code::binary);
+    const auto desc = make_field_description(fields::jsonb_oid, protocol::format_code::binary);
 
     // Act
-    auto err = detail::field_parse<boost::json::value>::call(fv, desc, out_val);
+    auto err = fields::field_parse<boost::json::value>::call(fv, desc, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::error_code{});

@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_DETAIL_FIELD_TRAITS_DECIMAL_HPP
-#define NATIVEPG_DETAIL_FIELD_TRAITS_DECIMAL_HPP
+#ifndef NATIVEPG_FIELDS_FIELD_TRAITS_DECIMAL_HPP
+#define NATIVEPG_FIELDS_FIELD_TRAITS_DECIMAL_HPP
 
 // This header is opt-in: it's included by nativepg/types/decimal.hpp, which is itself opt-in. Don't
 // include it directly unless you also need nativepg/types/decimal.hpp's parsing functions.
@@ -24,7 +24,7 @@
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/decimal.hpp"
 
-namespace nativepg::detail {
+namespace nativepg::fields {
 
 inline constexpr std::int32_t decimal_oid = 1700; /* same as numeric_oid */
 
@@ -65,6 +65,6 @@ struct field_parse<T>
     }
 };
 
-}  // namespace nativepg::detail
+}  // namespace nativepg::fields
 
-#endif
+#endif  // NATIVEPG_FIELDS_FIELD_TRAITS_DECIMAL_HPP

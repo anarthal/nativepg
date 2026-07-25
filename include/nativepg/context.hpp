@@ -19,7 +19,6 @@ class connection_context
     std::unique_ptr<types::type_registry> registry_;
 
 public:
-    // connection_context is single source of truth per connection and may not be copied or moved
     connection_context() = default;
     ~connection_context() = default;
 

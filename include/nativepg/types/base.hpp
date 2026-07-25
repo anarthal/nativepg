@@ -12,6 +12,7 @@
 #include <boost/system/error_code.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <charconv>
 #include <cstddef>
 #include <format>
@@ -129,10 +130,9 @@ error_code parse_binary_bytea(const field_view& from, T& to)
 template <class T>
 error_code parse_text_char(const field_view& from, T& to)
 {
-    const std::string_view sv = from.data_str();
-    if (sv.size() != 1)
+    if (from.data().size() != 1)
         return client_errc::protocol_value_error;
-    to = static_cast<char>(sv[0]);
+    to = std::bit_cast<char>(from.data()[0]);
     return {};
 }
 

@@ -27,9 +27,9 @@ struct type_info
     std::uint32_t type_oid;
     std::string schema_name;
     std::string type_name;
-    std::string extension_name;
-    short schema_path_seqno;
-    std::uint32_t array_element_oid;
+    std::optional<std::string> extension_name;
+    std::optional<short> schema_path_seqno;
+    std::optional<std::uint32_t> array_element_oid;
     char type;
     short storage_bytes;
 };
@@ -77,14 +77,14 @@ public:
         return std::ranges::find_if(table_, [oid](const type_info& info) { return info.type_oid == oid; });
     }
 
-    [[nodiscard]] auto find_by_type_name(const std::string& schema_name, const std::string& type_name) const
+    [[nodiscard]] auto find_by_type_name(const std::string_view& schema_name, const std::string_view& type_name) const
     {
         return std::ranges::find_if(table_, [&schema_name, &type_name](const type_info& info) {
             return info.schema_name == schema_name && info.type_name == type_name;
         });
     }
 
-    [[nodiscard]] auto find_by_type_name(const std::string& type_name) const
+    [[nodiscard]] auto find_by_type_name(const std::string_view& type_name) const
     {
         return std::ranges::find_if(table_, [&type_name](const type_info& info) {
             return info.type_name == type_name;

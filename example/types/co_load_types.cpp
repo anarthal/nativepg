@@ -5,26 +5,23 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include <boost/asio/as_tuple.hpp>
-#include <boost/asio/awaitable.hpp>
-#include <boost/asio/co_spawn.hpp>
-#include <boost/asio/io_context.hpp>
-#include <boost/asio/ip/address_v4.hpp>
-#include <boost/asio/this_coro.hpp>
+#include <boost/capy/ex/run_async.hpp>
+#include <boost/capy/task.hpp>
+#include <boost/corosio/io_context.hpp>
 #include <boost/describe/class.hpp>
 
-#include <chrono>
-#include <exception>
-#include <iomanip>
 #include <iostream>
-#include <string>
-#include <vector>
 
-#include "nativepg/connection.hpp"
+#include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/response.hpp"
+
 #include "nativepg/request.hpp"
 #include "nativepg/udt/user_defined_type.hpp"
-#include "nativepg/response.hpp"
+
+using namespace nativepg;
+namespace capy = boost::capy;
+namespace corosio = boost::corosio;
 
 
 // CREATE TYPE zoning_type AS ENUM ('Residential', 'Commercial', 'Industrial', 'Agricultural');
@@ -35,21 +32,6 @@ enum zoning_type
     Industrial,
     Agricultural
 };
-
-template <typename T>
-static inline std::ostream& operator<<(std::ostream& os, const std::optional<T>& opt)
-{
-    if (!opt.has_value())
-    {
-        os << "<null>";
-    }
-    else
-    {
-        os << opt.value();
-    }
-
-    return os;
-}
 
 namespace nativepg::udt {
 
@@ -121,22 +103,36 @@ static void print_err(const char* prefix, const std::error_code err, const diagn
 }
 
 
-static asio::awaitable<void> load_types_example(connection& conn)
+static capy::task<> co_main()
 {
-    // Start timing this operation
-    auto start = std::chrono::high_resolution_clock::now();
+    // Create a connection
+    co_connection conn{co_await capy::this_coro::executor};
+    diagnostics diag;
 
-    auto [err] = co_await conn.async_load_types(asio::as_tuple);
-
-    if (err.code)
+    // Connect
+    auto [ec] = co_await conn.connect(
+        {.hostname = "localhost", .username = "postgres", .password = "secret", .database = "postgres"},
+        &diag
+    );
+    if (ec)
     {
-        print_err("load_types_example", err.code, err.diag);
+        print_err("Error connecting", ec, diag);
+        co_return;
+    }
+    std::cout << "Startup complete\n";
+
+
+    auto [ec] = co_await conn.load_types(asio::as_tuple);
+
+    if (ec)
+    {
+        print_err("load_types_example", ec, diag);
         co_return;
     }
 
     for (auto& t: conn.ctx().types())
     {
-        std::cout << t.type_oid << " | " << t.schema_name << " | " << t.type_name << " | " << t.extension_name << " | " << t.array_element_oid << " | " << t.schema_path_seqno  << " | " << t.type << " | " << t.storage_bytes << std::endl;
+        std::cout << t.type_oid << " | " << t.schema_name << " | " << t.type_name << " | " << t.extension_name << " | " << t.array_element_oid << " | " << t.schema_path_seqno << " | " << t.storage_bytes << std::endl;
     }
 
     request req{};
@@ -192,12 +188,27 @@ static asio::awaitable<void> co_main()
 
 int main()
 {
-    asio::io_context ctx;
+    // The I/O context, required for all I/O operations
+    corosio::io_context ctx;
 
-    asio::co_spawn(ctx, co_main(), [](const std::exception_ptr& exc) {
-        if (exc)
-            std::rethrow_exception(exc);
-    });
+    // Schedules the main coroutine for execution
+    capy::run_async(
+        ctx.get_executor(),
+        []() {
+           // Runs when the main coroutine finishes normally
+           std::cout << "Done\n";
+        },
+        [](std::exception_ptr exc) {
+            // Runs when the main coroutine finishes with an exception
+            try {
+               std::rethrow_exception(exc);
+            } catch (const std::exception& e) {
+               std::cerr << "Error: " << e.what() << std::endl;
+            }
+            exit(1);
+        }
+    )(co_main());
 
+    // Executes all pending work, including the main coroutine
     ctx.run();
 }

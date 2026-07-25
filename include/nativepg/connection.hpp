@@ -25,6 +25,8 @@
 #include <utility>
 
 #include "nativepg/connect_params.hpp"
+#include "nativepg/context.hpp"
+#include "nativepg/detail/loaders/registry_loader.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
@@ -142,20 +144,23 @@ struct exec_op
         }
     }
 };
-
 }  // namespace detail
 
 class connection
 {
     std::unique_ptr<detail::connection_impl> impl_;
+    std::unique_ptr<connection_context> ctx_;
 
 public:
-    explicit connection(boost::asio::any_io_executor ex) : impl_(new detail::connection_impl{std::move(ex)})
+    explicit connection(boost::asio::any_io_executor ex)
+        : impl_(new detail::connection_impl{std::move(ex)}), ctx_(new connection_context())
     {
     }
     // TODO: ctor from execution context
 
     boost::asio::any_io_executor get_executor() { return impl_->sock.get_executor(); }
+
+    const connection_context& ctx() const { return *ctx_; }
 
     template <
         boost::asio::completion_token_for<void(extended_error)> CompletionToken = boost::asio::deferred_t>
@@ -189,11 +194,37 @@ public:
     {
         // TODO: use associated allocator
         auto ptr = std::make_unique<std::decay_t<ResponseHandler>>(std::forward<ResponseHandler>(handler));
+
+        // Inject this connection's context (e.g. its loaded type_registry) into the handler, if it
+        // supports one. Done here, once, rather than requiring callers to do it themselves.
+        if constexpr (requires { ptr->set_context(*ctx_); })
+            ptr->set_context(*ctx_);
+
         response_handler_ref href{ptr.get()};
         return async_exec(
             req,
             href,
             boost::asio::consign(std::forward<CompletionToken>(token), std::move(ptr))
+        );
+    }
+
+    template <
+        boost::asio::completion_token_for<void(extended_error)> CompletionToken = boost::asio::deferred_t>
+    auto async_load_types(CompletionToken&& token = {})
+    {
+        return boost::asio::async_initiate<CompletionToken, void(extended_error)>(
+            [this](auto handler) {
+                ::nativepg::detail::loaders::type_registry_loader::async_load(
+                    *impl_,
+                    [this,
+                     handler = std::move(handler)](extended_error err, types::type_registry reg) mutable {
+                        if (!err.code)
+                            ctx_->types(reg);
+                        std::move(handler)(std::move(err));
+                    }
+                );
+            },
+            token
         );
     }
 };

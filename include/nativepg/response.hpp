@@ -25,6 +25,7 @@
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/command_info.hpp"
+#include "nativepg/context.hpp"
 #include "nativepg/detail/field_traits.hpp"
 #include "nativepg/detail/row_traits.hpp"
 #include "nativepg/dynamic_resultset.hpp"
@@ -42,6 +43,7 @@
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
 #include "nativepg/sqlstate.hpp"
+#include "nativepg/udt/user_defined_type.hpp"
 
 // TODO: we need to split this file
 
@@ -127,6 +129,7 @@ class resultset_callback_t
     extended_error err_;
     Callback cb_;
     command_info* info_{};
+    const connection_context* ctx_{};
 
     void store_error(boost::system::error_code ec)
     {
@@ -178,14 +181,36 @@ class resultset_callback_t
                 return;  // we will just ignore rows
             }
 
-            // Metadata check
+            // Metadata check. self.ctx_ (may be null if the caller never called set_context()) exposes the
+            // connection's loaded type_registry. Most FieldType specializations of field_is_compatible
+            // only need the wire field_description and don't care about it; types that do (e.g. domains,
+            // enums, composites, whose real underlying OID must be resolved via the registry) can opt in
+            // by defining a second call(descr, ctx) overload — detected here via if constexpr, so no
+            // existing field_is_compatible specialization needs to change.
             using type_identities = boost::mp11::
                 mp_transform<std::type_identity, detail::row_field_types_t<T>>;
             std::size_t idx = 0u;
             boost::mp11::mp_for_each<type_identities>(
-                [&idx, &ec, &pos_map = self.pos_map_](auto type_identity) {
+                [&idx, &ec, &pos_map = self.pos_map_, ctx = self.ctx_](auto type_identity) {
                     using FieldType = typename decltype(type_identity)::type;
-                    auto ec2 = detail::field_is_compatible<FieldType>::call(pos_map[idx++].descr);
+                    const protocol::field_description& descr = pos_map[idx++].descr;
+
+                    boost::system::error_code ec2;
+
+                    if (descr.type_oid > 16384 && ctx != nullptr && !ctx->types().empty())
+                    {
+                        auto ti = ctx->types().find_by_oid(descr.type_oid);
+                        if (ti != ctx->types().end())
+                        {
+                            auto udt_ptr = udt::make_udt<FieldType>(*ti);
+                            ec2 = udt_ptr->is_compatible(descr);
+                        }
+                    }
+                    else
+                    {
+                        ec2 = detail::field_is_compatible<FieldType>::call(descr);
+                    }
+
                     if (!ec)
                         ec = ec2;
                 }
@@ -219,11 +244,30 @@ class resultset_callback_t
             detail::for_each_member(row, [&ec, &idx, &self = this->self](auto& member) {
                 using FieldType = std::decay_t<decltype(member)>;
                 const detail::pos_map_entry& ent = self.pos_map_[idx++];
-                boost::system::error_code ec2 = detail::field_parse<FieldType>::call(
-                    self.random_access_data_.at(ent.db_index),
-                    ent.descr,
-                    member
-                );
+
+                boost::system::error_code ec2{};
+                if (ent.descr.type_oid > 16384 && self.ctx_ != nullptr && !self.ctx_->types().empty())
+                {
+                    auto ti = self.ctx_->types().find_by_oid(ent.descr.type_oid);
+                    if (ti != self.ctx_->types().end())
+                    {
+                        auto udt_ptr = udt::make_udt<FieldType>(*ti);
+                        ec2 = udt_ptr->parse(
+                            self.random_access_data_.at(ent.db_index),
+                            ent.descr,
+                            member
+                        );
+                    }
+                }
+                else
+                {
+                    ec2 = detail::field_parse<FieldType>::call(
+                        self.random_access_data_.at(ent.db_index),
+                        ent.descr,
+                        member
+                    );
+                }
+
                 if (!ec)
                     ec = ec2;
             });
@@ -282,6 +326,11 @@ public:
             detail::reset_info(*info_);
         return detail::resultset_setup(req, offset);
     }
+
+    // Injects the connection's context (e.g. its loaded type_registry), so field_is_compatible
+    // specializations that need it (see the row_description visitor above) can use it. Called
+    // automatically by connection::async_exec(); callers don't need to invoke this themselves.
+    void set_context(const connection_context& ctx) { ctx_ = &ctx; }
 
     void on_message(const any_request_message& msg, std::size_t)
     {
@@ -455,6 +504,16 @@ public:
 
 namespace detail {
 
+// Forwards set_context() to a handler that supports it (e.g. resultset_callback_t); a no-op for handlers
+// that don't (e.g. check_execute, describe_into), so response<Handlers...> can call this uniformly on
+// every handler it wraps regardless of whether that handler cares about the connection_context.
+template <class H>
+void set_handler_context(H& h, const connection_context& ctx)
+{
+    if constexpr (requires { h.set_context(ctx); })
+        h.set_context(ctx);
+}
+
 template <class H0, class... HRest>
 handler_setup_result response_setup(
     const request& req,
@@ -534,6 +593,13 @@ public:
             },
             handlers_
         );
+    }
+
+    // Injects the connection's context into every wrapped handler that supports it (e.g.
+    // resultset_callback_t). Handlers that don't accept a context (e.g. check_execute) are left untouched.
+    void set_context(const connection_context& ctx)
+    {
+        std::apply([&ctx](auto&... h) { (detail::set_handler_context(h, ctx), ...); }, handlers_);
     }
 
     void on_message(const any_request_message& msg, std::size_t offset)

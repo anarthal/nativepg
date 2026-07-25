@@ -18,6 +18,7 @@
 #include <memory>
 #include <span>
 
+#include "context.hpp"
 #include "nativepg/connect_params.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
@@ -85,6 +86,7 @@ class co_connection
 {
     struct impl;
     std::unique_ptr<impl> impl_;
+    std::unique_ptr<connection_context> ctx_;
 
 public:
     explicit co_connection(boost::capy::execution_context& ctx);

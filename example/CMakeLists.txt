@@ -13,6 +13,9 @@ target_link_libraries(nativepg_example PRIVATE nativepg)
 add_executable(nativepg_base_example types/base.cpp)
 target_link_libraries(nativepg_base_example PRIVATE nativepg)
 
+add_executable(nativepg_load_types_example types/load_types.cpp)
+target_link_libraries(nativepg_load_types_example PRIVATE nativepg)
+
 add_executable(nativepg_nullable_example types/nullable.cpp)
 target_link_libraries(nativepg_nullable_example PRIVATE nativepg)
 

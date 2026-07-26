@@ -114,6 +114,9 @@ enum class client_errc : int
     // You issued a COPY SQL statement through an API that doesn't support COPY operations.
     // Use an appropriate API, instead
     copy_not_allowed,
+
+    // get<tag>(...) is called but context is not found in cache. Call load_context first.
+    context_not_found
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

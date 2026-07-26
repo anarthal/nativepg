@@ -16,7 +16,10 @@
 #include <boost/asio/deferred.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/write.hpp>
-#include <boost/system/error_code.hpp>
+#include <boost/asio/awaitable.hpp>
+#include <boost/asio/as_tuple.hpp>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/use_awaitable.hpp>
 
 #include <cstddef>
 #include <memory>
@@ -32,6 +35,7 @@
 #include "nativepg/protocol/startup_fsm.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/response_handler.hpp"
+#include "nativepg/context/context.hpp"
 
 namespace nativepg {
 
@@ -148,6 +152,7 @@ struct exec_op
 class connection
 {
     std::unique_ptr<detail::connection_impl> impl_;
+    context::context ctx_;
 
 public:
     explicit connection(boost::asio::any_io_executor ex) : impl_(new detail::connection_impl{std::move(ex)})
@@ -195,6 +200,88 @@ public:
             href,
             boost::asio::consign(std::forward<CompletionToken>(token), std::move(ptr))
         );
+    }
+
+    template <context::ValidStateTag... Tags, typename CompletionToken = boost::asio::deferred_t>
+    [[nodiscard]] auto async_load_contexts(CompletionToken&& token = {}) noexcept {
+        // 1. Initiate a standard asynchronous composed operation using Asio's helper
+        return boost::asio::async_initiate<CompletionToken, void(extended_error)>(
+            [this](auto handler) {
+                // Get the executor from your underlying connection or target token handler
+                auto exec = boost::asio::get_associated_executor(handler, this->get_executor());
+
+                // 2. Spawn the internal coroutine helper onto the active executor pipeline
+                boost::asio::co_spawn(exec,
+                    [this]() -> boost::asio::awaitable<extended_error> {
+                        co_return co_await this->impl_async_load_contexts<Tags...>();
+                    },
+                    [moved_handler = std::move(handler)](std::exception_ptr ep, extended_error err) mutable {
+                        if (ep) {
+                            // Safe fallback if an unexpected runtime breakdown happens
+                            moved_handler(extended_error{client_errc::unexpected_message});
+                        } else {
+                            // Pass your structured error code straight back to the token line
+                            moved_handler(err);
+                        }
+                    }
+                );
+            },
+            token
+        );
+    }
+
+    context::context& context() noexcept { return ctx_; }
+
+private:
+    template <context::ValidStateTag... Tags>
+    [[nodiscard]] boost::asio::awaitable<extended_error> impl_async_load_contexts() noexcept {
+        context::query_collector collector{};
+
+        // Collect phase via unrolled compile-time lambda folding
+        auto collect_loader = [&collector](auto tag_identity) {
+            using Tag = typename decltype(tag_identity)::type;
+            using Loader = context::context_state_loader<Tag>;
+
+            collector.add_query(
+                Loader::get_query(),
+                [](const resultset_view& result, diagnostics* diag) noexcept -> std::unique_ptr<context::context_state> {
+                    return Loader::parse(result, diag);
+                }
+            );
+        };
+        (collect_loader(std::type_identity<Tags>{}), ...);
+
+        resultsets res{};
+
+        auto [err] = co_await async_exec(
+            collector.combined_queries,
+            resultsets_handler{res},
+            boost::asio::as_tuple
+        );
+
+        // Check if the query execution returned a database or network failure
+        if (err.code) {
+            co_return err;
+        }
+
+        // Check if the number of result sets matches our queries
+        if (res.size() != collector.parsers.size()) {
+            co_return extended_error{client_errc::unexpected_message};
+        }
+
+        // Hydration loop driving out-parameter state updates
+        for (size_t i = 0; i < collector.parsers.size(); ++i) {
+            diagnostics diag{};
+            std::unique_ptr<context::context_state> state = collector.parsers[i](res[i], &diag);
+
+            if (state) {
+                ctx_.commit_state(std::move(state));
+            } else {
+                co_return extended_error{client_errc::incomplete_message};
+            }
+        }
+
+        co_return extended_error{}; // Return clean success code
     }
 };
 

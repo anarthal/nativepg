@@ -25,6 +25,7 @@
 #include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/views.hpp"
+#include "nativepg/detail/field_traits.hpp"
 
 // TODO: separate compilation
 
@@ -573,6 +574,20 @@ public:
     const command_info& info() const { return result_->info; }
 
     const extended_error& error() const { return result_->err; }
+
+
+    // TODO: Improve this method!
+    template<typename FieldType>
+    boost::system::error_code parse_field(std::size_t row_offset, std::size_t field_offset, FieldType& to) const
+    {
+        auto fd = (descr_ + result_->descr.offset + field_offset)->to_field_description(data_);
+        auto ec = detail::field_is_compatible<FieldType>::call(fd);
+        if (ec)
+            return ec;
+        auto fv = (values_ + result_->values.offset + row_offset * result_->descr.length + field_offset)->to_field_view(data_);
+        return detail::field_parse<FieldType>::call(fv, fd, to);
+    }
+
 };
 
 // A sequence of resultsets. Can accommodate the response to any number of SQL commands

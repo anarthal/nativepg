@@ -61,5 +61,6 @@ nativepg_add_test(unit/types             test_datetime)
 nativepg_add_test(unit/types             test_json)
 
 if (NATIVEPG_COROSIO_API)
-    nativepg_add_test(integration            test_co_connection  nativepg_test_utils_corosio)
+    nativepg_add_test(integration            test_co_connection          nativepg_test_utils_corosio)
+    nativepg_add_test(integration            test_exec_named_statements  nativepg_test_utils_corosio)
 endif()

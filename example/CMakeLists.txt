@@ -13,6 +13,9 @@ target_link_libraries(nativepg_example PRIVATE nativepg)
 add_executable(nativepg_base_example types/base.cpp)
 target_link_libraries(nativepg_base_example PRIVATE nativepg)
 
+add_executable(nativepg_context_example context.cpp)
+target_link_libraries(nativepg_context_example PRIVATE nativepg)
+
 add_executable(nativepg_nullable_example types/nullable.cpp)
 target_link_libraries(nativepg_nullable_example PRIVATE nativepg)
 
@@ -55,5 +58,8 @@ if (NATIVEPG_COROSIO_API)
 
     add_executable(nativepg_resultsets resultsets.cpp)
     target_link_libraries(nativepg_resultsets PRIVATE nativepg_corosio)
+
+    add_executable(nativepg_co_context co_context.cpp)
+    target_link_libraries(nativepg_co_context PRIVATE nativepg_corosio)
 endif()
 

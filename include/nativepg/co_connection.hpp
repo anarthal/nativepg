@@ -18,12 +18,15 @@
 #include <memory>
 #include <span>
 
+#include "nativepg/context/context.hpp"
 #include "nativepg/connect_params.hpp"
+#include "nativepg/dynamic_resultset.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/copy.hpp"
 #include "nativepg/protocol/startup_fsm.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/response.hpp"
 #include "nativepg/response_handler.hpp"
 
 namespace nativepg {
@@ -85,6 +88,7 @@ class co_connection
 {
     struct impl;
     std::unique_ptr<impl> impl_;
+    context::context ctx_;
 
 public:
     explicit co_connection(boost::capy::execution_context& ctx);
@@ -130,6 +134,41 @@ public:
     // TODO: I don't like this
     boost::capy::any_stream& stream();
     protocol::connection_state& state();
+
+    template <context::ValidStateTag... Tags>
+    [[nodiscard]] boost::capy::io_task<> load_contexts(diagnostics* diag = nullptr) noexcept {
+        context::query_collector collector{};
+
+        // Collect phase via unrolled compile-time lambda folding
+        auto collect_loader = [&collector](auto tag_identity) {
+            using Tag = typename decltype(tag_identity)::type;
+            using Loader = context::context_state_loader<Tag>;
+
+            collector.add_query(
+                Loader::get_query(),
+                [](const resultset_view& result, diagnostics* diag) noexcept -> std::unique_ptr<context::context_state> {
+                    return Loader::parse(result, diag);
+                }
+            );
+        };
+        (collect_loader(std::type_identity<Tags>{}), ...);
+
+        // Batch SQL run against PostgreSQL wrapper
+        resultsets res{};
+        auto [ec] = co_await exec(collector.combined_queries, resultsets_handler{res}, diag);
+        if (!ec && res.size() == collector.parsers.size()) {
+            // Hydration loop driving out-parameter state updates
+            for (size_t i = 0; i < collector.parsers.size(); ++i) {
+                std::unique_ptr<context::context_state> state = collector.parsers[i](res[i], diag);
+                if (!ec)
+                    ctx_.commit_state(std::move(state));
+            }
+        }
+
+        co_return {};
+    }
+
+    context::context& context() noexcept { return ctx_; }
 };
 
 }  // namespace nativepg

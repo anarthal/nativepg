@@ -10,16 +10,19 @@
 
 #include <boost/system/error_code.hpp>
 
+#include <cstdint>
 #include <span>
 #include <string>
+#include <vector>
 
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/base.hpp"
 
-// TODO: at some point we will need to expose some customization
 namespace nativepg::detail {
 
 inline constexpr std::int32_t bool_oid = 16;
+
+inline constexpr std::int32_t char_oid = 18;
 
 inline constexpr std::int32_t bytea_oid = 17;
 
@@ -30,7 +33,12 @@ inline constexpr std::int32_t int8_oid = 20;
 inline constexpr std::int32_t float4_oid = 700;
 inline constexpr std::int32_t float8_oid = 701;
 
+inline constexpr std::int32_t name_oid = 19;
+
+inline constexpr std::int32_t oid_oid = 26;
+
 inline constexpr std::int32_t text_oid = 25;
+inline constexpr std::int32_t bpchar_oid = 1042;
 inline constexpr std::int32_t varchar_oid = 1043;
 
 // --- Is a type compatible with what we get from DB?
@@ -55,6 +63,20 @@ struct field_is_compatible<std::vector<std::byte>>
     static boost::system::error_code call(const protocol::field_description& desc)
     {
         if (desc.type_oid == bytea_oid)
+            return boost::system::error_code{};
+
+        return client_errc::incompatible_field_type;
+    }
+};
+
+// INTERNAL CHAR "..." (double quoted string. Not CHAR(n) / CHARACTER(N)
+// Is single byte so no UNICODE / UTF-8 support.
+template <>
+struct field_is_compatible<char>
+{
+    static boost::system::error_code call(const protocol::field_description& desc)
+    {
+        if (desc.type_oid == char_oid)
             return boost::system::error_code{};
 
         return client_errc::incompatible_field_type;
@@ -126,7 +148,20 @@ struct field_is_compatible<std::string>
 {
     static boost::system::error_code call(const protocol::field_description& desc)
     {
-        if (desc.type_oid == text_oid || desc.type_oid == varchar_oid)
+        if (desc.type_oid == text_oid || desc.type_oid == varchar_oid || desc.type_oid == name_oid ||
+            desc.type_oid == bpchar_oid)
+            return boost::system::error_code{};
+
+        return client_errc::incompatible_field_type;
+    }
+};
+
+template <>
+struct field_is_compatible<std::uint32_t>
+{
+    static boost::system::error_code call(const protocol::field_description& desc)
+    {
+        if (desc.type_oid == oid_oid)
             return boost::system::error_code{};
 
         return client_errc::incompatible_field_type;
@@ -166,6 +201,22 @@ struct field_parse<std::vector<std::byte>>
         BOOST_ASSERT(desc.type_oid == bytea_oid);
         return desc.fmt_code == protocol::format_code::text ? types::parse_text_bytea(from, to)
                                                             : types::parse_binary_bytea(from, to);
+    }
+};
+
+template <>
+struct field_parse<char>
+{
+    static boost::system::error_code call(
+        const field_view& from,
+        const protocol::field_description& desc,
+        char& to
+    )
+    {
+        if (from.is_null()) return client_errc::unexpected_null;
+        BOOST_ASSERT(desc.type_oid == char_oid);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_char(from, to)
+                                                            : types::parse_binary_char(from, to);
     }
 };
 
@@ -314,9 +365,28 @@ struct field_parse<std::string>
     )
     {
         if (from.is_null()) return client_errc::unexpected_null;
-        BOOST_ASSERT(desc.type_oid == text_oid || desc.type_oid == varchar_oid);
+        BOOST_ASSERT(
+            desc.type_oid == text_oid || desc.type_oid == varchar_oid || desc.type_oid == name_oid ||
+            desc.type_oid == bpchar_oid
+        );
         return desc.fmt_code == protocol::format_code::text ? types::parse_text_text(from, to)
                                                             : types::parse_binary_text(from, to);
+    }
+};
+
+template <>
+struct field_parse<std::uint32_t>
+{
+    static boost::system::error_code call(
+        const field_view& from,
+        const protocol::field_description& desc,
+        std::uint32_t& to
+    )
+    {
+        if (from.is_null()) return client_errc::unexpected_null;
+        BOOST_ASSERT(desc.type_oid == oid_oid);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_oid(from, to)
+                                                            : types::parse_binary_oid(from, to);
     }
 };
 

@@ -13,9 +13,10 @@
 #include <vector>
 
 #include "nativepg_internal/scram_sha256_messages.hpp"
-#include "test_utils.hpp"
+#include "test_utils/test_range_eq.hpp"
 
 using namespace nativepg::protocol::detail::scram_sha256;
+using namespace nativepg::test;
 using boost::system::error_code;
 
 namespace {
@@ -49,15 +50,15 @@ void test_serialize()
     // proof_offset is where the proof starts in the binary message (expected has also a header)
     constexpr std::string_view without_proof = "c=biws,r=8L+V/3ytl95bttI99/bhMxawOHcGq/1XrujDHQsrL/x/it8E";
     constexpr std::size_t proof_offset = 64u;
-    NATIVEPG_TEST(res.has_value())
-    NATIVEPG_TEST_CONT_EQ(res.value(), without_proof);
-    NATIVEPG_TEST_CONT_EQ(buff, std::span<const unsigned char>(buff).subspan(0, proof_offset));
+    BOOST_TEST(res.has_value());
+    test_range_eq(res.value(), without_proof);
+    test_range_eq(buff, std::span<const unsigned char>(buff).subspan(0, proof_offset));
 
     // Serialize the proof
     auto ec = serializer.serialize_proof(proof);
 
-    NATIVEPG_TEST_CONT_EQ(buff, expected)
-    NATIVEPG_TEST_EQ(ec, error_code())
+    test_range_eq(buff, expected);
+    BOOST_TEST_EQ(ec, error_code());
 }
 
 }  // namespace

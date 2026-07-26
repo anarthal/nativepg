@@ -12,10 +12,11 @@
 #include <string_view>
 
 #include "nativepg_internal/scram_sha256_messages.hpp"
-#include "test_utils.hpp"
+#include "test_utils/test_range_eq.hpp"
 
 using boost::system::error_code;
 using namespace nativepg::protocol::detail::scram_sha256;
+using namespace nativepg::test;
 
 namespace {
 
@@ -35,10 +36,10 @@ void test_parse()
     auto ec = parse(buff, msg);
 
     // Check
-    NATIVEPG_TEST_EQ(ec, error_code())
-    NATIVEPG_TEST_EQ(msg.nonce, "7vha5bhElx564U6mzXimIJqdygCr/dQmx9ESrL/+FfZHVXyA")
-    NATIVEPG_TEST_CONT_EQ(msg.salt, expected_salt)
-    NATIVEPG_TEST_EQ(msg.iteration_count, 4096u)
+    BOOST_TEST_EQ(ec, error_code());
+    BOOST_TEST_EQ(msg.nonce, "7vha5bhElx564U6mzXimIJqdygCr/dQmx9ESrL/+FfZHVXyA");
+    test_range_eq(msg.salt, expected_salt);
+    BOOST_TEST_EQ(msg.iteration_count, 4096u);
 }
 
 }  // namespace

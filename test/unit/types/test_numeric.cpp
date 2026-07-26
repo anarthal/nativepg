@@ -20,7 +20,6 @@
 #include "nativepg/detail/field_traits.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/numeric.hpp"
-#include "test_utils.hpp"
 
 using namespace nativepg;
 namespace mp = boost::multiprecision;
@@ -41,14 +40,14 @@ void test_parse_text_numeric_success(const T& in_val)
     auto err = types::parse_text_numeric(data, out_val);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, boost::system::errc::success);
     if (boost::math::isnan(in_val))
     {
-        NATIVEPG_TEST(boost::math::isnan(out_val));  // NaN != NaN, so compare by predicate
+        BOOST_TEST(boost::math::isnan(out_val));  // NaN != NaN, so compare by predicate
     }
     else
     {
-        NATIVEPG_TEST_EQ(out_val, in_val);
+        BOOST_TEST_EQ(out_val, in_val);
     }
 }
 
@@ -62,14 +61,14 @@ void test_parse_binary_numeric_success(std::span<const unsigned char> wire, cons
     auto err = types::parse_binary_numeric(wire, out_val);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, boost::system::errc::success);
     if (boost::math::isnan(expected))
     {
-        NATIVEPG_TEST(boost::math::isnan(out_val));  // NaN != NaN, so compare by predicate
+        BOOST_TEST(boost::math::isnan(out_val));  // NaN != NaN, so compare by predicate
     }
     else
     {
-        NATIVEPG_TEST_EQ(out_val, expected);
+        BOOST_TEST_EQ(out_val, expected);
     }
 }
 
@@ -84,7 +83,7 @@ void test_parse_text_numeric_digits_fit(const std::string& str, boost::system::e
     auto ec = types::parse_text_numeric(data, out_val);
 
     // Assert
-    NATIVEPG_TEST_EQ(ec.value(), expected.value());
+    BOOST_TEST_EQ(ec.value(), expected.value());
 }
 
 // Verifies a text literal (e.g. one with a leading '+' sign, or leading/trailing zeros) parses to the
@@ -101,8 +100,8 @@ void test_parse_text_numeric_from_str(const std::string& str, const T& expected)
     auto err = types::parse_text_numeric(data, out_val);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::errc::success);
-    NATIVEPG_TEST_EQ(out_val, expected);
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(out_val, expected);
 }
 
 template <std::size_t TDigits, typename T = mp::number<mp::cpp_dec_float<TDigits>>>
@@ -118,7 +117,7 @@ void test_parse_binary_numeric_digits_fit(
     auto ec = types::parse_binary_numeric(wire, out_val);
 
     // Assert
-    NATIVEPG_TEST_EQ(ec.value(), expected.value());
+    BOOST_TEST_EQ(ec.value(), expected.value());
 }
 
 // Builds a field_description with the given type OID and format code (the rest of the fields are
@@ -144,7 +143,7 @@ protocol::field_description make_field_description(
 //
 void test_field_is_compatible_numeric_success()
 {
-    NATIVEPG_TEST_EQ(
+    BOOST_TEST_EQ(
         detail::field_is_compatible<mp::number<mp::cpp_dec_float<50>>>::call(
             make_field_description(detail::numeric_oid)
         ),
@@ -154,7 +153,7 @@ void test_field_is_compatible_numeric_success()
 
 void test_field_is_compatible_numeric_incompatible_error()
 {
-    NATIVEPG_TEST_EQ(
+    BOOST_TEST_EQ(
         detail::field_is_compatible<mp::number<mp::cpp_dec_float<50>>>::call(
             make_field_description(23 /* int4 oid */)
         ),
@@ -173,7 +172,7 @@ void test_field_parse_numeric_unexpected_null_error()
     auto err = detail::field_parse<mp::number<mp::cpp_dec_float<50>>>::call(fv, desc, out_val);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::error_code(client_errc::unexpected_null));
+    BOOST_TEST_EQ(err, boost::system::error_code(client_errc::unexpected_null));
 }
 
 void test_field_parse_numeric_text_success()
@@ -189,8 +188,8 @@ void test_field_parse_numeric_text_success()
     auto err = detail::field_parse<mp::number<mp::cpp_dec_float<50>>>::call(fv, desc, out_val);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::errc::success);
-    NATIVEPG_TEST_EQ(out_val, mp::number<mp::cpp_dec_float<50>>("1234.5678"));
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(out_val, mp::number<mp::cpp_dec_float<50>>("1234.5678"));
 }
 
 void test_field_parse_numeric_binary_success()
@@ -207,8 +206,8 @@ void test_field_parse_numeric_binary_success()
     auto err = detail::field_parse<mp::number<mp::cpp_dec_float<50>>>::call(fv, desc, out_val);
 
     // Assert
-    NATIVEPG_TEST_EQ(err, boost::system::errc::success);
-    NATIVEPG_TEST_EQ(out_val, mp::number<mp::cpp_dec_float<50>>("1234.5678"));
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(out_val, mp::number<mp::cpp_dec_float<50>>("1234.5678"));
 }
 
 }  // namespace

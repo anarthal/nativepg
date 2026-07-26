@@ -141,7 +141,7 @@ public:
                 }
                 return {};
             }
-            default: BOOST_ASSERT(false);
+            default: BOOST_ASSERT(false); return boost::system::error_code(client_errc::unmatched_request);
         }
     }
 

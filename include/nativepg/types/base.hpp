@@ -15,10 +15,7 @@
 #include <charconv>
 #include <cstddef>
 #include <format>
-#include <iosfwd>
 #include <iterator>
-#include <ostream>
-#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -38,13 +35,17 @@ using boost::system::error_code;
 | Type      | Category | OID  | C++ type                                | Storage size                                                                |
 |-----------|----------|------|-----------------------------------------|-----------------------------------------------------------------------------|
 | bool      | base     | 16   | bool                                    | 1 byte                                                                      |
-| bytea     | base     | 17   | std::vector<std::byte>>                 | variable (1 or 4 bytes header + actual binary data)                         |
+| bytea     | base     | 17   | std::vector<std::byte>                  | variable (1 or 4 bytes header + actual binary data)                         |
+| char      | base     | 18   | char                                    | 1 character                                                                 |
 | int2      | base     | 21   | std::int16_t                            | 2 bytes                                                                     |
 | int4      | base     | 23   | std::int32_t                            | 4 bytes                                                                     |
 | int8      | base     | 20   | std::int64_t                            | 8 bytes                                                                     |
 | float4    | base     | 700  | float                                   | 4 bytes                                                                     |
 | float8    | base     | 701  | double                                  | 8 bytes                                                                     |
+| name      | base     | 19   | std::string                             | variable (1 or 4 bytes header + actual string data)                         |
+| oid       | base     | 26   | std::uint32_t                           | 4 bytes                                                                     |
 | text      | base     | 25   | std::string                             | variable (1 or 4 bytes header + actual string data)                         |
+| bpchar    | base     | 1042 | std::string                             | variable (1 or 4 bytes header + actual string data)                         |
 | varchar   | base     | 1043 | std::string                             | variable (1 or 4 bytes header + actual string data)                         |
 */
 // clang-format on
@@ -58,7 +59,7 @@ error_code parse_text_to_number(const std::string_view& sv, T& to)
     auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), result);
     if (ec == std::errc{} && ptr == sv.data() + sv.size())
         to = std::move(result);  // Success
-    else
+    else if (sv.size() != 0)
         return client_errc::protocol_value_error;
 
     return {};
@@ -124,6 +125,26 @@ error_code parse_binary_bytea(const field_view& from, T& to)
     return {};
 }
 
+// "CHAR" => char (INTERNAL CHAR NOT CHAR(N) / CHARACTER(N)!)
+template <class T>
+error_code parse_text_char(const field_view& from, T& to)
+{
+    const std::string_view sv = from.data_str();
+    if (sv.size() != 1)
+        return client_errc::protocol_value_error;
+    to = static_cast<char>(sv[0]);
+    return {};
+}
+
+template <class T>
+error_code parse_binary_char(const field_view& from, T& to)
+{
+    if (from.data().size() != 1)
+        return client_errc::protocol_value_error;
+    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data().data());
+    return {};
+}
+
 // INT => std::int_t
 template <class T>
 error_code parse_text_int(const field_view& from, T& to)
@@ -172,6 +193,23 @@ error_code parse_binary_text(const field_view& from, T& to)
 {
     // TODO What about different text encodings?
     to.assign(from.data_str());
+    return {};
+}
+
+// OID => std::uint32_t
+template <class T = std::uint32_t>
+error_code parse_text_oid(const field_view& from, T& to)
+{
+    const std::string_view sv = from.data_str();
+    return detail::parse_text_to_number<T>(sv, to);
+}
+
+template <class T = std::uint32_t>
+error_code parse_binary_oid(const field_view& from, T& to)
+{
+    if (from.data().size() != sizeof(T))
+        return client_errc::protocol_value_error;
+    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data().data());
     return {};
 }
 

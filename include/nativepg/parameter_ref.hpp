@@ -38,13 +38,15 @@ class parameter_ref
     std::int32_t oid_;
 
 public:
-    template <serializable_field T>
+    template <class T>
+        requires(!std::same_as<T, parameter_ref>)
     parameter_ref(const T& value) noexcept
         : value_(&value),
           text_(&do_serialize_text<T>),
           binary_(&do_serialize_binary<T>()),
           oid_(field_serialize_oid<T>)
     {
+        static_assert(serializable_field<T>);
     }
 
     std::int32_t type_oid() const { return oid_; }

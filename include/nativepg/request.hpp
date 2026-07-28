@@ -21,6 +21,7 @@
 #include <string_view>
 #include <vector>
 
+#include "nativepg/field_traits.hpp"
 #include "nativepg/parameter_ref.hpp"
 #include "nativepg/protocol/close.hpp"
 #include "nativepg/protocol/flush.hpp"
@@ -154,7 +155,7 @@ public:
     template <class... Params>
     request& add_prepare(std::string_view query, const statement<Params...>& stmt)
     {
-        std::array<std::int32_t, sizeof...(Params)> type_oids{{detail::parameter_type_oid<Params>::value...}};
+        std::array<std::int32_t, sizeof...(Params)> type_oids{{field_serialize_oid<Params>...}};
         return add_prepare(query, stmt.name, type_oids);
     }
 

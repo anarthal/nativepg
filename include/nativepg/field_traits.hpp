@@ -126,12 +126,12 @@ struct serialize_field_traits<T>
     static inline constexpr std::int32_t oid = text_oid;
 
     // TODO: this should return an error code
-    void serialize_text(std::string_view value, std::vector<unsigned char>& to)
+    static void serialize_text(std::string_view value, std::vector<unsigned char>& to)
     {
         return types::serialize_text_text(value, to);
     }
 
-    void serialize_binary(std::string_view value, std::vector<unsigned char>& to)
+    static void serialize_binary(std::string_view value, std::vector<unsigned char>& to)
     {
         return types::serialize_binary_text(value, to);
     }
@@ -173,7 +173,7 @@ concept serializable_field =
         // If you are seeing an error message pointing to this expression,
         // your serialize_field_traits specialization is missing an oid static member,
         // or it has the wrong type.
-        { serialize_field_traits<T>::oid } -> std::same_as<std::int32_t>;
+        { serialize_field_traits<T>::oid } -> std::convertible_to<std::int32_t>;
 
         // If you are seeing an error message pointing to this expression,
         // your serialize_text function in the serialize_field_traits specialization
@@ -205,13 +205,13 @@ template <serializable_field T>
 inline constexpr std::int32_t field_serialize_oid = serialize_field_traits<T>::oid;
 
 template <serializable_field T>
-boost::system::error_code field_serialize_text(const T& value, std::vector<unsigned char>& to)
+void field_serialize_text(const T& value, std::vector<unsigned char>& to)
 {
     return serialize_field_traits<T>::serialize_text(value, to);
 }
 
 template <serializable_field T>
-boost::system::error_code field_serialize_binary(const T& value, std::vector<unsigned char>& to)
+void field_serialize_binary(const T& value, std::vector<unsigned char>& to)
 {
     return serialize_field_traits<T>::serialize_binary(value, to);
 }

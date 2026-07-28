@@ -32,7 +32,7 @@ add_library(nativepg
     src/exec_fsm.cpp
     src/connect_fsm.cpp
     src/request.cpp
-    src/response.cpp
+    src/responses.cpp
     src/sqlstate.cpp
 )
 target_link_libraries(nativepg PUBLIC Boost::headers OpenSSL::SSL OpenSSL::Crypto)

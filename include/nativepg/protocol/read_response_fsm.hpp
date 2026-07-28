@@ -17,7 +17,7 @@
 #include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/response_handler.hpp"
+#include "nativepg/responses/response_handler.hpp"
 
 namespace nativepg::protocol {
 

@@ -9,9 +9,9 @@
 #include <string>
 #include <string_view>
 
-#include "nativepg/command_info.hpp"
 #include "nativepg/extended_error.hpp"
-#include "nativepg/response_handler.hpp"
+#include "nativepg/responses/command_info.hpp"
+#include "nativepg/responses/response_handler.hpp"
 #include "test_utils/ci_server.hpp"
 #include "test_utils/printing.hpp"
 

@@ -31,7 +31,7 @@
 #include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/protocol/sync.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/response_handler.hpp"
+#include "nativepg/responses/response_handler.hpp"
 #include "test_utils/response_msg_type.hpp"
 
 using namespace nativepg;

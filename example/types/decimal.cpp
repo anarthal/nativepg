@@ -24,7 +24,9 @@
 #include "nativepg/connection.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/response.hpp"
+#include "nativepg/responses/check.hpp"
+#include "nativepg/responses/into.hpp"
+#include "nativepg/responses/response.hpp"
 #include "nativepg/types/decimal.hpp"
 
 namespace asio = boost::asio;

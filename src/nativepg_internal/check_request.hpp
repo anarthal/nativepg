@@ -12,7 +12,7 @@
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/response_handler.hpp"
+#include "nativepg/responses/response_handler.hpp"
 
 namespace nativepg::protocol::detail {
 

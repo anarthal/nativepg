@@ -19,7 +19,7 @@
 #include "nativepg/co_multiplexed_connection.hpp"
 #include "nativepg/notification_event.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/response.hpp"
+#include "nativepg/responses/check.hpp"
 
 using namespace nativepg;
 namespace capy = boost::capy;

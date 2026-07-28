@@ -23,7 +23,9 @@
 #include "nativepg/connection.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/response.hpp"
+#include "nativepg/responses/check.hpp"
+#include "nativepg/responses/into.hpp"
+#include "nativepg/responses/response.hpp"
 
 namespace asio = boost::asio;
 using namespace nativepg;
@@ -98,16 +100,16 @@ SELECT  'Nullable Test values' as title,
 
     // Print results
     if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "NULLABLE TEXT operation results in Error: " << err.code.what() << ": " << err.diag.message()
-                  << " (in " << duration << ")" << std::endl;
+        std::cerr << "NULLABLE TEXT operation results in Error: " << err.code.what() << ": "
+                  << err.diag.message() << " (in " << duration << ")" << std::endl;
     else
     {
         std::cout << std::boolalpha;
         std::cout << "NULLABLE TEXT   select result: (in " << duration << ")" << std::endl;
         for (const auto& [title, nt_ob, vt_ob, nt_f8, vt_f8, nt_t, vt_t] : select_vec)
         {
-            std::cout << " | " << title << " | " << nt_ob << " | " << vt_ob << " | " << nt_f8 << " | " << vt_f8 << " | "
-                      << nt_t << " | " << vt_t << std::endl;
+            std::cout << " | " << title << " | " << nt_ob << " | " << vt_ob << " | " << nt_f8 << " | "
+                      << vt_f8 << " | " << nt_t << " | " << vt_t << std::endl;
         }
         std::cout << std::endl;
     }
@@ -131,9 +133,11 @@ static asio::awaitable<void> nullable_binary_example(connection& conn)
                  NULLIF($5::text, 'NULL')::float8 as vt_f8,
                  NULLIF($6::text, 'NULL')::text as nt_t,
                  NULLIF($7::text, 'NULL')::text as vt_t
-        )sql", { "Nullable Test values", "NULL", "true", "NULL", "21.1977", "NULL", "Value Test text"}
-            , request::param_format::text, protocol::format_code::binary)
-    ;
+        )sql",
+        {"Nullable Test values", "NULL", "true", "NULL", "21.1977", "NULL", "Value Test text"},
+        request::param_format::text,
+        protocol::format_code::binary
+    );
 
     std::vector<test_row> select_vec;
     if (auto [err] = co_await conn.async_exec(req, into(select_vec), asio::as_tuple);
@@ -147,10 +151,10 @@ static asio::awaitable<void> nullable_binary_example(connection& conn)
     auto finish = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
 
-
-    std::cout << "NULLABLE BINARY select results: " << " (in " << duration << ")" << std::endl << std::boolalpha << " | " << select_vec[0].title << " | " << select_vec[0].nt_ob << " | " << select_vec[0].vt_ob << " | "
-              << select_vec[0].nt_f8 << " | " << select_vec[0].vt_f8 << " | " << select_vec[0].nt_t << " | "
-              << select_vec[0].vt_t;
+    std::cout << "NULLABLE BINARY select results: " << " (in " << duration << ")" << std::endl
+              << std::boolalpha << " | " << select_vec[0].title << " | " << select_vec[0].nt_ob << " | "
+              << select_vec[0].vt_ob << " | " << select_vec[0].nt_f8 << " | " << select_vec[0].vt_f8 << " | "
+              << select_vec[0].nt_t << " | " << select_vec[0].vt_t;
 }
 
 static asio::awaitable<void> co_main()

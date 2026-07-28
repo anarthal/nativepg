@@ -12,9 +12,9 @@
 #include <iostream>
 
 #include "nativepg/co_connection.hpp"
-#include "nativepg/dynamic_resultset.hpp"
 #include "nativepg/extended_error.hpp"
-#include "nativepg/response.hpp"
+#include "nativepg/responses/resultsets.hpp"
+#include "nativepg/responses/resultsets_handler.hpp"
 
 using namespace nativepg;
 namespace capy = boost::capy;

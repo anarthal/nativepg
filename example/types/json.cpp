@@ -22,7 +22,9 @@
 #include "nativepg/connection.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/response.hpp"
+#include "nativepg/responses/check.hpp"
+#include "nativepg/responses/into.hpp"
+#include "nativepg/responses/response.hpp"
 #include "nativepg/types/json.hpp"
 
 namespace asio = boost::asio;
@@ -48,7 +50,8 @@ static asio::awaitable<void> json_text_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_query(R"sql(
+    req.add_query(
+        R"sql(
         SELECT '{ "name": "John", "age": 30, "address": { "street": "Main St", "city": "New York" }}'::json as j
         )sql",
         {}
@@ -117,7 +120,8 @@ static asio::awaitable<void> jsonb_text_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_query(R"sql(
+    req.add_query(
+        R"sql(
         SELECT '{ "name": "John", "age": 30, "address": { "street": "Main St", "city": "New York" }}'::jsonb as jb
         )sql",
         {}

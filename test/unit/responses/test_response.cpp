@@ -13,15 +13,14 @@
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/extended_error.hpp"
-#include "nativepg/field_view.hpp"
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/command_complete.hpp"
 #include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/parse.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/response.hpp"
-#include "nativepg/response_handler.hpp"
+#include "nativepg/responses/response.hpp"
+#include "nativepg/responses/response_handler.hpp"
 #include "test_utils/printing.hpp"
 #include "test_utils/response_msg_type.hpp"
 #include "test_utils/test_range_eq.hpp"
@@ -124,62 +123,6 @@ void test_deduction_guide()
     static_assert(std::is_same_v<decltype(res), response<h1, h1, h1, h2>>);
 }
 
-void test_parse_text_time_text_format()
-{
-    // Arrange
-    std::chrono::microseconds us;
-    std::string str = "21:06:19";
-    field_view data({reinterpret_cast<const unsigned char*>(str.data()), str.size()});
-    protocol::field_description description{
-        .name = "t",
-        .table_oid = 0,
-        .column_attribute = -1,
-        .type_oid = 1083,
-        .type_length = -1,
-        .type_modifier = -1,
-        .fmt_code = protocol::format_code::text
-    };
-    std::stringstream ss;
-
-    // Act
-    auto err = detail::field_parse<std::chrono::microseconds>::call(data, description, us);
-
-    // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
-
-    ss << std::format("{:%T}", std::chrono::duration_cast<std::chrono::seconds>(us)) << std::flush;
-    BOOST_TEST_EQ(ss.str(), str);
-}
-
-void test_parse_text_time_binary_format()
-{
-    // Arrange
-    std::chrono::microseconds us;
-    std::string str = "21:06:19";
-    // 21:06:19 as bigendian microseconds data
-    static constexpr unsigned char pg_time_210619[] = {0x00, 0x00, 0x00, 0x11, 0xB0, 0xB3, 0x88, 0xC0};
-    field_view data(pg_time_210619);
-    protocol::field_description description{
-        .name = "t",
-        .table_oid = 0,
-        .column_attribute = -1,
-        .type_oid = 1083,
-        .type_length = -1,
-        .type_modifier = -1,
-        .fmt_code = protocol::format_code::binary
-    };
-    std::stringstream ss;
-
-    // Act: Note can't use parse functions directly so one step higher calling field_parse
-    auto err = detail::field_parse<std::chrono::microseconds>::call(data, description, us);
-
-    // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
-
-    ss << std::format("{:%T}", std::chrono::duration_cast<std::chrono::seconds>(us)) << std::flush;
-    BOOST_TEST_EQ(ss.str(), str);
-}
-
 }  // namespace
 
 int main()
@@ -189,9 +132,6 @@ int main()
     test_deduction_guide();
     test_copy();
     test_move();
-
-    test_parse_text_time_text_format();
-    test_parse_text_time_binary_format();
 
     return boost::report_errors();
 }

@@ -14,9 +14,9 @@
 #include <cstddef>
 #include <vector>
 
-#include "nativepg/detail/field_traits.hpp"
 #include "nativepg/detail/row_traits.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/field_traits.hpp"
 #include "nativepg/field_view.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/responses/command_info.hpp"
@@ -122,7 +122,7 @@ class resultset_callback_t
             boost::mp11::mp_for_each<type_identities>(
                 [&idx, &ec, &pos_map = self.pos_map_](auto type_identity) {
                     using FieldType = typename decltype(type_identity)::type;
-                    auto ec2 = detail::field_is_compatible<FieldType>::call(pos_map[idx++].descr);
+                    auto ec2 = field_is_compatible<FieldType>(pos_map[idx++].descr);
                     if (!ec)
                         ec = ec2;
                 }
@@ -154,9 +154,8 @@ class resultset_callback_t
             boost::system::error_code ec;
             std::size_t idx = 0u;
             detail::for_each_member(row, [&ec, &idx, &self = this->self](auto& member) {
-                using FieldType = std::decay_t<decltype(member)>;
                 const detail::pos_map_entry& ent = self.pos_map_[idx++];
-                boost::system::error_code ec2 = detail::field_parse<FieldType>::call(
+                boost::system::error_code ec2 = field_parse(
                     self.random_access_data_.at(ent.db_index),
                     ent.descr,
                     member

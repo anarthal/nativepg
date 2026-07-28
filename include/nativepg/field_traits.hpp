@@ -9,7 +9,6 @@
 #define NATIVEPG_FIELD_TRAITS_HPP
 
 #include <boost/assert.hpp>
-#include <boost/system/detail/error_code.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <concepts>
@@ -19,7 +18,6 @@
 #include <vector>
 
 #include "nativepg/field_view.hpp"
-#include "nativepg/parameter_ref.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/base.hpp"
 
@@ -79,15 +77,14 @@ struct serialize_field_traits<std::int16_t>
 {
     static inline constexpr std::int32_t oid = int2_oid;
 
-    // TODO: this should return an error code
     void serialize_text(std::int16_t value, std::vector<unsigned char>& to)
     {
-        return detail::serialize_text(value, to);
+        return types::serialize_text_int(value, to);
     }
 
     void serialize_binary(std::int16_t value, std::vector<unsigned char>& to)
     {
-        return detail::serialize_binary(value, to);
+        return types::serialize_binary_int(value, to);
     }
 };
 
@@ -131,12 +128,12 @@ struct serialize_field_traits<T>
     // TODO: this should return an error code
     void serialize_text(std::string_view value, std::vector<unsigned char>& to)
     {
-        return detail::serialize_text(value, to);
+        return types::serialize_text_text(value, to);
     }
 
     void serialize_binary(std::string_view value, std::vector<unsigned char>& to)
     {
-        return detail::serialize_binary(value, to);
+        return types::serialize_binary_text(value, to);
     }
 };
 
@@ -161,7 +158,7 @@ concept parsable_field =
         // your parse function in the parse_field_traits specialization
         // for your type is missing or has an incorrect shape.
         {
-            parse_field_traits<T>::parse(field_view{}, protocol::field_description{}, t)
+            parse_field_traits<T>::parse(field_view{}, protocol::field_description{}, value)
         } -> std::convertible_to<boost::system::error_code>;
     };
 
@@ -203,6 +200,9 @@ boost::system::error_code field_parse(field_view from, const protocol::field_des
 {
     return parse_field_traits<T>::parse(from, desc, to);
 }
+
+template <serializable_field T>
+inline constexpr std::int32_t field_serialize_oid = serialize_field_traits<T>::oid;
 
 template <serializable_field T>
 boost::system::error_code field_serialize_text(const T& value, std::vector<unsigned char>& to)

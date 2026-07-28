@@ -162,6 +162,25 @@ error_code parse_binary_int(const field_view& from, T& to)
     return {};
 }
 
+template <std::integral T>
+void serialize_text_int(const T& value, std::vector<unsigned char>& to)
+{
+    char buffer[512];
+    auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
+    if (result.ec != std::errc{})
+        throw std::system_error(std::make_error_code(result.ec));
+    to.insert(to.end(), buffer, result.ptr);
+}
+
+template <std::integral T>
+void serialize_binary_int(const T& value, std::vector<unsigned char>& to)
+{
+    constexpr std::size_t size = sizeof(T);
+    auto offset = to.size();
+    to.resize(offset + size);
+    boost::endian::endian_store<T, size, boost::endian::order::big>(to.data() + offset, value);
+}
+
 // FLOAT => float
 template <class T>
 error_code parse_text_float(const field_view& from, T& to)
@@ -194,6 +213,16 @@ error_code parse_binary_text(const field_view& from, T& to)
     // TODO What about different text encodings?
     to.assign(from.data_str());
     return {};
+}
+
+inline void serialize_text_text(std::string_view value, std::vector<unsigned char>& to)
+{
+    to.insert(to.end(), value.begin(), value.end());
+}
+
+inline void serialize_binary_text(std::string_view value, std::vector<unsigned char>& to)
+{
+    to.insert(to.end(), value.begin(), value.end());
 }
 
 // OID => std::uint32_t

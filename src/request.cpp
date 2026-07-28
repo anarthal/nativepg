@@ -7,7 +7,6 @@
 
 #include <boost/container/small_vector.hpp>
 
-#include <algorithm>
 #include <cstdint>
 #include <span>
 #include <string_view>
@@ -20,19 +19,14 @@
 
 using namespace nativepg;
 
-static protocol::format_code compute_format(request::param_format fmt, std::span<const parameter_ref> params)
+static protocol::format_code compute_format(request::param_format fmt, std::span<const parameter_ref>)
 {
     switch (fmt)
     {
-    case request::param_format::select_best:
-    {
-        bool all_support_binary = std::all_of(params.begin(), params.end(), [](parameter_ref p) {
-            return detail::parameter_ref_access::supports_binary(p);
-        });
-        return all_support_binary ? protocol::format_code::binary : protocol::format_code::text;
-    }
-    case request::param_format::text:
-    default: return protocol::format_code::text;
+        // TODO: if we go down "we always support binary", remove this
+        case request::param_format::select_best: return protocol::format_code::binary;
+        case request::param_format::text:
+        default: return protocol::format_code::text;
     }
 }
 
@@ -49,7 +43,7 @@ request& request::add_query(
     boost::container::small_vector<std::int32_t, 128u> oids;
     oids.reserve(params.size());
     for (const auto& p : params)
-        oids.push_back(detail::parameter_ref_access::type_oid(p));
+        oids.push_back(p.type_oid());
 
     // Add the messages
     add(protocol::parse_t{.statement_name = {}, .query = q, .parameter_type_oids = oids});
@@ -97,9 +91,9 @@ request& request::add_bind(
                     {
                         ctx.start_parameter();
                         if (fmt_code == protocol::format_code::binary)
-                            detail::parameter_ref_access::serialize_binary(param, ctx.buffer());
+                            param.serialize_binary(ctx.buffer());
                         else
-                            detail::parameter_ref_access::serialize_text(param, ctx.buffer());
+                            param.serialize_text(ctx.buffer());
                     }
                 },
             .result_fmt_codes = result_fmt_codes,

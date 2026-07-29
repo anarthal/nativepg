@@ -17,38 +17,37 @@
 #include <cstdint>
 
 #include "nativepg/client_errc.hpp"
+#include "nativepg/field_traits.hpp"
 #include "nativepg/field_view.hpp"
 #include "nativepg/protocol/describe.hpp"
+#include "nativepg/types/json.hpp"
 
 namespace nativepg::detail {
 
 inline constexpr std::int32_t json_oid = 114;
 inline constexpr std::int32_t jsonb_oid = 3802;
 
-template <class T>
-struct field_is_compatible;
+}  // namespace nativepg::detail
 
-// JSON & JSONB
-template <>
-struct field_is_compatible<boost::json::value>
-{
-    static inline boost::system::error_code call(const protocol::field_description& desc)
-    {
-        return (desc.type_oid == json_oid || desc.type_oid == jsonb_oid)
-                   ? boost::system::error_code()
-                   : client_errc::incompatible_field_type;
-    }
-};
+namespace nativepg {
 
-template <class T>
-struct field_parse;
+// --- Parse
+// There is no serialization counterpart yet: nativepg/types/json.hpp implements
+// parsing only.
 
 // JSON(B) => boost::json::value
 template <>
-struct field_parse<boost::json::value>
+struct parse_field_traits<boost::json::value>
 {
-    static inline boost::system::error_code call(
-        const field_view& from,
+    static inline boost::system::error_code is_compatible(const protocol::field_description& desc)
+    {
+        return (desc.type_oid == detail::json_oid || desc.type_oid == detail::jsonb_oid)
+                   ? boost::system::error_code()
+                   : client_errc::incompatible_field_type;
+    }
+
+    static inline boost::system::error_code parse(
+        field_view from,
         const protocol::field_description& desc,
         boost::json::value& to
     )
@@ -56,7 +55,7 @@ struct field_parse<boost::json::value>
         if (from.is_null())
             return client_errc::unexpected_null;
 
-        if (desc.type_oid == jsonb_oid)
+        if (desc.type_oid == detail::jsonb_oid)
         {
             return desc.fmt_code == protocol::format_code::text ? types::parse_json(from.data_str(), to)
                                                                 : types::parse_binary_jsonb(from, to);
@@ -69,6 +68,6 @@ struct field_parse<boost::json::value>
     }
 };
 
-}  // namespace nativepg::detail
+}  // namespace nativepg
 
 #endif  // NATIVEPG_DETAIL_FIELD_TRAITS_JSON_HPP

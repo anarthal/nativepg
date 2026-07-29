@@ -8,18 +8,14 @@
 #ifndef NATIVEPG_FIELD_TRAITS_HPP
 #define NATIVEPG_FIELD_TRAITS_HPP
 
-#include <boost/assert.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <concepts>
 #include <cstdint>
-#include <string>
-#include <string_view>
 #include <vector>
 
 #include "nativepg/field_view.hpp"
 #include "nativepg/protocol/describe.hpp"
-#include "nativepg/types/base.hpp"
 
 namespace nativepg {
 
@@ -29,7 +25,9 @@ struct is_unspecialized
 };
 }  // namespace detail
 
-// Base template
+// Base templates. Specialize these to add support for your own types.
+// Specializations for the built-in type mappings live in the
+// nativepg/detail/field_traits_*.hpp headers, included at the bottom of this file.
 template <class T>
 struct parse_field_traits : detail::is_unspecialized
 {
@@ -38,103 +36,6 @@ struct parse_field_traits : detail::is_unspecialized
 template <class T>
 struct serialize_field_traits : detail::is_unspecialized
 {
-};
-
-// Built-in types (demonstration)
-inline constexpr std::int32_t int2_oid = 21;
-inline constexpr std::int32_t text_oid = 25;
-inline constexpr std::int32_t bpchar_oid = 1042;
-inline constexpr std::int32_t varchar_oid = 1043;
-inline constexpr std::int32_t name_oid = 19;
-
-template <>
-struct parse_field_traits<std::int16_t>
-{
-    static inline boost::system::error_code is_compatible(const protocol::field_description& desc)
-    {
-        if (desc.type_oid == int2_oid)
-            return boost::system::error_code{};
-
-        return client_errc::incompatible_field_type;
-    }
-
-    static inline boost::system::error_code parse(
-        field_view from,
-        const protocol::field_description& desc,
-        std::int16_t& to
-    )
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        BOOST_ASSERT(desc.type_oid == int2_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_int(from, to)
-                                                            : types::parse_binary_int(from, to);
-    }
-};
-
-template <>
-struct serialize_field_traits<std::int16_t>
-{
-    static inline constexpr std::int32_t oid = int2_oid;
-
-    void serialize_text(std::int16_t value, std::vector<unsigned char>& to)
-    {
-        return types::serialize_text_int(value, to);
-    }
-
-    void serialize_binary(std::int16_t value, std::vector<unsigned char>& to)
-    {
-        return types::serialize_binary_int(value, to);
-    }
-};
-
-// String POC. When parsing, only owning strings are allowed
-template <class Traits, class Alloc>
-struct parse_field_traits<std::basic_string<char, Traits, Alloc>>
-{
-    static inline boost::system::error_code is_compatible(const protocol::field_description& desc)
-    {
-        if (desc.type_oid == text_oid || desc.type_oid == varchar_oid || desc.type_oid == name_oid ||
-            desc.type_oid == bpchar_oid)
-            return boost::system::error_code{};
-
-        return client_errc::incompatible_field_type;
-    }
-
-    static inline boost::system::error_code parse(
-        field_view from,
-        const protocol::field_description& desc,
-        std::basic_string<char, Traits, Alloc>& to
-    )
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        BOOST_ASSERT(
-            desc.type_oid == text_oid || desc.type_oid == varchar_oid || desc.type_oid == name_oid ||
-            desc.type_oid == bpchar_oid
-        );
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_text(from, to)
-                                                            : types::parse_binary_text(from, to);
-    }
-};
-
-// However, when serializing, anything convertible to std::string_view should be considered
-// a string
-template <std::convertible_to<std::string_view> T>
-struct serialize_field_traits<T>
-{
-    static inline constexpr std::int32_t oid = text_oid;
-
-    // TODO: this should return an error code
-    static void serialize_text(std::string_view value, std::vector<unsigned char>& to)
-    {
-        return types::serialize_text_text(value, to);
-    }
-
-    static void serialize_binary(std::string_view value, std::vector<unsigned char>& to)
-    {
-        return types::serialize_binary_text(value, to);
-    }
 };
 
 // A type satisfies this concept if it may be used as a target
@@ -218,4 +119,13 @@ void field_serialize_binary(const T& value, std::vector<unsigned char>& to)
 
 }  // namespace nativepg
 
-#endif  // NATIVEPG_TYPES_HPP
+// Specializations for the built-in type mappings. They are included here, rather than
+// at the top, because they require the base templates above to be visible.
+// Mappings that require a third-party library are opt-in, and thus not included here:
+// include nativepg/types/json.hpp, nativepg/types/numeric.hpp or nativepg/types/decimal.hpp
+// to enable them.
+#include "nativepg/detail/field_traits_base.hpp"
+#include "nativepg/detail/field_traits_datetime.hpp"
+#include "nativepg/detail/field_traits_nullable.hpp"
+
+#endif  // NATIVEPG_FIELD_TRAITS_HPP

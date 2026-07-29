@@ -40,7 +40,7 @@ inline boost::system::error_code parse_binary_jsonb(const field_view& from, boos
 
 }  // namespace nativepg::types
 
-// Registers field_is_compatible<T>/field_parse<T> for boost::json::value. Included here (rather than
+// Registers parse_field_traits<T> specializations for boost::json::value. Included here (rather than
 // force-included by field_traits.hpp) so that only TUs opting into this header pay for it.
 #include "nativepg/detail/field_traits_json.hpp"
 

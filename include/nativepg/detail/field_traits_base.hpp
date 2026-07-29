@@ -8,13 +8,21 @@
 #ifndef NATIVEPG_DETAIL_FIELD_TRAITS_BASE_HPP
 #define NATIVEPG_DETAIL_FIELD_TRAITS_BASE_HPP
 
+#pragma once
+
+#include <boost/assert.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <concepts>
+#include <cstddef>
 #include <cstdint>
-#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include "nativepg/client_errc.hpp"
+#include "nativepg/field_traits.hpp"
+#include "nativepg/field_view.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/base.hpp"
 
@@ -41,214 +49,138 @@ inline constexpr std::int32_t text_oid = 25;
 inline constexpr std::int32_t bpchar_oid = 1042;
 inline constexpr std::int32_t varchar_oid = 1043;
 
-// --- Is a type compatible with what we get from DB?
-// TODO: string diagnostics
-template <class T>
-struct field_is_compatible;
-
-template <>
-struct field_is_compatible<bool>
+// Any of the OIDs that we accept when parsing a string
+inline constexpr bool is_string_oid(std::int32_t type_oid)
 {
-    static boost::system::error_code call(const protocol::field_description& desc)
+    return type_oid == text_oid || type_oid == varchar_oid || type_oid == name_oid || type_oid == bpchar_oid;
+}
+
+}  // namespace nativepg::detail
+
+namespace nativepg {
+
+// --- Parse
+
+// BOOL
+template <>
+struct parse_field_traits<bool>
+{
+    static boost::system::error_code is_compatible(const protocol::field_description& desc)
     {
-        if (desc.type_oid == bool_oid)
+        if (desc.type_oid == detail::bool_oid)
             return boost::system::error_code{};
+
         return client_errc::incompatible_field_type;
+    }
+
+    static boost::system::error_code parse(field_view from, const protocol::field_description& desc, bool& to)
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(desc.type_oid == detail::bool_oid);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_bool(from, to)
+                                                            : types::parse_binary_bool(from, to);
     }
 };
 
+// BYTEA
 template <>
-struct field_is_compatible<std::vector<std::byte>>
+struct parse_field_traits<std::vector<std::byte>>
 {
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static boost::system::error_code is_compatible(const protocol::field_description& desc)
     {
-        if (desc.type_oid == bytea_oid)
+        if (desc.type_oid == detail::bytea_oid)
             return boost::system::error_code{};
 
         return client_errc::incompatible_field_type;
+    }
+
+    static boost::system::error_code parse(
+        field_view from,
+        const protocol::field_description& desc,
+        std::vector<std::byte>& to
+    )
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(desc.type_oid == detail::bytea_oid);
+        return desc.fmt_code == protocol::format_code::text ? types::parse_text_bytea(from, to)
+                                                            : types::parse_binary_bytea(from, to);
     }
 };
 
 // INTERNAL CHAR "..." (double quoted string. Not CHAR(n) / CHARACTER(N)
 // Is single byte so no UNICODE / UTF-8 support.
 template <>
-struct field_is_compatible<char>
+struct parse_field_traits<char>
 {
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static boost::system::error_code is_compatible(const protocol::field_description& desc)
     {
-        if (desc.type_oid == char_oid)
+        if (desc.type_oid == detail::char_oid)
             return boost::system::error_code{};
 
         return client_errc::incompatible_field_type;
     }
-};
 
-template <>
-struct field_is_compatible<std::int16_t>
-{
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static boost::system::error_code parse(field_view from, const protocol::field_description& desc, char& to)
     {
-        if (desc.type_oid == int2_oid)
-            return boost::system::error_code{};
-
-        return client_errc::incompatible_field_type;
-    }
-};
-
-template <>
-struct field_is_compatible<std::int32_t>
-{
-    static boost::system::error_code call(const protocol::field_description& desc)
-    {
-        if (desc.type_oid == int4_oid || desc.type_oid == int2_oid)
-            return boost::system::error_code{};
-
-        return client_errc::incompatible_field_type;
-    }
-};
-
-template <>
-struct field_is_compatible<std::int64_t>
-{
-    static boost::system::error_code call(const protocol::field_description& desc)
-    {
-        if (desc.type_oid == int8_oid || desc.type_oid == int4_oid || desc.type_oid == int2_oid)
-            return boost::system::error_code{};
-
-        return client_errc::incompatible_field_type;
-    }
-};
-
-template <>
-struct field_is_compatible<float>
-{
-    static boost::system::error_code call(const protocol::field_description& desc)
-    {
-        if (desc.type_oid == float4_oid)
-            return boost::system::error_code{};
-
-        return client_errc::incompatible_field_type;
-    }
-};
-
-template <>
-struct field_is_compatible<double>
-{
-    static boost::system::error_code call(const protocol::field_description& desc)
-    {
-        if (desc.type_oid == float8_oid || desc.type_oid == float4_oid)
-            return boost::system::error_code{};
-
-        return client_errc::incompatible_field_type;
-    }
-};
-
-template <>
-struct field_is_compatible<std::string>
-{
-    static boost::system::error_code call(const protocol::field_description& desc)
-    {
-        if (desc.type_oid == text_oid || desc.type_oid == varchar_oid || desc.type_oid == name_oid ||
-            desc.type_oid == bpchar_oid)
-            return boost::system::error_code{};
-
-        return client_errc::incompatible_field_type;
-    }
-};
-
-template <>
-struct field_is_compatible<std::uint32_t>
-{
-    static boost::system::error_code call(const protocol::field_description& desc)
-    {
-        if (desc.type_oid == oid_oid)
-            return boost::system::error_code{};
-
-        return client_errc::incompatible_field_type;
-    }
-};
-
-// --- Parse
-template <class T>
-struct field_parse;
-
-template <>
-struct field_parse<bool>
-{
-    static boost::system::error_code call(
-        const field_view& from,
-        const protocol::field_description& desc,
-        bool& to
-    )
-    {
-        if (from.is_null()) return client_errc::unexpected_null;
-        BOOST_ASSERT(desc.type_oid == bool_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_bool(from, to)
-                                                            : types::parse_binary_bool(from, to);
-    }
-};
-
-template <>
-struct field_parse<std::vector<std::byte>>
-{
-    static boost::system::error_code call(
-        const field_view& from,
-        const protocol::field_description& desc,
-        std::vector<std::byte>& to
-    )
-    {
-        if (from.is_null()) return client_errc::unexpected_null;
-        BOOST_ASSERT(desc.type_oid == bytea_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_bytea(from, to)
-                                                            : types::parse_binary_bytea(from, to);
-    }
-};
-
-template <>
-struct field_parse<char>
-{
-    static boost::system::error_code call(
-        const field_view& from,
-        const protocol::field_description& desc,
-        char& to
-    )
-    {
-        if (from.is_null()) return client_errc::unexpected_null;
-        BOOST_ASSERT(desc.type_oid == char_oid);
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(desc.type_oid == detail::char_oid);
         return desc.fmt_code == protocol::format_code::text ? types::parse_text_char(from, to)
                                                             : types::parse_binary_char(from, to);
     }
 };
 
+// INT2
 template <>
-struct field_parse<std::int16_t>
+struct parse_field_traits<std::int16_t>
 {
-    static boost::system::error_code call(
-        const field_view& from,
+    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    {
+        if (desc.type_oid == detail::int2_oid)
+            return boost::system::error_code{};
+
+        return client_errc::incompatible_field_type;
+    }
+
+    static boost::system::error_code parse(
+        field_view from,
         const protocol::field_description& desc,
         std::int16_t& to
     )
     {
-        if (from.is_null()) return client_errc::unexpected_null;
-        BOOST_ASSERT(desc.type_oid == int2_oid);
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(desc.type_oid == detail::int2_oid);
         return desc.fmt_code == protocol::format_code::text ? types::parse_text_int(from, to)
                                                             : types::parse_binary_int(from, to);
     }
 };
 
+// INT4. Widening from INT2 is allowed
 template <>
-struct field_parse<std::int32_t>
+struct parse_field_traits<std::int32_t>
 {
-    static boost::system::error_code call(
-        const field_view& from,
+    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    {
+        if (desc.type_oid == detail::int4_oid || desc.type_oid == detail::int2_oid)
+            return boost::system::error_code{};
+
+        return client_errc::incompatible_field_type;
+    }
+
+    static boost::system::error_code parse(
+        field_view from,
         const protocol::field_description& desc,
         std::int32_t& to
     )
     {
-        if (from.is_null()) return client_errc::unexpected_null;
+        if (from.is_null())
+            return client_errc::unexpected_null;
         switch (desc.type_oid)
         {
-            case int2_oid:
+            case detail::int2_oid:
             {
                 std::int16_t value{};
                 const auto ec = desc.fmt_code == protocol::format_code::text
@@ -257,7 +189,7 @@ struct field_parse<std::int32_t>
                 to = value;
                 return ec;
             }
-            case int4_oid:
+            case detail::int4_oid:
             {
                 return desc.fmt_code == protocol::format_code::text ? types::parse_text_int(from, to)
                                                                     : types::parse_binary_int(from, to);
@@ -268,19 +200,30 @@ struct field_parse<std::int32_t>
     }
 };
 
+// INT8. Widening from INT2 and INT4 is allowed
 template <>
-struct field_parse<std::int64_t>
+struct parse_field_traits<std::int64_t>
 {
-    static boost::system::error_code call(
-        const field_view& from,
+    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    {
+        if (desc.type_oid == detail::int8_oid || desc.type_oid == detail::int4_oid ||
+            desc.type_oid == detail::int2_oid)
+            return boost::system::error_code{};
+
+        return client_errc::incompatible_field_type;
+    }
+
+    static boost::system::error_code parse(
+        field_view from,
         const protocol::field_description& desc,
         std::int64_t& to
     )
     {
-        if (from.is_null()) return client_errc::unexpected_null;
+        if (from.is_null())
+            return client_errc::unexpected_null;
         switch (desc.type_oid)
         {
-            case int2_oid:
+            case detail::int2_oid:
             {
                 std::int16_t value{};
                 const auto ec = desc.fmt_code == protocol::format_code::text
@@ -289,7 +232,7 @@ struct field_parse<std::int64_t>
                 to = value;
                 return ec;
             }
-            case int4_oid:
+            case detail::int4_oid:
             {
                 std::int32_t value{};
                 const auto ec = desc.fmt_code == protocol::format_code::text
@@ -298,7 +241,7 @@ struct field_parse<std::int64_t>
                 to = value;
                 return ec;
             }
-            case int8_oid:
+            case detail::int8_oid:
                 return desc.fmt_code == protocol::format_code::text ? types::parse_text_int(from, to)
                                                                     : types::parse_binary_int(from, to);
             default: BOOST_ASSERT(false); return {client_errc::incompatible_field_type};
@@ -306,42 +249,61 @@ struct field_parse<std::int64_t>
     }
 };
 
+// FLOAT4
 template <>
-struct field_parse<float>
+struct parse_field_traits<float>
 {
-    static boost::system::error_code call(
-        const field_view& from,
+    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    {
+        if (desc.type_oid == detail::float4_oid)
+            return boost::system::error_code{};
+
+        return client_errc::incompatible_field_type;
+    }
+
+    static boost::system::error_code parse(
+        field_view from,
         const protocol::field_description& desc,
         float& to
     )
     {
-        if (from.is_null()) return client_errc::unexpected_null;
-        BOOST_ASSERT(desc.type_oid == float4_oid);
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(desc.type_oid == detail::float4_oid);
         return desc.fmt_code == protocol::format_code::text ? types::parse_text_float<float>(from, to)
                                                             : types::parse_binary_float<float>(from, to);
     }
 };
 
+// FLOAT8. Widening from FLOAT4 is allowed
 template <>
-struct field_parse<double>
+struct parse_field_traits<double>
 {
-    static boost::system::error_code call(
-        const field_view& from,
+    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    {
+        if (desc.type_oid == detail::float8_oid || desc.type_oid == detail::float4_oid)
+            return boost::system::error_code{};
+
+        return client_errc::incompatible_field_type;
+    }
+
+    static boost::system::error_code parse(
+        field_view from,
         const protocol::field_description& desc,
         double& to
     )
     {
-        if (from.is_null()) return client_errc::unexpected_null;
-        BOOST_ASSERT(desc.type_oid == float8_oid || desc.type_oid == float4_oid);
+        if (from.is_null())
+            return client_errc::unexpected_null;
         switch (desc.type_oid)
         {
-            case float8_oid:
+            case detail::float8_oid:
             {
                 return desc.fmt_code == protocol::format_code::text
                            ? types::parse_text_float<double>(from, to)
                            : types::parse_binary_float<double>(from, to);
             }
-            case float4_oid:
+            case detail::float4_oid:
             {
                 float value{};
                 const auto ec = desc.fmt_code == protocol::format_code::text
@@ -355,41 +317,147 @@ struct field_parse<double>
     }
 };
 
-template <>
-struct field_parse<std::string>
+// TEXT, VARCHAR, NAME, BPCHAR. When parsing, only owning strings are allowed
+template <class Traits, class Alloc>
+struct parse_field_traits<std::basic_string<char, Traits, Alloc>>
 {
-    static boost::system::error_code call(
-        const field_view& from,
+    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    {
+        if (detail::is_string_oid(desc.type_oid))
+            return boost::system::error_code{};
+
+        return client_errc::incompatible_field_type;
+    }
+
+    static boost::system::error_code parse(
+        field_view from,
         const protocol::field_description& desc,
-        std::string& to
+        std::basic_string<char, Traits, Alloc>& to
     )
     {
-        if (from.is_null()) return client_errc::unexpected_null;
-        BOOST_ASSERT(
-            desc.type_oid == text_oid || desc.type_oid == varchar_oid || desc.type_oid == name_oid ||
-            desc.type_oid == bpchar_oid
-        );
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(detail::is_string_oid(desc.type_oid));
         return desc.fmt_code == protocol::format_code::text ? types::parse_text_text(from, to)
                                                             : types::parse_binary_text(from, to);
     }
 };
 
+// OID
 template <>
-struct field_parse<std::uint32_t>
+struct parse_field_traits<std::uint32_t>
 {
-    static boost::system::error_code call(
-        const field_view& from,
+    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    {
+        if (desc.type_oid == detail::oid_oid)
+            return boost::system::error_code{};
+
+        return client_errc::incompatible_field_type;
+    }
+
+    static boost::system::error_code parse(
+        field_view from,
         const protocol::field_description& desc,
         std::uint32_t& to
     )
     {
-        if (from.is_null()) return client_errc::unexpected_null;
-        BOOST_ASSERT(desc.type_oid == oid_oid);
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(desc.type_oid == detail::oid_oid);
         return desc.fmt_code == protocol::format_code::text ? types::parse_text_oid(from, to)
                                                             : types::parse_binary_oid(from, to);
     }
 };
 
-}  // namespace nativepg::detail
+// --- Serialize
+// Types without a serialization function in nativepg/types/base.hpp (bool, bytea, char,
+// float4, float8) are intentionally left out: they can't be used as query parameters yet.
+
+// INT2
+template <>
+struct serialize_field_traits<std::int16_t>
+{
+    static constexpr std::int32_t oid = detail::int2_oid;
+
+    static void serialize_text(std::int16_t value, std::vector<unsigned char>& to)
+    {
+        return types::serialize_text_int(value, to);
+    }
+
+    static void serialize_binary(std::int16_t value, std::vector<unsigned char>& to)
+    {
+        return types::serialize_binary_int(value, to);
+    }
+};
+
+// INT4
+template <>
+struct serialize_field_traits<std::int32_t>
+{
+    static constexpr std::int32_t oid = detail::int4_oid;
+
+    static void serialize_text(std::int32_t value, std::vector<unsigned char>& to)
+    {
+        return types::serialize_text_int(value, to);
+    }
+
+    static void serialize_binary(std::int32_t value, std::vector<unsigned char>& to)
+    {
+        return types::serialize_binary_int(value, to);
+    }
+};
+
+// INT8
+template <>
+struct serialize_field_traits<std::int64_t>
+{
+    static constexpr std::int32_t oid = detail::int8_oid;
+
+    static void serialize_text(std::int64_t value, std::vector<unsigned char>& to)
+    {
+        return types::serialize_text_int(value, to);
+    }
+
+    static void serialize_binary(std::int64_t value, std::vector<unsigned char>& to)
+    {
+        return types::serialize_binary_int(value, to);
+    }
+};
+
+// OID
+template <>
+struct serialize_field_traits<std::uint32_t>
+{
+    static constexpr std::int32_t oid = detail::oid_oid;
+
+    static void serialize_text(std::uint32_t value, std::vector<unsigned char>& to)
+    {
+        return types::serialize_text_int(value, to);
+    }
+
+    static void serialize_binary(std::uint32_t value, std::vector<unsigned char>& to)
+    {
+        return types::serialize_binary_int(value, to);
+    }
+};
+
+// TEXT. Unlike parsing, anything convertible to std::string_view is considered a string
+template <std::convertible_to<std::string_view> T>
+struct serialize_field_traits<T>
+{
+    static constexpr std::int32_t oid = detail::text_oid;
+
+    static void serialize_text(std::string_view value, std::vector<unsigned char>& to)
+    {
+        return types::serialize_text_text(value, to);
+    }
+
+    static void serialize_binary(std::string_view value, std::vector<unsigned char>& to)
+    {
+        return types::serialize_binary_text(value, to);
+    }
+};
+
+}  // namespace nativepg
 
 #endif

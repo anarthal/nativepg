@@ -8,11 +8,14 @@
 #ifndef NATIVEPG_DETAIL_FIELD_TRAITS_NULLABLE_HPP
 #define NATIVEPG_DETAIL_FIELD_TRAITS_NULLABLE_HPP
 
+#pragma once
+
 #include <boost/system/error_code.hpp>
 
 #include <optional>
 #include <type_traits>
 
+#include "nativepg/field_traits.hpp"
 #include "nativepg/field_view.hpp"
 #include "nativepg/protocol/describe.hpp"
 
@@ -32,37 +35,28 @@ struct is_optional<std::optional<T>> : std::true_type
 template <class T>
 inline constexpr auto is_optional_v = is_optional<T>::value;
 
-// --- Is a type compatible with what we get from DB?
-template <class T>
-struct field_is_compatible;
+}  // namespace nativepg::detail
 
-template <typename T>
-struct field_is_compatible<std::optional<T>>
-{
-    static_assert(
-        !is_optional_v<T>,
-        "Nested std::optional (e.g. std::optional<std::optional<T>>) is not supported"
-    );
-
-    static boost::system::error_code call(const protocol::field_description& desc)
-    {
-        return field_is_compatible<T>::call(desc);
-    }
-};
+namespace nativepg {
 
 // --- Parse
+// A NULL field yields an empty optional, rather than an error.
+// There is no serialization counterpart yet: serialize_field_traits has no way
+// to express a NULL parameter.
 template <class T>
-struct field_parse;
-
-template <typename T>
-struct field_parse<std::optional<T>>
+struct parse_field_traits<std::optional<T>>
 {
     static_assert(
-        !is_optional_v<T>,
+        !detail::is_optional_v<T>,
         "Nested std::optional (e.g. std::optional<std::optional<T>>) is not supported"
     );
 
-    static boost::system::error_code call(
+    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    {
+        return field_is_compatible<T>(desc);
+    }
+
+    static boost::system::error_code parse(
         field_view from,
         const protocol::field_description& desc,
         std::optional<T>& to
@@ -73,10 +67,10 @@ struct field_parse<std::optional<T>>
             to.reset();
             return boost::system::error_code{};
         }
-        return field_parse<T>::call(from, desc, to.emplace());
+        return field_parse(from, desc, to.emplace());
     }
 };
 
-}  // namespace nativepg::detail
+}  // namespace nativepg
 
 #endif

@@ -43,10 +43,10 @@ public:
     parameter_ref(const T& value) noexcept
         : value_(&value),
           text_(&do_serialize_text<T>),
-          binary_(&do_serialize_binary<T>()),
+          binary_(&do_serialize_binary<T>),
           oid_(field_serialize_oid<T>)
     {
-        static_assert(serializable_field<T>);
+        static_assert(serializable_field<T>);  // TODO: could we make the error messages clearer here?
     }
 
     std::int32_t type_oid() const { return oid_; }

@@ -12,7 +12,6 @@
 #include <boost/system/error_code.hpp>
 #include <boost/system/result.hpp>
 #include <boost/throw_exception.hpp>
-#include <boost/variant2/variant.hpp>
 
 #include <array>
 #include <charconv>
@@ -745,6 +744,11 @@ void nativepg::protocol::any_backend_message::throw_invalid_argument()
     BOOST_THROW_EXCEPTION(std::invalid_argument("any_backend_message: kind mismatch"));
 }
 
+void nativepg::protocol::format_codes::throw_invalid_argument()
+{
+    BOOST_THROW_EXCEPTION(std::invalid_argument("format_codes: kind mismatch"));
+}
+
 struct nativepg::protocol::detail::bind_context_access
 {
     static std::size_t num_params(const bind_context& ctx) { return ctx.num_params_; }
@@ -753,39 +757,32 @@ struct nativepg::protocol::detail::bind_context_access
 
 namespace {
 
-struct format_codes_serializer
+void serialize_fmt_codes(const format_codes& fmt_codes, detail::serialization_context& ctx)
 {
-    detail::serialization_context& ctx;
+    switch (fmt_codes.type())
+    {
+        case format_codes::kind::all_text: ctx.add_integral(static_cast<std::int16_t>(0u)); break;
+        case format_codes::kind::all_binary:
+            ctx.add_integral(static_cast<std::int16_t>(1u));
+            ctx.add_integral(static_cast<std::int16_t>(1u));
+            break;
+        case format_codes::kind::list:
+        {
+            const auto codes = fmt_codes.get_list();
 
-    void operator()(format_code f) const
-    {
-        if (f == format_code::text)
-            ctx.add_integral(static_cast<std::int16_t>(0u));
-        else
-        {
-            ctx.add_integral(static_cast<std::int16_t>(1u));
-            ctx.add_integral(static_cast<std::int16_t>(1u));
-        }
-    }
-    void operator()(boost::span<const format_code> codes) const
-    {
-        // Size check
-        if (codes.size() > (std::numeric_limits<std::int16_t>::max)())
-        {
-            ctx.add_error(nativepg::client_errc::value_too_big);
-        }
-        else
-        {
+            // Size check
+            if (codes.size() > (std::numeric_limits<std::int16_t>::max)())
+            {
+                ctx.add_error(nativepg::client_errc::value_too_big);
+                break;
+            }
+
             ctx.add_integral(static_cast<std::int16_t>(codes.size()));
             for (auto c : codes)
                 ctx.add_integral(static_cast<std::int16_t>(c));
+            break;
         }
     }
-};
-
-void serialize_fmt_codes(const bind::format_codes& fmt_codes, detail::serialization_context& ctx)
-{
-    boost::variant2::visit(format_codes_serializer{ctx}, fmt_codes);
 }
 
 void serialize_params(
@@ -825,8 +822,9 @@ void nativepg::protocol::bind_context::maybe_finish_parameter()
         return;
 
     // Compute the size of the parameter, as the number of bytes added by the user minus the header
-    // TODO: Assert is wrong. Fix this for sql that has escaped values (?) buff_ seems to contain the sql statement?
-    //BOOST_ASSERT(buff_.size() > param_offset_ + 4u);
+    // TODO: Assert is wrong. Fix this for sql that has escaped values (?) buff_ seems to contain the sql
+    // statement?
+    // BOOST_ASSERT(buff_.size() > param_offset_ + 4u);
     std::size_t param_size = buff_.size() - param_offset_ - 4u;
 
     // If the size exceeds INT32_MAX, error

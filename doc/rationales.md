@@ -21,3 +21,9 @@ There are rare cases where the C++ values can't be represented in the
 protocol types, and the errors can't be detected at compile time.
 For example, the protocol rejects values longer than 2^31 (length > `INT32_MAX`).
 These can happen in C++ (`std::size_t` is always unsigned).
+
+## Why are types associated with a single OID during serialization, but with many during parsing?
+
+PostgreSQL already performs a level of type coercion. Passing Postgres an `int4` where an `int8` is
+required works. Accepting several C++ types for a single Postgres type during parsing
+(i.e. `int4` being compatible with `std::int32_t` and `std::int64_t`) implements similar type coercion rules in the C++ side.

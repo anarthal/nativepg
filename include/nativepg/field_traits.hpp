@@ -25,14 +25,55 @@ struct is_unspecialized
 };
 }  // namespace detail
 
-// Base templates. Specialize these to add support for your own types.
-// Specializations for the built-in type mappings live in the
-// nativepg/detail/field_traits_*.hpp headers, included at the bottom of this file.
+/**
+ * Specialize this template to add parsing support for your own types.
+ * Such types can then be used in structs to be passed to `into`, for example.
+ *
+ * The traits struct must declare the following functions
+ * (have a look at the `parsable_field` concept for reference):
+ *
+ *  - is_compatible: determines whether the given type is compatible
+ *    with a field retrieved from the database. Invoked once per query,
+ *    before parsing any data. Try to detect as much errors as possible
+ *    here, as this function is invoked only once, while parsing
+ *    is invoked once per row. Signature:
+ *
+ *    static error_code is_compatible(const protocol::field_description&);
+ *
+ *  - parse: performs the actual parsing. Return an error if the value can't
+ *    be represented in your type. field_view is non-owning and can represent
+ *    database NULLs - remember to check for these. Signature:
+ *
+ *    static error_code parse(field_view, const protocol::field_description&, T&)
+ *
+ */
 template <class T>
 struct parse_field_traits : detail::is_unspecialized
 {
 };
 
+/**
+ * Specialize this template to add serialization support for your own types.
+ * Such types can then be used as parameters in `request`, for example.
+ *
+ * The traits struct must declare the following functions
+ * (have a look at the `serializable_field` concept for reference):
+ *
+ *  - oid: the Postgres type OID that this C++ type corresponds to.
+ *    This should match with how the value is serialized, especially
+ *    when using the binary format. For example, a 2-byte integer type
+ *    should be assigned the int2 type OID.
+ *
+ *  - serialize_text: serialized the value into a buffer, using the text
+ *    format. If the value is not representable in the corresponding protocol
+ *    type, an error can be returned. Signature:
+ *
+ *    static error_code serialize_text(const T& value, std::vector<unsigned char>& buffer)
+ *
+ *  - serialize_binary: same, but using the binary format. Signature:
+ *
+ *    static error_code serialize_binary(const T& value, std::vector<unsigned char>& buffer)
+ */
 template <class T>
 struct serialize_field_traits : detail::is_unspecialized
 {

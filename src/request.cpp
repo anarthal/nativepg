@@ -78,10 +78,11 @@ request& request::add_bind(
                     for (const parameter_ref& param : params)
                     {
                         ctx.start_parameter();
-                        if (param_format == protocol::format_code::binary)
-                            param.serialize_binary(ctx.buffer());
-                        else
-                            param.serialize_text(ctx.buffer());
+                        const auto ec = param_format == protocol::format_code::binary
+                                            ? param.serialize_binary(ctx.buffer())
+                                            : param.serialize_text(ctx.buffer());
+                        if (ec)
+                            ctx.add_error(ec);
                     }
                 },
             .result_fmt_codes = result_format,

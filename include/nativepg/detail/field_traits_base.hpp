@@ -379,12 +379,12 @@ struct serialize_field_traits<std::int16_t>
 {
     static constexpr std::int32_t oid = detail::int2_oid;
 
-    static void serialize_text(std::int16_t value, std::vector<unsigned char>& to)
+    static boost::system::error_code serialize_text(std::int16_t value, std::vector<unsigned char>& to)
     {
         return types::serialize_text_int(value, to);
     }
 
-    static void serialize_binary(std::int16_t value, std::vector<unsigned char>& to)
+    static boost::system::error_code serialize_binary(std::int16_t value, std::vector<unsigned char>& to)
     {
         return types::serialize_binary_int(value, to);
     }
@@ -396,12 +396,12 @@ struct serialize_field_traits<std::int32_t>
 {
     static constexpr std::int32_t oid = detail::int4_oid;
 
-    static void serialize_text(std::int32_t value, std::vector<unsigned char>& to)
+    static boost::system::error_code serialize_text(std::int32_t value, std::vector<unsigned char>& to)
     {
         return types::serialize_text_int(value, to);
     }
 
-    static void serialize_binary(std::int32_t value, std::vector<unsigned char>& to)
+    static boost::system::error_code serialize_binary(std::int32_t value, std::vector<unsigned char>& to)
     {
         return types::serialize_binary_int(value, to);
     }
@@ -413,12 +413,12 @@ struct serialize_field_traits<std::int64_t>
 {
     static constexpr std::int32_t oid = detail::int8_oid;
 
-    static void serialize_text(std::int64_t value, std::vector<unsigned char>& to)
+    static boost::system::error_code serialize_text(std::int64_t value, std::vector<unsigned char>& to)
     {
         return types::serialize_text_int(value, to);
     }
 
-    static void serialize_binary(std::int64_t value, std::vector<unsigned char>& to)
+    static boost::system::error_code serialize_binary(std::int64_t value, std::vector<unsigned char>& to)
     {
         return types::serialize_binary_int(value, to);
     }
@@ -430,12 +430,12 @@ struct serialize_field_traits<T>
 {
     static constexpr std::int32_t oid = detail::text_oid;
 
-    static void serialize_text(std::string_view value, std::vector<unsigned char>& to)
+    static boost::system::error_code serialize_text(std::string_view value, std::vector<unsigned char>& to)
     {
         return types::serialize_text_text(value, to);
     }
 
-    static void serialize_binary(std::string_view value, std::vector<unsigned char>& to)
+    static boost::system::error_code serialize_binary(std::string_view value, std::vector<unsigned char>& to)
     {
         return types::serialize_binary_text(value, to);
     }

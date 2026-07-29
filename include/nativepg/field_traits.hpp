@@ -79,12 +79,16 @@ concept serializable_field =
         // If you are seeing an error message pointing to this expression,
         // your serialize_text function in the serialize_field_traits specialization
         // for your type is missing or has an incorrect shape.
-        serialize_field_traits<T>::serialize_text(value, to);
+        {
+            serialize_field_traits<T>::serialize_text(value, to)
+        } -> std::convertible_to<boost::system::error_code>;
 
         // If you are seeing an error message pointing to this expression,
         // your serialize_binary function in the serialize_field_traits specialization
         // for your type is missing or has an incorrect shape.
-        serialize_field_traits<T>::serialize_binary(value, to);
+        {
+            serialize_field_traits<T>::serialize_binary(value, to)
+        } -> std::convertible_to<boost::system::error_code>;
     };
 
 // Now if you, as a user, want to add support for a type, you specialize any of these.
@@ -106,13 +110,13 @@ template <serializable_field T>
 inline constexpr std::int32_t field_serialize_oid = serialize_field_traits<T>::oid;
 
 template <serializable_field T>
-void field_serialize_text(const T& value, std::vector<unsigned char>& to)
+boost::system::error_code field_serialize_text(const T& value, std::vector<unsigned char>& to)
 {
     return serialize_field_traits<T>::serialize_text(value, to);
 }
 
 template <serializable_field T>
-void field_serialize_binary(const T& value, std::vector<unsigned char>& to)
+boost::system::error_code field_serialize_binary(const T& value, std::vector<unsigned char>& to)
 {
     return serialize_field_traits<T>::serialize_binary(value, to);
 }

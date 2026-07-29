@@ -14,11 +14,11 @@
 #include <algorithm>
 #include <charconv>
 #include <cstddef>
-#include <format>
 #include <iterator>
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"

@@ -424,23 +424,6 @@ struct serialize_field_traits<std::int64_t>
     }
 };
 
-// OID
-template <>
-struct serialize_field_traits<std::uint32_t>
-{
-    static constexpr std::int32_t oid = detail::oid_oid;
-
-    static void serialize_text(std::uint32_t value, std::vector<unsigned char>& to)
-    {
-        return types::serialize_text_int(value, to);
-    }
-
-    static void serialize_binary(std::uint32_t value, std::vector<unsigned char>& to)
-    {
-        return types::serialize_binary_int(value, to);
-    }
-};
-
 // TEXT. Unlike parsing, anything convertible to std::string_view is considered a string
 template <std::convertible_to<std::string_view> T>
 struct serialize_field_traits<T>

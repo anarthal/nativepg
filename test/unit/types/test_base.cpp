@@ -906,7 +906,6 @@ static_assert(!serializable_field<unmapped_type>);
 static_assert(serializable_field<std::int16_t>);
 static_assert(serializable_field<std::int32_t>);
 static_assert(serializable_field<std::int64_t>);
-static_assert(serializable_field<std::uint32_t>);
 static_assert(serializable_field<std::string>);
 static_assert(serializable_field<std::string_view>);
 

@@ -11,13 +11,13 @@
 #include <boost/compat/function_ref.hpp>
 #include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
-#include <boost/variant2/variant.hpp>
 
 #include <cstddef>
 #include <string_view>
 #include <vector>
 
 #include "nativepg/protocol/common.hpp"
+#include "nativepg/protocol/format_codes.hpp"
 
 namespace nativepg {
 namespace protocol {
@@ -75,12 +75,6 @@ public:
 
 struct bind
 {
-    // TODO: should we have a generator option here, too?
-    // TODO: maybe this should be a standalone type?
-    // If a format_code, sends only this format code (does this even work for binary?)
-    // Otherwise, sends an array of format codes
-    using format_codes = boost::variant2::variant<format_code, boost::span<const format_code>>;
-
     // The name of the destination portal (an empty string selects the unnamed portal).
     std::string_view portal_name;
 

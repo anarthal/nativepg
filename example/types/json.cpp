@@ -88,7 +88,7 @@ static asio::awaitable<void> json_binary_example(connection& conn)
         .add_execute(
             "json_bintest",
             {R"json({ "name": "John", "age": 30, "address": { "street": "Main St", "city": "New York" }})json"},
-            request::param_format::text,
+            protocol::format_code::text,
             protocol::format_code::binary,
             1
         );
@@ -158,7 +158,7 @@ static asio::awaitable<void> jsonb_binary_example(connection& conn)
         .add_execute(
             "jsonb_bintest",
             {R"json({ "name": "John", "age": 30, "address": { "street": "Main St", "city": "New York" }})json"},
-            request::param_format::text,
+            protocol::format_code::text,
             protocol::format_code::binary,
             1
         );

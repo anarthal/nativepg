@@ -109,7 +109,7 @@ static asio::awaitable<void> date_binary_example(connection& conn)
         .add_execute(
             "date_bintest",
             {"1977-06-21"},
-            request::param_format::text,
+            protocol::format_code::text,
             protocol::format_code::binary,
             1
         );
@@ -172,7 +172,7 @@ static asio::awaitable<void> time_binary_example(connection& conn)
         .add_execute(
             "bintest",
             {"12:34:23.43535"},
-            request::param_format::text,
+            protocol::format_code::text,
             protocol::format_code::binary,
             1
         );
@@ -236,7 +236,7 @@ static asio::awaitable<void> timetz_binary_example(connection& conn)
         .add_execute(
             "timetz_bintest",
             {"12:34:23.43535+05:00"},
-            request::param_format::text,
+            protocol::format_code::text,
             protocol::format_code::binary,
             1
         );
@@ -301,7 +301,7 @@ static asio::awaitable<void> timestamp_binary_example(connection& conn)
         .add_execute(
             "timestamp_bintest",
             {"2026-02-08 12:34:23.43535"},
-            request::param_format::text,
+            protocol::format_code::text,
             protocol::format_code::binary,
             1
         );
@@ -364,7 +364,7 @@ static asio::awaitable<void> timestamptz_binary_example(connection& conn)
         .add_execute(
             "timestamptz_bintest",
             {"2026-02-08 12:34:23.43535+05:00"},
-            request::param_format::text,
+            protocol::format_code::text,
             protocol::format_code::binary,
             1
         );
@@ -429,7 +429,7 @@ static asio::awaitable<void> interval_binary_example(connection& conn)
         .add_execute(
             "interval_bintest",
             {"1977 years 6 months 21 days 12:34:23.43535"},
-            request::param_format::text,
+            protocol::format_code::text,
             protocol::format_code::binary,
             1
         );

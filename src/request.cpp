@@ -19,22 +19,11 @@
 
 using namespace nativepg;
 
-static protocol::format_code compute_format(request::param_format fmt, std::span<const parameter_ref>)
-{
-    switch (fmt)
-    {
-        // TODO: if we go down "we always support binary", remove this
-        case request::param_format::binary: return protocol::format_code::binary;
-        case request::param_format::text:
-        default: return protocol::format_code::text;
-    }
-}
-
 request& request::add_query(
     std::string_view q,
     std::span<const parameter_ref> params,
-    param_format fmt,
-    protocol::format_code result_codes,
+    protocol::format_code param_format,
+    protocol::format_code result_format,
     std::int32_t max_num_rows
 )
 {
@@ -47,7 +36,7 @@ request& request::add_query(
 
     // Add the messages
     add(protocol::parse_t{.statement_name = {}, .query = q, .parameter_type_oids = oids});
-    add_execute({}, params, fmt, result_codes, max_num_rows);
+    add_execute({}, params, param_format, result_format, max_num_rows);
 
     return *this;
 }
@@ -55,12 +44,12 @@ request& request::add_query(
 request& request::add_execute(
     std::string_view statement_name,
     std::span<const parameter_ref> params,
-    param_format fmt,
-    protocol::format_code result_codes,
+    protocol::format_code param_format,
+    protocol::format_code result_format,
     std::int32_t max_num_rows
 )
 {
-    add_bind(statement_name, params, fmt, {}, result_codes);
+    add_bind(statement_name, params, param_format, {}, result_format);
     add(protocol::describe{protocol::portal_or_statement::portal, {}});
     add(protocol::execute{
         .portal_name = {},
@@ -74,29 +63,28 @@ request& request::add_execute(
 request& request::add_bind(
     std::string_view statement_name,
     std::span<const parameter_ref> params,
-    param_format fmt,
+    protocol::format_code param_format,
     std::string_view portal_name,
-    protocol::format_code result_fmt_codes
+    protocol::format_code result_format
 )
 {
-    auto fmt_code = compute_format(fmt, params);
     return add(
         protocol::bind{
             .portal_name = portal_name,
             .statement_name = statement_name,
-            .parameter_fmt_codes = fmt_code,
+            .parameter_fmt_codes = param_format,
             .parameters_fn =
-                [params, fmt_code](protocol::bind_context& ctx) {
+                [params, param_format](protocol::bind_context& ctx) {
                     for (const parameter_ref& param : params)
                     {
                         ctx.start_parameter();
-                        if (fmt_code == protocol::format_code::binary)
+                        if (param_format == protocol::format_code::binary)
                             param.serialize_binary(ctx.buffer());
                         else
                             param.serialize_text(ctx.buffer());
                     }
                 },
-            .result_fmt_codes = result_fmt_codes,
+            .result_fmt_codes = result_format,
         }
     );
 }

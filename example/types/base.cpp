@@ -203,7 +203,7 @@ static asio::awaitable<void> execute_and_print_binary_response(
 {
     // Use the prepared statement
     request req{false};
-    req.add_execute(stmnt.name, params, request::param_format::text, protocol::format_code::binary, 1);
+    req.add_execute(stmnt.name, params, protocol::format_code::text, protocol::format_code::binary, 1);
     req.add_sync();
 
     // Structures to parse the response into

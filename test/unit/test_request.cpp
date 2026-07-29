@@ -121,7 +121,7 @@ void test_query()
 void test_query_text()
 {
     request req;
-    req.add_query("SELECT $1, $2", {std::int32_t(42), "value"}, request::param_format::text);
+    req.add_query("SELECT $1, $2", {std::int32_t(42), "value"}, protocol::format_code::text);
 
     // clang-format off
     check_payload(req, {
@@ -280,7 +280,7 @@ void test_execute_typed_optional_args()
 {
     statement<std::int32_t, std::string_view> stmt{"myname"};
     request req;
-    req.add_execute(stmt.bind(42, "value"), request::param_format::binary, protocol::format_code::binary, 2);
+    req.add_execute(stmt.bind(42, "value"), protocol::format_code::binary, protocol::format_code::binary, 2);
 
     // clang-format off
     check_payload(req, {

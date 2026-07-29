@@ -93,13 +93,6 @@ class request
     }
 
 public:
-    // TODO: we should revisit this, it may make
-    enum class param_format
-    {
-        text,    // Use text for all params
-        binary,  // Use binary for all params
-    };
-
     // When autosync is enabled, sync messages are added automatically.
     // You may disable autosync and add syncs manually to achieve certain
     // pipeline patterns. This is an advanced feature, don't use it if you
@@ -120,19 +113,25 @@ public:
     request& add_query(
         std::string_view q,
         std::initializer_list<parameter_ref> params,
-        param_format fmt = param_format::binary,
-        protocol::format_code result_codes = protocol::format_code::text,
+        protocol::format_code param_format = protocol::format_code::binary,
+        protocol::format_code result_format = protocol::format_code::text,
         std::int32_t max_num_rows = 0
     )
     {
-        return add_query(q, std::span<const parameter_ref>(params), fmt, result_codes, max_num_rows);
+        return add_query(
+            q,
+            std::span<const parameter_ref>(params),
+            param_format,
+            result_format,
+            max_num_rows
+        );
     }
 
     request& add_query(
         std::string_view q,
         std::span<const parameter_ref> params,
-        param_format fmt = param_format::binary,
-        protocol::format_code result_codes = protocol::format_code::text,
+        protocol::format_code param_format = protocol::format_code::binary,
+        protocol::format_code result_format = protocol::format_code::text,
         std::int32_t max_num_rows = 0
     );
 
@@ -166,16 +165,16 @@ public:
     request& add_execute(
         std::string_view statement_name,
         std::initializer_list<parameter_ref> params,
-        param_format fmt = param_format::text,
-        protocol::format_code result_codes = protocol::format_code::text,
+        protocol::format_code param_format = protocol::format_code::text,
+        protocol::format_code result_format = protocol::format_code::text,
         std::int32_t max_num_rows = 0
     )
     {
         return add_execute(
             statement_name,
             std::span<const parameter_ref>(params),
-            fmt,
-            result_codes,
+            param_format,
+            result_format,
             max_num_rows
         );
     }
@@ -183,8 +182,8 @@ public:
     request& add_execute(
         std::string_view statement_name,
         std::span<const parameter_ref> params,
-        param_format fmt = param_format::text,
-        protocol::format_code result_codes = protocol::format_code::text,
+        protocol::format_code param_format = protocol::format_code::text,
+        protocol::format_code result_format = protocol::format_code::text,
         std::int32_t max_num_rows = 0
     );
 
@@ -192,12 +191,12 @@ public:
     template <std::size_t N>
     request& add_execute(
         const bound_statement<N>& stmt,
-        param_format fmt = param_format::binary,
-        protocol::format_code result_codes = protocol::format_code::text,
+        protocol::format_code param_format = protocol::format_code::binary,
+        protocol::format_code result_format = protocol::format_code::text,
         std::int32_t max_num_rows = 0
     )
     {
-        return add_execute(stmt.name, stmt.params, fmt, result_codes, max_num_rows);
+        return add_execute(stmt.name, stmt.params, param_format, result_format, max_num_rows);
     }
 
     // Describes a named prepared statement (PQsendDescribePrepared)
@@ -236,37 +235,37 @@ public:
     request& add_bind(
         std::string_view statement_name,
         std::initializer_list<const parameter_ref> params,
-        param_format fmt = param_format::text,
+        protocol::format_code param_format = protocol::format_code::text,
         std::string_view portal_name = {},
-        protocol::format_code result_fmt_codes = protocol::format_code::text
+        protocol::format_code result_format = protocol::format_code::text
     )
     {
         return add_bind(
             statement_name,
             std::span<const parameter_ref>(params),
-            fmt,
+            param_format,
             portal_name,
-            result_fmt_codes
+            result_format
         );
     }
 
     request& add_bind(
         std::string_view statement_name,
         std::span<const parameter_ref> params,
-        param_format fmt = param_format::text,
+        protocol::format_code param_format = protocol::format_code::text,
         std::string_view portal_name = {},
-        protocol::format_code result_fmt_codes = protocol::format_code::text
+        protocol::format_code result_format = protocol::format_code::text
     );
 
     template <std::size_t N>
     request& add_bind(
         const bound_statement<N>& stmt,
-        param_format fmt = param_format::binary,
+        protocol::format_code param_format = protocol::format_code::binary,
         std::string_view portal_name = {},
-        protocol::format_code result_codes = protocol::format_code::text
+        protocol::format_code result_format = protocol::format_code::text
     )
     {
-        return add_bind(stmt.name, stmt.params, fmt, portal_name, result_codes);
+        return add_bind(stmt.name, stmt.params, param_format, portal_name, result_format);
     }
 
     request& add_sync() { return add(protocol::sync{}); }

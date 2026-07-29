@@ -24,7 +24,7 @@ static protocol::format_code compute_format(request::param_format fmt, std::span
     switch (fmt)
     {
         // TODO: if we go down "we always support binary", remove this
-        case request::param_format::select_best: return protocol::format_code::binary;
+        case request::param_format::binary: return protocol::format_code::binary;
         case request::param_format::text:
         default: return protocol::format_code::text;
     }

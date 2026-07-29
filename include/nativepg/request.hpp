@@ -93,10 +93,11 @@ class request
     }
 
 public:
+    // TODO: we should revisit this, it may make
     enum class param_format
     {
-        text,         // Use text for all params
-        select_best,  // Let the library select what's best, depending on what each parameter supports
+        text,    // Use text for all params
+        binary,  // Use binary for all params
     };
 
     // When autosync is enabled, sync messages are added automatically.
@@ -119,7 +120,7 @@ public:
     request& add_query(
         std::string_view q,
         std::initializer_list<parameter_ref> params,
-        param_format fmt = param_format::select_best,
+        param_format fmt = param_format::binary,
         protocol::format_code result_codes = protocol::format_code::text,
         std::int32_t max_num_rows = 0
     )
@@ -130,7 +131,7 @@ public:
     request& add_query(
         std::string_view q,
         std::span<const parameter_ref> params,
-        param_format fmt = param_format::select_best,
+        param_format fmt = param_format::binary,
         protocol::format_code result_codes = protocol::format_code::text,
         std::int32_t max_num_rows = 0
     );
@@ -191,7 +192,7 @@ public:
     template <std::size_t N>
     request& add_execute(
         const bound_statement<N>& stmt,
-        param_format fmt = param_format::select_best,
+        param_format fmt = param_format::binary,
         protocol::format_code result_codes = protocol::format_code::text,
         std::int32_t max_num_rows = 0
     )
@@ -260,7 +261,7 @@ public:
     template <std::size_t N>
     request& add_bind(
         const bound_statement<N>& stmt,
-        param_format fmt = param_format::select_best,
+        param_format fmt = param_format::binary,
         std::string_view portal_name = {},
         protocol::format_code result_codes = protocol::format_code::text
     )

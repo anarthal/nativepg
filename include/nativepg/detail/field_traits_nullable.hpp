@@ -43,7 +43,7 @@ namespace nativepg {
 // A NULL field yields an empty optional, rather than an error.
 // There is no serialization counterpart yet: serialize_field_traits has no way
 // to express a NULL parameter.
-template <class T>
+template <parsable_field T>
 struct parse_field_traits<std::optional<T>>
 {
     static_assert(

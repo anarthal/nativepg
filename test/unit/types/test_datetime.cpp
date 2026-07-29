@@ -12,13 +12,13 @@
 #include <format>
 #include <sstream>
 #include <string>
+#include <boost/core/span.hpp>
 
-#include "nativepg/detail/field_traits.hpp"
-#include "nativepg/protocol/describe.hpp"
 
 #include "nativepg/types/datetime.hpp"
 
 using namespace nativepg;
+using boost::system::error_code;
 
 namespace {
 
@@ -269,6 +269,8 @@ void test__parse_binary_interval__success()
     BOOST_TEST_EQ(inv.time.count(), 1);
 }
 }  // namespace
+
+// TODO: traits tests missing
 
 int main()
 {

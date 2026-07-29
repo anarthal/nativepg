@@ -16,7 +16,7 @@
 #include <sstream>
 #include <string>
 
-#include "nativepg/detail/field_traits.hpp"
+#include "nativepg/field_traits.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/decimal.hpp"
 
@@ -145,12 +145,12 @@ protocol::field_description make_field_description(
 }
 
 //
-// detail::field_is_compatible / detail::field_parse (field_traits_decimal.hpp)
+// field_is_compatible / field_parse (field_traits_decimal.hpp)
 //
 void test_field_is_compatible_decimal_success()
 {
     BOOST_TEST_EQ(
-        detail::field_is_compatible<bd::decimal64_t>::call(make_field_description(detail::decimal_oid)),
+        field_is_compatible<bd::decimal64_t>(make_field_description(detail::decimal_oid)),
         boost::system::error_code{}
     );
 }
@@ -158,7 +158,7 @@ void test_field_is_compatible_decimal_success()
 void test_field_is_compatible_decimal_incompatible_error()
 {
     BOOST_TEST_EQ(
-        detail::field_is_compatible<bd::decimal64_t>::call(make_field_description(23 /* int4 oid */)),
+        field_is_compatible<bd::decimal64_t>(make_field_description(23 /* int4 oid */)),
         boost::system::error_code(client_errc::incompatible_field_type)
     );
 }
@@ -171,7 +171,7 @@ void test_field_parse_decimal_unexpected_null_error()
     const auto desc = make_field_description(detail::decimal_oid);
 
     // Act
-    auto err = detail::field_parse<bd::decimal64_t>::call(fv, desc, out_val);
+    auto err = field_parse(fv, desc, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::error_code(client_errc::unexpected_null));
@@ -187,7 +187,7 @@ void test_field_parse_decimal_text_success()
     const auto desc = make_field_description(detail::decimal_oid, protocol::format_code::text);
 
     // Act
-    auto err = detail::field_parse<bd::decimal64_t>::call(fv, desc, out_val);
+    auto err = field_parse(fv, desc, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::error_code{});
@@ -205,7 +205,7 @@ void test_field_parse_decimal_binary_success()
     const auto desc = make_field_description(detail::decimal_oid, protocol::format_code::binary);
 
     // Act
-    auto err = detail::field_parse<bd::decimal64_t>::call(fv, desc, out_val);
+    auto err = field_parse(fv, desc, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::error_code{});
@@ -317,7 +317,7 @@ int main()
     test_parse_binary_decimal_error<d32>(pg_too_short, parse_error);
     test_parse_binary_decimal_error<d32>(pg_truncated, parse_error);
 
-    // detail::field_is_compatible / detail::field_parse (field_traits_decimal.hpp)
+    // field_is_compatible / field_parse (field_traits_decimal.hpp)
     test_field_is_compatible_decimal_success();
     test_field_is_compatible_decimal_incompatible_error();
     test_field_parse_decimal_unexpected_null_error();

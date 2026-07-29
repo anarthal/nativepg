@@ -10,17 +10,20 @@
 #include <boost/system/error_code.hpp>
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <format>
 #include <iomanip>
 #include <limits>
+#include <optional>
 #include <span>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
-#include "nativepg/detail/field_traits.hpp"
+#include "nativepg/field_traits.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/base.hpp"
 
@@ -625,12 +628,12 @@ void test_parse_binary_text_success(const T& in_val)
 }
 
 //
-// detail::field_is_compatible / detail::field_parse (field_traits_base.hpp)
+// field_is_compatible / field_parse (field_traits_base.hpp)
 //
 void test_field_is_compatible_bool_success()
 {
     BOOST_TEST_EQ(
-        detail::field_is_compatible<bool>::call(make_field_description(detail::bool_oid)),
+        field_is_compatible<bool>(make_field_description(detail::bool_oid)),
         boost::system::errc::success
     );
 }
@@ -638,7 +641,7 @@ void test_field_is_compatible_bool_success()
 void test_field_is_compatible_bool_incompatible_error()
 {
     BOOST_TEST_EQ(
-        detail::field_is_compatible<bool>::call(make_field_description(detail::int4_oid)),
+        field_is_compatible<bool>(make_field_description(detail::int4_oid)),
         error_code(client_errc::incompatible_field_type)
     );
 }
@@ -647,11 +650,11 @@ void test_field_is_compatible_int_widening_success()
 {
     // A smaller wire type is compatible with a wider C++ type
     BOOST_TEST_EQ(
-        detail::field_is_compatible<std::int32_t>::call(make_field_description(detail::int2_oid)),
+        field_is_compatible<std::int32_t>(make_field_description(detail::int2_oid)),
         boost::system::errc::success
     );
     BOOST_TEST_EQ(
-        detail::field_is_compatible<std::int64_t>::call(make_field_description(detail::int4_oid)),
+        field_is_compatible<std::int64_t>(make_field_description(detail::int4_oid)),
         boost::system::errc::success
     );
 }
@@ -660,11 +663,11 @@ void test_field_is_compatible_int_narrowing_error()
 {
     // A wider wire type is not compatible with a narrower C++ type
     BOOST_TEST_EQ(
-        detail::field_is_compatible<std::int16_t>::call(make_field_description(detail::int4_oid)),
+        field_is_compatible<std::int16_t>(make_field_description(detail::int4_oid)),
         error_code(client_errc::incompatible_field_type)
     );
     BOOST_TEST_EQ(
-        detail::field_is_compatible<std::int32_t>::call(make_field_description(detail::int8_oid)),
+        field_is_compatible<std::int32_t>(make_field_description(detail::int8_oid)),
         error_code(client_errc::incompatible_field_type)
     );
 }
@@ -672,19 +675,19 @@ void test_field_is_compatible_int_narrowing_error()
 void test_field_is_compatible_string_success()
 {
     BOOST_TEST_EQ(
-        detail::field_is_compatible<std::string>::call(make_field_description(detail::text_oid)),
+        field_is_compatible<std::string>(make_field_description(detail::text_oid)),
         boost::system::errc::success
     );
     BOOST_TEST_EQ(
-        detail::field_is_compatible<std::string>::call(make_field_description(detail::varchar_oid)),
+        field_is_compatible<std::string>(make_field_description(detail::varchar_oid)),
         boost::system::errc::success
     );
     BOOST_TEST_EQ(
-        detail::field_is_compatible<std::string>::call(make_field_description(detail::name_oid)),
+        field_is_compatible<std::string>(make_field_description(detail::name_oid)),
         boost::system::errc::success
     );
     BOOST_TEST_EQ(
-        detail::field_is_compatible<std::string>::call(make_field_description(detail::bpchar_oid)),
+        field_is_compatible<std::string>(make_field_description(detail::bpchar_oid)),
         boost::system::errc::success
     );
 }
@@ -692,7 +695,7 @@ void test_field_is_compatible_string_success()
 void test_field_is_compatible_char_success()
 {
     BOOST_TEST_EQ(
-        detail::field_is_compatible<char>::call(make_field_description(detail::char_oid)),
+        field_is_compatible<char>(make_field_description(detail::char_oid)),
         boost::system::errc::success
     );
 }
@@ -700,7 +703,7 @@ void test_field_is_compatible_char_success()
 void test_field_is_compatible_char_incompatible_error()
 {
     BOOST_TEST_EQ(
-        detail::field_is_compatible<char>::call(make_field_description(detail::text_oid)),
+        field_is_compatible<char>(make_field_description(detail::text_oid)),
         error_code(client_errc::incompatible_field_type)
     );
 }
@@ -708,7 +711,7 @@ void test_field_is_compatible_char_incompatible_error()
 void test_field_is_compatible_oid_success()
 {
     BOOST_TEST_EQ(
-        detail::field_is_compatible<std::uint32_t>::call(make_field_description(detail::oid_oid)),
+        field_is_compatible<std::uint32_t>(make_field_description(detail::oid_oid)),
         boost::system::errc::success
     );
 }
@@ -716,7 +719,7 @@ void test_field_is_compatible_oid_success()
 void test_field_is_compatible_oid_incompatible_error()
 {
     BOOST_TEST_EQ(
-        detail::field_is_compatible<std::uint32_t>::call(make_field_description(detail::int4_oid)),
+        field_is_compatible<std::uint32_t>(make_field_description(detail::int4_oid)),
         error_code(client_errc::incompatible_field_type)
     );
 }
@@ -729,7 +732,7 @@ void test_field_parse_unexpected_null_error()
     const auto desc = make_field_description(detail::bool_oid);
 
     // Act
-    auto err = detail::field_parse<bool>::call(fv, desc, b);
+    auto err = field_parse(fv, desc, b);
 
     // Assert
     BOOST_TEST_EQ(err, error_code(client_errc::unexpected_null));
@@ -745,7 +748,7 @@ void test_field_parse_bool_text_success()
     const auto desc = make_field_description(detail::bool_oid, protocol::format_code::text);
 
     // Act
-    auto err = detail::field_parse<bool>::call(fv, desc, b);
+    auto err = field_parse(fv, desc, b);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
@@ -762,7 +765,7 @@ void test_field_parse_char_text_success()
     const auto desc = make_field_description(detail::char_oid, protocol::format_code::text);
 
     // Act
-    auto err = detail::field_parse<char>::call(fv, desc, c);
+    auto err = field_parse(fv, desc, c);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
@@ -777,7 +780,7 @@ void test_field_parse_char_unexpected_null_error()
     const auto desc = make_field_description(detail::char_oid);
 
     // Act
-    auto err = detail::field_parse<char>::call(fv, desc, c);
+    auto err = field_parse(fv, desc, c);
 
     // Assert
     BOOST_TEST_EQ(err, error_code(client_errc::unexpected_null));
@@ -793,7 +796,7 @@ void test_field_parse_oid_text_success()
     const auto desc = make_field_description(detail::oid_oid, protocol::format_code::text);
 
     // Act
-    auto err = detail::field_parse<std::uint32_t>::call(fv, desc, o);
+    auto err = field_parse(fv, desc, o);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
@@ -808,7 +811,7 @@ void test_field_parse_oid_unexpected_null_error()
     const auto desc = make_field_description(detail::oid_oid);
 
     // Act
-    auto err = detail::field_parse<std::uint32_t>::call(fv, desc, o);
+    auto err = field_parse(fv, desc, o);
 
     // Assert
     BOOST_TEST_EQ(err, error_code(client_errc::unexpected_null));
@@ -824,12 +827,98 @@ void test_field_parse_int32_from_int2_wire_success()
     const auto desc = make_field_description(detail::int2_oid, protocol::format_code::binary);
 
     // Act
-    auto err = detail::field_parse<std::int32_t>::call(fv, desc, out_val);
+    auto err = field_parse(fv, desc, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, boost::system::errc::success);
     BOOST_TEST_EQ(out_val, 42);
 }
+
+//
+// Nullable fields (field_traits_nullable.hpp)
+//
+void test_field_is_compatible_optional_delegates_to_value_type()
+{
+    // An optional is compatible with whatever its value type is compatible with
+    BOOST_TEST_EQ(
+        field_is_compatible<std::optional<std::int32_t>>(make_field_description(detail::int2_oid)),
+        error_code()
+    );
+    BOOST_TEST_EQ(
+        field_is_compatible<std::optional<std::int32_t>>(make_field_description(detail::text_oid)),
+        error_code(client_errc::incompatible_field_type)
+    );
+}
+
+void test_field_parse_optional_null_success()
+{
+    // Arrange
+    std::optional<std::int32_t> out_val = 42;
+    field_view fv;  // NULL
+    const auto desc = make_field_description(detail::int4_oid);
+
+    // Act
+    auto err = field_parse(fv, desc, out_val);
+
+    // Assert: a NULL field yields an empty optional, rather than an error
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST(!out_val.has_value());
+}
+
+void test_field_parse_optional_non_null_success()
+{
+    // Arrange
+    std::optional<std::int32_t> out_val;
+    std::string str = "42";
+    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    field_view fv{data};
+    const auto desc = make_field_description(detail::int4_oid, protocol::format_code::text);
+
+    // Act
+    auto err = field_parse(fv, desc, out_val);
+
+    // Assert
+    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST(out_val.has_value());
+    BOOST_TEST_EQ(*out_val, 42);
+}
+
+//
+// parsable_field / serializable_field
+//
+static_assert(parsable_field<bool>);
+static_assert(parsable_field<std::int32_t>);
+static_assert(parsable_field<std::string>);
+static_assert(parsable_field<std::vector<std::byte>>);
+static_assert(parsable_field<std::optional<std::int32_t>>);
+
+// Parsing requires an owning string
+static_assert(!parsable_field<std::string_view>);
+static_assert(!parsable_field<std::optional<std::string_view>>);
+
+// Types without a mapping are rejected
+struct unmapped_type
+{
+};
+static_assert(!parsable_field<unmapped_type>);
+static_assert(!serializable_field<unmapped_type>);
+
+static_assert(serializable_field<std::int16_t>);
+static_assert(serializable_field<std::int32_t>);
+static_assert(serializable_field<std::int64_t>);
+static_assert(serializable_field<std::uint32_t>);
+static_assert(serializable_field<std::string>);
+static_assert(serializable_field<std::string_view>);
+
+// Serialization is not implemented for these yet
+static_assert(!serializable_field<bool>);
+static_assert(!serializable_field<char>);
+static_assert(!serializable_field<float>);
+static_assert(!serializable_field<double>);
+static_assert(!serializable_field<std::vector<std::byte>>);
+static_assert(!serializable_field<std::optional<std::int32_t>>);
+
+// TODO: serialization tests
 
 }  // namespace
 
@@ -938,7 +1027,7 @@ int main()
     test_parse_text_text_success<std::string>("The quick brown fox jumps over the lazy dog!");
     test_parse_binary_text_success<std::string>("The quick brown fox jumps over the lazy dog!");
 
-    // detail::field_is_compatible / detail::field_parse
+    // field_is_compatible / field_parse
     test_field_is_compatible_bool_success();
     test_field_is_compatible_bool_incompatible_error();
     test_field_is_compatible_int_widening_success();
@@ -955,6 +1044,11 @@ int main()
     test_field_parse_oid_text_success();
     test_field_parse_oid_unexpected_null_error();
     test_field_parse_int32_from_int2_wire_success();
+
+    // Nullable fields
+    test_field_is_compatible_optional_delegates_to_value_type();
+    test_field_parse_optional_null_success();
+    test_field_parse_optional_non_null_success();
 
     return boost::report_errors();
 }

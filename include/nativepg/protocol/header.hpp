@@ -8,11 +8,9 @@
 #ifndef NATIVEPG_PROTOCOL_HEADER_HPP
 #define NATIVEPG_PROTOCOL_HEADER_HPP
 
-#include <boost/system/result.hpp>
-
-#include <array>
 #include <cstdint>
 #include <span>
+#include <system_error>
 
 namespace nativepg {
 namespace protocol {

@@ -8,7 +8,7 @@
 #include <boost/charconv/from_chars.hpp>
 #include <boost/charconv/limits.hpp>
 #include <boost/endian/conversion.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 #include <boost/system/result.hpp>
 #include <boost/throw_exception.hpp>
 
@@ -21,7 +21,6 @@
 #include <span>
 #include <stdexcept>
 #include <string_view>
-#include <system_error>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
@@ -98,7 +97,7 @@ enum class authentication_message_type : std::int32_t
 };
 
 template <class MessageType>
-boost::system::result<any_backend_message> parse_impl(std::span<const unsigned char> from)
+boost::system::result<any_backend_message, std::error_code> parse_impl(std::span<const unsigned char> from)
 {
     MessageType res;
     auto ec = nativepg::protocol::parse(from, res);
@@ -107,7 +106,7 @@ boost::system::result<any_backend_message> parse_impl(std::span<const unsigned c
     return res;
 }
 
-boost::system::result<any_backend_message> parse_authentication_request(std::span<const unsigned char> from)
+boost::system::result<any_backend_message, std::error_code> parse_authentication_request(std::span<const unsigned char> from)
 {
     // Get the authentication request type code
     if (from.size() < 4u)
@@ -184,7 +183,7 @@ void populate_field(detail::parse_context& ctx, error_field_type type, error_not
 }
 
 // Shared between errors and notices
-boost::system::error_code parse_error_notice(std::span<const unsigned char> data, error_notice_fields& to)
+std::error_code parse_error_notice(std::span<const unsigned char> data, error_notice_fields& to)
 {
     detail::parse_context ctx(data);
 
@@ -247,7 +246,7 @@ bool is_valid_format_code(overall_format_code v)
 }
 
 // Shared between copy_in_response, copy_out_response, copy_both_response
-boost::system::error_code parse_copy_response(
+std::error_code parse_copy_response(
     std::span<const unsigned char> data,
     format_code& overall_code_output,
     random_access_parsing_view<format_code>& fmt_codes_output
@@ -288,7 +287,7 @@ boost::system::error_code parse_copy_response(
 }
 
 // For messages that only have a header
-boost::system::error_code serialize_header_only(char header, std::vector<unsigned char>& to)
+std::error_code serialize_header_only(char header, std::vector<unsigned char>& to)
 {
     auto buff = serialize_header({static_cast<unsigned char>(header), 4u});
     BOOST_ASSERT(buff.has_value());
@@ -304,7 +303,7 @@ void nativepg::protocol::detail::at_range_check(std::size_t i, std::size_t colle
         BOOST_THROW_EXCEPTION(std::out_of_range("random_access_parsing_view::at"));
 }
 
-boost::system::result<std::array<unsigned char, 5>> nativepg::protocol::serialize_header(
+boost::system::result<std::array<unsigned char, 5>, std::error_code> nativepg::protocol::serialize_header(
     message_header header
 )
 {
@@ -325,7 +324,7 @@ boost::system::result<std::array<unsigned char, 5>> nativepg::protocol::serializ
     return res;
 }
 
-boost::system::result<message_header> nativepg::protocol::parse_header(
+boost::system::result<message_header, std::error_code> nativepg::protocol::parse_header(
     std::span<const unsigned char, 5> from
 )
 {
@@ -341,7 +340,7 @@ boost::system::result<message_header> nativepg::protocol::parse_header(
     return message_header{msg_type, size};
 }
 
-boost::system::error_code nativepg::protocol::parse(
+std::error_code nativepg::protocol::parse(
     std::span<const unsigned char> data,
     backend_key_data& to
 )
@@ -352,7 +351,7 @@ boost::system::error_code nativepg::protocol::parse(
     return ctx.check();
 }
 
-boost::system::error_code nativepg::protocol::parse(
+std::error_code nativepg::protocol::parse(
     std::span<const unsigned char> data,
     authentication_md5_password& to
 )
@@ -362,7 +361,7 @@ boost::system::error_code nativepg::protocol::parse(
     return ctx.check();
 }
 
-boost::system::error_code nativepg::protocol::parse(
+std::error_code nativepg::protocol::parse(
     std::span<const unsigned char> data,
     authentication_sasl& to
 )
@@ -393,7 +392,7 @@ boost::system::error_code nativepg::protocol::parse(
     return ctx.check();
 }
 
-boost::system::error_code nativepg::protocol::parse(
+std::error_code nativepg::protocol::parse(
     std::span<const unsigned char> data,
     command_complete& to
 )
@@ -410,7 +409,7 @@ format_code nativepg::protocol::detail::random_access_traits<format_code>::deref
     return static_cast<format_code>(unchecked_get_integral<std::int16_t>(data));
 }
 
-boost::system::error_code nativepg::protocol::parse(
+std::error_code nativepg::protocol::parse(
     std::span<const unsigned char> data,
     copy_in_response& to
 )
@@ -418,7 +417,7 @@ boost::system::error_code nativepg::protocol::parse(
     return parse_copy_response(data, to.overall_fmt_code, to.fmt_codes);
 }
 
-boost::system::error_code nativepg::protocol::parse(
+std::error_code nativepg::protocol::parse(
     std::span<const unsigned char> data,
     copy_out_response& to
 )
@@ -426,7 +425,7 @@ boost::system::error_code nativepg::protocol::parse(
     return parse_copy_response(data, to.overall_fmt_code, to.fmt_codes);
 }
 
-boost::system::error_code nativepg::protocol::parse(
+std::error_code nativepg::protocol::parse(
     std::span<const unsigned char> data,
     copy_both_response& to
 )
@@ -453,7 +452,7 @@ const unsigned char* nativepg::protocol::detail::forward_traits<nativepg::field_
     return data + 4u + (size > 0 ? size : 0);
 }
 
-boost::system::error_code nativepg::protocol::parse(std::span<const unsigned char> data, data_row& to)
+std::error_code nativepg::protocol::parse(std::span<const unsigned char> data, data_row& to)
 {
     detail::parse_context ctx(data);
 
@@ -505,7 +504,7 @@ const unsigned char* nativepg::protocol::detail::forward_traits<std::string_view
     return data;
 }
 
-boost::system::error_code nativepg::protocol::parse(
+std::error_code nativepg::protocol::parse(
     std::span<const unsigned char> data,
     negotiate_protocol_version& to
 )
@@ -553,12 +552,12 @@ std::optional<std::size_t> nativepg::protocol::error_notice_fields::parsed_line_
     return res;
 }
 
-boost::system::error_code nativepg::protocol::parse(std::span<const unsigned char> data, error_response& to)
+std::error_code nativepg::protocol::parse(std::span<const unsigned char> data, error_response& to)
 {
     return parse_error_notice(data, to);
 }
 
-boost::system::error_code nativepg::protocol::parse(
+std::error_code nativepg::protocol::parse(
     std::span<const unsigned char> data,
     notice_response& to
 )
@@ -566,7 +565,7 @@ boost::system::error_code nativepg::protocol::parse(
     return parse_error_notice(data, to);
 }
 
-boost::system::error_code nativepg::protocol::parse(
+std::error_code nativepg::protocol::parse(
     std::span<const unsigned char> data,
     notification_response& to
 )
@@ -585,7 +584,7 @@ std::int32_t nativepg::protocol::detail::random_access_traits<std::int32_t>::der
     return boost::endian::load_big_s32(ptr);
 }
 
-boost::system::error_code nativepg::protocol::parse(
+std::error_code nativepg::protocol::parse(
     std::span<const unsigned char> data,
     parameter_description&
 )
@@ -604,7 +603,7 @@ boost::system::error_code nativepg::protocol::parse(
     return ctx.check();
 }
 
-boost::system::error_code nativepg::protocol::parse(
+std::error_code nativepg::protocol::parse(
     std::span<const unsigned char> data,
     parameter_status& to
 )
@@ -615,7 +614,7 @@ boost::system::error_code nativepg::protocol::parse(
     return ctx.check();
 }
 
-boost::system::error_code nativepg::protocol::parse(
+std::error_code nativepg::protocol::parse(
     std::span<const unsigned char> data,
     ready_for_query& to
 )
@@ -660,7 +659,7 @@ const unsigned char* nativepg::protocol::detail::forward_traits<field_descriptio
     return data + field_description_fixed_size;
 }
 
-boost::system::error_code nativepg::protocol::parse(
+std::error_code nativepg::protocol::parse(
     std::span<const unsigned char> data,
     row_description& to
 )
@@ -700,7 +699,7 @@ boost::system::error_code nativepg::protocol::parse(
     return ctx.check();
 }
 
-boost::system::result<any_backend_message> nativepg::protocol::parse(
+boost::system::result<any_backend_message, std::error_code> nativepg::protocol::parse(
     std::uint8_t message_type,
     std::span<const unsigned char> data
 )
@@ -840,7 +839,7 @@ void nativepg::protocol::bind_context::maybe_finish_parameter()
     param_offset_ = no_offset;
 }
 
-boost::system::error_code nativepg::protocol::serialize(const bind& msg, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(const bind& msg, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
 
@@ -863,7 +862,7 @@ boost::system::error_code nativepg::protocol::serialize(const bind& msg, std::ve
     return ctx.finalize_message();
 }
 
-boost::system::error_code nativepg::protocol::serialize(const describe& msg, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(const describe& msg, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
 
@@ -878,7 +877,7 @@ boost::system::error_code nativepg::protocol::serialize(const describe& msg, std
     return ctx.finalize_message();
 }
 
-boost::system::error_code nativepg::protocol::serialize(const close& msg, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(const close& msg, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
 
@@ -893,7 +892,7 @@ boost::system::error_code nativepg::protocol::serialize(const close& msg, std::v
     return ctx.finalize_message();
 }
 
-boost::system::error_code nativepg::protocol::serialize(const parse_t& msg, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(const parse_t& msg, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
 
@@ -918,7 +917,7 @@ boost::system::error_code nativepg::protocol::serialize(const parse_t& msg, std:
     return ctx.finalize_message();
 }
 
-boost::system::error_code nativepg::protocol::serialize(const copy_fail& msg, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(const copy_fail& msg, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
 
@@ -932,14 +931,14 @@ boost::system::error_code nativepg::protocol::serialize(const copy_fail& msg, st
     return ctx.finalize_message();
 }
 
-boost::system::error_code nativepg::protocol::serialize(copy_done, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(copy_done, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
     ctx.add_header('c');
     return ctx.finalize_message();
 }
 
-boost::system::error_code nativepg::protocol::serialize(const execute& msg, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(const execute& msg, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
 
@@ -954,22 +953,22 @@ boost::system::error_code nativepg::protocol::serialize(const execute& msg, std:
     return ctx.finalize_message();
 }
 
-boost::system::error_code nativepg::protocol::serialize(flush, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(flush, std::vector<unsigned char>& to)
 {
     return serialize_header_only('H', to);
 }
 
-boost::system::error_code nativepg::protocol::serialize(sync, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(sync, std::vector<unsigned char>& to)
 {
     return serialize_header_only('S', to);
 }
 
-boost::system::error_code nativepg::protocol::serialize(terminate, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(terminate, std::vector<unsigned char>& to)
 {
     return serialize_header_only('X', to);
 }
 
-boost::system::error_code nativepg::protocol::serialize(const password& msg, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(const password& msg, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
     ctx.add_header('p');
@@ -977,7 +976,7 @@ boost::system::error_code nativepg::protocol::serialize(const password& msg, std
     return ctx.finalize_message();
 }
 
-boost::system::error_code nativepg::protocol::serialize(
+std::error_code nativepg::protocol::serialize(
     const startup_message& msg,
     std::vector<unsigned char>& to
 )
@@ -1035,7 +1034,7 @@ boost::system::error_code nativepg::protocol::serialize(
     return {};
 }
 
-boost::system::error_code nativepg::protocol::serialize(
+std::error_code nativepg::protocol::serialize(
     const cancel_request& msg,
     std::vector<unsigned char>& to
 )
@@ -1051,7 +1050,7 @@ boost::system::error_code nativepg::protocol::serialize(
     return ctx.finalize_message();
 }
 
-boost::system::error_code nativepg::protocol::serialize(ssl_request, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(ssl_request, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
 
@@ -1061,7 +1060,7 @@ boost::system::error_code nativepg::protocol::serialize(ssl_request, std::vector
     return ctx.finalize_message();
 }
 
-boost::system::error_code nativepg::protocol::serialize(query msg, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(query msg, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
 
@@ -1133,7 +1132,7 @@ static constexpr const char* skip_prefix(std::string_view tag, std::string_view 
     return nullptr;
 }
 
-static boost::system::error_code parse_affected_rows(
+static std::error_code parse_affected_rows(
     const char* p,
     const char* end,
     std::optional<std::uint64_t>& output
@@ -1149,7 +1148,7 @@ static boost::system::error_code parse_affected_rows(
     return {};
 }
 
-boost::system::error_code nativepg::protocol::parse_command_complete_tag(
+std::error_code nativepg::protocol::parse_command_complete_tag(
     std::string_view tag,
     std::optional<std::uint64_t>& output
 )

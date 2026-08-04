@@ -8,7 +8,7 @@
 #ifndef NATIVEPG_DETAIL_FIELD_TRAITS_NULLABLE_HPP
 #define NATIVEPG_DETAIL_FIELD_TRAITS_NULLABLE_HPP
 
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <optional>
 #include <type_traits>
@@ -44,7 +44,7 @@ struct field_is_compatible<std::optional<T>>
         "Nested std::optional (e.g. std::optional<std::optional<T>>) is not supported"
     );
 
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static std::error_code call(const protocol::field_description& desc)
     {
         return field_is_compatible<T>::call(desc);
     }
@@ -62,7 +62,7 @@ struct field_parse<std::optional<T>>
         "Nested std::optional (e.g. std::optional<std::optional<T>>) is not supported"
     );
 
-    static boost::system::error_code call(
+    static std::error_code call(
         field_view from,
         const protocol::field_description& desc,
         std::optional<T>& to
@@ -71,7 +71,7 @@ struct field_parse<std::optional<T>>
         if (from.is_null())
         {
             to.reset();
-            return boost::system::error_code{};
+            return std::error_code{};
         }
         return field_parse<T>::call(from, desc, to.emplace());
     }

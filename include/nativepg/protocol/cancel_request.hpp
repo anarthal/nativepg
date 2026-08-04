@@ -8,7 +8,7 @@
 #ifndef NATIVEPG_PROTOCOL_CANCEL_REQUEST_HPP
 #define NATIVEPG_PROTOCOL_CANCEL_REQUEST_HPP
 
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cstdint>
 #include <vector>
@@ -24,7 +24,7 @@ struct cancel_request
     // The secret key for the target backend.
     std::int32_t secret_key;
 };
-boost::system::error_code serialize(const cancel_request& msg, std::vector<unsigned char>& to);
+std::error_code serialize(const cancel_request& msg, std::vector<unsigned char>& to);
 
 }  // namespace protocol
 }  // namespace nativepg

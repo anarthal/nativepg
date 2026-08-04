@@ -9,7 +9,7 @@
 #define NATIVEPG_SRC_NATIVEPG_INTERNAL_SCRAM_SHA256_MESSAGES_HPP
 
 #include <boost/endian/conversion.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 #include <boost/system/result.hpp>
 
 #include <algorithm>
@@ -20,7 +20,6 @@
 #include <limits>
 #include <span>
 #include <string_view>
-#include <system_error>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
@@ -43,7 +42,7 @@ struct client_first_message
     std::string_view nonce;
 };
 
-[[nodiscard]] inline boost::system::result<std::span<const unsigned char>> serialize(
+[[nodiscard]] inline boost::system::result<std::span<const unsigned char>, std::error_code> serialize(
     const client_first_message& msg,
     std::vector<unsigned char>& to
 )
@@ -122,7 +121,7 @@ inline bool scram_is_printable(unsigned char c)
     return (c >= 0x21 && c <= 0x2b) || (c >= 0x2d && c <= 0x7e);
 }
 
-[[nodiscard]] inline boost::system::error_code parse(
+[[nodiscard]] inline std::error_code parse(
     std::span<const unsigned char> data,
     server_first_message& to
 )
@@ -214,7 +213,7 @@ public:
     client_final_message_serializer(std::vector<unsigned char>& to) noexcept : ctx_(to) {}
 
     // Should be called once, first
-    [[nodiscard]] boost::system::result<std::span<const unsigned char>> serialize_without_proof(
+    [[nodiscard]] boost::system::result<std::span<const unsigned char>, std::error_code> serialize_without_proof(
         std::string_view nonce
     )
     {
@@ -255,7 +254,7 @@ public:
     }
 
     // Should be called once, after serialize_without_proof
-    [[nodiscard]] boost::system::error_code serialize_proof(std::span<const unsigned char> proof)
+    [[nodiscard]] std::error_code serialize_proof(std::span<const unsigned char> proof)
     {
         // proof
         ctx_.add_bytes(",p=");
@@ -274,7 +273,7 @@ struct server_final_message
     std::vector<unsigned char> server_signature;
 };
 
-[[nodiscard]] inline boost::system::error_code parse(
+[[nodiscard]] inline std::error_code parse(
     std::span<const unsigned char> data,
     server_final_message& to
 )

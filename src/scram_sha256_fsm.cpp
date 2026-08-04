@@ -5,7 +5,7 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cstring>
 #include <span>
@@ -17,12 +17,12 @@
 #include "nativepg_internal/scram_sha256_crypt.hpp"
 #include "nativepg_internal/scram_sha256_messages.hpp"
 
-using boost::system::error_code;
+using std::error_code;
 using namespace nativepg::protocol::detail::scram_sha256;
 
 namespace nativepg::protocol::detail {
 
-boost::system::error_code scram_sha256_fsm::on_init(
+std::error_code scram_sha256_fsm::on_init(
     nonce_generator nonce_gen,
     std::vector<unsigned char>& write_buffer
 )
@@ -43,12 +43,12 @@ boost::system::error_code scram_sha256_fsm::on_init(
     return {};
 }
 
-boost::system::error_code scram_sha256_fsm::on_init(std::vector<unsigned char>& write_buffer)
+std::error_code scram_sha256_fsm::on_init(std::vector<unsigned char>& write_buffer)
 {
     return on_init(&generate_nonce, write_buffer);
 }
 
-boost::system::error_code scram_sha256_fsm::on_server_first(
+std::error_code scram_sha256_fsm::on_server_first(
     std::span<const unsigned char> bytes,
     std::string_view password,
     std::vector<unsigned char>& write_buffer
@@ -107,7 +107,7 @@ boost::system::error_code scram_sha256_fsm::on_server_first(
     return serializer.serialize_proof(client_proof);
 }
 
-boost::system::error_code scram_sha256_fsm::on_server_final(std::span<const unsigned char> bytes)
+std::error_code scram_sha256_fsm::on_server_final(std::span<const unsigned char> bytes)
 {
     // Parse the message
     server_final_message msg{};

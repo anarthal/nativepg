@@ -10,7 +10,7 @@
 
 #include <boost/assert.hpp>
 #include <boost/endian/conversion.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <array>
 #include <cstddef>
@@ -46,7 +46,7 @@ using sha256_digest = std::array<unsigned char, 32u>;
 // Tries to apply the StringPrep algorithm with the SASLPrep profile to input.
 // TODO: this is a complex algorithm and is not implemented yet.
 // It should be valid for ASCII passwords, at least
-[[nodiscard]] inline boost::system::error_code sasl_prep(std::string_view input, std::string& output)
+[[nodiscard]] inline std::error_code sasl_prep(std::string_view input, std::string& output)
 {
     output = input;
     return {};
@@ -72,7 +72,7 @@ inline void normalize_password(std::string_view input, std::string& output)
 
 // One-shot HMAC computation, but re-using a context.
 // The context must have been properly configured.
-[[nodiscard]] inline boost::system::error_code compute_hmac(
+[[nodiscard]] inline std::error_code compute_hmac(
     EVP_MAC_CTX* ctx,
     std::span<const unsigned char> key,
     std::span<const unsigned char> data,
@@ -91,7 +91,7 @@ inline void normalize_password(std::string_view input, std::string& output)
 }
 
 // Variant with two data pieces
-[[nodiscard]] inline boost::system::error_code compute_hmac(
+[[nodiscard]] inline std::error_code compute_hmac(
     EVP_MAC_CTX* ctx,
     std::span<const unsigned char> key,
     std::span<const unsigned char> data1,
@@ -112,7 +112,7 @@ inline void normalize_password(std::string_view input, std::string& output)
 }
 
 //  Aux Hi
-[[nodiscard]] inline boost::system::error_code compute_hi(
+[[nodiscard]] inline std::error_code compute_hi(
     EVP_MAC_CTX* ctx,
     std::span<const unsigned char> str,
     std::span<const unsigned char> salt,
@@ -154,7 +154,7 @@ inline void normalize_password(std::string_view input, std::string& output)
 }
 
 // One-shot SHA256 calculation, but with error handling
-[[nodiscard]] inline boost::system::error_code compute_sha256(
+[[nodiscard]] inline std::error_code compute_sha256(
     std::span<const unsigned char> data,
     sha256_digest& output
 )
@@ -191,7 +191,7 @@ inline void normalize_password(std::string_view input, std::string& output)
 }
 
 // Performs the entire proof computation process
-[[nodiscard]] inline boost::system::error_code compute_proofs(
+[[nodiscard]] inline std::error_code compute_proofs(
     std::string_view password,
     std::span<const unsigned char> salt,
     std::uint32_t iteration_count,
@@ -265,7 +265,7 @@ inline void normalize_password(std::string_view input, std::string& output)
 }
 
 // TODO: this works but the std::string/std::vector interface is generating friction
-[[nodiscard]] inline boost::system::error_code generate_nonce(std::string& to)
+[[nodiscard]] inline std::error_code generate_nonce(std::string& to)
 {
     // 18 bytes of random data, matching libpq's nonce length
     unsigned char raw[18];

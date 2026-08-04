@@ -8,11 +8,11 @@
 #ifndef NATIVEPG_PROTOCOL_EXECUTE_HPP
 #define NATIVEPG_PROTOCOL_EXECUTE_HPP
 
-#include <boost/system/error_code.hpp>
-
 #include <cstdint>
 #include <span>
 #include <string_view>
+#include <system_error>
+#include <vector>
 
 #include "nativepg/protocol/common.hpp"
 
@@ -28,13 +28,13 @@ struct execute
     // Zero denotes “no limit”.
     std::int32_t max_num_rows;
 };
-boost::system::error_code serialize(const execute& msg, std::vector<unsigned char>& to);
+std::error_code serialize(const execute& msg, std::vector<unsigned char>& to);
 
 // May only be sent as a response to execute
 struct portal_suspended
 {
 };
-inline boost::system::error_code parse(std::span<const unsigned char> data, portal_suspended&)
+inline std::error_code parse(std::span<const unsigned char> data, portal_suspended&)
 {
     return detail::check_empty(data);
 }

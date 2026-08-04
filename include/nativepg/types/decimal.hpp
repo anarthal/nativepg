@@ -13,17 +13,19 @@
 // Boost.Decimal headers, and the associated field_traits specializations, out of translation units that
 // don't use this feature.
 
+#include <boost/decimal/charconv.hpp>
+#include <boost/decimal/cmath.hpp>
 #include <boost/decimal/decimal128_t.hpp>
 #include <boost/decimal/decimal32_t.hpp>
 #include <boost/decimal/decimal64_t.hpp>
 #include <boost/endian/conversion.hpp>
-#include <boost/system/error_code.hpp>
 
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <string_view>
+#include <system_error>
 #include <utility>
 
 #include "nativepg/client_errc.hpp"
@@ -47,7 +49,7 @@ namespace detail {
 template <class T>
     requires std::same_as<T, boost::decimal::decimal32_t> || std::same_as<T, boost::decimal::decimal64_t> ||
              std::same_as<T, boost::decimal::decimal128_t>
-error_code parse_text_decimal(const field_view& from, T& to)
+std::error_code parse_text_decimal(const field_view& from, T& to)
 {
     const std::string_view sv = from.data_str();
 
@@ -62,7 +64,7 @@ error_code parse_text_decimal(const field_view& from, T& to)
 template <class T>
     requires std::same_as<T, boost::decimal::decimal32_t> || std::same_as<T, boost::decimal::decimal64_t> ||
              std::same_as<T, boost::decimal::decimal128_t>
-error_code parse_binary_decimal(const field_view& from, T& to)
+std::error_code parse_binary_decimal(const field_view& from, T& to)
 {
     const auto bytes = from.data();
 

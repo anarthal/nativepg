@@ -7,7 +7,7 @@
 
 #include <boost/assert/source_location.hpp>
 #include <boost/core/lightweight_test.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 #include <boost/variant2/variant.hpp>
 
 #include <cstddef>
@@ -36,7 +36,7 @@
 
 using namespace nativepg;
 using namespace nativepg::test;
-using boost::system::error_code;
+using std::error_code;
 using protocol::read_response_fsm;
 using result_type = read_response_fsm::result_type;
 

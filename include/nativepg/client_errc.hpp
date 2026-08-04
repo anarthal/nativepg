@@ -8,11 +8,11 @@
 #ifndef NATIVEPG_CLIENT_ERRC_HPP
 #define NATIVEPG_CLIENT_ERRC_HPP
 
-#include <boost/system/error_category.hpp>
+#include <system_error>
 
 namespace nativepg {
 
-const boost::system::error_category& get_client_category();
+const std::error_category& get_client_category();
 
 enum class client_errc : int
 {
@@ -117,23 +117,16 @@ enum class client_errc : int
 };
 
 /// Creates an \ref error_code from a \ref client_errc.
-inline boost::system::error_code make_error_code(client_errc error)
+inline std::error_code make_error_code(client_errc error)
 {
-    return boost::system::error_code(static_cast<int>(error), get_client_category());
+    return std::error_code(static_cast<int>(error), get_client_category());
 }
 
 }  // namespace nativepg
 
-namespace boost {
-namespace system {
-
 template <>
-struct is_error_code_enum<::nativepg::client_errc>
+struct std::is_error_code_enum<nativepg::client_errc> : true_type
 {
-    static constexpr bool value = true;
 };
-
-}  // namespace system
-}  // namespace boost
 
 #endif

@@ -6,7 +6,7 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <chrono>
 #include <format>
@@ -36,7 +36,7 @@ void test__parse_text_date__success()
     auto err = types::parse_text_date(data, d);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
 
     ss << std::format("{:%F}", d) << std::flush;
     BOOST_TEST_EQ(ss.str(), str);
@@ -57,7 +57,7 @@ void test__parse_binary_date__success()
     auto err = types::parse_binary_date(data, d);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
 
     ss << std::format("{:%F}", d) << std::flush;
     BOOST_TEST_EQ(ss.str(), str);
@@ -77,7 +77,7 @@ void test__parse_text_time__success()
     auto err = types::parse_text_time(data, us);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
 
     ss << std::format("{:%T}", std::chrono::duration_cast<std::chrono::seconds>(us)) << std::flush;
     BOOST_TEST_EQ(ss.str(), str);
@@ -100,7 +100,7 @@ void test__parse_binary_time__success()
     auto err = types::parse_binary_time(data, us);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
 
     ss << std::format("{:%T}", std::chrono::duration_cast<std::chrono::seconds>(us)) << std::flush;
     BOOST_TEST_EQ(ss.str(), str);
@@ -120,7 +120,7 @@ void test__parse_text_timetz__success()
     auto err = types::parse_text_timetz(data, tz);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
 
     ss << std::format("{0:%T}+{1:%H:%M}", std::chrono::duration_cast<std::chrono::seconds>(tz.time_since_midnight), std::chrono::duration_cast<std::chrono::minutes>(tz.utc_offset)) << std::flush;
     BOOST_TEST_EQ(ss.str(), str);
@@ -140,7 +140,7 @@ void test__parse_binary_timetz__success()
     auto err = types::parse_binary_timetz(data, tz);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
 
     ss << std::format("{0:%T}+{1:%H:%M}", tz.time_since_midnight, tz.utc_offset) << std::flush;
     BOOST_TEST_EQ(ss.str(), str);
@@ -159,7 +159,7 @@ void test__parse_text_timestamp__success()
     auto err = types::parse_text_timestamp(data, ts);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
 
     std::chrono::local_time<std::chrono::seconds> t_s = std::chrono::time_point_cast<std::chrono::seconds>(ts);
     ss << std::format("{0:%F} {1:%T}", ts, t_s) << std::flush;
@@ -181,7 +181,7 @@ void test__parse_binary_timestamp__success()
     auto err = types::parse_binary_timestamp(data, ts);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
 
     ss << std::format("{0:%F} {0:%H:%M:%S}", ts) << std::flush;
     BOOST_TEST_EQ(ss.str(), str);
@@ -200,7 +200,7 @@ void test__parse_text_timestamptz__success()
     auto err = types::parse_text_timestamptz(data, ts);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
 
     // We only check the year/month/day/hour/minute/second as timezone handling in format is tricky
     ss << std::format("{0:%F} {0:%H:%M:%S}", std::chrono::time_point_cast<std::chrono::seconds>(ts)) << std::flush;
@@ -222,7 +222,7 @@ void test__parse_binary_timestamptz__success()
     auto err = types::parse_binary_timestamptz(data, ts);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
 
     ss << std::format("{0:%F} {0:%H:%M:%S}", ts) << std::flush;
     BOOST_TEST_EQ(ss.str(), str);
@@ -240,7 +240,7 @@ void test__parse_text_interval__success()
     auto err = types::parse_text_interval(data, inv);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(inv.months, 14);
     BOOST_TEST_EQ(inv.days, 3);
     BOOST_TEST_EQ(inv.time.count(), (std::chrono::hours(4) + std::chrono::minutes(5) + std::chrono::seconds(6) + std::chrono::microseconds(7)).count());
@@ -264,7 +264,7 @@ void test__parse_binary_interval__success()
     auto err = types::parse_binary_interval(data, inv);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(inv.months, 1);
     BOOST_TEST_EQ(inv.days, 1);
     BOOST_TEST_EQ(inv.time.count(), 1);

@@ -8,7 +8,7 @@
 #ifndef NATIVEPG_SRC_NATIVEPG_INTERNAL_CHECK_REQUEST_HPP
 #define NATIVEPG_SRC_NATIVEPG_INTERNAL_CHECK_REQUEST_HPP
 
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/request.hpp"
@@ -27,7 +27,7 @@ namespace nativepg::protocol::detail {
 // (i.e. placing a query in the middle of an extended batch is illegal).
 // Doing this, we can manage errors by counting ready_for_query messages.
 // TODO: do we need to support requests ending with flush? is there any use case for this?
-inline boost::system::error_code check_request(const request& req)
+inline std::error_code check_request(const request& req)
 {
     // Empty requests are not allowed
     if (req.messages().empty())
@@ -61,7 +61,7 @@ inline boost::system::error_code check_request(const request& req)
     return {};
 }
 
-inline boost::system::error_code setup_request(const request& req, response_handler_ref res)
+inline std::error_code setup_request(const request& req, response_handler_ref res)
 {
     // Check that the request is correctly formed
     if (auto ec_req = check_request(req))

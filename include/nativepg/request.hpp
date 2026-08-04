@@ -8,8 +8,7 @@
 #ifndef NATIVEPG_REQUEST_HPP
 #define NATIVEPG_REQUEST_HPP
 
-#include <boost/system/error_code.hpp>
-#include <boost/system/system_error.hpp>
+#include <system_error>
 #include <boost/throw_exception.hpp>
 
 #include <array>
@@ -67,12 +66,12 @@ class request
     std::vector<request_message_type> types_;
     bool autosync_;
 
-    void check(boost::system::error_code ec)
+    void check(std::error_code ec)
     {
         // TODO: move to compiled
         // TODO: source loc
         if (ec)
-            BOOST_THROW_EXCEPTION(boost::system::system_error(ec));
+            BOOST_THROW_EXCEPTION(std::system_error(ec));
     }
 
     template <class T>

@@ -6,7 +6,7 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <iomanip>
 #include <memory>
@@ -17,7 +17,7 @@
 #include "test_utils.hpp"
 
 using namespace nativepg::types;
-using boost::system::error_code;
+using std::error_code;
 
 namespace {
 

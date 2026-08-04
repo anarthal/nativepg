@@ -8,7 +8,7 @@
 #ifndef NATIVEPG_DETAIL_FIELD_TRAITS_BASE_HPP
 #define NATIVEPG_DETAIL_FIELD_TRAITS_BASE_HPP
 
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cstdint>
 #include <span>
@@ -49,10 +49,10 @@ struct field_is_compatible;
 template <>
 struct field_is_compatible<bool>
 {
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static std::error_code call(const protocol::field_description& desc)
     {
         if (desc.type_oid == bool_oid)
-            return boost::system::error_code{};
+            return std::error_code{};
         return client_errc::incompatible_field_type;
     }
 };
@@ -60,10 +60,10 @@ struct field_is_compatible<bool>
 template <>
 struct field_is_compatible<std::vector<std::byte>>
 {
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static std::error_code call(const protocol::field_description& desc)
     {
         if (desc.type_oid == bytea_oid)
-            return boost::system::error_code{};
+            return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
@@ -74,10 +74,10 @@ struct field_is_compatible<std::vector<std::byte>>
 template <>
 struct field_is_compatible<char>
 {
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static std::error_code call(const protocol::field_description& desc)
     {
         if (desc.type_oid == char_oid)
-            return boost::system::error_code{};
+            return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
@@ -86,10 +86,10 @@ struct field_is_compatible<char>
 template <>
 struct field_is_compatible<std::int16_t>
 {
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static std::error_code call(const protocol::field_description& desc)
     {
         if (desc.type_oid == int2_oid)
-            return boost::system::error_code{};
+            return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
@@ -98,10 +98,10 @@ struct field_is_compatible<std::int16_t>
 template <>
 struct field_is_compatible<std::int32_t>
 {
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static std::error_code call(const protocol::field_description& desc)
     {
         if (desc.type_oid == int4_oid || desc.type_oid == int2_oid)
-            return boost::system::error_code{};
+            return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
@@ -110,10 +110,10 @@ struct field_is_compatible<std::int32_t>
 template <>
 struct field_is_compatible<std::int64_t>
 {
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static std::error_code call(const protocol::field_description& desc)
     {
         if (desc.type_oid == int8_oid || desc.type_oid == int4_oid || desc.type_oid == int2_oid)
-            return boost::system::error_code{};
+            return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
@@ -122,10 +122,10 @@ struct field_is_compatible<std::int64_t>
 template <>
 struct field_is_compatible<float>
 {
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static std::error_code call(const protocol::field_description& desc)
     {
         if (desc.type_oid == float4_oid)
-            return boost::system::error_code{};
+            return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
@@ -134,10 +134,10 @@ struct field_is_compatible<float>
 template <>
 struct field_is_compatible<double>
 {
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static std::error_code call(const protocol::field_description& desc)
     {
         if (desc.type_oid == float8_oid || desc.type_oid == float4_oid)
-            return boost::system::error_code{};
+            return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
@@ -146,11 +146,11 @@ struct field_is_compatible<double>
 template <>
 struct field_is_compatible<std::string>
 {
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static std::error_code call(const protocol::field_description& desc)
     {
         if (desc.type_oid == text_oid || desc.type_oid == varchar_oid || desc.type_oid == name_oid ||
             desc.type_oid == bpchar_oid)
-            return boost::system::error_code{};
+            return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
@@ -159,10 +159,10 @@ struct field_is_compatible<std::string>
 template <>
 struct field_is_compatible<std::uint32_t>
 {
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static std::error_code call(const protocol::field_description& desc)
     {
         if (desc.type_oid == oid_oid)
-            return boost::system::error_code{};
+            return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
@@ -175,7 +175,7 @@ struct field_parse;
 template <>
 struct field_parse<bool>
 {
-    static boost::system::error_code call(
+    static std::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         bool& to
@@ -191,7 +191,7 @@ struct field_parse<bool>
 template <>
 struct field_parse<std::vector<std::byte>>
 {
-    static boost::system::error_code call(
+    static std::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         std::vector<std::byte>& to
@@ -207,7 +207,7 @@ struct field_parse<std::vector<std::byte>>
 template <>
 struct field_parse<char>
 {
-    static boost::system::error_code call(
+    static std::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         char& to
@@ -223,7 +223,7 @@ struct field_parse<char>
 template <>
 struct field_parse<std::int16_t>
 {
-    static boost::system::error_code call(
+    static std::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         std::int16_t& to
@@ -239,7 +239,7 @@ struct field_parse<std::int16_t>
 template <>
 struct field_parse<std::int32_t>
 {
-    static boost::system::error_code call(
+    static std::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         std::int32_t& to
@@ -271,7 +271,7 @@ struct field_parse<std::int32_t>
 template <>
 struct field_parse<std::int64_t>
 {
-    static boost::system::error_code call(
+    static std::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         std::int64_t& to
@@ -309,7 +309,7 @@ struct field_parse<std::int64_t>
 template <>
 struct field_parse<float>
 {
-    static boost::system::error_code call(
+    static std::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         float& to
@@ -325,7 +325,7 @@ struct field_parse<float>
 template <>
 struct field_parse<double>
 {
-    static boost::system::error_code call(
+    static std::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         double& to
@@ -358,7 +358,7 @@ struct field_parse<double>
 template <>
 struct field_parse<std::string>
 {
-    static boost::system::error_code call(
+    static std::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         std::string& to
@@ -377,7 +377,7 @@ struct field_parse<std::string>
 template <>
 struct field_parse<std::uint32_t>
 {
-    static boost::system::error_code call(
+    static std::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         std::uint32_t& to

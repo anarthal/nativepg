@@ -8,7 +8,7 @@
 #ifndef NATIVEPG_PROTOCOL_COMMAND_COMPLETE_HPP
 #define NATIVEPG_PROTOCOL_COMMAND_COMPLETE_HPP
 
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <span>
 #include <string_view>
@@ -21,7 +21,7 @@ struct command_complete
     // The command tag. This is usually a single word that identifies which SQL command was completed.
     std::string_view tag;
 };
-boost::system::error_code parse(std::span<const unsigned char> data, command_complete& to);
+std::error_code parse(std::span<const unsigned char> data, command_complete& to);
 
 }  // namespace protocol
 }  // namespace nativepg

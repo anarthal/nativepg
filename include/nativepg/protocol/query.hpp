@@ -8,7 +8,7 @@
 #ifndef NATIVEPG_PROTOCOL_QUERY_HPP
 #define NATIVEPG_PROTOCOL_QUERY_HPP
 
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <string_view>
 #include <vector>
@@ -22,7 +22,7 @@ struct query
     // TODO: allow for generators and vector I/O
     std::string_view query;
 };
-boost::system::error_code serialize(query, std::vector<unsigned char>& to);
+std::error_code serialize(query, std::vector<unsigned char>& to);
 
 }  // namespace protocol
 }  // namespace nativepg

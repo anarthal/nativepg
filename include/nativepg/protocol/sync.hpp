@@ -8,7 +8,8 @@
 #ifndef NATIVEPG_PROTOCOL_SYNC_HPP
 #define NATIVEPG_PROTOCOL_SYNC_HPP
 
-#include <boost/system/error_code.hpp>
+#include <system_error>
+#include <vector>
 
 namespace nativepg {
 namespace protocol {
@@ -16,7 +17,7 @@ namespace protocol {
 struct sync
 {
 };
-boost::system::error_code serialize(sync, std::vector<unsigned char>& to);
+std::error_code serialize(sync, std::vector<unsigned char>& to);
 
 }  // namespace protocol
 }  // namespace nativepg

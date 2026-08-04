@@ -14,7 +14,7 @@
 #include <boost/assert.hpp>
 #include <boost/multiprecision/cpp_dec_float.hpp>
 #include <boost/multiprecision/number.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cstdint>
 
@@ -33,9 +33,9 @@ template <unsigned Digits, class Exp, class Alloc, boost::multiprecision::expres
 struct field_is_compatible<
     boost::multiprecision::number<boost::multiprecision::cpp_dec_float<Digits, Exp, Alloc>, ET>>
 {
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static std::error_code call(const protocol::field_description& desc)
     {
-        return desc.type_oid == numeric_oid ? boost::system::error_code{}
+        return desc.type_oid == numeric_oid ? std::error_code{}
                                             : client_errc::incompatible_field_type;
     }
 };
@@ -48,7 +48,7 @@ template <unsigned Digits, class Exp, class Alloc, boost::multiprecision::expres
 struct field_parse<
     boost::multiprecision::number<boost::multiprecision::cpp_dec_float<Digits, Exp, Alloc>, ET>>
 {
-    static boost::system::error_code call(
+    static std::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         boost::multiprecision::number<boost::multiprecision::cpp_dec_float<Digits, Exp, Alloc>, ET>& to

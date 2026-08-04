@@ -68,9 +68,9 @@ static asio::awaitable<void> json_text_example(connection& conn)
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
 
     // Print results
-    if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "JSON TEXT operation results in Error: " << err.code.what() << ": " << err.diag.message()
-                  << " (in " << duration << ")" << std::endl;
+    if (err.code)
+        std::cerr << "JSON TEXT operation results in Error: " << err.code.message() << ": "
+                  << err.diag.message() << " (in " << duration << ")" << std::endl;
     else
         std::cout << "JSON TEXT select result: " << select_vec[0].j << " (in " << duration << ")"
                   << std::endl;
@@ -104,8 +104,8 @@ static asio::awaitable<void> json_binary_example(connection& conn)
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
 
     // Print results
-    if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "JSON BINARY Error: " << err.code.what() << ": " << err.diag.message() << " (in "
+    if (err.code)
+        std::cerr << "JSON BINARY Error: " << err.code.message() << ": " << err.diag.message() << " (in "
                   << duration << ")" << std::endl;
     else
         std::cout << "JSON BINARY select result: " << boost::json::serialize(select_vec[0].j) << " (in "
@@ -138,8 +138,8 @@ static asio::awaitable<void> jsonb_text_example(connection& conn)
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
 
     // Print results
-    if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "JSONB TEXT operation results in Error: " << err.code.what() << ": "
+    if (err.code)
+        std::cerr << "JSONB TEXT operation results in Error: " << err.code.message() << ": "
                   << err.diag.message() << " (in " << duration << ")" << std::endl;
     else
         std::cout << "JSONB TEXT select result: " << boost::json::serialize(select_vec[0].jb) << " (in "
@@ -174,8 +174,8 @@ static asio::awaitable<void> jsonb_binary_example(connection& conn)
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
 
     // Print results
-    if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "JSONB BINARY Error: " << err.code.what() << ": " << err.diag.message() << " (in "
+    if (err.code)
+        std::cerr << "JSONB BINARY Error: " << err.code.message() << ": " << err.diag.message() << " (in "
                   << duration << ")" << std::endl;
     else
         std::cout << "JSONB BINARY select result: " << boost::json::serialize(select_vec[0].jb) << " (in "

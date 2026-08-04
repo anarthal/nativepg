@@ -611,7 +611,7 @@ private:
     };
 };
 
-boost::system::result<any_backend_message> parse(
+boost::system::result<any_backend_message, std::error_code> parse(
     std::uint8_t message_type,
     std::span<const unsigned char> data
 );

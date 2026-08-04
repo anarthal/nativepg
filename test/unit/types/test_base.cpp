@@ -6,7 +6,7 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cmath>
 #include <cstdint>
@@ -24,7 +24,7 @@
 #include "nativepg/types/base.hpp"
 
 using namespace nativepg;
-using boost::system::error_code;
+using std::error_code;
 
 namespace {
 
@@ -75,7 +75,7 @@ void test_parse_text_bool_t_success()
     auto err = types::parse_text_bool(fv, b);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(b, true);
 }
 
@@ -91,7 +91,7 @@ void test_parse_binary_bool_t_success()
     auto err = types::parse_binary_bool(fv, b);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(b, true);
 }
 
@@ -107,7 +107,7 @@ void test_parse_text_bool_f_success()
     auto err = types::parse_text_bool(fv, b);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(b, false);
 }
 
@@ -123,7 +123,7 @@ void test_parse_binary_bool_f_success()
     auto err = types::parse_binary_bool(fv, b);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(b, false);
 }
 
@@ -170,7 +170,7 @@ void test_parse_text_bytea_success()
     auto err = types::parse_text_bytea(fv, ba);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(ba.size(), 4u);
     std::stringstream ss;
     ss << ba;
@@ -189,7 +189,7 @@ void test_parse_binary_bytea_success()
     auto err = types::parse_binary_bytea(fv, ba);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(ba.size(), 4u);
     std::stringstream ss;
     ss << ba;
@@ -254,7 +254,7 @@ void test_parse_text_char_success()
     auto err = types::parse_text_char(fv, c);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(c, 'z');
 }
 
@@ -270,7 +270,7 @@ void test_parse_binary_char_success()
     auto err = types::parse_binary_char(fv, c);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(c, 'z');
 }
 
@@ -317,7 +317,7 @@ void test_parse_text_oid_success()
     auto err = types::parse_text_oid(fv, o);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(o, 5887u);
 }
 
@@ -333,7 +333,7 @@ void test_parse_binary_oid_success()
     auto err = types::parse_binary_oid(fv, o);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(o, 5887u);
 }
 
@@ -381,7 +381,7 @@ void test_parse_text_int_success()
     auto err = types::parse_text_int<T>(fv, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(out_val, in_val);
 }
 
@@ -398,7 +398,7 @@ void test_parse_binary_int_success()
     auto err = types::parse_binary_int<T>(fv, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(out_val, in_val);
 }
 
@@ -466,7 +466,7 @@ void test_parse_text_float_success()
     auto err = types::parse_text_float<T>(fv, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     if (std::isnan(in_val))
     {
         BOOST_TEST(std::isnan(out_val));
@@ -495,7 +495,7 @@ void test_parse_binary_float_success()
     auto err = types::parse_binary_float<T>(fv, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     if (std::isnan(in_val))
     {
         BOOST_TEST(std::isnan(out_val));
@@ -526,7 +526,7 @@ void test_parse_binary_float_success(const unsigned char (&in_val)[N])
     auto err = types::parse_binary_float<T>(fv, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
 
     const T expected = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(in_val);
     if (std::isnan(expected))
@@ -588,7 +588,7 @@ void test_parse_text_text_success(const T& in_val)
     auto err = types::parse_text_text<T>(fv, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(out_val, in_val);
 }
 
@@ -605,7 +605,7 @@ void test_parse_binary_text_success(const T& in_val)
     auto err = types::parse_binary_text<T>(fv, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(out_val, in_val);
 
     if constexpr (std::is_same_v<T, std::string_view>)
@@ -630,7 +630,7 @@ void test_field_is_compatible_bool_success()
 {
     BOOST_TEST_EQ(
         detail::field_is_compatible<bool>::call(make_field_description(detail::bool_oid)),
-        boost::system::errc::success
+        std::error_code()
     );
 }
 
@@ -647,11 +647,11 @@ void test_field_is_compatible_int_widening_success()
     // A smaller wire type is compatible with a wider C++ type
     BOOST_TEST_EQ(
         detail::field_is_compatible<std::int32_t>::call(make_field_description(detail::int2_oid)),
-        boost::system::errc::success
+        std::error_code()
     );
     BOOST_TEST_EQ(
         detail::field_is_compatible<std::int64_t>::call(make_field_description(detail::int4_oid)),
-        boost::system::errc::success
+        std::error_code()
     );
 }
 
@@ -672,19 +672,19 @@ void test_field_is_compatible_string_success()
 {
     BOOST_TEST_EQ(
         detail::field_is_compatible<std::string>::call(make_field_description(detail::text_oid)),
-        boost::system::errc::success
+        std::error_code()
     );
     BOOST_TEST_EQ(
         detail::field_is_compatible<std::string>::call(make_field_description(detail::varchar_oid)),
-        boost::system::errc::success
+        std::error_code()
     );
     BOOST_TEST_EQ(
         detail::field_is_compatible<std::string>::call(make_field_description(detail::name_oid)),
-        boost::system::errc::success
+        std::error_code()
     );
     BOOST_TEST_EQ(
         detail::field_is_compatible<std::string>::call(make_field_description(detail::bpchar_oid)),
-        boost::system::errc::success
+        std::error_code()
     );
 }
 
@@ -692,7 +692,7 @@ void test_field_is_compatible_char_success()
 {
     BOOST_TEST_EQ(
         detail::field_is_compatible<char>::call(make_field_description(detail::char_oid)),
-        boost::system::errc::success
+        std::error_code()
     );
 }
 
@@ -708,7 +708,7 @@ void test_field_is_compatible_oid_success()
 {
     BOOST_TEST_EQ(
         detail::field_is_compatible<std::uint32_t>::call(make_field_description(detail::oid_oid)),
-        boost::system::errc::success
+        std::error_code()
     );
 }
 
@@ -747,7 +747,7 @@ void test_field_parse_bool_text_success()
     auto err = detail::field_parse<bool>::call(fv, desc, b);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(b, true);
 }
 
@@ -764,7 +764,7 @@ void test_field_parse_char_text_success()
     auto err = detail::field_parse<char>::call(fv, desc, c);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(c, 'z');
 }
 
@@ -795,7 +795,7 @@ void test_field_parse_oid_text_success()
     auto err = detail::field_parse<std::uint32_t>::call(fv, desc, o);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(o, 5887u);
 }
 
@@ -826,7 +826,7 @@ void test_field_parse_int32_from_int2_wire_success()
     auto err = detail::field_parse<std::int32_t>::call(fv, desc, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(out_val, 42);
 }
 

@@ -8,7 +8,7 @@
 #ifndef NATIVEPG_DETAIL_FIELD_TRAITS_HPP
 #define NATIVEPG_DETAIL_FIELD_TRAITS_HPP
 
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <concepts>
 #include <span>
@@ -31,9 +31,9 @@ template <class T>
     requires std::assignable_from<T&, std::string_view>
 struct field_is_compatible<T>
 {
-    static boost::system::error_code call(const protocol::field_description&)
+    static std::error_code call(const protocol::field_description&)
     {
-        return boost::system::error_code{};
+        return std::error_code{};
     }
 };
 
@@ -45,7 +45,7 @@ template <class T>
     requires std::assignable_from<T&, std::string_view>
 struct field_parse<T>
 {
-    static boost::system::error_code call(const field_view from, const protocol::field_description&, T& to)
+    static std::error_code call(const field_view from, const protocol::field_description&, T& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;

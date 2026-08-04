@@ -8,13 +8,13 @@
 #ifndef NATIVEPG_SRC_NATIVEPG_INTERNAL_OPENSSL_ERROR_HPP
 #define NATIVEPG_SRC_NATIVEPG_INTERNAL_OPENSSL_ERROR_HPP
 
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 namespace nativepg::detail {
 
 // Translates an OpenSSL error code (as returned by ERR_get_error) into a
-// boost::system::error_code, using Asio's SSL error category.
-[[nodiscard]] boost::system::error_code translate_openssl_error(unsigned long code);
+// std::error_code, using Asio's SSL error category.
+[[nodiscard]] std::error_code translate_openssl_error(unsigned long code);
 
 }  // namespace nativepg::detail
 

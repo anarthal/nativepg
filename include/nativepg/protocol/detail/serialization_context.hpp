@@ -10,8 +10,7 @@
 
 #include <boost/assert.hpp>
 #include <boost/endian/conversion.hpp>
-#include <boost/system/detail/error_code.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <array>
 #include <cstddef>
@@ -29,20 +28,20 @@ class serialization_context
 {
     std::vector<unsigned char>& buffer_;
     std::size_t header_offset_{static_cast<std::size_t>(-1)};  // where is the message header?
-    boost::system::error_code err_;
+    std::error_code err_;
 
 public:
     serialization_context(std::vector<std::uint8_t>& buff) noexcept : buffer_(buff) {}
 
     std::vector<unsigned char>& buffer() { return buffer_; }
 
-    void add_error(boost::system::error_code ec)
+    void add_error(std::error_code ec)
     {
         if (!err_)
             err_ = ec;
     }
 
-    boost::system::error_code error() const { return err_; }
+    std::error_code error() const { return err_; }
 
     template <class IntType>
     void add_integral(IntType value)
@@ -91,7 +90,7 @@ public:
     }
 
     // Assumes you have called add_header at the beginning
-    boost::system::error_code finalize_message()
+    std::error_code finalize_message()
     {
         // Error check
         if (err_)

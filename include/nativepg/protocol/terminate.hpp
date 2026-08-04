@@ -8,7 +8,8 @@
 #ifndef NATIVEPG_PROTOCOL_TERMINATE_HPP
 #define NATIVEPG_PROTOCOL_TERMINATE_HPP
 
-#include <boost/system/error_code.hpp>
+#include <system_error>
+#include <vector>
 
 namespace nativepg {
 namespace protocol {
@@ -16,7 +17,7 @@ namespace protocol {
 struct terminate
 {
 };
-boost::system::error_code serialize(terminate, std::vector<unsigned char>& to);
+std::error_code serialize(terminate, std::vector<unsigned char>& to);
 
 }  // namespace protocol
 }  // namespace nativepg

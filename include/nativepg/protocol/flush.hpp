@@ -8,7 +8,8 @@
 #ifndef NATIVEPG_PROTOCOL_FLUSH_HPP
 #define NATIVEPG_PROTOCOL_FLUSH_HPP
 
-#include <boost/system/error_code.hpp>
+#include <system_error>
+#include <vector>
 
 namespace nativepg {
 namespace protocol {
@@ -16,7 +17,7 @@ namespace protocol {
 struct flush
 {
 };
-boost::system::error_code serialize(flush, std::vector<unsigned char>& to);
+std::error_code serialize(flush, std::vector<unsigned char>& to);
 
 }  // namespace protocol
 }  // namespace nativepg

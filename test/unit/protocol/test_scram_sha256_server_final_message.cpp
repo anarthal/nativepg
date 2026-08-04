@@ -6,7 +6,7 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <span>
 #include <string_view>
@@ -14,7 +14,7 @@
 #include "nativepg_internal/scram_sha256_messages.hpp"
 #include "test_utils/test_range_eq.hpp"
 
-using boost::system::error_code;
+using std::error_code;
 using namespace nativepg::protocol::detail::scram_sha256;
 using namespace nativepg::test;
 

@@ -12,7 +12,7 @@
 // include it directly unless you also need nativepg/types/json.hpp's parsing functions.
 
 #include <boost/json/value.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cstdint>
 
@@ -32,10 +32,10 @@ struct field_is_compatible;
 template <>
 struct field_is_compatible<boost::json::value>
 {
-    static inline boost::system::error_code call(const protocol::field_description& desc)
+    static inline std::error_code call(const protocol::field_description& desc)
     {
         return (desc.type_oid == json_oid || desc.type_oid == jsonb_oid)
-                   ? boost::system::error_code()
+                   ? std::error_code()
                    : client_errc::incompatible_field_type;
     }
 };
@@ -47,7 +47,7 @@ struct field_parse;
 template <>
 struct field_parse<boost::json::value>
 {
-    static inline boost::system::error_code call(
+    static inline std::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         boost::json::value& to

@@ -6,7 +6,7 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <string_view>
 
@@ -15,7 +15,7 @@
 
 using namespace nativepg::protocol::detail::scram_sha256;
 using namespace nativepg::test;
-using boost::system::error_code;
+using std::error_code;
 
 namespace {
 

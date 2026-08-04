@@ -9,7 +9,7 @@
 #define NATIVEPG_PROTOCOL_READ_RESPONSE_FSM_HPP
 
 #include <boost/compat/function_ref.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cstddef>
 #include <span>
@@ -33,9 +33,9 @@ public:
     struct result
     {
         result_type type;
-        boost::system::error_code ec;
+        std::error_code ec;
 
-        result(boost::system::error_code ec) noexcept : type(result_type::done), ec(ec) {}
+        result(std::error_code ec) noexcept : type(result_type::done), ec(ec) {}
         result(result_type t) noexcept : type(t) {}
     };
 

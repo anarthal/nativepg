@@ -8,7 +8,7 @@
 #ifndef NATIVEPG_PROTOCOL_COPY_HPP
 #define NATIVEPG_PROTOCOL_COPY_HPP
 
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cstdint>
 #include <span>
@@ -36,7 +36,7 @@ struct copy_data
     // single data rows, but messages sent by frontends might divide the data stream arbitrarily.
     std::span<const unsigned char> data;
 };
-inline boost::system::error_code parse(std::span<const unsigned char> data, copy_data& to)
+inline std::error_code parse(std::span<const unsigned char> data, copy_data& to)
 {
     to.data = data;
     return {};
@@ -51,18 +51,18 @@ inline constexpr std::uint8_t copy_data_message_type = static_cast<std::uint8_t>
 struct copy_done
 {
 };
-inline boost::system::error_code parse(std::span<const unsigned char> data, copy_done&)
+inline std::error_code parse(std::span<const unsigned char> data, copy_done&)
 {
     return detail::check_empty(data);
 }
-boost::system::error_code serialize(copy_done, std::vector<unsigned char>& to);
+std::error_code serialize(copy_done, std::vector<unsigned char>& to);
 
 struct copy_fail
 {
     // An error message to report as the cause of failure.
     std::string_view error_message;
 };
-boost::system::error_code serialize(const copy_fail& msg, std::vector<unsigned char>& to);
+std::error_code serialize(const copy_fail& msg, std::vector<unsigned char>& to);
 
 struct copy_in_response
 {
@@ -73,7 +73,7 @@ struct copy_in_response
     // The format codes to be used for each column. If overall_fmt_code is text, all these must be zero.
     random_access_parsing_view<format_code> fmt_codes;
 };
-boost::system::error_code parse(std::span<const unsigned char> data, copy_in_response& to);
+std::error_code parse(std::span<const unsigned char> data, copy_in_response& to);
 
 struct copy_out_response
 {
@@ -84,7 +84,7 @@ struct copy_out_response
     // The format codes to be used for each column. If overall_fmt_code is text, all these must be zero.
     random_access_parsing_view<format_code> fmt_codes;
 };
-boost::system::error_code parse(std::span<const unsigned char> data, copy_out_response& to);
+std::error_code parse(std::span<const unsigned char> data, copy_out_response& to);
 
 struct copy_both_response
 {
@@ -95,7 +95,7 @@ struct copy_both_response
     // The format codes to be used for each column. If overall_fmt_code is text, all these must be zero.
     random_access_parsing_view<format_code> fmt_codes;
 };
-boost::system::error_code parse(std::span<const unsigned char> data, copy_both_response& to);
+std::error_code parse(std::span<const unsigned char> data, copy_both_response& to);
 
 }  // namespace protocol
 }  // namespace nativepg

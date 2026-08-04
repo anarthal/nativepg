@@ -9,7 +9,7 @@
 #include <boost/core/lightweight_test.hpp>
 #include <boost/describe/class.hpp>
 #include <boost/describe/operators.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cstdint>
 #include <initializer_list>
@@ -35,7 +35,7 @@
 #include "test_utils/printing.hpp"
 
 using namespace nativepg;
-using boost::system::error_code;
+using std::error_code;
 using protocol::format_code;
 using namespace std::string_view_literals;
 

@@ -9,10 +9,10 @@
 #define NATIVEPG_EXTENDED_ERROR_HPP
 
 #include <boost/assert/source_location.hpp>
-#include <boost/system/error_code.hpp>
 
 #include <string>
 #include <string_view>
+#include <system_error>
 
 #include "nativepg/protocol/notice_error.hpp"
 
@@ -38,7 +38,7 @@ public:
 
 struct extended_error
 {
-    boost::system::error_code code;
+    std::error_code code;
     diagnostics diag{};
 
     friend bool operator==(const extended_error& lhs, const extended_error& rhs) noexcept = default;
@@ -58,7 +58,7 @@ struct disposition_traits;
 template <>
 struct disposition_traits<nativepg::extended_error>
 {
-    static inline bool not_an_error(const nativepg::extended_error& d) noexcept { return !d.code.failed(); }
+    static inline bool not_an_error(const nativepg::extended_error& d) noexcept { return !d.code; }
 
     static void throw_exception(const nativepg::extended_error& d);
 

@@ -15,7 +15,7 @@
 #include <boost/decimal/decimal128_t.hpp>
 #include <boost/decimal/decimal32_t.hpp>
 #include <boost/decimal/decimal64_t.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <concepts>
 #include <cstdint>
@@ -36,9 +36,9 @@ template <class T>
              std::same_as<T, boost::decimal::decimal128_t>
 struct field_is_compatible<T>
 {
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static std::error_code call(const protocol::field_description& desc)
     {
-        return desc.type_oid == decimal_oid ? boost::system::error_code{}
+        return desc.type_oid == decimal_oid ? std::error_code{}
                                             : client_errc::incompatible_field_type;
     }
 };
@@ -52,7 +52,7 @@ template <class T>
              std::same_as<T, boost::decimal::decimal128_t>
 struct field_parse<T>
 {
-    static boost::system::error_code call(
+    static std::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         T& to

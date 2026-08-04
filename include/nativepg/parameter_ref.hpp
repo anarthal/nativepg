@@ -9,7 +9,6 @@
 #define NATIVEPG_PARAMETER_REF_HPP
 
 #include <boost/endian/conversion.hpp>
-#include <boost/system/error_code.hpp>
 
 #include <charconv>
 #include <concepts>
@@ -18,6 +17,7 @@
 #include <string_view>
 #include <system_error>
 #include <type_traits>
+#include <vector>
 
 namespace nativepg {
 

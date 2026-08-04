@@ -6,7 +6,7 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <iterator>
 
@@ -21,7 +21,7 @@
 #include "nativepg/sqlstate.hpp"
 
 using namespace nativepg;
-using boost::system::error_code;
+using std::error_code;
 using protocol::detail::startup_fsm_impl;
 
 // Operators

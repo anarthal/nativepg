@@ -6,7 +6,7 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <iostream>
 #include <span>
@@ -17,7 +17,7 @@
 #include "nativepg_internal/base64.hpp"
 #include "test_utils/test_range_eq.hpp"
 
-using boost::system::error_code;
+using std::error_code;
 using nativepg::protocol::detail::base64_decode;
 using nativepg::protocol::detail::base64_encode;
 using namespace nativepg::test;

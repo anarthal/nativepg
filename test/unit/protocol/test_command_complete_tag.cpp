@@ -6,21 +6,20 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cstdint>
 #include <limits>
 #include <optional>
 #include <ostream>
 #include <string_view>
-#include <system_error>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/command_complete_tag.hpp"
 
 using namespace nativepg;
-using boost::system::error_code;
+using std::error_code;
 using protocol::parse_command_complete_tag;
 
 namespace {

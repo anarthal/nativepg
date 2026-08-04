@@ -5,11 +5,9 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include <boost/system/error_code.hpp>
-#include <boost/system/result.hpp>
-
 #include <algorithm>
 #include <string_view>
+#include <system_error>
 
 #include "coroutine.hpp"
 #include "nativepg/client_errc.hpp"
@@ -24,20 +22,19 @@
 #include "nativepg/sqlstate.hpp"
 
 using namespace nativepg::protocol;
-using boost::system::error_code;
 using detail::startup_fsm_impl;
 using nativepg::client_errc;
 using kind = any_backend_message::kind;
 
 namespace {
 
-error_code process_error(const error_response& err, nativepg::diagnostics& diag)
+std::error_code process_error(const error_response& err, nativepg::diagnostics& diag)
 {
     diag.assign(err);
     return nativepg::parse_sqlstate(err.sqlstate.value_or(std::string_view{}));
 }
 
-error_code check_unknown_auth_methods(const any_backend_message& msg)
+std::error_code check_unknown_auth_methods(const any_backend_message& msg)
 {
     switch (msg.type())
     {
@@ -46,16 +43,16 @@ error_code check_unknown_auth_methods(const any_backend_message& msg)
         case kind::authentication_md5_password: return client_errc::auth_md5_password_unsupported;
         case kind::authentication_gss: return client_errc::auth_gss_unsupported;
         case kind::authentication_sspi: return client_errc::auth_sspi_unsupported;
-        default: return error_code();
+        default: return std::error_code();
     }
 }
 
-error_code handle_auth_response(const any_backend_message& msg, nativepg::diagnostics& diag)
+std::error_code handle_auth_response(const any_backend_message& msg, nativepg::diagnostics& diag)
 {
     switch (msg.type())
     {
         case kind::error_response: return process_error(msg.get_error_response(), diag);
-        case kind::authentication_ok: return error_code();
+        case kind::authentication_ok: return std::error_code();
         default: return client_errc::unexpected_message;
     }
 }
@@ -109,7 +106,7 @@ startup_fsm_impl::result startup_fsm_impl::resume(
         {
             // SASL authentication was requested. Check the mechanisms
             if (!supports_scram_sha256(msg.get_authentication_sasl()))
-                return error_code(client_errc::scram_mechanisms_unsupported);
+                return std::error_code(client_errc::scram_mechanisms_unsupported);
 
             // Delegate to the SCRAM FSM. This generates the message to send to the server
             if (auto ec = scram_fsm_.on_init(st.write_buffer))
@@ -127,7 +124,7 @@ startup_fsm_impl::result startup_fsm_impl::resume(
                 case any_backend_message::kind::error_response:
                     return process_error(msg.get_error_response(), diag);
                 case any_backend_message::kind::authentication_sasl_continue: break;
-                default: return error_code(client_errc::unexpected_message);
+                default: return std::error_code(client_errc::unexpected_message);
             }
 
             // Process it. This generates the message to send to the server
@@ -152,7 +149,7 @@ startup_fsm_impl::result startup_fsm_impl::resume(
                 case any_backend_message::kind::error_response:
                     return process_error(msg.get_error_response(), diag);
                 case any_backend_message::kind::authentication_sasl_final: break;
-                default: return error_code(client_errc::unexpected_message);
+                default: return std::error_code(client_errc::unexpected_message);
             }
 
             // Check the server's final message
@@ -195,26 +192,26 @@ startup_fsm_impl::result startup_fsm_impl::resume(
                 case kind::notice_response:
                     // TODO: record these somehow
                     break;
-                case kind::ready_for_query: return error_code();
-                default: return error_code(client_errc::unexpected_message);
+                case kind::ready_for_query: return std::error_code();
+                default: return std::error_code(client_errc::unexpected_message);
             }
         }
     }
 
     // We should never reach here
     BOOST_ASSERT(false);
-    return error_code();
+    return std::error_code();
 }
 
 startup_fsm::result startup_fsm::resume(
     connection_state& st,
     diagnostics& diag,
-    boost::system::error_code io_error,
+    std::error_code io_error,
     std::size_t bytes_read
 )
 {
     // TODO: this implementation is improvable, changes in reading messages required
-    startup_fsm_impl::result startup_res{error_code()};
+    startup_fsm_impl::result startup_res{std::error_code()};
     parse_message_result msg_res;
 
     switch (resume_point_)
@@ -283,5 +280,5 @@ startup_fsm::result startup_fsm::resume(
     }
 
     BOOST_ASSERT(false);
-    return error_code();
+    return std::error_code();
 }

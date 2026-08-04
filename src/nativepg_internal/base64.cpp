@@ -6,7 +6,7 @@
 //
 
 #include <boost/assert.hpp>
-#include <boost/system/detail/error_code.hpp>
+#include <system_error>
 
 #include <cstddef>
 #include <span>
@@ -175,7 +175,7 @@ void nativepg::protocol::detail::base64_encode(
     encode(input, reinterpret_cast<char*>(to.data() + size_before));
 }
 
-boost::system::error_code nativepg::protocol::detail::base64_decode(
+std::error_code nativepg::protocol::detail::base64_decode(
     std::span<const unsigned char> input,
     std::vector<unsigned char>& output
 )
@@ -195,5 +195,5 @@ boost::system::error_code nativepg::protocol::detail::base64_decode(
     bool ok = decode(input_str, output.data() + size_before);
 
     // Convert to error code
-    return ok ? boost::system::error_code() : client_errc::invalid_base64;
+    return ok ? std::error_code() : client_errc::invalid_base64;
 }

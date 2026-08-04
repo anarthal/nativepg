@@ -6,14 +6,14 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg_internal/check_request.hpp"
 
 using namespace nativepg;
-using boost::system::error_code;
+using std::error_code;
 using protocol::detail::check_request;
 
 namespace {

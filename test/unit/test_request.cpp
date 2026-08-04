@@ -7,7 +7,6 @@
 
 #include <boost/assert/source_location.hpp>
 #include <boost/core/lightweight_test.hpp>
-#include <boost/system/error_code.hpp>
 
 #include <cstdint>
 #include <initializer_list>

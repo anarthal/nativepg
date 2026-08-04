@@ -92,8 +92,8 @@ SELECT
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
 
     // Print results
-    if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "DECIMAL TEXT operation results in Error: " << err.code.what() << ": "
+    if (err.code)
+        std::cerr << "DECIMAL TEXT operation results in Error: " << err.code.message() << ": "
                   << err.diag.message() << " (in " << duration << ")" << std::endl;
     else
     {
@@ -127,8 +127,8 @@ static asio::awaitable<void> execute_and_print_binary_response(
     auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
 
     // Print results
-    if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "DECIMAL BINARY operation results in Error: " << err.code.what() << ": "
+    if (err.code)
+        std::cerr << "DECIMAL BINARY operation results in Error: " << err.code.message() << ": "
                   << err.diag.message() << std::endl;
     else
     {
@@ -162,7 +162,7 @@ static asio::awaitable<void> decimal_binary_example(connection& conn)
     // Actually prepare the statements
     response res{check_parse()};
     auto [err] = co_await conn.async_exec(req, res, asio::as_tuple);
-    if (err.extended_error::code != boost::system::errc::success)
+    if (err.code)
     {
         print_err("Error preparing", err.code, diag);
         co_return;
@@ -192,7 +192,7 @@ static asio::awaitable<void> decimal_binary_example(connection& conn)
 
     response res_close{check_close()};
     auto [err_cleanup] = co_await conn.async_exec(req, res_close, asio::as_tuple);
-    if (err_cleanup.extended_error::code != boost::system::errc::success)
+    if (err_cleanup.code)
     {
         print_err("Error closing", err_cleanup.code, diag);
         co_return;

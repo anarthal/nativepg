@@ -9,16 +9,15 @@
 #define NATIVEPG_TYPES_BASE_HPP
 
 #include <boost/endian/conversion.hpp>
-#include <boost/system/error_code.hpp>
 
 #include <algorithm>
 #include <charconv>
 #include <cstddef>
-#include <format>
 #include <iterator>
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
@@ -26,8 +25,6 @@
 
 namespace nativepg {
 namespace types {
-
-using boost::system::error_code;
 
 // clang-format off
 /*
@@ -53,7 +50,7 @@ using boost::system::error_code;
 namespace detail {
 
 template <typename T>
-error_code parse_text_to_number(const std::string_view& sv, T& to)
+std::error_code parse_text_to_number(const std::string_view& sv, T& to)
 {
     T result = 0;
     auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), result);
@@ -69,7 +66,7 @@ error_code parse_text_to_number(const std::string_view& sv, T& to)
 
 // BOOL => bool;
 template <class T = bool>
-error_code parse_text_bool(const field_view& from, T& to)
+std::error_code parse_text_bool(const field_view& from, T& to)
 {
     if (const std::string_view sv = from.data_str(); sv == "t")
         to = true;
@@ -81,7 +78,7 @@ error_code parse_text_bool(const field_view& from, T& to)
 }
 
 template <class T = bool>
-error_code parse_binary_bool(const field_view& from, T& to)
+std::error_code parse_binary_bool(const field_view& from, T& to)
 {
     if (from.data().size() != 1)
         return client_errc::protocol_value_error;
@@ -91,7 +88,7 @@ error_code parse_binary_bool(const field_view& from, T& to)
 
 // BYTEA => std::vector<std::byte>>;
 template <class T = std::vector<std::byte>>
-error_code parse_text_bytea(const field_view& from, T& to)
+std::error_code parse_text_bytea(const field_view& from, T& to)
 {
     // PostgresSQL text format for bytea is \x followed by hex pairs
     std::string_view sv = from.data_str();
@@ -114,7 +111,7 @@ error_code parse_text_bytea(const field_view& from, T& to)
 }
 
 template <class T = std::vector<std::byte>>
-error_code parse_binary_bytea(const field_view& from, T& to)
+std::error_code parse_binary_bytea(const field_view& from, T& to)
 {
     // Binary format is raw bytes — copy directly
     to.clear();
@@ -127,7 +124,7 @@ error_code parse_binary_bytea(const field_view& from, T& to)
 
 // "CHAR" => char (INTERNAL CHAR NOT CHAR(N) / CHARACTER(N)!)
 template <class T>
-error_code parse_text_char(const field_view& from, T& to)
+std::error_code parse_text_char(const field_view& from, T& to)
 {
     const std::string_view sv = from.data_str();
     if (sv.size() != 1)
@@ -137,7 +134,7 @@ error_code parse_text_char(const field_view& from, T& to)
 }
 
 template <class T>
-error_code parse_binary_char(const field_view& from, T& to)
+std::error_code parse_binary_char(const field_view& from, T& to)
 {
     if (from.data().size() != 1)
         return client_errc::protocol_value_error;
@@ -147,14 +144,14 @@ error_code parse_binary_char(const field_view& from, T& to)
 
 // INT => std::int_t
 template <class T>
-error_code parse_text_int(const field_view& from, T& to)
+std::error_code parse_text_int(const field_view& from, T& to)
 {
     const std::string_view sv = from.data_str();
     return detail::parse_text_to_number<T>(sv, to);
 }
 
 template <class T>
-error_code parse_binary_int(const field_view& from, T& to)
+std::error_code parse_binary_int(const field_view& from, T& to)
 {
     if (from.data().size() != sizeof(T))
         return client_errc::protocol_value_error;
@@ -164,14 +161,14 @@ error_code parse_binary_int(const field_view& from, T& to)
 
 // FLOAT => float
 template <class T>
-error_code parse_text_float(const field_view& from, T& to)
+std::error_code parse_text_float(const field_view& from, T& to)
 {
     const std::string_view sv = from.data_str();
     return detail::parse_text_to_number<T>(sv, to);
 }
 
 template <class T>
-error_code parse_binary_float(const field_view& from, T& to)
+std::error_code parse_binary_float(const field_view& from, T& to)
 {
     if (from.data().size() != sizeof(T))
         return client_errc::protocol_value_error;
@@ -182,14 +179,14 @@ error_code parse_binary_float(const field_view& from, T& to)
 
 // TEXT | VARCHAR => std::string
 template <class T = std::string>
-error_code parse_text_text(const field_view& from, T& to)
+std::error_code parse_text_text(const field_view& from, T& to)
 {
     to.assign(from.data_str());
     return {};
 }
 
 template <class T = std::string>
-error_code parse_binary_text(const field_view& from, T& to)
+std::error_code parse_binary_text(const field_view& from, T& to)
 {
     // TODO What about different text encodings?
     to.assign(from.data_str());
@@ -198,14 +195,14 @@ error_code parse_binary_text(const field_view& from, T& to)
 
 // OID => std::uint32_t
 template <class T = std::uint32_t>
-error_code parse_text_oid(const field_view& from, T& to)
+std::error_code parse_text_oid(const field_view& from, T& to)
 {
     const std::string_view sv = from.data_str();
     return detail::parse_text_to_number<T>(sv, to);
 }
 
 template <class T = std::uint32_t>
-error_code parse_binary_oid(const field_view& from, T& to)
+std::error_code parse_binary_oid(const field_view& from, T& to)
 {
     if (from.data().size() != sizeof(T))
         return client_errc::protocol_value_error;

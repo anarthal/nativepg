@@ -2,7 +2,7 @@
 #ifndef NATIVEPG_FIELD_TRAITS_DATETIME_HPP
 #define NATIVEPG_FIELD_TRAITS_DATETIME_HPP
 
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <chrono>
 
@@ -27,9 +27,9 @@ struct field_is_compatible;
 template <>
 struct field_is_compatible<std::chrono::sys_days>
 {
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static std::error_code call(const protocol::field_description& desc)
     {
-        return desc.type_oid == date_oid ? boost::system::error_code() : client_errc::incompatible_field_type;
+        return desc.type_oid == date_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
 };
 
@@ -37,9 +37,9 @@ struct field_is_compatible<std::chrono::sys_days>
 template <>
 struct field_is_compatible<std::chrono::microseconds>
 {
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static std::error_code call(const protocol::field_description& desc)
     {
-        return desc.type_oid == time_oid ? boost::system::error_code() : client_errc::incompatible_field_type;
+        return desc.type_oid == time_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
 };
 
@@ -47,9 +47,9 @@ struct field_is_compatible<std::chrono::microseconds>
 template <>
 struct field_is_compatible<types::pg_timetz>
 {
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static std::error_code call(const protocol::field_description& desc)
     {
-        return desc.type_oid == timetz_oid ? boost::system::error_code()
+        return desc.type_oid == timetz_oid ? std::error_code()
                                            : client_errc::incompatible_field_type;
     }
 };
@@ -58,9 +58,9 @@ struct field_is_compatible<types::pg_timetz>
 template <>
 struct field_is_compatible<types::pg_timestamp>
 {
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static std::error_code call(const protocol::field_description& desc)
     {
-        return desc.type_oid == timestamp_oid ? boost::system::error_code()
+        return desc.type_oid == timestamp_oid ? std::error_code()
                                               : client_errc::incompatible_field_type;
     }
 };
@@ -69,9 +69,9 @@ struct field_is_compatible<types::pg_timestamp>
 template <>
 struct field_is_compatible<types::pg_timestamptz>
 {
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static std::error_code call(const protocol::field_description& desc)
     {
-        return desc.type_oid == timestamptz_oid ? boost::system::error_code()
+        return desc.type_oid == timestamptz_oid ? std::error_code()
                                                 : client_errc::incompatible_field_type;
     }
 };
@@ -80,9 +80,9 @@ struct field_is_compatible<types::pg_timestamptz>
 template <>
 struct field_is_compatible<types::pg_interval>
 {
-    static boost::system::error_code call(const protocol::field_description& desc)
+    static std::error_code call(const protocol::field_description& desc)
     {
-        return desc.type_oid == interval_oid ? boost::system::error_code()
+        return desc.type_oid == interval_oid ? std::error_code()
                                              : client_errc::incompatible_field_type;
     }
 };
@@ -94,7 +94,7 @@ struct field_parse;
 template <>
 struct field_parse<std::chrono::sys_days>
 {
-    static boost::system::error_code call(
+    static std::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         std::chrono::sys_days& to
@@ -111,7 +111,7 @@ struct field_parse<std::chrono::sys_days>
 template <>
 struct field_parse<std::chrono::microseconds>
 {
-    static boost::system::error_code call(
+    static std::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         std::chrono::microseconds& to
@@ -128,7 +128,7 @@ struct field_parse<std::chrono::microseconds>
 template <>
 struct field_parse<types::pg_timetz>
 {
-    static boost::system::error_code call(
+    static std::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         types::pg_timetz& to
@@ -145,7 +145,7 @@ struct field_parse<types::pg_timetz>
 template <>
 struct field_parse<types::pg_timestamp>
 {
-    static boost::system::error_code call(
+    static std::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         types::pg_timestamp& to
@@ -162,7 +162,7 @@ struct field_parse<types::pg_timestamp>
 template <>
 struct field_parse<types::pg_timestamptz>
 {
-    static boost::system::error_code call(
+    static std::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         types::pg_timestamptz& to
@@ -180,7 +180,7 @@ struct field_parse<types::pg_timestamptz>
 template <>
 struct field_parse<types::pg_interval>
 {
-    static boost::system::error_code call(
+    static std::error_code call(
         const field_view& from,
         const protocol::field_description& desc,
         types::pg_interval& to

@@ -6,10 +6,10 @@
 //
 
 #include <boost/asio/ssl/error.hpp>
-#include <boost/system/error_code.hpp>
 
 #include <openssl/err.h>
 #include <openssl/opensslv.h>
+#include <system_error>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg_internal/openssl_error.hpp"
@@ -17,15 +17,13 @@
 namespace nativepg::detail {
 
 // TODO: I'd prefer having our own OpenSSL category
-boost::system::error_code translate_openssl_error(unsigned long code)
+std::error_code translate_openssl_error(unsigned long code)
 {
-    using boost::system::error_code;
-
     // If ERR_SYSTEM_ERROR is true, the error code is a system error.
     // This macro only exists since OpenSSL 3
 #if OPENSSL_VERSION_NUMBER >= 0x30000000L
     if (ERR_SYSTEM_ERROR(code))
-        return error_code(ERR_GET_REASON(code), boost::system::system_category());
+        return std::error_code(ERR_GET_REASON(code), std::system_category());
 #endif
 
     // In OpenSSL < 3, error codes > 0x80000000 are reserved for the user,
@@ -38,8 +36,8 @@ boost::system::error_code translate_openssl_error(unsigned long code)
     // called because an OpenSSL primitive failed. It might indicate that OpenSSL
     // did not provide any extra error information. But it should still be an error
     if (int_code == 0)
-        return error_code(client_errc::unknown_openssl_error);
-    return error_code(int_code, boost::asio::error::get_ssl_category());
+        return std::error_code(client_errc::unknown_openssl_error);
+    return std::error_code(int_code, boost::asio::error::get_ssl_category());
 }
 
 }  // namespace nativepg::detail

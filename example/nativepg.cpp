@@ -39,7 +39,7 @@ BOOST_DESCRIBE_STRUCT(myrow, (), (f3, f1))
 
 static void print_err(const char* prefix, const extended_error& err)
 {
-    std::cout << prefix << err.code.what() << ": " << err.diag.message() << '\n';
+    std::cout << prefix << err.code.message() << ": " << err.diag.message() << '\n';
 }
 
 static asio::awaitable<void> co_main()

@@ -7,11 +7,11 @@
 
 #include <boost/assert.hpp>
 #include <boost/endian/conversion.hpp>
-#include <boost/system/error_code.hpp>
 
 #include <algorithm>
 #include <cstring>
 #include <span>
+#include <system_error>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
@@ -27,9 +27,8 @@
 
 using namespace nativepg;
 using namespace nativepg::types;
-using boost::system::error_code;
 
-boost::system::error_code nativepg::detail::compute_pos_map(
+std::error_code nativepg::detail::compute_pos_map(
     const protocol::row_description& meta,
     std::span<const std::string_view> name_table,
     std::span<pos_map_entry> output

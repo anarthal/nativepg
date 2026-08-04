@@ -8,7 +8,7 @@
 #ifndef NATIVEPG_SRC_NATIVEPG_INTERNAL_BASE64_HPP
 #define NATIVEPG_SRC_NATIVEPG_INTERNAL_BASE64_HPP
 
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <span>
 #include <vector>
@@ -21,7 +21,7 @@ namespace detail {
 void base64_encode(std::span<const unsigned char> input, std::vector<unsigned char>& to);
 
 // Decodes the given input, interpreting it as a base64 string
-[[nodiscard]] boost::system::error_code base64_decode(
+[[nodiscard]] std::error_code base64_decode(
     std::span<const unsigned char> input,
     std::vector<unsigned char>& output
 );

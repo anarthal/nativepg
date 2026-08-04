@@ -8,7 +8,7 @@
 #ifndef NATIVEPG_PROTOCOL_DATA_ROW_HPP
 #define NATIVEPG_PROTOCOL_DATA_ROW_HPP
 
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <span>
 
@@ -35,7 +35,7 @@ struct data_row
     // containing the serialized value, or a NULL
     forward_parsing_view<field_view> columns;
 };
-boost::system::error_code parse(std::span<const unsigned char> data, data_row& to);
+std::error_code parse(std::span<const unsigned char> data, data_row& to);
 
 }  // namespace protocol
 }  // namespace nativepg

@@ -10,7 +10,7 @@
 #include <boost/json/serialize.hpp>
 #include <boost/json/src.hpp>  // inline header-only implementation (single TU)
 #include <boost/json/value.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cstdint>
 #include <span>
@@ -65,7 +65,7 @@ void test_parse_text_json_success()
     auto err = types::parse_json(str, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::error_code{});
+    BOOST_TEST_EQ(err, std::error_code{});
     BOOST_TEST(out_val == boost::json::parse(str));
 }
 
@@ -79,7 +79,7 @@ void test_parse_text_json_scalar_success()
     auto err = types::parse_json(str, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::error_code{});
+    BOOST_TEST_EQ(err, std::error_code{});
     BOOST_TEST(out_val.is_number());
     BOOST_TEST_EQ(out_val.to_number<int>(), 42);
 }
@@ -101,7 +101,7 @@ void test_parse_text_json_empty_is_noop()
     auto err = types::parse_json(str, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::error_code{});
+    BOOST_TEST_EQ(err, std::error_code{});
     BOOST_TEST(out_val.is_string());
     BOOST_TEST_EQ(out_val.as_string(), "sentinel");
 }
@@ -117,7 +117,7 @@ void test_parse_text_json_malformed_error()
     auto err = types::parse_json(str, out_val);
 
     // Assert: Boost.JSON's parser error is surfaced verbatim (not translated to a nativepg error code).
-    BOOST_TEST(err.failed());
+    BOOST_TEST(err);
 }
 
 // Binary JSONB wire format: a single 0x01 version byte, followed by the JSON text (identical to the
@@ -136,7 +136,7 @@ void test_parse_binary_jsonb_success()
     auto err = types::parse_binary_jsonb(fv, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::error_code{});
+    BOOST_TEST_EQ(err, std::error_code{});
     BOOST_TEST(out_val == boost::json::parse(json_text));
 }
 
@@ -150,7 +150,7 @@ void test_parse_binary_jsonb_null_error()
     auto err = types::parse_binary_jsonb(fv, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::error_code(client_errc::protocol_value_error));
+    BOOST_TEST_EQ(err, std::error_code(client_errc::protocol_value_error));
 }
 
 void test_parse_binary_jsonb_bad_version_error()
@@ -164,7 +164,7 @@ void test_parse_binary_jsonb_bad_version_error()
     auto err = types::parse_binary_jsonb(fv, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::error_code(client_errc::protocol_value_error));
+    BOOST_TEST_EQ(err, std::error_code(client_errc::protocol_value_error));
 }
 
 // A zero-length, non-NULL field (no version byte at all) must be rejected rather than reading past the
@@ -180,7 +180,7 @@ void test_parse_binary_jsonb_too_short_error()
     auto err = types::parse_binary_jsonb(fv, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::error_code(client_errc::protocol_value_error));
+    BOOST_TEST_EQ(err, std::error_code(client_errc::protocol_value_error));
 }
 
 // Version byte present, but no JSON payload after it: treated as the empty/no-op case, same as
@@ -196,7 +196,7 @@ void test_parse_binary_jsonb_version_only_is_noop()
     auto err = types::parse_binary_jsonb(fv, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::error_code{});
+    BOOST_TEST_EQ(err, std::error_code{});
     BOOST_TEST(out_val.is_string());
     BOOST_TEST_EQ(out_val.as_string(), "sentinel");
 }
@@ -208,7 +208,7 @@ void test_field_is_compatible_json_success()
 {
     BOOST_TEST_EQ(
         detail::field_is_compatible<boost::json::value>::call(make_field_description(detail::json_oid)),
-        boost::system::error_code{}
+        std::error_code{}
     );
 }
 
@@ -216,7 +216,7 @@ void test_field_is_compatible_jsonb_success()
 {
     BOOST_TEST_EQ(
         detail::field_is_compatible<boost::json::value>::call(make_field_description(detail::jsonb_oid)),
-        boost::system::error_code{}
+        std::error_code{}
     );
 }
 
@@ -224,7 +224,7 @@ void test_field_is_compatible_incompatible_error()
 {
     BOOST_TEST_EQ(
         detail::field_is_compatible<boost::json::value>::call(make_field_description(23 /* int4 oid */)),
-        boost::system::error_code(client_errc::incompatible_field_type)
+        std::error_code(client_errc::incompatible_field_type)
     );
 }
 
@@ -239,7 +239,7 @@ void test_field_parse_unexpected_null_error()
     auto err = detail::field_parse<boost::json::value>::call(fv, desc, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::error_code(client_errc::unexpected_null));
+    BOOST_TEST_EQ(err, std::error_code(client_errc::unexpected_null));
 }
 
 void test_field_parse_json_text_success()
@@ -254,7 +254,7 @@ void test_field_parse_json_text_success()
     auto err = detail::field_parse<boost::json::value>::call(fv, desc, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::error_code{});
+    BOOST_TEST_EQ(err, std::error_code{});
     BOOST_TEST(out_val == boost::json::parse(str));
 }
 
@@ -270,7 +270,7 @@ void test_field_parse_json_binary_success()
     auto err = detail::field_parse<boost::json::value>::call(fv, desc, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::error_code{});
+    BOOST_TEST_EQ(err, std::error_code{});
     BOOST_TEST(out_val == boost::json::parse(str));
 }
 
@@ -286,7 +286,7 @@ void test_field_parse_jsonb_text_success()
     auto err = detail::field_parse<boost::json::value>::call(fv, desc, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::error_code{});
+    BOOST_TEST_EQ(err, std::error_code{});
     BOOST_TEST(out_val == boost::json::parse(str));
 }
 
@@ -305,7 +305,7 @@ void test_field_parse_jsonb_binary_success()
     auto err = detail::field_parse<boost::json::value>::call(fv, desc, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::error_code{});
+    BOOST_TEST_EQ(err, std::error_code{});
     BOOST_TEST(out_val == boost::json::parse(json_text));
 }
 

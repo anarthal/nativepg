@@ -8,7 +8,6 @@
 #include <boost/charconv/from_chars.hpp>
 #include <boost/charconv/limits.hpp>
 #include <boost/endian/conversion.hpp>
-#include <boost/system/result.hpp>
 #include <boost/throw_exception.hpp>
 
 #include <array>

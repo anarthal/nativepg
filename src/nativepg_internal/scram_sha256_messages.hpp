@@ -9,7 +9,6 @@
 #define NATIVEPG_SRC_NATIVEPG_INTERNAL_SCRAM_SHA256_MESSAGES_HPP
 
 #include <boost/endian/conversion.hpp>
-#include <boost/system/result.hpp>
 
 #include <algorithm>
 #include <array>

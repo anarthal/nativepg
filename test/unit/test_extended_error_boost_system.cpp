@@ -7,15 +7,14 @@
 
 #include <boost/core/lightweight_test.hpp>
 #include <boost/system/result.hpp>
-#include <system_error>
 
 #include <string>
+#include <system_error>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/extended_error.hpp"
 
 using namespace nativepg;
-using std::error_code;
 using boost::system::result;
 
 // extended_error can be used with boost::system::result
@@ -41,7 +40,7 @@ void test_error()
     }
     catch (const std::system_error& err)
     {
-        BOOST_TEST_EQ(err.code(), error_code(client_errc::value_too_big));
+        BOOST_TEST_EQ(err.code(), std::error_code(client_errc::value_too_big));
         BOOST_TEST_EQ(std::string_view(err.what()), "My message: value_too_big");
     }
 }

@@ -5,8 +5,6 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include <boost/system/result.hpp>
-
 #include <algorithm>
 #include <string_view>
 #include <system_error>

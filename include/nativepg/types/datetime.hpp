@@ -295,7 +295,7 @@ inline std::error_code parse_tz_suffix(
 
 // DATE => std::chrono::sys_days. (TEXT)
 template <class T = std::chrono::sys_days>
-constexpr std::error_code parse_text_date(std::span<const unsigned char> from, T& to) noexcept
+std::error_code parse_text_date(std::span<const unsigned char> from, T& to) noexcept
 {
     std::string_view sv{reinterpret_cast<const char*>(from.data()), from.size()};
     if (detail::parse_infinity(sv, to))
@@ -323,7 +323,7 @@ constexpr std::error_code parse_text_date(std::span<const unsigned char> from, T
 
 // DATE => std::chrono::sys_days. (BINARY)
 template <class T = std::chrono::sys_days>
-constexpr std::error_code parse_binary_date(std::span<const unsigned char> from, T& to) noexcept
+std::error_code parse_binary_date(std::span<const unsigned char> from, T& to) noexcept
 {
     if (from.size() != 4)
         return client_errc::protocol_value_error;
@@ -341,7 +341,7 @@ constexpr std::error_code parse_binary_date(std::span<const unsigned char> from,
 
 // TIME => std::chrono::microseconds (TEXT)
 template <class T = std::chrono::microseconds>
-constexpr std::error_code parse_text_time(std::span<const unsigned char> from, T& to) noexcept
+std::error_code parse_text_time(std::span<const unsigned char> from, T& to) noexcept
 {
     if (from.empty())
         return client_errc::protocol_value_error;
@@ -360,7 +360,7 @@ constexpr std::error_code parse_text_time(std::span<const unsigned char> from, T
 
 // TIME => std::chrono::microseconds (BINARY).
 template <class T = std::chrono::microseconds>
-constexpr std::error_code parse_binary_time(std::span<const unsigned char> from, T& to) noexcept
+std::error_code parse_binary_time(std::span<const unsigned char> from, T& to) noexcept
 {
     if (from.size() != 8)
         return client_errc::protocol_value_error;
@@ -376,7 +376,7 @@ constexpr std::error_code parse_binary_time(std::span<const unsigned char> from,
 
 // TIMETZ => pg_timetz (TEXT)
 template <class T = types::pg_timetz>
-constexpr std::error_code parse_text_timetz(std::span<const unsigned char> from, T& to) noexcept
+std::error_code parse_text_timetz(std::span<const unsigned char> from, T& to) noexcept
 {
     std::string_view sv{reinterpret_cast<const char*>(from.data()), from.size()};
     sv = detail::trim(sv);
@@ -397,7 +397,7 @@ constexpr std::error_code parse_text_timetz(std::span<const unsigned char> from,
 
 // TIMETZ => pg_timetz (BINARY)
 template <class T = types::pg_timetz>
-constexpr std::error_code parse_binary_timetz(std::span<const unsigned char> from, T& to) noexcept
+std::error_code parse_binary_timetz(std::span<const unsigned char> from, T& to) noexcept
 {
     if (from.size() != 12) // 8 + 4 bytes
         return client_errc::protocol_value_error;
@@ -422,7 +422,7 @@ constexpr std::error_code parse_binary_timetz(std::span<const unsigned char> fro
 
 // TIMESTAMP => pg_timestamp / std::chrono::local_time<microseconds> (TEXT)
 template <class T = types::pg_timestamp>
-constexpr std::error_code parse_text_timestamp(std::span<const unsigned char> from, T& to) noexcept
+std::error_code parse_text_timestamp(std::span<const unsigned char> from, T& to) noexcept
 {
     std::string_view sv{reinterpret_cast<const char*>(from.data()), from.size()};
     if (detail::parse_infinity(sv, to))
@@ -465,7 +465,7 @@ constexpr std::error_code parse_text_timestamp(std::span<const unsigned char> fr
 
 // TIMESTAMP => pg_timestamp (BINARY)
 template <class T = types::pg_timestamp>
-constexpr std::error_code parse_binary_timestamp(
+std::error_code parse_binary_timestamp(
     std::span<const unsigned char> from, T& to) noexcept
 {
     if (from.size() != 8)
@@ -493,7 +493,7 @@ constexpr std::error_code parse_binary_timestamp(
 
 // TIMESTAMPTZ => pg_timestamptz (TEXT)
 template <class T = types::pg_timestamptz>
-constexpr std::error_code parse_text_timestamptz(std::span<const unsigned char> from, T& to) noexcept
+std::error_code parse_text_timestamptz(std::span<const unsigned char> from, T& to) noexcept
 {
     std::string_view sv{reinterpret_cast<const char*>(from.data()), from.size()};
     if (detail::parse_infinity(sv, to))
@@ -540,7 +540,7 @@ constexpr std::error_code parse_text_timestamptz(std::span<const unsigned char> 
 
 // TIMESTAMPTZ => pg_timestamp (BINARY)
 template <class T = types::pg_timestamptz>
-constexpr std::error_code parse_binary_timestamptz(
+std::error_code parse_binary_timestamptz(
     std::span<const unsigned char> from, T& to) noexcept
 {
     if (from.size() != 8)
@@ -569,7 +569,7 @@ constexpr std::error_code parse_binary_timestamptz(
 
 // INTERVAL  => pg_interval (TEXT)
 template <class T = types::pg_interval>
-constexpr std::error_code parse_text_interval(std::span<const unsigned char> from, T& to) noexcept
+std::error_code parse_text_interval(std::span<const unsigned char> from, T& to) noexcept
 {
     using namespace std::chrono;
 
@@ -652,7 +652,7 @@ constexpr std::error_code parse_text_interval(std::span<const unsigned char> fro
 
 // INTERVAL => pg_interval (BINARY)
 template <class T = types::pg_interval>
-constexpr std::error_code parse_binary_interval(
+std::error_code parse_binary_interval(
     std::span<const unsigned char> from, T& to) noexcept
 {
     if (from.size() != 16)

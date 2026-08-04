@@ -329,9 +329,7 @@ boost::system::result<std::array<unsigned char, 5>, std::error_code> nativepg::p
     return res;
 }
 
-boost::system::result<message_header, std::error_code> nativepg::protocol::parse_header(
-    std::span<const unsigned char, 5> from
-)
+std::error_code nativepg::protocol::parse_header(std::span<const unsigned char, 5> from, message_header& to)
 {
     // Deserialize individual fields
     unsigned char msg_type = from[0];
@@ -342,7 +340,8 @@ boost::system::result<message_header, std::error_code> nativepg::protocol::parse
         return client_errc::protocol_value_error;
 
     // Done
-    return message_header{msg_type, size};
+    to = {msg_type, size};
+    return {};
 }
 
 std::error_code nativepg::protocol::parse(std::span<const unsigned char> data, backend_key_data& to)
@@ -1052,20 +1051,20 @@ parse_message_result nativepg::protocol::parse_message(std::span<const unsigned 
         return {client_errc::needs_more, {}, 5u - data.size()};
 
     // Load the header
-    auto header_res = parse_header(std::span<const unsigned char, 5>(data));
-    if (header_res.has_error())
-        return {header_res.error()};
+    message_header header;
+    if (auto ec = parse_header(std::span<const unsigned char, 5>(data), header))
+        return {ec};
 
     // See if we have space for the body
     // The length in the header is the entire message's length, counting
     // the header length but not the type byte
-    const auto required_size = static_cast<std::size_t>(header_res->size + 1u);
+    const auto required_size = static_cast<std::size_t>(header.size + 1u);
     if (data.size() < required_size)
         return {client_errc::needs_more, {}, required_size - data.size()};
 
     // Parse the body
     any_backend_message msg;
-    if (auto ec = parse_any_message(header_res->type, data.subspan(5u, required_size - 5u), msg))
+    if (auto ec = parse_any_message(header.type, data.subspan(5u, required_size - 5u), msg))
         return {ec};
 
     // Done
@@ -1081,14 +1080,14 @@ std::size_t nativepg::protocol::message_missing_bytes(std::span<const unsigned c
         return 5u - data.size();
 
     // Load the header
-    auto header_res = parse_header(std::span<const unsigned char, 5>(data));
-    if (header_res.has_error())
+    message_header header;
+    if (auto ec = parse_header(std::span<const unsigned char, 5>(data), header))
         return 0u;  // Signal errors as complete. Message parsing will find them out
 
     // See if we have space for the body
     // The length in the header is the entire message's length, counting
     // the header length but not the type byte
-    const auto required_size = static_cast<std::size_t>(header_res->size + 1u);
+    const auto required_size = static_cast<std::size_t>(header.size + 1u);
     if (data.size() < required_size)
         return required_size - data.size();
 

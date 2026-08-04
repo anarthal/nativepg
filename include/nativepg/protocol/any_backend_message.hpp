@@ -611,9 +611,10 @@ private:
     };
 };
 
-boost::system::result<any_backend_message, std::error_code> parse(
+std::error_code parse_any_message(
     std::uint8_t message_type,
-    std::span<const unsigned char> data
+    std::span<const unsigned char> data,
+    any_backend_message& to
 );
 
 }  // namespace protocol

@@ -8,7 +8,6 @@
 #ifndef NATIVEPG_REQUEST_HPP
 #define NATIVEPG_REQUEST_HPP
 
-#include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/system/system_error.hpp>
 #include <boost/throw_exception.hpp>
@@ -138,7 +137,7 @@ public:
     request& add_prepare(
         std::string_view query,
         std::string_view statement_name,
-        boost::span<const std::int32_t> parameter_type_oids = {}
+        std::span<const std::int32_t> parameter_type_oids = {}
     )
     {
         add(protocol::parse_t{

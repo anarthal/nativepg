@@ -9,7 +9,6 @@
 #define NATIVEPG_SRC_SERIALIZATION_CONTEXT_HPP
 
 #include <boost/assert.hpp>
-#include <boost/core/span.hpp>
 #include <boost/endian/conversion.hpp>
 #include <boost/system/detail/error_code.hpp>
 #include <boost/system/error_code.hpp>
@@ -18,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -58,7 +58,7 @@ public:
         add_byte(0);  // NULL terminator
     }
 
-    void add_bytes(boost::span<const unsigned char> contents)
+    void add_bytes(std::span<const unsigned char> contents)
     {
         buffer_.insert(buffer_.end(), contents.begin(), contents.end());
     }
@@ -66,7 +66,7 @@ public:
     void add_bytes(std::string_view contents)
     {
         add_bytes(
-            boost::span<const unsigned char>(
+            std::span<const unsigned char>(
                 reinterpret_cast<const unsigned char*>(contents.data()),
                 contents.size()
             )

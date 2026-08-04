@@ -7,7 +7,6 @@
 
 #include <boost/charconv/from_chars.hpp>
 #include <boost/charconv/limits.hpp>
-#include <boost/core/span.hpp>
 #include <boost/endian/conversion.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/system/result.hpp>
@@ -99,7 +98,7 @@ enum class authentication_message_type : std::int32_t
 };
 
 template <class MessageType>
-boost::system::result<any_backend_message> parse_impl(boost::span<const unsigned char> from)
+boost::system::result<any_backend_message> parse_impl(std::span<const unsigned char> from)
 {
     MessageType res;
     auto ec = nativepg::protocol::parse(from, res);
@@ -108,7 +107,7 @@ boost::system::result<any_backend_message> parse_impl(boost::span<const unsigned
     return res;
 }
 
-boost::system::result<any_backend_message> parse_authentication_request(boost::span<const unsigned char> from)
+boost::system::result<any_backend_message> parse_authentication_request(std::span<const unsigned char> from)
 {
     // Get the authentication request type code
     if (from.size() < 4u)
@@ -185,7 +184,7 @@ void populate_field(detail::parse_context& ctx, error_field_type type, error_not
 }
 
 // Shared between errors and notices
-boost::system::error_code parse_error_notice(boost::span<const unsigned char> data, error_notice_fields& to)
+boost::system::error_code parse_error_notice(std::span<const unsigned char> data, error_notice_fields& to)
 {
     detail::parse_context ctx(data);
 
@@ -249,7 +248,7 @@ bool is_valid_format_code(overall_format_code v)
 
 // Shared between copy_in_response, copy_out_response, copy_both_response
 boost::system::error_code parse_copy_response(
-    boost::span<const unsigned char> data,
+    std::span<const unsigned char> data,
     format_code& overall_code_output,
     random_access_parsing_view<format_code>& fmt_codes_output
 )
@@ -327,7 +326,7 @@ boost::system::result<std::array<unsigned char, 5>> nativepg::protocol::serializ
 }
 
 boost::system::result<message_header> nativepg::protocol::parse_header(
-    boost::span<const unsigned char, 5> from
+    std::span<const unsigned char, 5> from
 )
 {
     // Deserialize individual fields
@@ -343,7 +342,7 @@ boost::system::result<message_header> nativepg::protocol::parse_header(
 }
 
 boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
+    std::span<const unsigned char> data,
     backend_key_data& to
 )
 {
@@ -354,7 +353,7 @@ boost::system::error_code nativepg::protocol::parse(
 }
 
 boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
+    std::span<const unsigned char> data,
     authentication_md5_password& to
 )
 {
@@ -364,7 +363,7 @@ boost::system::error_code nativepg::protocol::parse(
 }
 
 boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
+    std::span<const unsigned char> data,
     authentication_sasl& to
 )
 {
@@ -395,7 +394,7 @@ boost::system::error_code nativepg::protocol::parse(
 }
 
 boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
+    std::span<const unsigned char> data,
     command_complete& to
 )
 {
@@ -412,7 +411,7 @@ format_code nativepg::protocol::detail::random_access_traits<format_code>::deref
 }
 
 boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
+    std::span<const unsigned char> data,
     copy_in_response& to
 )
 {
@@ -420,7 +419,7 @@ boost::system::error_code nativepg::protocol::parse(
 }
 
 boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
+    std::span<const unsigned char> data,
     copy_out_response& to
 )
 {
@@ -428,7 +427,7 @@ boost::system::error_code nativepg::protocol::parse(
 }
 
 boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
+    std::span<const unsigned char> data,
     copy_both_response& to
 )
 {
@@ -454,7 +453,7 @@ const unsigned char* nativepg::protocol::detail::forward_traits<nativepg::field_
     return data + 4u + (size > 0 ? size : 0);
 }
 
-boost::system::error_code nativepg::protocol::parse(boost::span<const unsigned char> data, data_row& to)
+boost::system::error_code nativepg::protocol::parse(std::span<const unsigned char> data, data_row& to)
 {
     detail::parse_context ctx(data);
 
@@ -507,7 +506,7 @@ const unsigned char* nativepg::protocol::detail::forward_traits<std::string_view
 }
 
 boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
+    std::span<const unsigned char> data,
     negotiate_protocol_version& to
 )
 {
@@ -554,13 +553,13 @@ std::optional<std::size_t> nativepg::protocol::error_notice_fields::parsed_line_
     return res;
 }
 
-boost::system::error_code nativepg::protocol::parse(boost::span<const unsigned char> data, error_response& to)
+boost::system::error_code nativepg::protocol::parse(std::span<const unsigned char> data, error_response& to)
 {
     return parse_error_notice(data, to);
 }
 
 boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
+    std::span<const unsigned char> data,
     notice_response& to
 )
 {
@@ -568,7 +567,7 @@ boost::system::error_code nativepg::protocol::parse(
 }
 
 boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
+    std::span<const unsigned char> data,
     notification_response& to
 )
 {
@@ -587,7 +586,7 @@ std::int32_t nativepg::protocol::detail::random_access_traits<std::int32_t>::der
 }
 
 boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
+    std::span<const unsigned char> data,
     parameter_description&
 )
 {
@@ -606,7 +605,7 @@ boost::system::error_code nativepg::protocol::parse(
 }
 
 boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
+    std::span<const unsigned char> data,
     parameter_status& to
 )
 {
@@ -617,7 +616,7 @@ boost::system::error_code nativepg::protocol::parse(
 }
 
 boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
+    std::span<const unsigned char> data,
     ready_for_query& to
 )
 {
@@ -662,7 +661,7 @@ const unsigned char* nativepg::protocol::detail::forward_traits<field_descriptio
 }
 
 boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
+    std::span<const unsigned char> data,
     row_description& to
 )
 {
@@ -703,7 +702,7 @@ boost::system::error_code nativepg::protocol::parse(
 
 boost::system::result<any_backend_message> nativepg::protocol::parse(
     std::uint8_t message_type,
-    boost::span<const unsigned char> data
+    std::span<const unsigned char> data
 )
 {
     // Cast the message type
@@ -1083,7 +1082,7 @@ parse_message_result nativepg::protocol::parse_message(std::span<const unsigned 
         return {client_errc::needs_more, {}, 5u - data.size()};
 
     // Load the header
-    auto header_res = parse_header(boost::span<const unsigned char, 5>(data));
+    auto header_res = parse_header(std::span<const unsigned char, 5>(data));
     if (header_res.has_error())
         return {header_res.error()};
 
@@ -1112,7 +1111,7 @@ std::size_t nativepg::protocol::message_missing_bytes(std::span<const unsigned c
         return 5u - data.size();
 
     // Load the header
-    auto header_res = parse_header(boost::span<const unsigned char, 5>(data));
+    auto header_res = parse_header(std::span<const unsigned char, 5>(data));
     if (header_res.has_error())
         return 0u;  // Signal errors as complete. Message parsing will find them out
 

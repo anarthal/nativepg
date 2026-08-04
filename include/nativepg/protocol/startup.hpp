@@ -8,10 +8,10 @@
 #ifndef NATIVEPG_PROTOCOL_STARTUP_HPP
 #define NATIVEPG_PROTOCOL_STARTUP_HPP
 
-#include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <optional>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -42,7 +42,7 @@ struct startup_message
 
     // Additional key/value settings
     // (TODO: investigate: can we place here any config value that can be used with SET ... TO ...?)
-    boost::span<const std::pair<std::string_view, std::string_view>> params;
+    std::span<const std::pair<std::string_view, std::string_view>> params;
 };
 boost::system::error_code serialize(const startup_message& msg, std::vector<unsigned char>& to);
 
@@ -62,7 +62,7 @@ boost::system::error_code serialize(const password& msg, std::vector<unsigned ch
 struct authentication_ok
 {
 };
-inline boost::system::error_code parse(boost::span<const unsigned char> data, authentication_ok&)
+inline boost::system::error_code parse(std::span<const unsigned char> data, authentication_ok&)
 {
     return detail::check_empty(data);
 }
@@ -70,7 +70,7 @@ inline boost::system::error_code parse(boost::span<const unsigned char> data, au
 struct authentication_kerberos_v5
 {
 };
-inline boost::system::error_code parse(boost::span<const unsigned char> data, authentication_kerberos_v5&)
+inline boost::system::error_code parse(std::span<const unsigned char> data, authentication_kerberos_v5&)
 {
     return detail::check_empty(data);
 }
@@ -78,7 +78,7 @@ inline boost::system::error_code parse(boost::span<const unsigned char> data, au
 struct authentication_cleartext_password
 {
 };
-inline boost::system::error_code parse(boost::span<const unsigned char> data, authentication_cleartext_password&)
+inline boost::system::error_code parse(std::span<const unsigned char> data, authentication_cleartext_password&)
 {
     return detail::check_empty(data);
 }
@@ -88,12 +88,12 @@ struct authentication_md5_password
     // The salt to use when encrypting the password.
     std::array<unsigned char, 4> salt;
 };
-boost::system::error_code parse(boost::span<const unsigned char> data, authentication_md5_password&);
+boost::system::error_code parse(std::span<const unsigned char> data, authentication_md5_password&);
 
 struct authentication_gss
 {
 };
-inline boost::system::error_code parse(boost::span<const unsigned char> data, authentication_gss&)
+inline boost::system::error_code parse(std::span<const unsigned char> data, authentication_gss&)
 {
     return detail::check_empty(data);
 }
@@ -101,9 +101,9 @@ inline boost::system::error_code parse(boost::span<const unsigned char> data, au
 struct authentication_gss_continue
 {
     // GSSAPI or SSPI authentication data.
-    boost::span<const unsigned char> data;
+    std::span<const unsigned char> data;
 };
-inline boost::system::error_code parse(boost::span<const unsigned char> data, authentication_gss_continue& to)
+inline boost::system::error_code parse(std::span<const unsigned char> data, authentication_gss_continue& to)
 {
     to.data = data;
     return {};
@@ -112,7 +112,7 @@ inline boost::system::error_code parse(boost::span<const unsigned char> data, au
 struct authentication_sspi
 {
 };
-inline boost::system::error_code parse(boost::span<const unsigned char> data, authentication_sspi&)
+inline boost::system::error_code parse(std::span<const unsigned char> data, authentication_sspi&)
 {
     return detail::check_empty(data);
 }
@@ -122,15 +122,15 @@ struct authentication_sasl
     // List of SASL authentication mechanisms, in the server's order of preference
     forward_parsing_view<std::string_view> mechanisms;
 };
-boost::system::error_code parse(boost::span<const unsigned char> data, authentication_sasl&);
+boost::system::error_code parse(std::span<const unsigned char> data, authentication_sasl&);
 
 struct authentication_sasl_continue
 {
     // SASL data, specific to the SASL mechanism being used.
-    boost::span<const unsigned char> data;
+    std::span<const unsigned char> data;
 };
 inline boost::system::error_code parse(
-    boost::span<const unsigned char> data,
+    std::span<const unsigned char> data,
     authentication_sasl_continue& to
 )
 {
@@ -141,9 +141,9 @@ inline boost::system::error_code parse(
 struct authentication_sasl_final
 {
     // SASL outcome "additional data", specific to the SASL mechanism being used.
-    boost::span<const unsigned char> data;
+    std::span<const unsigned char> data;
 };
-inline boost::system::error_code parse(boost::span<const unsigned char> data, authentication_sasl_final& to)
+inline boost::system::error_code parse(std::span<const unsigned char> data, authentication_sasl_final& to)
 {
     to.data = data;
     return {};
@@ -161,7 +161,7 @@ struct negotiate_protocol_version
     // Options not recognized by the server
     forward_parsing_view<std::string_view> non_recognized_options;
 };
-boost::system::error_code parse(boost::span<const unsigned char> data, negotiate_protocol_version& to);
+boost::system::error_code parse(std::span<const unsigned char> data, negotiate_protocol_version& to);
 
 }  // namespace protocol
 }  // namespace nativepg

@@ -6,7 +6,8 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
-#include <boost/core/span.hpp>
+
+#include <span>
 
 #include "nativepg/protocol/parse_message.hpp"
 
@@ -31,7 +32,7 @@ void test_incomplete_message()
     // A command completion message
     const unsigned char data[] =
         {0x43, 0x00, 0x00, 0x00, 0x0d, 0x53, 0x45, 0x4c, 0x45, 0x43, 0x54, 0x20, 0x31, 0x00};
-    boost::span<const unsigned char> msg(data);
+    std::span<const unsigned char> msg(data);
 
     // Empty buffer: we need the 5 header bytes
     BOOST_TEST_EQ(message_missing_bytes({}), 5u);

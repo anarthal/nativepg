@@ -6,10 +6,10 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
-#include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <iostream>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -52,7 +52,7 @@ struct
     {{0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88},                                                 "/+7dzLuqmYg="},
 };
 
-boost::span<const unsigned char> to_span(std::string_view input)
+std::span<const unsigned char> to_span(std::string_view input)
 {
     return {reinterpret_cast<const unsigned char*>(input.data()), input.size()};
 }

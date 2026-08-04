@@ -6,9 +6,9 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
-#include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <span>
 #include <string_view>
 
 #include "nativepg_internal/scram_sha256_messages.hpp"
@@ -27,7 +27,7 @@ void test_parse()
     // Setup
     constexpr std::string_view
         data = "r=7vha5bhElx564U6mzXimIJqdygCr/dQmx9ESrL/+FfZHVXyA,s=M8SSqYCQ4spIf9DBNNLBJA==,i=4096";
-    boost::span<const unsigned char> buff(reinterpret_cast<const unsigned char*>(data.data()), data.size());
+    std::span<const unsigned char> buff(reinterpret_cast<const unsigned char*>(data.data()), data.size());
     server_first_message msg{};
     constexpr unsigned char expected_salt[] =
         {0x33, 0xc4, 0x92, 0xa9, 0x80, 0x90, 0xe2, 0xca, 0x48, 0x7f, 0xd0, 0xc1, 0x34, 0xd2, 0xc1, 0x24};

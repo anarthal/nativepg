@@ -9,10 +9,10 @@
 #define NATIVEPG_PROTOCOL_BIND_HPP
 
 #include <boost/compat/function_ref.hpp>
-#include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <cstddef>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -97,7 +97,7 @@ boost::system::error_code serialize(const bind& msg, std::vector<unsigned char>&
 struct bind_complete
 {
 };
-inline boost::system::error_code parse(boost::span<const unsigned char> data, bind_complete&)
+inline boost::system::error_code parse(std::span<const unsigned char> data, bind_complete&)
 {
     return detail::check_empty(data);
 }

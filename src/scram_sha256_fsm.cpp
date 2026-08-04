@@ -5,11 +5,10 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include <system_error>
-
 #include <cstring>
 #include <span>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
@@ -22,25 +21,19 @@ using namespace nativepg::protocol::detail::scram_sha256;
 
 namespace nativepg::protocol::detail {
 
-std::error_code scram_sha256_fsm::on_init(
-    nonce_generator nonce_gen,
-    std::vector<unsigned char>& write_buffer
-)
+std::error_code scram_sha256_fsm::on_init(nonce_generator nonce_gen, std::vector<unsigned char>& write_buffer)
 {
     // Compose the client initial message
     if (auto ec = nonce_gen(nonce_))
         return ec;
 
-    // Serialize it
+    // Serialize it, and save the initial message. Required to compute the client proof
     write_buffer.clear();
-    auto res = serialize(client_first_message{.mechanism = "SCRAM-SHA-256", .nonce = nonce_}, write_buffer);
-    if (res.has_error())
-        return res.error();
-
-    // Save the initial message. Required to compute the client proof
-    client_first_msg_ = *res;
-
-    return {};
+    return serialize(
+        client_first_message{.mechanism = "SCRAM-SHA-256", .nonce = nonce_},
+        write_buffer,
+        client_first_msg_
+    );
 }
 
 std::error_code scram_sha256_fsm::on_init(std::vector<unsigned char>& write_buffer)

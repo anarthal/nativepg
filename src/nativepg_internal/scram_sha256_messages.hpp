@@ -9,7 +9,6 @@
 #define NATIVEPG_SRC_NATIVEPG_INTERNAL_SCRAM_SHA256_MESSAGES_HPP
 
 #include <boost/endian/conversion.hpp>
-#include <system_error>
 #include <boost/system/result.hpp>
 
 #include <algorithm>
@@ -20,6 +19,7 @@
 #include <limits>
 #include <span>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
@@ -42,9 +42,10 @@ struct client_first_message
     std::string_view nonce;
 };
 
-[[nodiscard]] inline boost::system::result<std::span<const unsigned char>, std::error_code> serialize(
+[[nodiscard]] inline std::error_code serialize(
     const client_first_message& msg,
-    std::vector<unsigned char>& to
+    std::vector<unsigned char>& to,
+    std::span<const unsigned char>& client_first_message_bare
 )
 {
     serialization_context ctx(to);
@@ -99,7 +100,8 @@ struct client_first_message
         return ec;
 
     // Done
-    return std::span<const unsigned char>(to.data() + bare_start_offset, to.data() + bare_end_offset);
+    client_first_message_bare = {to.data() + bare_start_offset, to.data() + bare_end_offset};
+    return {};
 }
 
 // This is an authentication_sasl_continue message. parse does not parse the type
@@ -121,10 +123,7 @@ inline bool scram_is_printable(unsigned char c)
     return (c >= 0x21 && c <= 0x2b) || (c >= 0x2d && c <= 0x7e);
 }
 
-[[nodiscard]] inline std::error_code parse(
-    std::span<const unsigned char> data,
-    server_first_message& to
-)
+[[nodiscard]] inline std::error_code parse(std::span<const unsigned char> data, server_first_message& to)
 {
     // server-first-message = [reserved-mext ","] nonce "," salt "," iteration-count ["," extensions]
     // reserved-mext  = "m=" 1*(value-char) ;; if this is present, we're missing extensions and should fail
@@ -273,10 +272,7 @@ struct server_final_message
     std::vector<unsigned char> server_signature;
 };
 
-[[nodiscard]] inline std::error_code parse(
-    std::span<const unsigned char> data,
-    server_final_message& to
-)
+[[nodiscard]] inline std::error_code parse(std::span<const unsigned char> data, server_final_message& to)
 {
     // server-final-message = (server-error / verifier) ["," extensions]
     // server-error = "e=" server-error-value ;; TODO: does postgres really ever send this?

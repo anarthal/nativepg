@@ -12,7 +12,9 @@
 
 - Preserve the PostgreSQL protocol's framing, message ordering, error-recovery, and text/binary format semantics. Add focused tests for each valid and invalid protocol path.
 - Keep network-independent behavior in protocol state machines; do not introduce I/O into the Sans-I/O layer.
-- Prefer the established Boost facilities (`boost::system::error_code`, `boost::span`, `boost::compat::function_ref`, and Boost assertions) over introducing competing abstractions.
+- Prefer standard-library facilities over Boost ones whenever C++20 provides an equivalent: use `std::span` (never `boost::span`), `std::optional`, `std::string_view`, and `std::from_chars`/`std::to_chars`. Do not pull in a Boost header for something the standard already covers.
+- The project's remaining Boost dependencies are deliberate choices, not oversights. Keep using them and do not swap them for standard-library types: `boost::system::error_code` and `boost::system::result` (they carry this library's error categories and conditions), `boost::variant2::variant` (never-valueless), `boost::compat::function_ref` (no C++20 equivalent), `boost::endian`, `boost::charconv`, `boost::container::small_vector`, `boost::describe`, `boost::mp11`, and Boost assertions (`BOOST_ASSERT`, `BOOST_THROW_EXCEPTION`).
+- Do not introduce abstractions that compete with the facilities the project already uses.
 - Public headers must be self-contained, use include guards named `NATIVEPG_<PATH>_HPP`, and avoid exposing private `src/` headers.
 - Match existing ownership and error conventions: return `boost::system::error_code` for recoverable protocol errors, and use exceptions only where the existing API does.
 - Add the existing Boost Software License copyright header to every new C++ source or header file.

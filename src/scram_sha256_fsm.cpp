@@ -69,9 +69,9 @@ std::error_code scram_sha256_fsm::on_server_first(
     // Serialize the initial part of the client final message, as this is part of AuthMessage
     write_buffer.clear();
     client_final_message_serializer serializer{write_buffer};
-    auto res = serializer.serialize_without_proof(server_msg.nonce);
-    if (res.has_error())
-        return res.error();
+    std::span<const unsigned char> without_proof;
+    if (auto ec = serializer.serialize_without_proof(server_msg.nonce, without_proof))
+        return ec;
 
     //  AuthMessage     := client-first-message-bare + "," +
     //                     server-first-message + "," +
@@ -80,7 +80,7 @@ std::error_code scram_sha256_fsm::on_server_first(
     auth_message.push_back(static_cast<unsigned char>(','));
     auth_message.insert(auth_message.end(), bytes.begin(), bytes.end());
     auth_message.push_back(static_cast<unsigned char>(','));
-    auth_message.insert(auth_message.end(), res->begin(), res->end());
+    auth_message.insert(auth_message.end(), without_proof.begin(), without_proof.end());
 
     // Compute the client proof and server signature
     sha256_digest client_proof;

@@ -31,7 +31,7 @@
 namespace nativepg::protocol::detail::scram_sha256 {
 
 // This is really a password message. serialize serializes the entire message,
-// including the header. Returns the client-first-message-bare part of the serialized
+// including the header. Outputs the client-first-message-bare part of the serialized
 // message, required by the SCRAM algorithm
 struct client_first_message
 {
@@ -201,7 +201,7 @@ inline bool scram_is_printable(unsigned char c)
 
 // client_final_message is a password message. It needs to be serialized in two parts.
 //   * serialize_without_proof serializes the header, and all the message except for the proof.
-//     It returns client-final-message-without-proof, required by the SCRAM algorithm.
+//     It outputs client-final-message-without-proof, required by the SCRAM algorithm.
 //   * serialize_proof serializes the proof and adjusts the header.
 //     Computing proof needs client-final-message-without-proof. This is why we need to split serialization.
 class client_final_message_serializer
@@ -212,8 +212,9 @@ public:
     client_final_message_serializer(std::vector<unsigned char>& to) noexcept : ctx_(to) {}
 
     // Should be called once, first
-    [[nodiscard]] boost::system::result<std::span<const unsigned char>, std::error_code> serialize_without_proof(
-        std::string_view nonce
+    [[nodiscard]] std::error_code serialize_without_proof(
+        std::string_view nonce,
+        std::span<const unsigned char>& client_final_message_without_proof
     )
     {
         // Header
@@ -249,7 +250,8 @@ public:
 
         // Done
         const auto* data = ctx_.buffer().data();
-        return std::span<const unsigned char>(data + offset_first, data + offset_last);
+        client_final_message_without_proof = {data + offset_first, data + offset_last};
+        return {};
     }
 
     // Should be called once, after serialize_without_proof

@@ -8,10 +8,10 @@
 #ifndef NATIVEPG_PROTOCOL_DESCRIBE_HPP
 #define NATIVEPG_PROTOCOL_DESCRIBE_HPP
 
-#include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <cstdint>
+#include <span>
 #include <vector>
 
 #include "nativepg/protocol/common.hpp"
@@ -58,7 +58,7 @@ struct parameter_description
     // The type OIDs of the statement parameters, one for each parameter
     random_access_parsing_view<std::int32_t> parameter_type_oids;
 };
-boost::system::error_code parse(boost::span<const unsigned char> data, parameter_description& to);
+boost::system::error_code parse(std::span<const unsigned char> data, parameter_description& to);
 
 // A description of a single field
 struct field_description
@@ -94,13 +94,13 @@ struct row_description
     // A collection of descriptions, one per column
     forward_parsing_view<field_description> field_descriptions;
 };
-boost::system::error_code parse(boost::span<const unsigned char> data, row_description& to);
+boost::system::error_code parse(std::span<const unsigned char> data, row_description& to);
 
 // Returned if a statement or portal doesn't return data
 struct no_data
 {
 };
-inline boost::system::error_code parse(boost::span<const unsigned char> data, no_data&)
+inline boost::system::error_code parse(std::span<const unsigned char> data, no_data&)
 {
     return detail::check_empty(data);
 }

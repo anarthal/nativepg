@@ -10,6 +10,7 @@
 
 #include <boost/system/error_code.hpp>
 
+#include <span>
 #include <vector>
 
 #include "nativepg/protocol/common.hpp"
@@ -33,7 +34,7 @@ boost::system::error_code serialize(const close& msg, std::vector<unsigned char>
 struct close_complete
 {
 };
-inline boost::system::error_code parse(boost::span<const unsigned char> data, close_complete&)
+inline boost::system::error_code parse(std::span<const unsigned char> data, close_complete&)
 {
     return detail::check_empty(data);
 }

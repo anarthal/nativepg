@@ -6,9 +6,9 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
-#include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <span>
 #include <string_view>
 
 #include "nativepg_internal/scram_sha256_messages.hpp"
@@ -26,7 +26,7 @@ void test_parse()
 {
     // Setup
     constexpr std::string_view data = "v=N9rueOuELVCa2VUm1hdWi5PpRrLafRO0j2lRL312E2k=";
-    boost::span<const unsigned char> buff(reinterpret_cast<const unsigned char*>(data.data()), data.size());
+    std::span<const unsigned char> buff(reinterpret_cast<const unsigned char*>(data.data()), data.size());
     server_final_message msg{};
     constexpr unsigned char expected_server_signature[] = {
         0x37, 0xda, 0xee, 0x78, 0xeb, 0x84, 0x2d, 0x50, 0x9a, 0xd9, 0x55, 0x26, 0xd6, 0x17, 0x56, 0x8b,

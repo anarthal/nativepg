@@ -8,9 +8,9 @@
 #ifndef NATIVEPG_SRC_NATIVEPG_INTERNAL_BASE64_HPP
 #define NATIVEPG_SRC_NATIVEPG_INTERNAL_BASE64_HPP
 
-#include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <span>
 #include <vector>
 
 namespace nativepg {
@@ -18,11 +18,11 @@ namespace protocol {
 namespace detail {
 
 // Encodes the given input as a base64 string, appending it to the supplied buffer
-void base64_encode(boost::span<const unsigned char> input, std::vector<unsigned char>& to);
+void base64_encode(std::span<const unsigned char> input, std::vector<unsigned char>& to);
 
 // Decodes the given input, interpreting it as a base64 string
 [[nodiscard]] boost::system::error_code base64_decode(
-    boost::span<const unsigned char> input,
+    std::span<const unsigned char> input,
     std::vector<unsigned char>& output
 );
 

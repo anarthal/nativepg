@@ -8,10 +8,10 @@
 #ifndef NATIVEPG_PROTOCOL_COMMON_HPP
 #define NATIVEPG_PROTOCOL_COMMON_HPP
 
-#include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <cstdint>
+#include <span>
 
 #include "nativepg/client_errc.hpp"
 
@@ -20,7 +20,7 @@ namespace protocol {
 
 namespace detail {
 
-inline boost::system::error_code check_empty(boost::span<const unsigned char> data)
+inline boost::system::error_code check_empty(std::span<const unsigned char> data)
 {
     return data.empty() ? boost::system::error_code() : boost::system::error_code(client_errc::extra_bytes);
 }

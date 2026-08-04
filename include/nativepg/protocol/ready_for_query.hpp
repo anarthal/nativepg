@@ -8,8 +8,9 @@
 #ifndef NATIVEPG_PROTOCOL_READY_FOR_QUERY_HPP
 #define NATIVEPG_PROTOCOL_READY_FOR_QUERY_HPP
 
-#include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
+
+#include <span>
 
 namespace nativepg {
 namespace protocol {
@@ -32,7 +33,7 @@ struct ready_for_query
     // Current backend transaction status indicator
     transaction_status status;
 };
-boost::system::error_code parse(boost::span<const unsigned char> data, ready_for_query& to);
+boost::system::error_code parse(std::span<const unsigned char> data, ready_for_query& to);
 
 }  // namespace protocol
 }  // namespace nativepg

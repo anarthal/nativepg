@@ -8,10 +8,10 @@
 #ifndef NATIVEPG_PROTOCOL_EXECUTE_HPP
 #define NATIVEPG_PROTOCOL_EXECUTE_HPP
 
-#include <boost/core/span.hpp>
 #include <boost/system/error_code.hpp>
 
 #include <cstdint>
+#include <span>
 #include <string_view>
 
 #include "nativepg/protocol/common.hpp"
@@ -34,7 +34,7 @@ boost::system::error_code serialize(const execute& msg, std::vector<unsigned cha
 struct portal_suspended
 {
 };
-inline boost::system::error_code parse(boost::span<const unsigned char> data, portal_suspended&)
+inline boost::system::error_code parse(std::span<const unsigned char> data, portal_suspended&)
 {
     return detail::check_empty(data);
 }

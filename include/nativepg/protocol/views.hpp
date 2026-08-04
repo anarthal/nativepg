@@ -14,10 +14,10 @@
 // messages. Avoids code duplication
 
 #include <boost/assert.hpp>
-#include <boost/core/span.hpp>
 
 #include <cstddef>
 #include <iterator>
+#include <span>
 
 namespace nativepg {
 namespace protocol {
@@ -39,7 +39,7 @@ template <class T>
 class forward_parsing_view
 {
     std::size_t size_{};                     // number of items
-    boost::span<const unsigned char> data_;  // serialized items
+    std::span<const unsigned char> data_;  // serialized items
 
 public:
     class iterator
@@ -87,7 +87,7 @@ public:
 
     // of the DataRow message, and must be valid. parse() performs this validation.
     // Don't use this unless you know what you're doing (TODO: make this private?)
-    forward_parsing_view(std::size_t size, boost::span<const unsigned char> data) noexcept
+    forward_parsing_view(std::size_t size, std::span<const unsigned char> data) noexcept
         : size_(size), data_(data)
     {
     }
@@ -99,8 +99,8 @@ public:
     bool empty() const { return size_ == 0u; }
 
     // Range functions
-    iterator begin() const { return iterator(data_.begin()); }
-    iterator end() const { return iterator(data_.end()); }
+    iterator begin() const { return iterator(data_.data()); }
+    iterator end() const { return iterator(data_.data() + data_.size()); }
 };
 
 // View over a collection of fixed-size items

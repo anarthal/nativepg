@@ -294,9 +294,10 @@ std::error_code parse_copy_response(
 // For messages that only have a header
 std::error_code serialize_header_only(char header, std::vector<unsigned char>& to)
 {
-    auto buff = serialize_header({static_cast<unsigned char>(header), 4u});
-    BOOST_ASSERT(buff.has_value());
-    to.insert(to.end(), buff->begin(), buff->end());
+    std::array<unsigned char, 5u> buff;
+    [[maybe_unused]] auto ec = serialize_header({static_cast<unsigned char>(header), 4u}, buff);
+    BOOST_ASSERT(!ec);
+    to.insert(to.end(), buff.begin(), buff.end());
     return {};
 }
 
@@ -308,25 +309,24 @@ void nativepg::protocol::detail::at_range_check(std::size_t i, std::size_t colle
         BOOST_THROW_EXCEPTION(std::out_of_range("random_access_parsing_view::at"));
 }
 
-boost::system::result<std::array<unsigned char, 5>, std::error_code> nativepg::protocol::serialize_header(
-    message_header header
+std::error_code nativepg::protocol::serialize_header(
+    const message_header& header,
+    std::span<unsigned char, 5u> to
 )
 {
-    std::array<unsigned char, 5> res{};
-
     // Range check the length. It should fit an int32, counting the 4 extra bytes in the length field
     constexpr std::int32_t max_size = (std::numeric_limits<std::int32_t>::max)() - 4u;
     if (header.size > max_size)
         return client_errc::value_too_big;
 
     // Message type
-    res[0] = header.type;
+    to[0] = header.type;
 
     // Length
-    boost::endian::store_big_s32(res.data() + 1, static_cast<std::int32_t>(header.size));
+    boost::endian::store_big_s32(to.data() + 1, static_cast<std::int32_t>(header.size));
 
     // Done
-    return res;
+    return {};
 }
 
 std::error_code nativepg::protocol::parse_header(std::span<const unsigned char, 5> from, message_header& to)

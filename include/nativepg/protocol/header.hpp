@@ -27,7 +27,7 @@ struct message_header
 std::error_code parse_header(std::span<const unsigned char, 5> from, message_header& to);
 
 // Might fail if length is too big
-boost::system::result<std::array<unsigned char, 5>, std::error_code> serialize_header(message_header header);
+std::error_code serialize_header(const message_header& header, std::span<unsigned char, 5u> to);
 
 }  // namespace protocol
 }  // namespace nativepg

@@ -8,7 +8,7 @@
 #include <boost/core/lightweight_test.hpp>
 #include <boost/multiprecision/cpp_dec_float.hpp>
 #include <boost/multiprecision/number.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cstdint>
 #include <iomanip>
@@ -40,7 +40,7 @@ void test_parse_text_numeric_success(const T& in_val)
     auto err = types::parse_text_numeric(data, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     if (boost::math::isnan(in_val))
     {
         BOOST_TEST(boost::math::isnan(out_val));  // NaN != NaN, so compare by predicate
@@ -61,7 +61,7 @@ void test_parse_binary_numeric_success(std::span<const unsigned char> wire, cons
     auto err = types::parse_binary_numeric(wire, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     if (boost::math::isnan(expected))
     {
         BOOST_TEST(boost::math::isnan(out_val));  // NaN != NaN, so compare by predicate
@@ -73,7 +73,7 @@ void test_parse_binary_numeric_success(std::span<const unsigned char> wire, cons
 }
 
 template <const std::size_t TDigits, class T = mp::number<mp::cpp_dec_float<TDigits>>>
-void test_parse_text_numeric_digits_fit(const std::string& str, boost::system::error_code expected)
+void test_parse_text_numeric_digits_fit(const std::string& str, std::error_code expected)
 {
     // Arrange
     T out_val;
@@ -100,14 +100,14 @@ void test_parse_text_numeric_from_str(const std::string& str, const T& expected)
     auto err = types::parse_text_numeric(data, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(out_val, expected);
 }
 
 template <std::size_t TDigits, typename T = mp::number<mp::cpp_dec_float<TDigits>>>
 void test_parse_binary_numeric_digits_fit(
     std::span<const unsigned char> wire,
-    boost::system::error_code expected
+    std::error_code expected
 )
 {
     // Arrange
@@ -147,7 +147,7 @@ void test_field_is_compatible_numeric_success()
         field_is_compatible<mp::number<mp::cpp_dec_float<50>>>(
             make_field_description(detail::numeric_oid)
         ),
-        boost::system::errc::success
+        std::error_code()
     );
 }
 
@@ -157,7 +157,7 @@ void test_field_is_compatible_numeric_incompatible_error()
         field_is_compatible<mp::number<mp::cpp_dec_float<50>>>(
             make_field_description(23 /* int4 oid */)
         ),
-        boost::system::error_code(client_errc::incompatible_field_type)
+        std::error_code(client_errc::incompatible_field_type)
     );
 }
 
@@ -172,7 +172,7 @@ void test_field_parse_numeric_unexpected_null_error()
     auto err = field_parse(fv, desc, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::error_code(client_errc::unexpected_null));
+    BOOST_TEST_EQ(err, std::error_code(client_errc::unexpected_null));
 }
 
 void test_field_parse_numeric_text_success()
@@ -188,7 +188,7 @@ void test_field_parse_numeric_text_success()
     auto err = field_parse(fv, desc, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(out_val, mp::number<mp::cpp_dec_float<50>>("1234.5678"));
 }
 
@@ -206,7 +206,7 @@ void test_field_parse_numeric_binary_success()
     auto err = field_parse(fv, desc, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(out_val, mp::number<mp::cpp_dec_float<50>>("1234.5678"));
 }
 
@@ -309,7 +309,7 @@ int main()
     test_parse_binary_numeric_success<100>(pg_num_round, dec100("1234.57"));
 
     // Check types that do not fit
-    const boost::system::error_code failure = nativepg::make_error_code(
+    const std::error_code failure = nativepg::make_error_code(
         client_errc::incompatible_response_length
     );
     test_parse_text_numeric_digits_fit<14>("123456789012345", failure);
@@ -318,7 +318,7 @@ int main()
     test_parse_binary_numeric_digits_fit<9>(pg_num_10digits_trailing_zero, failure);
 
     // Check types that fit
-    const boost::system::error_code success{};
+    const std::error_code success{};
     test_parse_text_numeric_digits_fit<16>("123456789012345", success);
     test_parse_binary_numeric_digits_fit<16>(pg_15digits, success);
     // Exact-boundary case: significant_digits == type_digits must still succeed (check is strictly `>`).
@@ -329,7 +329,7 @@ int main()
     test_parse_binary_numeric_digits_fit<9>(pg_num_1200, success);
 
     // Malformed text input: must not throw out of parse_text_numeric, and must report protocol_value_error.
-    const boost::system::error_code parse_error(client_errc::protocol_value_error);
+    const std::error_code parse_error(client_errc::protocol_value_error);
     test_parse_text_numeric_digits_fit<50>("abc", parse_error);
     test_parse_text_numeric_digits_fit<50>("", parse_error);
     test_parse_text_numeric_digits_fit<50>("12.3.4", parse_error);

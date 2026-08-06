@@ -7,7 +7,6 @@
 
 #include <boost/core/lightweight_test.hpp>
 #include <boost/decimal.hpp>
-#include <boost/system/error_code.hpp>
 
 #include <cstdint>
 #include <iomanip>
@@ -15,6 +14,7 @@
 #include <span>
 #include <sstream>
 #include <string>
+#include <system_error>
 
 #include "nativepg/field_traits.hpp"
 #include "nativepg/protocol/describe.hpp"
@@ -41,7 +41,7 @@ void test_parse_text_decimal_success(const T& in_val)
     auto err = types::parse_text_decimal(data, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::error_code{});
+    BOOST_TEST_EQ(err, std::error_code{});
     if (bd::isnan(in_val))
     {
         BOOST_TEST(bd::isnan(out_val));  // NaN != NaN, so compare by predicate
@@ -64,7 +64,7 @@ void test_parse_binary_decimal_success(std::span<const unsigned char> wire, cons
     auto err = types::parse_binary_decimal(wire, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::error_code{});
+    BOOST_TEST_EQ(err, std::error_code{});
     if (bd::isnan(expected))
     {
         BOOST_TEST(bd::isnan(out_val));  // NaN != NaN, so compare by predicate
@@ -91,14 +91,14 @@ void test_parse_text_decimal_from_str(const std::string& str, const T& expected)
     auto err = types::parse_text_decimal(data, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::error_code{});
+    BOOST_TEST_EQ(err, std::error_code{});
     BOOST_TEST_EQ(out_val, expected);
 }
 
 template <typename T>
     requires std::same_as<T, bd::decimal32_t> || std::same_as<T, bd::decimal64_t> ||
              std::same_as<T, bd::decimal128_t>
-void test_parse_text_decimal_error(const std::string& str, boost::system::error_code expected)
+void test_parse_text_decimal_error(const std::string& str, std::error_code expected)
 {
     // Arrange
     T out_val;
@@ -114,7 +114,7 @@ void test_parse_text_decimal_error(const std::string& str, boost::system::error_
 template <typename T>
     requires std::same_as<T, bd::decimal32_t> || std::same_as<T, bd::decimal64_t> ||
              std::same_as<T, bd::decimal128_t>
-void test_parse_binary_decimal_error(std::span<const unsigned char> wire, boost::system::error_code expected)
+void test_parse_binary_decimal_error(std::span<const unsigned char> wire, std::error_code expected)
 {
     // Arrange
     T out_val;
@@ -174,7 +174,7 @@ void test_field_parse_decimal_unexpected_null_error()
     auto err = field_parse(fv, desc, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::error_code(client_errc::unexpected_null));
+    BOOST_TEST_EQ(err, std::error_code(client_errc::unexpected_null));
 }
 
 void test_field_parse_decimal_text_success()
@@ -190,7 +190,7 @@ void test_field_parse_decimal_text_success()
     auto err = field_parse(fv, desc, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::error_code{});
+    BOOST_TEST_EQ(err, std::error_code{});
     BOOST_TEST_EQ(out_val, bd::decimal64_t{"1234.5678"});
 }
 
@@ -208,7 +208,7 @@ void test_field_parse_decimal_binary_success()
     auto err = field_parse(fv, desc, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::error_code{});
+    BOOST_TEST_EQ(err, std::error_code{});
     BOOST_TEST_EQ(out_val, bd::decimal64_t{1234.5678});
 }
 
@@ -223,7 +223,7 @@ void test_parse_text_decimal_precision_loss()
     const std::string str = "123456789.123456";  // 15 significant digits, more than decimal32_t can hold
     std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     auto err = types::parse_text_decimal(data, out_val);
-    BOOST_TEST_EQ(err, boost::system::error_code{});
+    BOOST_TEST_EQ(err, std::error_code{});
     BOOST_TEST_EQ(out_val, bd::decimal32_t{str});
 }
 
@@ -304,7 +304,7 @@ int main()
     test_parse_binary_decimal_success(pg_num_round, d128("1234.57"));
 
     // Malformed text input: must not throw out of parse_text_decimal, and must report protocol_value_error.
-    const boost::system::error_code parse_error(client_errc::protocol_value_error);
+    const std::error_code parse_error(client_errc::protocol_value_error);
     test_parse_text_decimal_error<d32>("abc", parse_error);
     test_parse_text_decimal_error<d32>("", parse_error);
     test_parse_text_decimal_error<d32>("12.3.4", parse_error);

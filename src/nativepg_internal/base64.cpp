@@ -6,10 +6,10 @@
 //
 
 #include <boost/assert.hpp>
-#include <boost/core/span.hpp>
-#include <boost/system/detail/error_code.hpp>
+#include <system_error>
 
 #include <cstddef>
+#include <span>
 #include <string_view>
 
 #include "base64.hpp"
@@ -23,7 +23,7 @@ using namespace nativepg;
 namespace {
 
 // Returns the number of bytes needed to encode the given input
-std::size_t encoded_size(boost::span<const unsigned char> input) { return 4 * ((input.size() + 2) / 3); }
+std::size_t encoded_size(std::span<const unsigned char> input) { return 4 * ((input.size() + 2) / 3); }
 
 // Gets the number of padding characters at the end of input.
 // input should be at least 4 characters long
@@ -71,7 +71,7 @@ constexpr signed char inverse_tab[] = {
 
 // Encodes src and stores it in dest. dest must point to encoded_size(src) bytes.
 // Returns the number of written characters
-void encode(boost::span<const unsigned char> src, char* dest)
+void encode(std::span<const unsigned char> src, char* dest)
 {
     char* out = dest;
     const unsigned char* in = src.data();
@@ -163,7 +163,7 @@ static bool decode(std::string_view from, unsigned char* dest)
 }  // namespace
 
 void nativepg::protocol::detail::base64_encode(
-    boost::span<const unsigned char> input,
+    std::span<const unsigned char> input,
     std::vector<unsigned char>& to
 )
 {
@@ -175,8 +175,8 @@ void nativepg::protocol::detail::base64_encode(
     encode(input, reinterpret_cast<char*>(to.data() + size_before));
 }
 
-boost::system::error_code nativepg::protocol::detail::base64_decode(
-    boost::span<const unsigned char> input,
+std::error_code nativepg::protocol::detail::base64_decode(
+    std::span<const unsigned char> input,
     std::vector<unsigned char>& output
 )
 {
@@ -195,5 +195,5 @@ boost::system::error_code nativepg::protocol::detail::base64_decode(
     bool ok = decode(input_str, output.data() + size_before);
 
     // Convert to error code
-    return ok ? boost::system::error_code() : client_errc::invalid_base64;
+    return ok ? std::error_code() : client_errc::invalid_base64;
 }

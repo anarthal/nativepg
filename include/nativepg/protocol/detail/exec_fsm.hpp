@@ -8,7 +8,7 @@
 #ifndef NATIVEPG_PROTOCOL_DETAIL_EXEC_FSM_HPP
 #define NATIVEPG_PROTOCOL_DETAIL_EXEC_FSM_HPP
 
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cstddef>
 
@@ -31,9 +31,9 @@ public:
 
     exec_fsm(const request* req, response_handler_ref handler) noexcept : read_fsm_(req, handler) {}
 
-    result resume(connection_state& st, boost::system::error_code ec, std::size_t bytes_transferred);
+    result resume(connection_state& st, std::error_code ec, std::size_t bytes_transferred);
 
-    extended_error get_result(boost::system::error_code ec) const
+    extended_error get_result(std::error_code ec) const
     {
         return ec ? extended_error{ec, {}} : read_fsm_.get_handler().result();
     }

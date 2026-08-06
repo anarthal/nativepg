@@ -5,7 +5,7 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
@@ -15,7 +15,6 @@
 #include "nativepg/responses/response_handler.hpp"
 
 using namespace nativepg::protocol;
-using boost::system::error_code;
 using nativepg::client_errc;
 using kind = any_backend_message::kind;
 
@@ -52,13 +51,13 @@ read_response_fsm::result read_response_fsm::handle_error(const error_response& 
     }
 
     BOOST_ASSERT(false);
-    return error_code(client_errc::request_ends_without_sync);
+    return std::error_code(client_errc::request_ends_without_sync);
 }
 
 read_response_fsm::result read_response_fsm::advance()
 {
     if (++current_ >= req_->messages().size())
-        return error_code();
+        return std::error_code();
     else
         return result(result_type::read);
 }
@@ -76,7 +75,7 @@ read_response_fsm::result read_response_fsm::handle_bind(const any_backend_messa
             // Finishes the bind phase
             call_handler(msg.get_bind_complete());
             return advance();
-        default: return error_code(client_errc::unexpected_message);
+        default: return std::error_code(client_errc::unexpected_message);
     }
 }
 
@@ -93,7 +92,7 @@ read_response_fsm::result read_response_fsm::handle_close(const any_backend_mess
             // Finishes the close phase
             call_handler(msg.get_close_complete());
             return advance();
-        default: return error_code(client_errc::unexpected_message);
+        default: return std::error_code(client_errc::unexpected_message);
     }
 }
 
@@ -121,7 +120,7 @@ read_response_fsm::result read_response_fsm::handle_describe(const any_backend_m
             // Finishes the describe phase.
             call_handler(row_description{});
             return advance();
-        default: return error_code(client_errc::unexpected_message);
+        default: return std::error_code(client_errc::unexpected_message);
     }
 }
 
@@ -142,7 +141,7 @@ read_response_fsm::result read_response_fsm::handle_execute(const any_backend_me
                     // Data is handled by the upper layers as a separate channel.
                     // The handler sees an empty resultset.
                     if (!allow_copy_)
-                        return error_code(client_errc::copy_not_allowed);
+                        return std::error_code(client_errc::copy_not_allowed);
                     call_handler(row_description{});
                     state_ = state_t::exec_copy_out;
                     return result_type::read;
@@ -165,7 +164,7 @@ read_response_fsm::result read_response_fsm::handle_execute(const any_backend_me
                     // We got a row. This doesn't change state
                     call_handler(msg.get_data_row());
                     return result_type::read;
-                default: return error_code(client_errc::unexpected_message);
+                default: return std::error_code(client_errc::unexpected_message);
             }
         }
         case state_t::exec_copy_out:
@@ -182,7 +181,7 @@ read_response_fsm::result read_response_fsm::handle_execute(const any_backend_me
                     // Terminates copy out, but should be followed by CommandComplete
                     state_ = state_t::exec_copy_out_needs_command_complete;
                     return result_type::read;
-                default: return error_code(client_errc::unexpected_message);
+                default: return std::error_code(client_errc::unexpected_message);
             }
         }
         case state_t::exec_copy_out_needs_command_complete:
@@ -196,10 +195,10 @@ read_response_fsm::result read_response_fsm::handle_execute(const any_backend_me
                     call_handler(msg.get_command_complete());
                     state_ = state_t::msg_first;
                     return advance();
-                default: return error_code(client_errc::unexpected_message);
+                default: return std::error_code(client_errc::unexpected_message);
             }
         }
-        default: return error_code(client_errc::unexpected_message);
+        default: return std::error_code(client_errc::unexpected_message);
     }
 }
 
@@ -216,7 +215,7 @@ read_response_fsm::result read_response_fsm::handle_parse(const any_backend_mess
             // Finishes the parse phase
             call_handler(msg.get_parse_complete());
             return advance();
-        default: return error_code(client_errc::unexpected_message);
+        default: return std::error_code(client_errc::unexpected_message);
     }
 }
 
@@ -226,7 +225,7 @@ read_response_fsm::result read_response_fsm::handle_sync(const any_backend_messa
     // as we don't know whether the connection is healthy or not
     BOOST_ASSERT(state_ == state_t::msg_first);
     if (msg.type() != kind::ready_for_query)
-        return error_code(client_errc::unexpected_message);
+        return std::error_code(client_errc::unexpected_message);
     return advance();
 }
 
@@ -256,7 +255,7 @@ read_response_fsm::result read_response_fsm::handle_query(const any_backend_mess
                     // Data is handled by the upper layers as a separate channel.
                     // The handler sees an empty resultset.
                     if (!allow_copy_)
-                        return error_code(client_errc::copy_not_allowed);
+                        return std::error_code(client_errc::copy_not_allowed);
                     call_handler(row_description{});
                     state_ = state_t::query_copy_out;
                     return result_type::read;
@@ -282,17 +281,17 @@ read_response_fsm::result read_response_fsm::handle_query(const any_backend_mess
                     // Only allowed as the first and only message. Signals that there was no query to begin
                     // with
                     if (state_ != state_t::msg_first)
-                        return error_code(client_errc::unexpected_message);
+                        return std::error_code(client_errc::unexpected_message);
                     state_ = state_t::query_needs_ready;
                     call_handler(msg.get_empty_query_response());
                     return result_type::read;
                 case kind::ready_for_query:
                     if (state_ != state_t::query_first)
-                        return error_code(client_errc::unexpected_message);
+                        return std::error_code(client_errc::unexpected_message);
                     // Not allowed as the only response to a query
                     state_ = state_t::msg_first;
                     return advance();
-                default: return error_code(client_errc::unexpected_message);
+                default: return std::error_code(client_errc::unexpected_message);
             }
         }
         case state_t::query_rows:
@@ -313,7 +312,7 @@ read_response_fsm::result read_response_fsm::handle_query(const any_backend_mess
                     state_ = state_t::query_first;
                     call_handler(msg.get_command_complete());
                     return result_type::read;
-                default: return error_code(client_errc::unexpected_message);
+                default: return std::error_code(client_errc::unexpected_message);
             }
         }
         case state_t::query_needs_ready:
@@ -324,7 +323,7 @@ read_response_fsm::result read_response_fsm::handle_query(const any_backend_mess
                 state_ = state_t::msg_first;
                 return advance();
             }
-            return error_code(client_errc::unexpected_message);
+            return std::error_code(client_errc::unexpected_message);
         case state_t::query_copy_out:
         {
             switch (msg.type())
@@ -341,7 +340,7 @@ read_response_fsm::result read_response_fsm::handle_query(const any_backend_mess
                     // Terminates copy out, but should be followed by CommandComplete
                     state_ = state_t::query_copy_out_needs_command_complete;
                     return result_type::read;
-                default: return error_code(client_errc::unexpected_message);
+                default: return std::error_code(client_errc::unexpected_message);
             }
         }
         case state_t::query_copy_out_needs_command_complete:
@@ -357,10 +356,10 @@ read_response_fsm::result read_response_fsm::handle_query(const any_backend_mess
                     call_handler(msg.get_command_complete());
                     state_ = state_t::query_first;
                     return result_type::read;
-                default: return error_code(client_errc::unexpected_message);
+                default: return std::error_code(client_errc::unexpected_message);
             }
         }
-        default: BOOST_ASSERT(false); return error_code(client_errc::unexpected_message);
+        default: BOOST_ASSERT(false); return std::error_code(client_errc::unexpected_message);
     }
 }
 

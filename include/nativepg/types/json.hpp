@@ -10,7 +10,7 @@
 
 #include <boost/json/parse.hpp>
 #include <boost/json/value.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <string_view>
 
@@ -19,18 +19,18 @@
 
 namespace nativepg::types {
 
-inline boost::system::error_code parse_json(const std::string_view& json_text, boost::json::value& to)
+inline std::error_code parse_json(const std::string_view& json_text, boost::json::value& to)
 {
     if (json_text.empty())
         return {};
-    boost::system::error_code ec{};
+    std::error_code ec{};
     to = boost::json::parse(json_text, ec);
     return ec;
 }
 
 // JSONB => boost::json::value (BINARY)
 // PostgreSQL JSONB binary has a 1-byte version prefix (always 0x01), followed by JSON text.
-inline boost::system::error_code parse_binary_jsonb(const field_view& from, boost::json::value& to)
+inline std::error_code parse_binary_jsonb(const field_view& from, boost::json::value& to)
 {
     const auto bytes = from.data();
     if (bytes.empty() || bytes[0] != 1)

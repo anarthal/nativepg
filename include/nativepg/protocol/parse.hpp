@@ -8,11 +8,11 @@
 #ifndef NATIVEPG_PROTOCOL_PARSE_HPP
 #define NATIVEPG_PROTOCOL_PARSE_HPP
 
-#include <boost/core/span.hpp>
-#include <boost/system/error_code.hpp>
-
 #include <cstdint>
+#include <span>
 #include <string_view>
+#include <system_error>
+#include <vector>
 
 #include "nativepg/protocol/common.hpp"
 
@@ -32,14 +32,14 @@ struct parse_t
     std::string_view query;
 
     // Expected parameter data types, as OIDs. A zero OID leaves the type unspecified.
-    boost::span<const std::int32_t> parameter_type_oids;
+    std::span<const std::int32_t> parameter_type_oids;
 };
-boost::system::error_code serialize(const parse_t& msg, std::vector<unsigned char>& to);
+std::error_code serialize(const parse_t& msg, std::vector<unsigned char>& to);
 
 struct parse_complete
 {
 };
-inline boost::system::error_code parse(boost::span<const unsigned char> data, parse_complete&)
+inline std::error_code parse(std::span<const unsigned char> data, parse_complete&)
 {
     return detail::check_empty(data);
 }

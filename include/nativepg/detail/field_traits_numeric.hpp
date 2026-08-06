@@ -14,9 +14,9 @@
 #include <boost/assert.hpp>
 #include <boost/multiprecision/cpp_dec_float.hpp>
 #include <boost/multiprecision/number.hpp>
-#include <boost/system/error_code.hpp>
 
 #include <cstdint>
+#include <system_error>
 
 #include "nativepg/extended_error.hpp"
 #include "nativepg/field_traits.hpp"
@@ -41,8 +41,8 @@ template <unsigned Digits, class Exp, class Alloc, boost::multiprecision::expres
 struct parse_field_traits<
     boost::multiprecision::number<boost::multiprecision::cpp_dec_float<Digits, Exp, Alloc>, ET>>
 {
-    using value_type =
-        boost::multiprecision::number<boost::multiprecision::cpp_dec_float<Digits, Exp, Alloc>, ET>;
+    using value_type = boost::multiprecision::
+        number<boost::multiprecision::cpp_dec_float<Digits, Exp, Alloc>, ET>;
 
     static boost::system::error_code is_compatible(const protocol::field_description& desc)
     {

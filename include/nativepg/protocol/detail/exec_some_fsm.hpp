@@ -11,10 +11,9 @@
 #include <boost/assert.hpp>
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cstddef>
-#include <system_error>
 #include <vector>
 
 #include "coroutine.hpp"

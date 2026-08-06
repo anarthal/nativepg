@@ -8,10 +8,10 @@
 #ifndef NATIVEPG_PROTOCOL_NOTICE_ERROR_HPP
 #define NATIVEPG_PROTOCOL_NOTICE_ERROR_HPP
 
-#include <boost/core/span.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <optional>
+#include <span>
 #include <string_view>
 
 namespace nativepg {
@@ -100,12 +100,12 @@ struct error_notice_fields
 struct error_response : error_notice_fields
 {
 };
-boost::system::error_code parse(boost::span<const unsigned char> data, error_response& to);
+std::error_code parse(std::span<const unsigned char> data, error_response& to);
 
 struct notice_response : error_notice_fields
 {
 };
-boost::system::error_code parse(boost::span<const unsigned char> data, notice_response& to);
+std::error_code parse(std::span<const unsigned char> data, notice_response& to);
 
 }  // namespace protocol
 }  // namespace nativepg

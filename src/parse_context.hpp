@@ -9,15 +9,14 @@
 #define NATIVEPG_SRC_PARSE_CONTEXT_HPP
 
 #include <boost/assert.hpp>
-#include <boost/core/span.hpp>
 #include <boost/endian/detail/endian_load.hpp>
-#include <boost/system/detail/error_code.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstring>
+#include <span>
 #include <string_view>
 #include <type_traits>
 
@@ -49,10 +48,11 @@ class parse_context
 {
     const unsigned char* first_;
     const unsigned char* last_;
-    boost::system::error_code ec_;
+    std::error_code ec_;
 
 public:
-    parse_context(boost::span<const unsigned char> range) noexcept : first_(range.begin()), last_(range.end())
+    parse_context(std::span<const unsigned char> range) noexcept
+        : first_(range.data()), last_(range.data() + range.size())
     {
     }
 
@@ -126,13 +126,13 @@ public:
             advance(n);
     }
 
-    boost::span<const unsigned char> get_bytes(std::size_t n)
+    std::span<const unsigned char> get_bytes(std::size_t n)
     {
         if (n > size())
             add_error(client_errc::incomplete_message);
         if (ec_)
             return {};
-        boost::span<const unsigned char> res{first_, n};
+        std::span<const unsigned char> res{first_, n};
         advance(n);
         return res;
     }
@@ -150,7 +150,7 @@ public:
         return res;
     }
 
-    void add_error(boost::system::error_code ec)
+    void add_error(std::error_code ec)
     {
         if (!ec_)
             ec_ = ec;
@@ -162,9 +162,9 @@ public:
             add_error(client_errc::extra_bytes);
     }
 
-    boost::system::error_code error() const { return ec_; }
+    std::error_code error() const { return ec_; }
 
-    boost::system::error_code check()
+    std::error_code check()
     {
         check_extra_bytes();
         return error();

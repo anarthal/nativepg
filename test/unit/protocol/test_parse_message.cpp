@@ -6,8 +6,9 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
-#include <boost/core/span.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
+
+#include <span>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
@@ -15,7 +16,7 @@
 #include "nativepg/protocol/parse_message.hpp"
 
 using namespace nativepg;
-using boost::system::error_code;
+using std::error_code;
 using protocol::parse_message;
 
 namespace {
@@ -40,7 +41,7 @@ void test_incomplete_message()
     // A command completion message
     const unsigned char data[] =
         {0x43, 0x00, 0x00, 0x00, 0x0d, 0x53, 0x45, 0x4c, 0x45, 0x43, 0x54, 0x20, 0x31, 0x00};
-    boost::span<const unsigned char> msg(data);
+    std::span<const unsigned char> msg(data);
 
     // Empty buffer: we need the 5 header bytes
     auto res = parse_message({});

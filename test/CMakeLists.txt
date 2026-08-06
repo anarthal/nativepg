@@ -29,6 +29,12 @@ function (nativepg_add_test TEST_DIR TEST_NAME)
     target_link_libraries(${TARGET_NAME} PRIVATE nativepg_test_utils ${ARGN})
     add_test(NAME ${TARGET_NAME} COMMAND ${TARGET_NAME})
     target_compile_options(${TARGET_NAME} PUBLIC -Wall -Wextra -Wpedantic -Werror)
+
+    # gcc 13 emits false positive -Warray-bounds warnings
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 13
+            AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14)
+        target_compile_options(${TARGET_NAME} PUBLIC -Wno-array-bounds)
+    endif()
 endfunction()
 
 nativepg_add_test(unit/nativepg_internal test_base64)

@@ -9,7 +9,7 @@
 #define NATIVEPG_PROTOCOL_DETAIL_CONNECT_FSM_HPP
 
 #include <boost/assert.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cstddef>
 
@@ -36,14 +36,14 @@ public:
         result_type type_;
         union
         {
-            boost::system::error_code ec_;
+            std::error_code ec_;
             std::span<unsigned char> data_;
         };
 
         result(result_type t, std::span<unsigned char> data = {}) noexcept : type_(t), data_(data) {}
 
     public:
-        result(boost::system::error_code ec) noexcept : type_(result_type::done), ec_(ec) {}
+        result(std::error_code ec) noexcept : type_(result_type::done), ec_(ec) {}
 
         static result connect() { return {result_type::connect}; }
         static result close() { return {result_type::close}; }
@@ -58,7 +58,7 @@ public:
 
         result_type type() const { return type_; }
 
-        boost::system::error_code error() const
+        std::error_code error() const
         {
             BOOST_ASSERT(type_ == result_type::done);
             return ec_;
@@ -79,11 +79,11 @@ public:
 
     const connect_params& params() const { return startup_.params(); }
 
-    result resume(connection_state& st, boost::system::error_code ec, std::size_t bytes_transferred);
+    result resume(connection_state& st, std::error_code ec, std::size_t bytes_transferred);
 
 private:
     int resume_point_{0};
-    boost::system::error_code stored_ec_;
+    std::error_code stored_ec_;
     startup_fsm startup_;
 };
 

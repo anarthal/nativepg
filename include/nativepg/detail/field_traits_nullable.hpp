@@ -65,7 +65,7 @@ struct parse_field_traits<std::optional<T>>
         if (from.is_null())
         {
             to.reset();
-            return boost::system::error_code{};
+            return std::error_code{};
         }
         return field_parse(from, desc, to.emplace());
     }

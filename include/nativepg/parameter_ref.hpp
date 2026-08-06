@@ -8,7 +8,7 @@
 #ifndef NATIVEPG_PARAMETER_REF_HPP
 #define NATIVEPG_PARAMETER_REF_HPP
 
-#include <boost/system/error_code.hpp>
+#include <boost/endian/conversion.hpp>
 
 #include <cstdint>
 
@@ -18,16 +18,10 @@ namespace nativepg {
 
 class parameter_ref
 {
-    using serialize_fn = boost::system::error_code (*)(
-        const void* param,
-        std::vector<unsigned char>& buffer
-    );
+    using serialize_fn = boost::system::error_code (*)(const void* param, std::vector<unsigned char>& buffer);
 
     template <class T>
-    static boost::system::error_code do_serialize_text(
-        const void* param,
-        std::vector<unsigned char>& buffer
-    )
+    static boost::system::error_code do_serialize_text(const void* param, std::vector<unsigned char>& buffer)
     {
         return field_serialize_text(*static_cast<const T*>(param), buffer);
     }

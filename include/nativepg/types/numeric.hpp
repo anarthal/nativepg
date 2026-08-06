@@ -16,13 +16,13 @@
 #include <boost/endian/conversion.hpp>
 #include <boost/multiprecision/cpp_dec_float.hpp>
 #include <boost/multiprecision/number.hpp>
-#include <boost/system/error_code.hpp>
 
 #include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <ranges>
 #include <string_view>
+#include <system_error>
 #include <utility>
 
 #include "nativepg/client_errc.hpp"
@@ -101,7 +101,7 @@ inline std::size_t count_significant_digits_binary(
 }  // namespace detail
 
 template <class T>
-error_code parse_text_numeric(const field_view& from, T& to)
+std::error_code parse_text_numeric(const field_view& from, T& to)
 {
     const std::string_view sv = from.data_str();
 
@@ -122,7 +122,7 @@ error_code parse_text_numeric(const field_view& from, T& to)
 }
 
 template <class T>
-error_code parse_binary_numeric(const field_view& from, T& to)
+std::error_code parse_binary_numeric(const field_view& from, T& to)
 {
     const auto bytes = from.data();
 

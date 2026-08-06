@@ -7,7 +7,9 @@
 
 #include <boost/core/lightweight_test.hpp>
 
+#include <span>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 #include "nativepg_internal/scram_sha256_messages.hpp"
@@ -34,11 +36,12 @@ void test_serialize()
     constexpr std::string_view client_bare = "n=,r=7vha5bhElx564U6mzXimIJqd";
 
     // Serialize
-    auto res = serialize(msg, buff);
+    std::span<const unsigned char> client_bare_actual;
+    auto ec = serialize(msg, buff, client_bare_actual);
 
     // Check
-    BOOST_TEST(res.has_value());
-    test_range_eq(res.value(), client_bare);
+    BOOST_TEST_EQ(ec, std::error_code());
+    test_range_eq(client_bare_actual, client_bare);
     test_range_eq(buff, expected);
 }
 

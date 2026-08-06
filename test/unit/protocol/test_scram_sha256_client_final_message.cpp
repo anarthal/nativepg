@@ -6,10 +6,10 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
-#include <boost/system/error_code.hpp>
 
 #include <span>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 #include "nativepg_internal/scram_sha256_messages.hpp"
@@ -17,7 +17,7 @@
 
 using namespace nativepg::protocol::detail::scram_sha256;
 using namespace nativepg::test;
-using boost::system::error_code;
+using std::error_code;
 
 namespace {
 
@@ -44,18 +44,22 @@ void test_serialize()
     client_final_message_serializer serializer(buff);
 
     // Serialize all except for the proof
-    auto res = serializer.serialize_without_proof("8L+V/3ytl95bttI99/bhMxawOHcGq/1XrujDHQsrL/x/it8E");
+    std::span<const unsigned char> client_final_message_without_proof;
+    auto ec = serializer.serialize_without_proof(
+        "8L+V/3ytl95bttI99/bhMxawOHcGq/1XrujDHQsrL/x/it8E",
+        client_final_message_without_proof
+    );
 
     // without_proof is the part of the final message to use for proof calculations
     // proof_offset is where the proof starts in the binary message (expected has also a header)
     constexpr std::string_view without_proof = "c=biws,r=8L+V/3ytl95bttI99/bhMxawOHcGq/1XrujDHQsrL/x/it8E";
     constexpr std::size_t proof_offset = 64u;
-    BOOST_TEST(res.has_value());
-    test_range_eq(res.value(), without_proof);
+    BOOST_TEST_EQ(ec, std::error_code());
+    test_range_eq(client_final_message_without_proof, without_proof);
     test_range_eq(buff, std::span<const unsigned char>(buff).subspan(0, proof_offset));
 
     // Serialize the proof
-    auto ec = serializer.serialize_proof(proof);
+    ec = serializer.serialize_proof(proof);
 
     test_range_eq(buff, expected);
     BOOST_TEST_EQ(ec, error_code());

@@ -12,9 +12,9 @@
 // include it directly unless you also need nativepg/types/json.hpp's parsing functions.
 
 #include <boost/json/value.hpp>
-#include <boost/system/error_code.hpp>
 
 #include <cstdint>
+#include <system_error>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/field_traits.hpp"

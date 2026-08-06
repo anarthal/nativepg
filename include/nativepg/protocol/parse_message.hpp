@@ -8,7 +8,7 @@
 #ifndef NATIVEPG_PARSE_MESSAGE_HPP
 #define NATIVEPG_PARSE_MESSAGE_HPP
 
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cstddef>
 #include <span>
@@ -22,7 +22,7 @@ namespace nativepg::protocol {
 struct parse_message_result
 {
     // empty, needs_more or any other error
-    boost::system::error_code ec;
+    std::error_code ec;
 
     // if !ec
     any_backend_message message{};

@@ -9,15 +9,12 @@
 #define NATIVEPG_DETAIL_FIELD_TRAITS_BASE_HPP
 
 #pragma once
-
-#include <boost/assert.hpp>
-#include <boost/system/error_code.hpp>
-
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"

@@ -9,10 +9,10 @@
 #define NATIVEPG_PROTOCOL_BIND_HPP
 
 #include <boost/compat/function_ref.hpp>
-#include <boost/core/span.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cstddef>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -35,7 +35,7 @@ class bind_context
     std::size_t num_params_{};
     std::size_t param_offset_{no_offset};
     std::vector<unsigned char>& buff_;
-    boost::system::error_code err_;
+    std::error_code err_;
 
     friend struct detail::bind_context_access;
 
@@ -63,14 +63,14 @@ public:
     }
 
     // Marks the serialization as failed. Only the first error is retained
-    void add_error(boost::system::error_code err)
+    void add_error(std::error_code err)
     {
         if (!err_)
             err_ = err;
     }
 
     // Returns any error added during serialization. Only the 1st one is retained
-    boost::system::error_code error() const { return err_; }
+    std::error_code error() const { return err_; }
 };
 
 struct bind
@@ -92,12 +92,12 @@ struct bind
     // The result-column format codes.
     format_codes result_fmt_codes;
 };
-boost::system::error_code serialize(const bind& msg, std::vector<unsigned char>& to);
+std::error_code serialize(const bind& msg, std::vector<unsigned char>& to);
 
 struct bind_complete
 {
 };
-inline boost::system::error_code parse(boost::span<const unsigned char> data, bind_complete&)
+inline std::error_code parse(std::span<const unsigned char> data, bind_complete&)
 {
     return detail::check_empty(data);
 }

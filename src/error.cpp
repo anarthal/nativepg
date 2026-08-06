@@ -7,11 +7,10 @@
 
 #include <boost/asio/disposition.hpp>
 #include <boost/assert.hpp>
-#include <boost/system/error_category.hpp>
-#include <boost/system/system_error.hpp>
 #include <boost/throw_exception.hpp>
 
 #include <exception>
+#include <system_error>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/extended_error.hpp"
@@ -60,7 +59,7 @@ static const char* error_to_string(client_errc error)
     }
 }
 
-class client_category final : public boost::system::error_category
+class client_category final : public std::error_category
 {
 public:
     const char* name() const noexcept final override { return "nativepg.client"; }
@@ -71,7 +70,7 @@ static client_category g_clicat;
 
 }  // namespace
 
-const boost::system::error_category& nativepg::get_client_category() { return g_clicat; }
+const std::error_category& nativepg::get_client_category() { return g_clicat; }
 
 void diagnostics::assign(const protocol::error_response& err)
 {
@@ -85,20 +84,20 @@ void diagnostics::assign(const protocol::error_response& err)
 
 void boost::asio::disposition_traits<extended_error>::throw_exception(const nativepg::extended_error& d)
 {
-    boost::throw_exception(boost::system::system_error(d.code, std::string(d.diag.message())));
+    boost::throw_exception(std::system_error(d.code, std::string(d.diag.message())));
 }
 
 std::exception_ptr boost::asio::disposition_traits<extended_error>::to_exception_ptr(
     const nativepg::extended_error& d
 ) noexcept
 {
-    return std::make_exception_ptr(boost::system::system_error(d.code, std::string(d.diag.message())));
+    return std::make_exception_ptr(std::system_error(d.code, std::string(d.diag.message())));
 }
 
 void nativepg::throw_exception_from_error(const extended_error& err, boost::source_location loc)
 {
     if (err.code)
     {
-        boost::throw_exception(boost::system::system_error(err.code, std::string(err.diag.message())), loc);
+        boost::throw_exception(std::system_error(err.code, std::string(err.diag.message())), loc);
     }
 }

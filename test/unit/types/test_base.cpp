@@ -6,8 +6,6 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
-#include <boost/core/span.hpp>
-#include <boost/system/error_code.hpp>
 
 #include <cmath>
 #include <cstddef>
@@ -20,6 +18,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
@@ -28,7 +27,7 @@
 #include "nativepg/types/base.hpp"
 
 using namespace nativepg;
-using boost::system::error_code;
+using std::error_code;
 
 namespace {
 
@@ -72,14 +71,14 @@ void test_parse_text_bool_t_success()
     // Arrange
     bool b = false;
     std::string str = "t";
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
     auto err = types::parse_text_bool(fv, b);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(b, true);
 }
 
@@ -88,14 +87,14 @@ void test_parse_binary_bool_t_success()
     // Arrange
     bool b = false;
     static constexpr unsigned char pg_bool[] = {0x1};
-    boost::span<const unsigned char> data(pg_bool);
+    std::span<const unsigned char> data(pg_bool);
     field_view fv{data};
 
     // Act
     auto err = types::parse_binary_bool(fv, b);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(b, true);
 }
 
@@ -104,14 +103,14 @@ void test_parse_text_bool_f_success()
     // Arrange
     bool b = true;
     std::string str = "f";
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
     auto err = types::parse_text_bool(fv, b);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(b, false);
 }
 
@@ -120,14 +119,14 @@ void test_parse_binary_bool_f_success()
     // Arrange
     bool b = true;
     static constexpr unsigned char pg_bool[] = {0x0};
-    boost::span<const unsigned char> data(pg_bool);
+    std::span<const unsigned char> data(pg_bool);
     field_view fv{data};
 
     // Act
     auto err = types::parse_binary_bool(fv, b);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(b, false);
 }
 
@@ -136,7 +135,7 @@ void test_parse_text_bool_invalid_error()
     // Arrange
     bool b = false;
     std::string str = "true";  // Only "t" and "f" are valid
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
@@ -151,7 +150,7 @@ void test_parse_binary_bool_invalid_size_error()
     // Arrange
     bool b = false;
     static constexpr unsigned char pg_bool[] = {0x0, 0x1};  // Only 1 byte is valid
-    boost::span<const unsigned char> data(pg_bool);
+    std::span<const unsigned char> data(pg_bool);
     field_view fv{data};
 
     // Act
@@ -167,14 +166,14 @@ void test_parse_text_bytea_success()
     // Arrange
     std::vector<std::byte> ba;
     std::string str = "\\x21061977";
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
     auto err = types::parse_text_bytea(fv, ba);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(ba.size(), 4u);
     std::stringstream ss;
     ss << ba;
@@ -186,14 +185,14 @@ void test_parse_binary_bytea_success()
     // Arrange
     std::vector<std::byte> ba;
     static constexpr unsigned char pg_bytea[] = {0x21, 0x06, 0x19, 0x77};
-    boost::span<const unsigned char> data(pg_bytea);
+    std::span<const unsigned char> data(pg_bytea);
     field_view fv{data};
 
     // Act
     auto err = types::parse_binary_bytea(fv, ba);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(ba.size(), 4u);
     std::stringstream ss;
     ss << ba;
@@ -205,7 +204,7 @@ void test_parse_text_bytea_missing_prefix_error()
     // Arrange
     std::vector<std::byte> ba;
     std::string str = "21061977";  // Missing the \x prefix
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
@@ -220,7 +219,7 @@ void test_parse_text_bytea_odd_length_error()
     // Arrange
     std::vector<std::byte> ba;
     std::string str = "\\x210";  // Odd number of hex digits
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
@@ -235,7 +234,7 @@ void test_parse_text_bytea_invalid_hex_error()
     // Arrange
     std::vector<std::byte> ba;
     std::string str = "\\xzz";  // Not valid hex digits
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
@@ -251,14 +250,14 @@ void test_parse_text_char_success()
     // Arrange
     char c = '\0';
     std::string str = "z";
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
     auto err = types::parse_text_char(fv, c);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(c, 'z');
 }
 
@@ -267,14 +266,14 @@ void test_parse_binary_char_success()
     // Arrange
     char c = '\0';
     static constexpr unsigned char pg_char[] = {0x7a};  // 'z'
-    boost::span<const unsigned char> data(pg_char);
+    std::span<const unsigned char> data(pg_char);
     field_view fv{data};
 
     // Act
     auto err = types::parse_binary_char(fv, c);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(c, 'z');
 }
 
@@ -283,7 +282,7 @@ void test_parse_text_char_empty_error()
     // Arrange
     char c = '\0';
     std::string str;  // Empty string is not a valid single-byte char
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
@@ -298,7 +297,7 @@ void test_parse_binary_char_wrong_size_error()
     // Arrange
     char c = '\0';
     static constexpr unsigned char pg_char[] = {0x7a, 0x7a};  // Only 1 byte is valid
-    boost::span<const unsigned char> data(pg_char);
+    std::span<const unsigned char> data(pg_char);
     field_view fv{data};
 
     // Act
@@ -314,14 +313,14 @@ void test_parse_text_oid_success()
     // Arrange
     std::uint32_t o = 0;
     std::string str = "5887";
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
     auto err = types::parse_text_oid(fv, o);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(o, 5887u);
 }
 
@@ -330,14 +329,14 @@ void test_parse_binary_oid_success()
     // Arrange
     std::uint32_t o = 0;
     static constexpr unsigned char pg_oid[] = {0x00, 0x00, 0x16, 0xff};  // 5887, big endian
-    boost::span<const unsigned char> data(pg_oid);
+    std::span<const unsigned char> data(pg_oid);
     field_view fv{data};
 
     // Act
     auto err = types::parse_binary_oid(fv, o);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(o, 5887u);
 }
 
@@ -346,7 +345,7 @@ void test_parse_text_oid_garbage_error()
     // Arrange
     std::uint32_t o = 0;
     std::string str = "not_an_oid";
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
@@ -361,7 +360,7 @@ void test_parse_binary_oid_wrong_size_error()
     // Arrange
     std::uint32_t o = 0;
     static constexpr unsigned char pg_oid[] = {0x00, 0x00, 0x16};  // Only 3 bytes, needs 4
-    boost::span<const unsigned char> data(pg_oid);
+    std::span<const unsigned char> data(pg_oid);
     field_view fv{data};
 
     // Act
@@ -378,14 +377,14 @@ void test_parse_text_int_success()
     // Arrange
     T out_val;
     std::string str = std::to_string(in_val);
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
     auto err = types::parse_text_int<T>(fv, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(out_val, in_val);
 }
 
@@ -402,7 +401,7 @@ void test_parse_binary_int_success()
     auto err = types::parse_binary_int<T>(fv, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(out_val, in_val);
 }
 
@@ -412,7 +411,7 @@ void test_parse_text_int_garbage_error()
     // Arrange
     T out_val{};
     std::string str = "not_a_number";
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
@@ -429,7 +428,7 @@ void test_parse_text_int_overflow_error()
     T out_val{};
     // One more than the maximum representable value for T
     std::string str = std::to_string(static_cast<std::intmax_t>(std::numeric_limits<T>::max()) + 1);
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
@@ -463,14 +462,14 @@ void test_parse_text_float_success()
     std::stringstream ss;
     ss << std::setprecision(std::numeric_limits<T>::max_digits10) << in_val;
     std::string str = ss.str();
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
     auto err = types::parse_text_float<T>(fv, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     if (std::isnan(in_val))
     {
         BOOST_TEST(std::isnan(out_val));
@@ -499,7 +498,7 @@ void test_parse_binary_float_success()
     auto err = types::parse_binary_float<T>(fv, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     if (std::isnan(in_val))
     {
         BOOST_TEST(std::isnan(out_val));
@@ -523,14 +522,14 @@ void test_parse_binary_float_success(const unsigned char (&in_val)[N])
 
     // Arrange
     T out_val{};
-    boost::span<const unsigned char> data(in_val);
+    std::span<const unsigned char> data(in_val);
     field_view fv{data};
 
     // Act
     auto err = types::parse_binary_float<T>(fv, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
 
     const T expected = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(in_val);
     if (std::isnan(expected))
@@ -554,7 +553,7 @@ void test_parse_text_float_garbage_error()
     // Arrange
     T out_val{};
     std::string str = "not_a_float";
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
@@ -585,14 +584,14 @@ void test_parse_text_text_success(const T& in_val)
     // Arrange
     T out_val;
     const std::string str = in_val;
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
     auto err = types::parse_text_text<T>(fv, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(out_val, in_val);
 }
 
@@ -602,14 +601,14 @@ void test_parse_binary_text_success(const T& in_val)
     // Arrange
     T out_val;
     const std::string_view str = in_val;
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
     auto err = types::parse_binary_text<T>(fv, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(out_val, in_val);
 
     if constexpr (std::is_same_v<T, std::string_view>)
@@ -743,7 +742,7 @@ void test_field_parse_bool_text_success()
     // Arrange
     bool b = false;
     std::string str = "t";
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
     const auto desc = make_field_description(detail::bool_oid, protocol::format_code::text);
 
@@ -751,7 +750,7 @@ void test_field_parse_bool_text_success()
     auto err = field_parse(fv, desc, b);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(b, true);
 }
 
@@ -760,7 +759,7 @@ void test_field_parse_char_text_success()
     // Arrange
     char c = '\0';
     std::string str = "z";
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
     const auto desc = make_field_description(detail::char_oid, protocol::format_code::text);
 
@@ -768,7 +767,7 @@ void test_field_parse_char_text_success()
     auto err = field_parse(fv, desc, c);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(c, 'z');
 }
 
@@ -791,7 +790,7 @@ void test_field_parse_oid_text_success()
     // Arrange
     std::uint32_t o = 0;
     std::string str = "5887";
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
     const auto desc = make_field_description(detail::oid_oid, protocol::format_code::text);
 
@@ -799,7 +798,7 @@ void test_field_parse_oid_text_success()
     auto err = field_parse(fv, desc, o);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(o, 5887u);
 }
 
@@ -822,7 +821,7 @@ void test_field_parse_int32_from_int2_wire_success()
     // Arrange
     std::int32_t out_val = 0;
     static constexpr unsigned char pg_int2[] = {0x00, 0x2a};  // 42, big endian
-    boost::span<const unsigned char> data(pg_int2);
+    std::span<const unsigned char> data(pg_int2);
     field_view fv{data};
     const auto desc = make_field_description(detail::int2_oid, protocol::format_code::binary);
 
@@ -830,7 +829,7 @@ void test_field_parse_int32_from_int2_wire_success()
     auto err = field_parse(fv, desc, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(out_val, 42);
 }
 

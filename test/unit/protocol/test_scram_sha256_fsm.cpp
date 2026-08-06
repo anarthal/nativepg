@@ -6,7 +6,7 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <span>
 #include <string>
@@ -16,7 +16,7 @@
 #include "nativepg/protocol/detail/scram_sha256_fsm.hpp"
 #include "test_utils/test_range_eq.hpp"
 
-using boost::system::error_code;
+using std::error_code;
 using nativepg::protocol::detail::scram_sha256_fsm;
 using namespace nativepg::test;
 
@@ -61,7 +61,7 @@ void test_success()
     // Setup
     std::vector<unsigned char> write_buffer{0xff, 0xff};  // previous contents
     scram_sha256_fsm fsm;
-    auto client_nonce_gen = [](std::string& s) -> boost::system::error_code {
+    auto client_nonce_gen = [](std::string& s) -> std::error_code {
         s = "pZB544nuSrX6rOEX9Rm0Cm8P";
         return {};
     };

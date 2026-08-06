@@ -15,10 +15,10 @@
 #include <boost/decimal/decimal128_t.hpp>
 #include <boost/decimal/decimal32_t.hpp>
 #include <boost/decimal/decimal64_t.hpp>
-#include <boost/system/error_code.hpp>
 
 #include <concepts>
 #include <cstdint>
+#include <system_error>
 
 #include "nativepg/extended_error.hpp"
 #include "nativepg/field_traits.hpp"
@@ -54,11 +54,7 @@ struct parse_field_traits<T>
                                                     : client_errc::incompatible_field_type;
     }
 
-    static boost::system::error_code parse(
-        field_view from,
-        const protocol::field_description& desc,
-        T& to
-    )
+    static boost::system::error_code parse(field_view from, const protocol::field_description& desc, T& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;

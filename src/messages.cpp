@@ -7,10 +7,7 @@
 
 #include <boost/charconv/from_chars.hpp>
 #include <boost/charconv/limits.hpp>
-#include <boost/core/span.hpp>
 #include <boost/endian/conversion.hpp>
-#include <boost/system/error_code.hpp>
-#include <boost/system/result.hpp>
 #include <boost/throw_exception.hpp>
 
 #include <array>
@@ -99,16 +96,17 @@ enum class authentication_message_type : std::int32_t
 };
 
 template <class MessageType>
-boost::system::result<any_backend_message> parse_impl(boost::span<const unsigned char> from)
+std::error_code parse_any_message_impl(std::span<const unsigned char> from, any_backend_message& to)
 {
     MessageType res;
     auto ec = nativepg::protocol::parse(from, res);
     if (ec)
         return ec;
-    return res;
+    to = res;
+    return {};
 }
 
-boost::system::result<any_backend_message> parse_authentication_request(boost::span<const unsigned char> from)
+std::error_code parse_authentication_request(std::span<const unsigned char> from, any_backend_message& to)
 {
     // Get the authentication request type code
     if (from.size() < 4u)
@@ -119,18 +117,22 @@ boost::system::result<any_backend_message> parse_authentication_request(boost::s
     // Parse
     switch (type)
     {
-        case authentication_message_type::ok: return parse_impl<authentication_ok>(from);
-        case authentication_message_type::kerberos_v5: return parse_impl<authentication_kerberos_v5>(from);
+        case authentication_message_type::ok: return parse_any_message_impl<authentication_ok>(from, to);
+        case authentication_message_type::kerberos_v5:
+            return parse_any_message_impl<authentication_kerberos_v5>(from, to);
         case authentication_message_type::cleartext_password:
-            return parse_impl<authentication_cleartext_password>(from);
-        case authentication_message_type::md5_password: return parse_impl<authentication_md5_password>(from);
-        case authentication_message_type::gss: return parse_impl<authentication_gss>(from);
-        case authentication_message_type::gss_continue: return parse_impl<authentication_gss_continue>(from);
-        case authentication_message_type::sspi: return parse_impl<authentication_sspi>(from);
-        case authentication_message_type::sasl: return parse_impl<authentication_sasl>(from);
+            return parse_any_message_impl<authentication_cleartext_password>(from, to);
+        case authentication_message_type::md5_password:
+            return parse_any_message_impl<authentication_md5_password>(from, to);
+        case authentication_message_type::gss: return parse_any_message_impl<authentication_gss>(from, to);
+        case authentication_message_type::gss_continue:
+            return parse_any_message_impl<authentication_gss_continue>(from, to);
+        case authentication_message_type::sspi: return parse_any_message_impl<authentication_sspi>(from, to);
+        case authentication_message_type::sasl: return parse_any_message_impl<authentication_sasl>(from, to);
         case authentication_message_type::sasl_continue:
-            return parse_impl<authentication_sasl_continue>(from);
-        case authentication_message_type::sasl_final: return parse_impl<authentication_sasl_final>(from);
+            return parse_any_message_impl<authentication_sasl_continue>(from, to);
+        case authentication_message_type::sasl_final:
+            return parse_any_message_impl<authentication_sasl_final>(from, to);
         default: return nativepg::client_errc::protocol_value_error;
     }
 }
@@ -185,7 +187,7 @@ void populate_field(detail::parse_context& ctx, error_field_type type, error_not
 }
 
 // Shared between errors and notices
-boost::system::error_code parse_error_notice(boost::span<const unsigned char> data, error_notice_fields& to)
+std::error_code parse_error_notice(std::span<const unsigned char> data, error_notice_fields& to)
 {
     detail::parse_context ctx(data);
 
@@ -248,8 +250,8 @@ bool is_valid_format_code(overall_format_code v)
 }
 
 // Shared between copy_in_response, copy_out_response, copy_both_response
-boost::system::error_code parse_copy_response(
-    boost::span<const unsigned char> data,
+std::error_code parse_copy_response(
+    std::span<const unsigned char> data,
     format_code& overall_code_output,
     random_access_parsing_view<format_code>& fmt_codes_output
 )
@@ -289,11 +291,12 @@ boost::system::error_code parse_copy_response(
 }
 
 // For messages that only have a header
-boost::system::error_code serialize_header_only(char header, std::vector<unsigned char>& to)
+std::error_code serialize_header_only(char header, std::vector<unsigned char>& to)
 {
-    auto buff = serialize_header({static_cast<unsigned char>(header), 4u});
-    BOOST_ASSERT(buff.has_value());
-    to.insert(to.end(), buff->begin(), buff->end());
+    std::array<unsigned char, 5u> buff;
+    [[maybe_unused]] auto ec = serialize_header({static_cast<unsigned char>(header), 4u}, buff);
+    BOOST_ASSERT(!ec);
+    to.insert(to.end(), buff.begin(), buff.end());
     return {};
 }
 
@@ -305,30 +308,27 @@ void nativepg::protocol::detail::at_range_check(std::size_t i, std::size_t colle
         BOOST_THROW_EXCEPTION(std::out_of_range("random_access_parsing_view::at"));
 }
 
-boost::system::result<std::array<unsigned char, 5>> nativepg::protocol::serialize_header(
-    message_header header
+std::error_code nativepg::protocol::serialize_header(
+    const message_header& header,
+    std::span<unsigned char, 5u> to
 )
 {
-    std::array<unsigned char, 5> res{};
-
     // Range check the length. It should fit an int32, counting the 4 extra bytes in the length field
     constexpr std::int32_t max_size = (std::numeric_limits<std::int32_t>::max)() - 4u;
     if (header.size > max_size)
         return client_errc::value_too_big;
 
     // Message type
-    res[0] = header.type;
+    to[0] = header.type;
 
     // Length
-    boost::endian::store_big_s32(res.data() + 1, static_cast<std::int32_t>(header.size));
+    boost::endian::store_big_s32(to.data() + 1, static_cast<std::int32_t>(header.size));
 
     // Done
-    return res;
+    return {};
 }
 
-boost::system::result<message_header> nativepg::protocol::parse_header(
-    boost::span<const unsigned char, 5> from
-)
+std::error_code nativepg::protocol::parse_header(std::span<const unsigned char, 5> from, message_header& to)
 {
     // Deserialize individual fields
     unsigned char msg_type = from[0];
@@ -339,13 +339,11 @@ boost::system::result<message_header> nativepg::protocol::parse_header(
         return client_errc::protocol_value_error;
 
     // Done
-    return message_header{msg_type, size};
+    to = {msg_type, size};
+    return {};
 }
 
-boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
-    backend_key_data& to
-)
+std::error_code nativepg::protocol::parse(std::span<const unsigned char> data, backend_key_data& to)
 {
     detail::parse_context ctx(data);
     to.process_id = ctx.get_integral<std::int32_t>();
@@ -353,8 +351,8 @@ boost::system::error_code nativepg::protocol::parse(
     return ctx.check();
 }
 
-boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
+std::error_code nativepg::protocol::parse(
+    std::span<const unsigned char> data,
     authentication_md5_password& to
 )
 {
@@ -363,10 +361,7 @@ boost::system::error_code nativepg::protocol::parse(
     return ctx.check();
 }
 
-boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
-    authentication_sasl& to
-)
+std::error_code nativepg::protocol::parse(std::span<const unsigned char> data, authentication_sasl& to)
 {
     detail::parse_context ctx(data);
 
@@ -394,10 +389,7 @@ boost::system::error_code nativepg::protocol::parse(
     return ctx.check();
 }
 
-boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
-    command_complete& to
-)
+std::error_code nativepg::protocol::parse(std::span<const unsigned char> data, command_complete& to)
 {
     detail::parse_context ctx(data);
     to.tag = ctx.get_string();
@@ -411,26 +403,17 @@ format_code nativepg::protocol::detail::random_access_traits<format_code>::deref
     return static_cast<format_code>(unchecked_get_integral<std::int16_t>(data));
 }
 
-boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
-    copy_in_response& to
-)
+std::error_code nativepg::protocol::parse(std::span<const unsigned char> data, copy_in_response& to)
 {
     return parse_copy_response(data, to.overall_fmt_code, to.fmt_codes);
 }
 
-boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
-    copy_out_response& to
-)
+std::error_code nativepg::protocol::parse(std::span<const unsigned char> data, copy_out_response& to)
 {
     return parse_copy_response(data, to.overall_fmt_code, to.fmt_codes);
 }
 
-boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
-    copy_both_response& to
-)
+std::error_code nativepg::protocol::parse(std::span<const unsigned char> data, copy_both_response& to)
 {
     return parse_copy_response(data, to.overall_fmt_code, to.fmt_codes);
 }
@@ -454,7 +437,7 @@ const unsigned char* nativepg::protocol::detail::forward_traits<nativepg::field_
     return data + 4u + (size > 0 ? size : 0);
 }
 
-boost::system::error_code nativepg::protocol::parse(boost::span<const unsigned char> data, data_row& to)
+std::error_code nativepg::protocol::parse(std::span<const unsigned char> data, data_row& to)
 {
     detail::parse_context ctx(data);
 
@@ -506,10 +489,7 @@ const unsigned char* nativepg::protocol::detail::forward_traits<std::string_view
     return data;
 }
 
-boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
-    negotiate_protocol_version& to
-)
+std::error_code nativepg::protocol::parse(std::span<const unsigned char> data, negotiate_protocol_version& to)
 {
     detail::parse_context ctx(data);
 
@@ -554,23 +534,17 @@ std::optional<std::size_t> nativepg::protocol::error_notice_fields::parsed_line_
     return res;
 }
 
-boost::system::error_code nativepg::protocol::parse(boost::span<const unsigned char> data, error_response& to)
+std::error_code nativepg::protocol::parse(std::span<const unsigned char> data, error_response& to)
 {
     return parse_error_notice(data, to);
 }
 
-boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
-    notice_response& to
-)
+std::error_code nativepg::protocol::parse(std::span<const unsigned char> data, notice_response& to)
 {
     return parse_error_notice(data, to);
 }
 
-boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
-    notification_response& to
-)
+std::error_code nativepg::protocol::parse(std::span<const unsigned char> data, notification_response& to)
 {
     detail::parse_context ctx(data);
     to.process_id = ctx.get_integral<std::int32_t>();
@@ -586,10 +560,7 @@ std::int32_t nativepg::protocol::detail::random_access_traits<std::int32_t>::der
     return boost::endian::load_big_s32(ptr);
 }
 
-boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
-    parameter_description&
-)
+std::error_code nativepg::protocol::parse(std::span<const unsigned char> data, parameter_description&)
 {
     detail::parse_context ctx(data);
 
@@ -605,10 +576,7 @@ boost::system::error_code nativepg::protocol::parse(
     return ctx.check();
 }
 
-boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
-    parameter_status& to
-)
+std::error_code nativepg::protocol::parse(std::span<const unsigned char> data, parameter_status& to)
 {
     detail::parse_context ctx(data);
     to.name = ctx.get_string();
@@ -616,10 +584,7 @@ boost::system::error_code nativepg::protocol::parse(
     return ctx.check();
 }
 
-boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
-    ready_for_query& to
-)
+std::error_code nativepg::protocol::parse(std::span<const unsigned char> data, ready_for_query& to)
 {
     detail::parse_context ctx(data);
 
@@ -661,10 +626,7 @@ const unsigned char* nativepg::protocol::detail::forward_traits<field_descriptio
     return data + field_description_fixed_size;
 }
 
-boost::system::error_code nativepg::protocol::parse(
-    boost::span<const unsigned char> data,
-    row_description& to
-)
+std::error_code nativepg::protocol::parse(std::span<const unsigned char> data, row_description& to)
 {
     detail::parse_context ctx(data);
 
@@ -701,9 +663,10 @@ boost::system::error_code nativepg::protocol::parse(
     return ctx.check();
 }
 
-boost::system::result<any_backend_message> nativepg::protocol::parse(
+std::error_code nativepg::protocol::parse_any_message(
     std::uint8_t message_type,
-    boost::span<const unsigned char> data
+    std::span<const unsigned char> data,
+    any_backend_message& to
 )
 {
     // Cast the message type
@@ -711,30 +674,40 @@ boost::system::result<any_backend_message> nativepg::protocol::parse(
 
     switch (t)
     {
-        case backend_message_type::authentication_request: return parse_authentication_request(data);
-        case backend_message_type::backend_key_data: return parse_impl<backend_key_data>(data);
-        case backend_message_type::bind_complete: return parse_impl<bind_complete>(data);
-        case backend_message_type::close_complete: return parse_impl<close_complete>(data);
-        case backend_message_type::command_complete: return parse_impl<command_complete>(data);
-        case backend_message_type::copy_data: return parse_impl<copy_data>(data);
-        case backend_message_type::copy_done: return parse_impl<copy_done>(data);
-        case backend_message_type::copy_in_response: return parse_impl<copy_in_response>(data);
-        case backend_message_type::copy_out_response: return parse_impl<copy_out_response>(data);
-        case backend_message_type::copy_both_response: return parse_impl<copy_both_response>(data);
-        case backend_message_type::data_row: return parse_impl<data_row>(data);
-        case backend_message_type::empty_query_response: return parse_impl<empty_query_response>(data);
-        case backend_message_type::error_response: return parse_impl<error_response>(data);
+        case backend_message_type::authentication_request: return parse_authentication_request(data, to);
+        case backend_message_type::backend_key_data:
+            return parse_any_message_impl<backend_key_data>(data, to);
+        case backend_message_type::bind_complete: return parse_any_message_impl<bind_complete>(data, to);
+        case backend_message_type::close_complete: return parse_any_message_impl<close_complete>(data, to);
+        case backend_message_type::command_complete:
+            return parse_any_message_impl<command_complete>(data, to);
+        case backend_message_type::copy_data: return parse_any_message_impl<copy_data>(data, to);
+        case backend_message_type::copy_done: return parse_any_message_impl<copy_done>(data, to);
+        case backend_message_type::copy_in_response:
+            return parse_any_message_impl<copy_in_response>(data, to);
+        case backend_message_type::copy_out_response:
+            return parse_any_message_impl<copy_out_response>(data, to);
+        case backend_message_type::copy_both_response:
+            return parse_any_message_impl<copy_both_response>(data, to);
+        case backend_message_type::data_row: return parse_any_message_impl<data_row>(data, to);
+        case backend_message_type::empty_query_response:
+            return parse_any_message_impl<empty_query_response>(data, to);
+        case backend_message_type::error_response: return parse_any_message_impl<error_response>(data, to);
         case backend_message_type::negotiate_protocol_version:
-            return parse_impl<negotiate_protocol_version>(data);
-        case backend_message_type::no_data: return parse_impl<no_data>(data);
-        case backend_message_type::notice_response: return parse_impl<notice_response>(data);
-        case backend_message_type::notification_response: return parse_impl<notification_response>(data);
-        case backend_message_type::parameter_description: return parse_impl<parameter_description>(data);
-        case backend_message_type::parameter_status: return parse_impl<parameter_status>(data);
-        case backend_message_type::parse_complete: return parse_impl<parse_complete>(data);
-        case backend_message_type::portal_suspended: return parse_impl<portal_suspended>(data);
-        case backend_message_type::ready_for_query: return parse_impl<ready_for_query>(data);
-        case backend_message_type::row_description: return parse_impl<row_description>(data);
+            return parse_any_message_impl<negotiate_protocol_version>(data, to);
+        case backend_message_type::no_data: return parse_any_message_impl<no_data>(data, to);
+        case backend_message_type::notice_response: return parse_any_message_impl<notice_response>(data, to);
+        case backend_message_type::notification_response:
+            return parse_any_message_impl<notification_response>(data, to);
+        case backend_message_type::parameter_description:
+            return parse_any_message_impl<parameter_description>(data, to);
+        case backend_message_type::parameter_status:
+            return parse_any_message_impl<parameter_status>(data, to);
+        case backend_message_type::parse_complete: return parse_any_message_impl<parse_complete>(data, to);
+        case backend_message_type::portal_suspended:
+            return parse_any_message_impl<portal_suspended>(data, to);
+        case backend_message_type::ready_for_query: return parse_any_message_impl<ready_for_query>(data, to);
+        case backend_message_type::row_description: return parse_any_message_impl<row_description>(data, to);
         default: return nativepg::client_errc::protocol_value_error;
     }
 }
@@ -841,7 +814,7 @@ void nativepg::protocol::bind_context::maybe_finish_parameter()
     param_offset_ = no_offset;
 }
 
-boost::system::error_code nativepg::protocol::serialize(const bind& msg, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(const bind& msg, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
 
@@ -864,7 +837,7 @@ boost::system::error_code nativepg::protocol::serialize(const bind& msg, std::ve
     return ctx.finalize_message();
 }
 
-boost::system::error_code nativepg::protocol::serialize(const describe& msg, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(const describe& msg, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
 
@@ -879,7 +852,7 @@ boost::system::error_code nativepg::protocol::serialize(const describe& msg, std
     return ctx.finalize_message();
 }
 
-boost::system::error_code nativepg::protocol::serialize(const close& msg, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(const close& msg, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
 
@@ -894,7 +867,7 @@ boost::system::error_code nativepg::protocol::serialize(const close& msg, std::v
     return ctx.finalize_message();
 }
 
-boost::system::error_code nativepg::protocol::serialize(const parse_t& msg, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(const parse_t& msg, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
 
@@ -919,7 +892,7 @@ boost::system::error_code nativepg::protocol::serialize(const parse_t& msg, std:
     return ctx.finalize_message();
 }
 
-boost::system::error_code nativepg::protocol::serialize(const copy_fail& msg, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(const copy_fail& msg, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
 
@@ -933,14 +906,14 @@ boost::system::error_code nativepg::protocol::serialize(const copy_fail& msg, st
     return ctx.finalize_message();
 }
 
-boost::system::error_code nativepg::protocol::serialize(copy_done, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(copy_done, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
     ctx.add_header('c');
     return ctx.finalize_message();
 }
 
-boost::system::error_code nativepg::protocol::serialize(const execute& msg, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(const execute& msg, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
 
@@ -955,22 +928,22 @@ boost::system::error_code nativepg::protocol::serialize(const execute& msg, std:
     return ctx.finalize_message();
 }
 
-boost::system::error_code nativepg::protocol::serialize(flush, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(flush, std::vector<unsigned char>& to)
 {
     return serialize_header_only('H', to);
 }
 
-boost::system::error_code nativepg::protocol::serialize(sync, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(sync, std::vector<unsigned char>& to)
 {
     return serialize_header_only('S', to);
 }
 
-boost::system::error_code nativepg::protocol::serialize(terminate, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(terminate, std::vector<unsigned char>& to)
 {
     return serialize_header_only('X', to);
 }
 
-boost::system::error_code nativepg::protocol::serialize(const password& msg, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(const password& msg, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
     ctx.add_header('p');
@@ -978,10 +951,7 @@ boost::system::error_code nativepg::protocol::serialize(const password& msg, std
     return ctx.finalize_message();
 }
 
-boost::system::error_code nativepg::protocol::serialize(
-    const startup_message& msg,
-    std::vector<unsigned char>& to
-)
+std::error_code nativepg::protocol::serialize(const startup_message& msg, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
 
@@ -1036,10 +1006,7 @@ boost::system::error_code nativepg::protocol::serialize(
     return {};
 }
 
-boost::system::error_code nativepg::protocol::serialize(
-    const cancel_request& msg,
-    std::vector<unsigned char>& to
-)
+std::error_code nativepg::protocol::serialize(const cancel_request& msg, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
 
@@ -1052,7 +1019,7 @@ boost::system::error_code nativepg::protocol::serialize(
     return ctx.finalize_message();
 }
 
-boost::system::error_code nativepg::protocol::serialize(ssl_request, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(ssl_request, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
 
@@ -1062,7 +1029,7 @@ boost::system::error_code nativepg::protocol::serialize(ssl_request, std::vector
     return ctx.finalize_message();
 }
 
-boost::system::error_code nativepg::protocol::serialize(query msg, std::vector<unsigned char>& to)
+std::error_code nativepg::protocol::serialize(query msg, std::vector<unsigned char>& to)
 {
     detail::serialization_context ctx(to);
 
@@ -1083,24 +1050,24 @@ parse_message_result nativepg::protocol::parse_message(std::span<const unsigned 
         return {client_errc::needs_more, {}, 5u - data.size()};
 
     // Load the header
-    auto header_res = parse_header(boost::span<const unsigned char, 5>(data));
-    if (header_res.has_error())
-        return {header_res.error()};
+    message_header header;
+    if (auto ec = parse_header(std::span<const unsigned char, 5>(data), header))
+        return {ec};
 
     // See if we have space for the body
     // The length in the header is the entire message's length, counting
     // the header length but not the type byte
-    const auto required_size = static_cast<std::size_t>(header_res->size + 1u);
+    const auto required_size = static_cast<std::size_t>(header.size + 1u);
     if (data.size() < required_size)
         return {client_errc::needs_more, {}, required_size - data.size()};
 
     // Parse the body
-    auto msg_result = parse(header_res->type, data.subspan(5u, required_size - 5u));
-    if (msg_result.has_error())
-        return {msg_result.error()};
+    any_backend_message msg;
+    if (auto ec = parse_any_message(header.type, data.subspan(5u, required_size - 5u), msg))
+        return {ec};
 
     // Done
-    return {{}, *msg_result, required_size};
+    return {{}, msg, required_size};
 }
 
 // Gets how many bytes we're missing to have a complete message in data.
@@ -1112,14 +1079,14 @@ std::size_t nativepg::protocol::message_missing_bytes(std::span<const unsigned c
         return 5u - data.size();
 
     // Load the header
-    auto header_res = parse_header(boost::span<const unsigned char, 5>(data));
-    if (header_res.has_error())
+    message_header header;
+    if (auto ec = parse_header(std::span<const unsigned char, 5>(data), header))
         return 0u;  // Signal errors as complete. Message parsing will find them out
 
     // See if we have space for the body
     // The length in the header is the entire message's length, counting
     // the header length but not the type byte
-    const auto required_size = static_cast<std::size_t>(header_res->size + 1u);
+    const auto required_size = static_cast<std::size_t>(header.size + 1u);
     if (data.size() < required_size)
         return required_size - data.size();
 
@@ -1134,7 +1101,7 @@ static constexpr const char* skip_prefix(std::string_view tag, std::string_view 
     return nullptr;
 }
 
-static boost::system::error_code parse_affected_rows(
+static std::error_code parse_affected_rows(
     const char* p,
     const char* end,
     std::optional<std::uint64_t>& output
@@ -1150,7 +1117,7 @@ static boost::system::error_code parse_affected_rows(
     return {};
 }
 
-boost::system::error_code nativepg::protocol::parse_command_complete_tag(
+std::error_code nativepg::protocol::parse_command_complete_tag(
     std::string_view tag,
     std::optional<std::uint64_t>& output
 )

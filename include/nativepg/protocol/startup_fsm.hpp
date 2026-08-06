@@ -9,7 +9,7 @@
 #define NATIVEPG_PROTOCOL_STARTUP_FSM_HPP
 
 #include <boost/assert.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cstddef>
 #include <span>
@@ -37,9 +37,9 @@ public:
     struct result
     {
         result_type type;
-        boost::system::error_code ec;
+        std::error_code ec;
 
-        result(boost::system::error_code ec) noexcept : type(result_type::done), ec(ec) {}
+        result(std::error_code ec) noexcept : type(result_type::done), ec(ec) {}
         result(result_type t) noexcept : type(t) {}
     };
 
@@ -72,14 +72,14 @@ public:
         result_type type_;
         union
         {
-            boost::system::error_code ec_;
+            std::error_code ec_;
             std::span<unsigned char> data_;
         };
 
         result(result_type t, std::span<unsigned char> data) noexcept : type_(t), data_(data) {}
 
     public:
-        result(boost::system::error_code ec) noexcept : type_(result_type::done), ec_(ec) {}
+        result(std::error_code ec) noexcept : type_(result_type::done), ec_(ec) {}
 
         static result read(std::span<unsigned char> buff) { return {result_type::read, buff}; }
         static result write(std::span<const unsigned char> buff)
@@ -92,7 +92,7 @@ public:
 
         result_type type() const { return type_; }
 
-        boost::system::error_code error() const
+        std::error_code error() const
         {
             BOOST_ASSERT(type_ == result_type::done);
             return ec_;
@@ -114,7 +114,7 @@ public:
     result resume(
         connection_state& st,
         diagnostics& diag,
-        boost::system::error_code io_error,
+        std::error_code io_error,
         std::size_t bytes_read
     );
 

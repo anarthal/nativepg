@@ -5,11 +5,10 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include <boost/system/error_code.hpp>
-
 #include <cstring>
 #include <span>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
@@ -17,38 +16,32 @@
 #include "nativepg_internal/scram_sha256_crypt.hpp"
 #include "nativepg_internal/scram_sha256_messages.hpp"
 
-using boost::system::error_code;
+using std::error_code;
 using namespace nativepg::protocol::detail::scram_sha256;
 
 namespace nativepg::protocol::detail {
 
-boost::system::error_code scram_sha256_fsm::on_init(
-    nonce_generator nonce_gen,
-    std::vector<unsigned char>& write_buffer
-)
+std::error_code scram_sha256_fsm::on_init(nonce_generator nonce_gen, std::vector<unsigned char>& write_buffer)
 {
     // Compose the client initial message
     if (auto ec = nonce_gen(nonce_))
         return ec;
 
-    // Serialize it
+    // Serialize it, and save the initial message. Required to compute the client proof
     write_buffer.clear();
-    auto res = serialize(client_first_message{.mechanism = "SCRAM-SHA-256", .nonce = nonce_}, write_buffer);
-    if (res.has_error())
-        return res.error();
-
-    // Save the initial message. Required to compute the client proof
-    client_first_msg_ = *res;
-
-    return {};
+    return serialize(
+        client_first_message{.mechanism = "SCRAM-SHA-256", .nonce = nonce_},
+        write_buffer,
+        client_first_msg_
+    );
 }
 
-boost::system::error_code scram_sha256_fsm::on_init(std::vector<unsigned char>& write_buffer)
+std::error_code scram_sha256_fsm::on_init(std::vector<unsigned char>& write_buffer)
 {
     return on_init(&generate_nonce, write_buffer);
 }
 
-boost::system::error_code scram_sha256_fsm::on_server_first(
+std::error_code scram_sha256_fsm::on_server_first(
     std::span<const unsigned char> bytes,
     std::string_view password,
     std::vector<unsigned char>& write_buffer
@@ -76,9 +69,9 @@ boost::system::error_code scram_sha256_fsm::on_server_first(
     // Serialize the initial part of the client final message, as this is part of AuthMessage
     write_buffer.clear();
     client_final_message_serializer serializer{write_buffer};
-    auto res = serializer.serialize_without_proof(server_msg.nonce);
-    if (res.has_error())
-        return res.error();
+    std::span<const unsigned char> without_proof;
+    if (auto ec = serializer.serialize_without_proof(server_msg.nonce, without_proof))
+        return ec;
 
     //  AuthMessage     := client-first-message-bare + "," +
     //                     server-first-message + "," +
@@ -87,7 +80,7 @@ boost::system::error_code scram_sha256_fsm::on_server_first(
     auth_message.push_back(static_cast<unsigned char>(','));
     auth_message.insert(auth_message.end(), bytes.begin(), bytes.end());
     auth_message.push_back(static_cast<unsigned char>(','));
-    auth_message.insert(auth_message.end(), res->begin(), res->end());
+    auth_message.insert(auth_message.end(), without_proof.begin(), without_proof.end());
 
     // Compute the client proof and server signature
     sha256_digest client_proof;
@@ -107,7 +100,7 @@ boost::system::error_code scram_sha256_fsm::on_server_first(
     return serializer.serialize_proof(client_proof);
 }
 
-boost::system::error_code scram_sha256_fsm::on_server_final(std::span<const unsigned char> bytes)
+std::error_code scram_sha256_fsm::on_server_final(std::span<const unsigned char> bytes)
 {
     // Parse the message
     server_final_message msg{};

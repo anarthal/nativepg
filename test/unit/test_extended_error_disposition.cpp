@@ -13,7 +13,7 @@
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/asio/use_future.hpp>
 #include <boost/core/lightweight_test.hpp>
-#include <boost/system/system_error.hpp>
+#include <system_error>
 
 #include <exception>
 #include <type_traits>
@@ -23,7 +23,7 @@
 #include "nativepg/protocol/notice_error.hpp"
 
 using namespace nativepg;
-using boost::system::error_code;
+using std::error_code;
 namespace asio = boost::asio;
 
 namespace {
@@ -59,10 +59,10 @@ void test_error_exception_ptr()
         fut.get();
         BOOST_TEST(false);
     }
-    catch (const boost::system::system_error& err)
+    catch (const std::system_error& err)
     {
         BOOST_TEST_EQ(err.code(), error_code(client_errc::value_too_big));
-        BOOST_TEST_EQ(std::string_view(err.what()), "My message: value_too_big [nativepg.client:4]");
+        BOOST_TEST_EQ(std::string_view(err.what()), "My message: value_too_big");
     }
 }
 
@@ -85,10 +85,10 @@ void test_error_throw_exception()
         std::rethrow_exception(exc);
         BOOST_TEST(false);
     }
-    catch (const boost::system::system_error& err)
+    catch (const std::system_error& err)
     {
         BOOST_TEST_EQ(err.code(), error_code(client_errc::value_too_big));
-        BOOST_TEST_EQ(std::string_view(err.what()), "My message: value_too_big [nativepg.client:4]");
+        BOOST_TEST_EQ(std::string_view(err.what()), "My message: value_too_big");
     }
 }
 

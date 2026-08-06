@@ -8,11 +8,9 @@
 #ifndef NATIVEPG_PROTOCOL_HEADER_HPP
 #define NATIVEPG_PROTOCOL_HEADER_HPP
 
-#include <boost/core/span.hpp>
-#include <boost/system/result.hpp>
-
-#include <array>
 #include <cstdint>
+#include <span>
+#include <system_error>
 
 namespace nativepg {
 namespace protocol {
@@ -24,10 +22,10 @@ struct message_header
     std::int32_t size;  // Will always be >= 4
 };
 
-boost::system::result<message_header> parse_header(boost::span<const unsigned char, 5> from);
+std::error_code parse_header(std::span<const unsigned char, 5> from, message_header& to);
 
 // Might fail if length is too big
-boost::system::result<std::array<unsigned char, 5>> serialize_header(message_header header);
+std::error_code serialize_header(const message_header& header, std::span<unsigned char, 5u> to);
 
 }  // namespace protocol
 }  // namespace nativepg

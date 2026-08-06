@@ -9,8 +9,6 @@
 #define NATIVEPG_SRC_NATIVEPG_INTERNAL_SCRAM_SHA256_MESSAGES_HPP
 
 #include <boost/endian/conversion.hpp>
-#include <boost/system/error_code.hpp>
-#include <boost/system/result.hpp>
 
 #include <algorithm>
 #include <array>
@@ -32,7 +30,7 @@
 namespace nativepg::protocol::detail::scram_sha256 {
 
 // This is really a password message. serialize serializes the entire message,
-// including the header. Returns the client-first-message-bare part of the serialized
+// including the header. Outputs the client-first-message-bare part of the serialized
 // message, required by the SCRAM algorithm
 struct client_first_message
 {
@@ -43,9 +41,10 @@ struct client_first_message
     std::string_view nonce;
 };
 
-[[nodiscard]] inline boost::system::result<std::span<const unsigned char>> serialize(
+[[nodiscard]] inline std::error_code serialize(
     const client_first_message& msg,
-    std::vector<unsigned char>& to
+    std::vector<unsigned char>& to,
+    std::span<const unsigned char>& client_first_message_bare
 )
 {
     serialization_context ctx(to);
@@ -100,7 +99,8 @@ struct client_first_message
         return ec;
 
     // Done
-    return std::span<const unsigned char>(to.data() + bare_start_offset, to.data() + bare_end_offset);
+    client_first_message_bare = {to.data() + bare_start_offset, to.data() + bare_end_offset};
+    return {};
 }
 
 // This is an authentication_sasl_continue message. parse does not parse the type
@@ -122,10 +122,7 @@ inline bool scram_is_printable(unsigned char c)
     return (c >= 0x21 && c <= 0x2b) || (c >= 0x2d && c <= 0x7e);
 }
 
-[[nodiscard]] inline boost::system::error_code parse(
-    std::span<const unsigned char> data,
-    server_first_message& to
-)
+[[nodiscard]] inline std::error_code parse(std::span<const unsigned char> data, server_first_message& to)
 {
     // server-first-message = [reserved-mext ","] nonce "," salt "," iteration-count ["," extensions]
     // reserved-mext  = "m=" 1*(value-char) ;; if this is present, we're missing extensions and should fail
@@ -203,7 +200,7 @@ inline bool scram_is_printable(unsigned char c)
 
 // client_final_message is a password message. It needs to be serialized in two parts.
 //   * serialize_without_proof serializes the header, and all the message except for the proof.
-//     It returns client-final-message-without-proof, required by the SCRAM algorithm.
+//     It outputs client-final-message-without-proof, required by the SCRAM algorithm.
 //   * serialize_proof serializes the proof and adjusts the header.
 //     Computing proof needs client-final-message-without-proof. This is why we need to split serialization.
 class client_final_message_serializer
@@ -214,8 +211,9 @@ public:
     client_final_message_serializer(std::vector<unsigned char>& to) noexcept : ctx_(to) {}
 
     // Should be called once, first
-    [[nodiscard]] boost::system::result<std::span<const unsigned char>> serialize_without_proof(
-        std::string_view nonce
+    [[nodiscard]] std::error_code serialize_without_proof(
+        std::string_view nonce,
+        std::span<const unsigned char>& client_final_message_without_proof
     )
     {
         // Header
@@ -251,11 +249,12 @@ public:
 
         // Done
         const auto* data = ctx_.buffer().data();
-        return std::span<const unsigned char>(data + offset_first, data + offset_last);
+        client_final_message_without_proof = {data + offset_first, data + offset_last};
+        return {};
     }
 
     // Should be called once, after serialize_without_proof
-    [[nodiscard]] boost::system::error_code serialize_proof(std::span<const unsigned char> proof)
+    [[nodiscard]] std::error_code serialize_proof(std::span<const unsigned char> proof)
     {
         // proof
         ctx_.add_bytes(",p=");
@@ -274,10 +273,7 @@ struct server_final_message
     std::vector<unsigned char> server_signature;
 };
 
-[[nodiscard]] inline boost::system::error_code parse(
-    std::span<const unsigned char> data,
-    server_final_message& to
-)
+[[nodiscard]] inline std::error_code parse(std::span<const unsigned char> data, server_final_message& to)
 {
     // server-final-message = (server-error / verifier) ["," extensions]
     // server-error = "e=" server-error-value ;; TODO: does postgres really ever send this?

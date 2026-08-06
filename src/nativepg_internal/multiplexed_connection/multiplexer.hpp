@@ -94,7 +94,7 @@ public:
 
             // If we have no request, something went extremely wrong
             if (elms.empty())
-                return boost::system::error_code(client_errc::unmatched_request);
+                return std::error_code(client_errc::unmatched_request);
             const auto& elm = elms.front();
 
             // Determine if we should care about responses or not
@@ -141,7 +141,7 @@ public:
                 }
                 return {};
             }
-            default: BOOST_ASSERT(false); return boost::system::error_code(client_errc::unmatched_request);
+            default: BOOST_ASSERT(false); return std::error_code(client_errc::unmatched_request);
         }
     }
 

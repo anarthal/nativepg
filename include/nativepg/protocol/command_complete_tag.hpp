@@ -8,7 +8,7 @@
 #ifndef NATIVEPG_PROTOCOL_COMMAND_COMPLETE_TAG
 #define NATIVEPG_PROTOCOL_COMMAND_COMPLETE_TAG
 
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cstdint>
 #include <optional>
@@ -20,7 +20,7 @@ namespace nativepg::protocol {
 // useful info if the command contains certain statements.
 // If the tag does not conform to the spec, returns an error and clears the optional.
 //   https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-COMMANDCOMPLETE
-boost::system::error_code parse_command_complete_tag(
+std::error_code parse_command_complete_tag(
     std::string_view tag,
     std::optional<std::uint64_t>& affected_rows
 );

@@ -6,10 +6,10 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
-#include <boost/core/span.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <iostream>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -17,7 +17,7 @@
 #include "nativepg_internal/base64.hpp"
 #include "test_utils/test_range_eq.hpp"
 
-using boost::system::error_code;
+using std::error_code;
 using nativepg::protocol::detail::base64_decode;
 using nativepg::protocol::detail::base64_encode;
 using namespace nativepg::test;
@@ -52,7 +52,7 @@ struct
     {{0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99, 0x88},                                                 "/+7dzLuqmYg="},
 };
 
-boost::span<const unsigned char> to_span(std::string_view input)
+std::span<const unsigned char> to_span(std::string_view input)
 {
     return {reinterpret_cast<const unsigned char*>(input.data()), input.size()};
 }

@@ -8,8 +8,9 @@
 #ifndef NATIVEPG_PROTOCOL_EMPTY_QUERY_RESPONSE_HPP
 #define NATIVEPG_PROTOCOL_EMPTY_QUERY_RESPONSE_HPP
 
-#include <boost/core/span.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
+
+#include <span>
 
 #include "nativepg/protocol/common.hpp"
 
@@ -19,7 +20,7 @@ namespace protocol {
 struct empty_query_response
 {
 };
-inline boost::system::error_code parse(boost::span<const unsigned char> data, empty_query_response&)
+inline std::error_code parse(std::span<const unsigned char> data, empty_query_response&)
 {
     return detail::check_empty(data);
 }

@@ -10,10 +10,10 @@
 
 // Messages that may be received at any point (excluding notices, which share header with errors)
 
-#include <boost/core/span.hpp>
-#include <boost/system/error_code.hpp>
+#include <system_error>
 
 #include <cstdint>
+#include <span>
 
 namespace nativepg {
 namespace protocol {
@@ -26,7 +26,7 @@ struct backend_key_data
     // The secret key of this backend.
     std::int32_t secret_key;
 };
-boost::system::error_code parse(boost::span<const unsigned char> data, backend_key_data& to);
+std::error_code parse(std::span<const unsigned char> data, backend_key_data& to);
 
 struct notification_response
 {
@@ -39,7 +39,7 @@ struct notification_response
     // The “payload” string passed from the notifying process.
     std::string_view payload;
 };
-boost::system::error_code parse(boost::span<const unsigned char> data, notification_response& to);
+std::error_code parse(std::span<const unsigned char> data, notification_response& to);
 
 // Sent when a config parameter that might interest us changes value (e.g. character set)
 struct parameter_status
@@ -50,7 +50,7 @@ struct parameter_status
     // The current value of the parameter.
     std::string_view value;
 };
-boost::system::error_code parse(boost::span<const unsigned char> data, parameter_status& to);
+std::error_code parse(std::span<const unsigned char> data, parameter_status& to);
 
 }  // namespace protocol
 }  // namespace nativepg

@@ -90,9 +90,9 @@ static asio::awaitable<void> date_text_example(connection& conn)
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
 
     // Print results
-    if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "DATE TEXT operation results in Error: " << err.code.what() << ": " << err.diag.message()
-                  << " (in " << duration << ")" << std::endl;
+    if (err.code)
+        std::cerr << "DATE TEXT operation results in Error: " << err.code.message() << ": "
+                  << err.diag.message() << " (in " << duration << ")" << std::endl;
     else
         std::cout << "DATE TEXT select result: " << std::format("{0:%F}", select_vec[0].d) << " (in "
                   << duration << ")" << std::endl;
@@ -124,8 +124,8 @@ static asio::awaitable<void> date_binary_example(connection& conn)
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
 
     // Print results
-    if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "DATE BINARY Error: " << err.code.what() << ": " << err.diag.message() << " (in "
+    if (err.code)
+        std::cerr << "DATE BINARY Error: " << err.code.message() << ": " << err.diag.message() << " (in "
                   << duration << ")" << std::endl;
     else
         std::cout << "DATE BINARY select result: " << std::format("{0}", select_vec[0].d) << " (in "
@@ -153,9 +153,9 @@ static asio::awaitable<void> time_text_example(connection& conn)
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
 
     // Print results
-    if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "TIME TEXT operation results in Error: " << err.code.what() << ": " << err.diag.message()
-                  << " (in " << duration << ")" << std::endl;
+    if (err.code)
+        std::cerr << "TIME TEXT operation results in Error: " << err.code.message() << ": "
+                  << err.diag.message() << " (in " << duration << ")" << std::endl;
     else
         std::cout << "TIME TEXT select result: " << std::format("{0:%T}", select_vec[0].t) << " (in "
                   << duration << ")" << std::endl;
@@ -187,8 +187,8 @@ static asio::awaitable<void> time_binary_example(connection& conn)
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
 
     // Print results
-    if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "TIME BINARY Error: " << err.code.what() << ": " << err.diag.message() << " (in "
+    if (err.code)
+        std::cerr << "TIME BINARY Error: " << err.code.message() << ": " << err.diag.message() << " (in "
                   << duration << ")" << std::endl;
     else
         std::cout << "TIME BINARY select result: " << std::format("{0:%T}", time_vec[0].t) << " (in "
@@ -215,8 +215,8 @@ static asio::awaitable<void> timetz_text_example(connection& conn)
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
 
     // Print results
-    if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "TIMETZ TEXT results in Error: " << err.code.what() << ": " << err.diag.message()
+    if (err.code)
+        std::cerr << "TIMETZ TEXT results in Error: " << err.code.message() << ": " << err.diag.message()
                   << " (in " << duration << ")" << std::endl;
     else
         std::cout << "TIMETZ TEXT select result: "
@@ -251,8 +251,8 @@ static asio::awaitable<void> timetz_binary_example(connection& conn)
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
 
     // Print results
-    if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "TIMETZ BINARY Error: " << err.code.what() << ": " << err.diag.message() << " (in "
+    if (err.code)
+        std::cerr << "TIMETZ BINARY Error: " << err.code.message() << ": " << err.diag.message() << " (in "
                   << duration << ")" << std::endl;
     else
         std::cout << "TIMETZ BINARY select result: "
@@ -282,8 +282,8 @@ static asio::awaitable<void> timestamp_text_example(connection& conn)
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
 
     // Print results
-    if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "TIMESTAMP TEXT results in Error: " << err.code.what() << ": " << err.diag.message()
+    if (err.code)
+        std::cerr << "TIMESTAMP TEXT results in Error: " << err.code.message() << ": " << err.diag.message()
                   << " (in " << duration << ")" << std::endl;
     else
         std::cout << "TIMESTAMP TEXT select result: " << std::format("{0:%F} {0:%T}", select_vec[0].ts)
@@ -316,8 +316,8 @@ static asio::awaitable<void> timestamp_binary_example(connection& conn)
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
 
     // Print results
-    if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "TIMESTAMP BINARY Error: " << err.code.what() << ": " << err.diag.message() << " (in "
+    if (err.code)
+        std::cerr << "TIMESTAMP BINARY Error: " << err.code.message() << ": " << err.diag.message() << " (in "
                   << duration << ")" << std::endl;
     else
         std::cout << "TIMESTAMP BINARY select result: " << std::format("{0:%F} {0:%T}", select_vec[0].ts)
@@ -344,8 +344,8 @@ static asio::awaitable<void> timestamptz_text_example(connection& conn)
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
 
     // Print results
-    if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "TIMESTAMPTZ TEXT results in Error: " << err.code.what() << ": " << err.diag.message()
+    if (err.code)
+        std::cerr << "TIMESTAMPTZ TEXT results in Error: " << err.code.message() << ": " << err.diag.message()
                   << " (in " << duration << ")" << std::endl;
     else
         std::cout << "TIMESTAMPTZ TEXT select result: "
@@ -379,9 +379,9 @@ static asio::awaitable<void> timestamptz_binary_example(connection& conn)
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
 
     // Print results
-    if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "TIMESTAMPTZ BINARY Error: " << err.code.what() << ": " << err.diag.message() << " (in "
-                  << duration << ")" << std::endl;
+    if (err.code)
+        std::cerr << "TIMESTAMPTZ BINARY Error: " << err.code.message() << ": " << err.diag.message()
+                  << " (in " << duration << ")" << std::endl;
     else
         std::cout << "TIMESTAMPTZ BINARY select result: "
                   << std::format("{0:%F} {0:%T} {0:%Oz}", select_vec[0].tsz) << " (in " << duration << ")"
@@ -408,8 +408,8 @@ static asio::awaitable<void> interval_text_example(connection& conn)
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
 
     // Print results
-    if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "INTERVAL TEXT results in Error: " << err.code.what() << ": " << err.diag.message()
+    if (err.code)
+        std::cerr << "INTERVAL TEXT results in Error: " << err.code.message() << ": " << err.diag.message()
                   << " (in " << duration << ")" << std::endl;
     else
         std::cout << "INTERVAL TEXT select result: " << select_vec[0].iv.months << " month(s) "
@@ -444,8 +444,8 @@ static asio::awaitable<void> interval_binary_example(connection& conn)
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
 
     // Print results
-    if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "INTERVAL BINARY Error: " << err.code.what() << ": " << err.diag.message() << " (in "
+    if (err.code)
+        std::cerr << "INTERVAL BINARY Error: " << err.code.message() << ": " << err.diag.message() << " (in "
                   << duration << ")" << std::endl;
     else
         std::cout << "INTERVAL BINARY select result: " << select_vec[0].iv.months << " month(s) "

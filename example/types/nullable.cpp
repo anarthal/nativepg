@@ -99,8 +99,8 @@ SELECT  'Nullable Test values' as title,
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(finish - start);
 
     // Print results
-    if (err.extended_error::code != boost::system::errc::success)
-        std::cerr << "NULLABLE TEXT operation results in Error: " << err.code.what() << ": "
+    if (err.code)
+        std::cerr << "NULLABLE TEXT operation results in Error: " << err.code.message() << ": "
                   << err.diag.message() << " (in " << duration << ")" << std::endl;
     else
     {
@@ -140,8 +140,7 @@ static asio::awaitable<void> nullable_binary_example(connection& conn)
     );
 
     std::vector<test_row> select_vec;
-    if (auto [err] = co_await conn.async_exec(req, into(select_vec), asio::as_tuple);
-        err.extended_error::code != boost::system::errc::success)
+    if (auto [err] = co_await conn.async_exec(req, into(select_vec), asio::as_tuple); err.code)
     {
         print_err("Error ", err.code, err.diag);
         co_return;

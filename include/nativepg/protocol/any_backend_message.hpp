@@ -9,10 +9,9 @@
 #define NATIVEPG_PROTOCOL_ANY_BACKEND_MESSAGE_HPP
 
 #include <boost/assert.hpp>
-#include <boost/core/span.hpp>
-#include <boost/system/result.hpp>
 
 #include <cstdint>
+#include <span>
 
 #include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/bind.hpp"
@@ -611,9 +610,10 @@ private:
     };
 };
 
-boost::system::result<any_backend_message> parse(
+std::error_code parse_any_message(
     std::uint8_t message_type,
-    boost::span<const unsigned char> data
+    std::span<const unsigned char> data,
+    any_backend_message& to
 );
 
 }  // namespace protocol

@@ -11,10 +11,10 @@
 #pragma once
 
 #include <boost/assert.hpp>
-#include <boost/system/error_code.hpp>
 
 #include <chrono>
 #include <cstdint>
+#include <system_error>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/field_traits.hpp"

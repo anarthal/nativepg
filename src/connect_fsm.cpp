@@ -5,9 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include <boost/system/error_code.hpp>
-
 #include <cstddef>
+#include <system_error>
 
 #include "coroutine.hpp"
 #include "nativepg/protocol/connection_state.hpp"
@@ -15,7 +14,6 @@
 #include "nativepg/protocol/startup_fsm.hpp"
 
 using namespace nativepg::protocol;
-using boost::system::error_code;
 using detail::connect_fsm;
 static connect_fsm::result to_connect_result(const startup_fsm::result& r)
 {
@@ -23,17 +21,17 @@ static connect_fsm::result to_connect_result(const startup_fsm::result& r)
     {
         case startup_fsm::result_type::read: return connect_fsm::result::read(r.read_buffer());
         case startup_fsm::result_type::write: return connect_fsm::result::write(r.write_data());
-        default: BOOST_ASSERT(false); return error_code();
+        default: BOOST_ASSERT(false); return std::error_code();
     }
 }
 
 connect_fsm::result connect_fsm::resume(
     connection_state& st,
-    boost::system::error_code ec,
+    std::error_code ec,
     std::size_t bytes_transferred
 )
 {
-    startup_fsm::result res{error_code()};
+    startup_fsm::result res{std::error_code()};
 
     switch (resume_point_)
     {
@@ -69,9 +67,9 @@ connect_fsm::result connect_fsm::resume(
         }
 
         // Success
-        return error_code();
+        return std::error_code();
     }
 
     BOOST_ASSERT(false);
-    return error_code();
+    return std::error_code();
 }

@@ -36,7 +36,7 @@ struct pos_map_entry
 };
 
 // TODO: string diagnostic
-boost::system::error_code compute_pos_map(
+std::error_code compute_pos_map(
     const protocol::row_description& meta,
     std::span<const std::string_view> name_table,
     std::span<pos_map_entry> output
@@ -65,7 +65,7 @@ class resultset_callback_t
     Callback cb_;
     command_info* info_{};
 
-    void store_error(boost::system::error_code ec)
+    void store_error(std::error_code ec)
     {
         if (!err_.code)
         {
@@ -151,11 +151,11 @@ class resultset_callback_t
 
             // Now invoke parse
             T row{};
-            boost::system::error_code ec;
+            std::error_code ec;
             std::size_t idx = 0u;
             detail::for_each_member(row, [&ec, &idx, &self = this->self](auto& member) {
                 const detail::pos_map_entry& ent = self.pos_map_[idx++];
-                boost::system::error_code ec2 = field_parse(
+                std::error_code ec2 = field_parse(
                     self.random_access_data_.at(ent.db_index),
                     ent.descr,
                     member

@@ -5,9 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include <boost/system/error_code.hpp>
-
 #include <cstddef>
+#include <system_error>
 
 #include "coroutine.hpp"
 #include "nativepg/client_errc.hpp"
@@ -21,15 +20,10 @@
 #include "nativepg_internal/check_request.hpp"
 
 using namespace nativepg::protocol;
-using boost::system::error_code;
 using detail::exec_fsm;
 using nativepg::client_errc;
 
-exec_fsm::result exec_fsm::resume(
-    connection_state& st,
-    boost::system::error_code ec,
-    std::size_t bytes_transferred
-)
+exec_fsm::result exec_fsm::resume(connection_state& st, std::error_code ec, std::size_t bytes_transferred)
 {
     read_response_fsm::result res{{}};
     parse_message_result msg_res;
@@ -85,5 +79,5 @@ exec_fsm::result exec_fsm::resume(
 
     // We should never reach here
     BOOST_ASSERT(false);
-    return boost::system::error_code();
+    return std::error_code();
 }

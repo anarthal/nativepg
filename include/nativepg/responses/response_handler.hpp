@@ -8,7 +8,7 @@
 #ifndef NATIVEPG_RESPONSE_HANDLER_HPP
 #define NATIVEPG_RESPONSE_HANDLER_HPP
 
-#include <boost/system/error_code.hpp>
+#include <system_error>
 #include <boost/variant2/variant.hpp>
 
 #include <concepts>
@@ -53,10 +53,10 @@ using any_request_message = boost::variant2::variant<
 // TODO: improve API
 struct handler_setup_result
 {
-    boost::system::error_code ec;
+    std::error_code ec;
     std::size_t offset{};
 
-    handler_setup_result(boost::system::error_code ec) noexcept : ec(ec) {}
+    handler_setup_result(std::error_code ec) noexcept : ec(ec) {}
     handler_setup_result(std::size_t offset) noexcept : offset(offset) {}
 
     friend bool operator==(const handler_setup_result&, const handler_setup_result&) = default;

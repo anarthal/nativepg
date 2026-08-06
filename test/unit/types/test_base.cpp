@@ -869,7 +869,7 @@ void test_field_parse_optional_non_null_success()
     // Arrange
     std::optional<std::int32_t> out_val;
     std::string str = "42";
-    boost::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
     const auto desc = make_field_description(detail::int4_oid, protocol::format_code::text);
 

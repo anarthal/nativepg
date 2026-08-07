@@ -11,6 +11,7 @@
 // This header is opt-in: it's included by nativepg/types/json.hpp, which is itself opt-in. Don't
 // include it directly unless you also need nativepg/types/json.hpp's parsing functions.
 
+#include <boost/assert.hpp>
 #include <boost/json/value.hpp>
 
 #include <cstdint>
@@ -19,7 +20,6 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/field_traits.hpp"
 #include "nativepg/field_view.hpp"
-#include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/json.hpp"
 
 namespace nativepg::detail {
@@ -39,31 +39,37 @@ namespace nativepg {
 template <>
 struct parse_field_traits<boost::json::value>
 {
-    static inline std::error_code is_compatible(const protocol::field_description& desc)
+    static inline std::error_code is_compatible(std::int32_t type_oid)
     {
-        return (desc.type_oid == detail::json_oid || desc.type_oid == detail::jsonb_oid)
+        return (type_oid == detail::json_oid || type_oid == detail::jsonb_oid)
                    ? std::error_code()
                    : client_errc::incompatible_field_type;
     }
 
-    static inline std::error_code parse(
-        field_view from,
-        const protocol::field_description& desc,
-        boost::json::value& to
-    )
+    static inline std::error_code parse_text(field_view from, std::int32_t type_oid, boost::json::value& to)
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(type_oid == detail::json_oid || type_oid == detail::jsonb_oid);
+
+        // Both json and jsonb use plain JSON as their text representation
+        return types::parse_json(from.data_str(), to);
+    }
+
+    static inline std::error_code parse_binary(field_view from, std::int32_t type_oid, boost::json::value& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
 
-        if (desc.type_oid == detail::jsonb_oid)
+        // The binary representation of json is plain JSON, while jsonb has a version prefix
+        if (type_oid == detail::jsonb_oid)
         {
-            return desc.fmt_code == protocol::format_code::text ? types::parse_json(from.data_str(), to)
-                                                                : types::parse_binary_jsonb(from, to);
+            return types::parse_binary_jsonb(from, to);
         }
         else
         {
-            return desc.fmt_code == protocol::format_code::text ? types::parse_json(from.data_str(), to)
-                                                                : types::parse_json(from.data_str(), to);
+            BOOST_ASSERT(type_oid == detail::json_oid);
+            return types::parse_json(from.data_str(), to);
         }
     }
 };

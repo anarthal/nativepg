@@ -20,7 +20,6 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/field_traits.hpp"
 #include "nativepg/field_view.hpp"
-#include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/base.hpp"
 
 namespace nativepg::detail {
@@ -62,21 +61,28 @@ namespace nativepg {
 template <>
 struct parse_field_traits<bool>
 {
-    static std::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(std::int32_t type_oid)
     {
-        if (desc.type_oid == detail::bool_oid)
+        if (type_oid == detail::bool_oid)
             return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse(field_view from, const protocol::field_description& desc, bool& to)
+    static std::error_code parse_text(field_view from, std::int32_t type_oid, bool& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
-        BOOST_ASSERT(desc.type_oid == detail::bool_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_bool(from, to)
-                                                            : types::parse_binary_bool(from, to);
+        BOOST_ASSERT(type_oid == detail::bool_oid);
+        return types::parse_text_bool(from, to);
+    }
+
+    static std::error_code parse_binary(field_view from, std::int32_t type_oid, bool& to)
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(type_oid == detail::bool_oid);
+        return types::parse_binary_bool(from, to);
     }
 };
 
@@ -84,25 +90,28 @@ struct parse_field_traits<bool>
 template <>
 struct parse_field_traits<std::vector<std::byte>>
 {
-    static std::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(std::int32_t type_oid)
     {
-        if (desc.type_oid == detail::bytea_oid)
+        if (type_oid == detail::bytea_oid)
             return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse(
-        field_view from,
-        const protocol::field_description& desc,
-        std::vector<std::byte>& to
-    )
+    static std::error_code parse_text(field_view from, std::int32_t type_oid, std::vector<std::byte>& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
-        BOOST_ASSERT(desc.type_oid == detail::bytea_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_bytea(from, to)
-                                                            : types::parse_binary_bytea(from, to);
+        BOOST_ASSERT(type_oid == detail::bytea_oid);
+        return types::parse_text_bytea(from, to);
+    }
+
+    static std::error_code parse_binary(field_view from, std::int32_t type_oid, std::vector<std::byte>& to)
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(type_oid == detail::bytea_oid);
+        return types::parse_binary_bytea(from, to);
     }
 };
 
@@ -111,21 +120,28 @@ struct parse_field_traits<std::vector<std::byte>>
 template <>
 struct parse_field_traits<char>
 {
-    static std::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(std::int32_t type_oid)
     {
-        if (desc.type_oid == detail::char_oid)
+        if (type_oid == detail::char_oid)
             return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse(field_view from, const protocol::field_description& desc, char& to)
+    static std::error_code parse_text(field_view from, std::int32_t type_oid, char& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
-        BOOST_ASSERT(desc.type_oid == detail::char_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_char(from, to)
-                                                            : types::parse_binary_char(from, to);
+        BOOST_ASSERT(type_oid == detail::char_oid);
+        return types::parse_text_char(from, to);
+    }
+
+    static std::error_code parse_binary(field_view from, std::int32_t type_oid, char& to)
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(type_oid == detail::char_oid);
+        return types::parse_binary_char(from, to);
     }
 };
 
@@ -133,21 +149,28 @@ struct parse_field_traits<char>
 template <>
 struct parse_field_traits<std::int16_t>
 {
-    static std::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(std::int32_t type_oid)
     {
-        if (desc.type_oid == detail::int2_oid)
+        if (type_oid == detail::int2_oid)
             return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse(field_view from, const protocol::field_description& desc, std::int16_t& to)
+    static std::error_code parse_text(field_view from, std::int32_t type_oid, std::int16_t& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
-        BOOST_ASSERT(desc.type_oid == detail::int2_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_int(from, to)
-                                                            : types::parse_binary_int(from, to);
+        BOOST_ASSERT(type_oid == detail::int2_oid);
+        return types::parse_text_int(from, to);
+    }
+
+    static std::error_code parse_binary(field_view from, std::int32_t type_oid, std::int16_t& to)
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(type_oid == detail::int2_oid);
+        return types::parse_binary_int(from, to);
     }
 };
 
@@ -155,34 +178,47 @@ struct parse_field_traits<std::int16_t>
 template <>
 struct parse_field_traits<std::int32_t>
 {
-    static std::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(std::int32_t type_oid)
     {
-        if (desc.type_oid == detail::int4_oid || desc.type_oid == detail::int2_oid)
+        if (type_oid == detail::int4_oid || type_oid == detail::int2_oid)
             return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse(field_view from, const protocol::field_description& desc, std::int32_t& to)
+    static std::error_code parse_text(field_view from, std::int32_t type_oid, std::int32_t& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
-        switch (desc.type_oid)
+        switch (type_oid)
         {
             case detail::int2_oid:
             {
                 std::int16_t value{};
-                const auto ec = desc.fmt_code == protocol::format_code::text
-                                    ? types::parse_text_int(from, value)
-                                    : types::parse_binary_int(from, value);
+                const auto ec = types::parse_text_int(from, value);
                 to = value;
                 return ec;
             }
-            case detail::int4_oid:
+            case detail::int4_oid: return types::parse_text_int(from, to);
+
+            default: BOOST_ASSERT(false); return {client_errc::incompatible_field_type};
+        }
+    }
+
+    static std::error_code parse_binary(field_view from, std::int32_t type_oid, std::int32_t& to)
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        switch (type_oid)
+        {
+            case detail::int2_oid:
             {
-                return desc.fmt_code == protocol::format_code::text ? types::parse_text_int(from, to)
-                                                                    : types::parse_binary_int(from, to);
+                std::int16_t value{};
+                const auto ec = types::parse_binary_int(from, value);
+                to = value;
+                return ec;
             }
+            case detail::int4_oid: return types::parse_binary_int(from, to);
 
             default: BOOST_ASSERT(false); return {client_errc::incompatible_field_type};
         }
@@ -193,42 +229,60 @@ struct parse_field_traits<std::int32_t>
 template <>
 struct parse_field_traits<std::int64_t>
 {
-    static std::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(std::int32_t type_oid)
     {
-        if (desc.type_oid == detail::int8_oid || desc.type_oid == detail::int4_oid ||
-            desc.type_oid == detail::int2_oid)
+        if (type_oid == detail::int8_oid || type_oid == detail::int4_oid || type_oid == detail::int2_oid)
             return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse(field_view from, const protocol::field_description& desc, std::int64_t& to)
+    static std::error_code parse_text(field_view from, std::int32_t type_oid, std::int64_t& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
-        switch (desc.type_oid)
+        switch (type_oid)
         {
             case detail::int2_oid:
             {
                 std::int16_t value{};
-                const auto ec = desc.fmt_code == protocol::format_code::text
-                                    ? types::parse_text_int(from, value)
-                                    : types::parse_binary_int(from, value);
+                const auto ec = types::parse_text_int(from, value);
                 to = value;
                 return ec;
             }
             case detail::int4_oid:
             {
                 std::int32_t value{};
-                const auto ec = desc.fmt_code == protocol::format_code::text
-                                    ? types::parse_text_int(from, value)
-                                    : types::parse_binary_int(from, value);
+                const auto ec = types::parse_text_int(from, value);
                 to = value;
                 return ec;
             }
-            case detail::int8_oid:
-                return desc.fmt_code == protocol::format_code::text ? types::parse_text_int(from, to)
-                                                                    : types::parse_binary_int(from, to);
+            case detail::int8_oid: return types::parse_text_int(from, to);
+            default: BOOST_ASSERT(false); return {client_errc::incompatible_field_type};
+        }
+    }
+
+    static std::error_code parse_binary(field_view from, std::int32_t type_oid, std::int64_t& to)
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        switch (type_oid)
+        {
+            case detail::int2_oid:
+            {
+                std::int16_t value{};
+                const auto ec = types::parse_binary_int(from, value);
+                to = value;
+                return ec;
+            }
+            case detail::int4_oid:
+            {
+                std::int32_t value{};
+                const auto ec = types::parse_binary_int(from, value);
+                to = value;
+                return ec;
+            }
+            case detail::int8_oid: return types::parse_binary_int(from, to);
             default: BOOST_ASSERT(false); return {client_errc::incompatible_field_type};
         }
     }
@@ -238,21 +292,28 @@ struct parse_field_traits<std::int64_t>
 template <>
 struct parse_field_traits<float>
 {
-    static std::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(std::int32_t type_oid)
     {
-        if (desc.type_oid == detail::float4_oid)
+        if (type_oid == detail::float4_oid)
             return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse(field_view from, const protocol::field_description& desc, float& to)
+    static std::error_code parse_text(field_view from, std::int32_t type_oid, float& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
-        BOOST_ASSERT(desc.type_oid == detail::float4_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_float<float>(from, to)
-                                                            : types::parse_binary_float<float>(from, to);
+        BOOST_ASSERT(type_oid == detail::float4_oid);
+        return types::parse_text_float<float>(from, to);
+    }
+
+    static std::error_code parse_binary(field_view from, std::int32_t type_oid, float& to)
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(type_oid == detail::float4_oid);
+        return types::parse_binary_float<float>(from, to);
     }
 };
 
@@ -260,32 +321,43 @@ struct parse_field_traits<float>
 template <>
 struct parse_field_traits<double>
 {
-    static std::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(std::int32_t type_oid)
     {
-        if (desc.type_oid == detail::float8_oid || desc.type_oid == detail::float4_oid)
+        if (type_oid == detail::float8_oid || type_oid == detail::float4_oid)
             return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse(field_view from, const protocol::field_description& desc, double& to)
+    static std::error_code parse_text(field_view from, std::int32_t type_oid, double& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
-        switch (desc.type_oid)
+        switch (type_oid)
         {
-            case detail::float8_oid:
-            {
-                return desc.fmt_code == protocol::format_code::text
-                           ? types::parse_text_float<double>(from, to)
-                           : types::parse_binary_float<double>(from, to);
-            }
+            case detail::float8_oid: return types::parse_text_float<double>(from, to);
             case detail::float4_oid:
             {
                 float value{};
-                const auto ec = desc.fmt_code == protocol::format_code::text
-                                    ? types::parse_text_float<float>(from, value)
-                                    : types::parse_binary_float<float>(from, value);
+                const auto ec = types::parse_text_float<float>(from, value);
+                to = value;
+                return ec;
+            }
+            default: BOOST_ASSERT(false); return {client_errc::incompatible_field_type};
+        }
+    }
+
+    static std::error_code parse_binary(field_view from, std::int32_t type_oid, double& to)
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        switch (type_oid)
+        {
+            case detail::float8_oid: return types::parse_binary_float<double>(from, to);
+            case detail::float4_oid:
+            {
+                float value{};
+                const auto ec = types::parse_binary_float<float>(from, value);
                 to = value;
                 return ec;
             }
@@ -298,25 +370,36 @@ struct parse_field_traits<double>
 template <class Traits, class Alloc>
 struct parse_field_traits<std::basic_string<char, Traits, Alloc>>
 {
-    static std::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(std::int32_t type_oid)
     {
-        if (detail::is_string_oid(desc.type_oid))
+        if (detail::is_string_oid(type_oid))
             return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse(
+    static std::error_code parse_text(
         field_view from,
-        const protocol::field_description& desc,
+        std::int32_t type_oid,
         std::basic_string<char, Traits, Alloc>& to
     )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
-        BOOST_ASSERT(detail::is_string_oid(desc.type_oid));
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_text(from, to)
-                                                            : types::parse_binary_text(from, to);
+        BOOST_ASSERT(detail::is_string_oid(type_oid));
+        return types::parse_text_text(from, to);
+    }
+
+    static std::error_code parse_binary(
+        field_view from,
+        std::int32_t type_oid,
+        std::basic_string<char, Traits, Alloc>& to
+    )
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(detail::is_string_oid(type_oid));
+        return types::parse_binary_text(from, to);
     }
 };
 
@@ -324,21 +407,28 @@ struct parse_field_traits<std::basic_string<char, Traits, Alloc>>
 template <>
 struct parse_field_traits<std::uint32_t>
 {
-    static std::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(std::int32_t type_oid)
     {
-        if (desc.type_oid == detail::oid_oid)
+        if (type_oid == detail::oid_oid)
             return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse(field_view from, const protocol::field_description& desc, std::uint32_t& to)
+    static std::error_code parse_text(field_view from, std::int32_t type_oid, std::uint32_t& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
-        BOOST_ASSERT(desc.type_oid == detail::oid_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_oid(from, to)
-                                                            : types::parse_binary_oid(from, to);
+        BOOST_ASSERT(type_oid == detail::oid_oid);
+        return types::parse_text_oid(from, to);
+    }
+
+    static std::error_code parse_binary(field_view from, std::int32_t type_oid, std::uint32_t& to)
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(type_oid == detail::oid_oid);
+        return types::parse_binary_oid(from, to);
     }
 };
 

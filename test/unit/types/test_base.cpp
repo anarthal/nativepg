@@ -23,7 +23,6 @@
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/field_traits.hpp"
-#include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/base.hpp"
 
 using namespace nativepg;
@@ -45,24 +44,6 @@ std::ostream& operator<<(std::ostream& os, const std::vector<std::byte>& bytes)
     }
 
     return os;
-}
-
-// Builds a field_description with the given type OID and format code (the rest of the fields are
-// irrelevant to type parsing)
-protocol::field_description make_field_description(
-    std::int32_t type_oid,
-    protocol::format_code fmt_code = protocol::format_code::text
-)
-{
-    return {
-        .name = "field",
-        .table_oid = 0,
-        .column_attribute = 0,
-        .type_oid = type_oid,
-        .type_length = 0,
-        .type_modifier = 0,
-        .fmt_code = fmt_code,
-    };
 }
 
 // BOOL
@@ -627,17 +608,17 @@ void test_parse_binary_text_success(const T& in_val)
 }
 
 //
-// field_is_compatible / field_parse (field_traits_base.hpp)
+// field_is_compatible / field_parse_text / field_parse_binary (field_traits_base.hpp)
 //
 void test_field_is_compatible_bool_success()
 {
-    BOOST_TEST_EQ(field_is_compatible<bool>(make_field_description(detail::bool_oid)), std::error_code());
+    BOOST_TEST_EQ(field_is_compatible<bool>(detail::bool_oid), std::error_code());
 }
 
 void test_field_is_compatible_bool_incompatible_error()
 {
     BOOST_TEST_EQ(
-        field_is_compatible<bool>(make_field_description(detail::int4_oid)),
+        field_is_compatible<bool>(detail::int4_oid),
         error_code(client_errc::incompatible_field_type)
     );
 }
@@ -645,182 +626,167 @@ void test_field_is_compatible_bool_incompatible_error()
 void test_field_is_compatible_int_widening_success()
 {
     // A smaller wire type is compatible with a wider C++ type
-    BOOST_TEST_EQ(
-        field_is_compatible<std::int32_t>(make_field_description(detail::int2_oid)),
-        std::error_code()
-    );
-    BOOST_TEST_EQ(
-        field_is_compatible<std::int64_t>(make_field_description(detail::int4_oid)),
-        std::error_code()
-    );
+    BOOST_TEST_EQ(field_is_compatible<std::int32_t>(detail::int2_oid), std::error_code());
+    BOOST_TEST_EQ(field_is_compatible<std::int64_t>(detail::int4_oid), std::error_code());
 }
 
 void test_field_is_compatible_int_narrowing_error()
 {
     // A wider wire type is not compatible with a narrower C++ type
     BOOST_TEST_EQ(
-        field_is_compatible<std::int16_t>(make_field_description(detail::int4_oid)),
+        field_is_compatible<std::int16_t>(detail::int4_oid),
         error_code(client_errc::incompatible_field_type)
     );
     BOOST_TEST_EQ(
-        field_is_compatible<std::int32_t>(make_field_description(detail::int8_oid)),
+        field_is_compatible<std::int32_t>(detail::int8_oid),
         error_code(client_errc::incompatible_field_type)
     );
 }
 
 void test_field_is_compatible_string_success()
 {
-    BOOST_TEST_EQ(
-        field_is_compatible<std::string>(make_field_description(detail::text_oid)),
-        std::error_code()
-    );
-    BOOST_TEST_EQ(
-        field_is_compatible<std::string>(make_field_description(detail::varchar_oid)),
-        std::error_code()
-    );
-    BOOST_TEST_EQ(
-        field_is_compatible<std::string>(make_field_description(detail::name_oid)),
-        std::error_code()
-    );
-    BOOST_TEST_EQ(
-        field_is_compatible<std::string>(make_field_description(detail::bpchar_oid)),
-        std::error_code()
-    );
+    BOOST_TEST_EQ(field_is_compatible<std::string>(detail::text_oid), std::error_code());
+    BOOST_TEST_EQ(field_is_compatible<std::string>(detail::varchar_oid), std::error_code());
+    BOOST_TEST_EQ(field_is_compatible<std::string>(detail::name_oid), std::error_code());
+    BOOST_TEST_EQ(field_is_compatible<std::string>(detail::bpchar_oid), std::error_code());
 }
 
 void test_field_is_compatible_char_success()
 {
-    BOOST_TEST_EQ(field_is_compatible<char>(make_field_description(detail::char_oid)), std::error_code());
+    BOOST_TEST_EQ(field_is_compatible<char>(detail::char_oid), std::error_code());
 }
 
 void test_field_is_compatible_char_incompatible_error()
 {
     BOOST_TEST_EQ(
-        field_is_compatible<char>(make_field_description(detail::text_oid)),
+        field_is_compatible<char>(detail::text_oid),
         error_code(client_errc::incompatible_field_type)
     );
 }
 
 void test_field_is_compatible_oid_success()
 {
-    BOOST_TEST_EQ(
-        field_is_compatible<std::uint32_t>(make_field_description(detail::oid_oid)),
-        std::error_code()
-    );
+    BOOST_TEST_EQ(field_is_compatible<std::uint32_t>(detail::oid_oid), std::error_code());
 }
 
 void test_field_is_compatible_oid_incompatible_error()
 {
     BOOST_TEST_EQ(
-        field_is_compatible<std::uint32_t>(make_field_description(detail::int4_oid)),
+        field_is_compatible<std::uint32_t>(detail::int4_oid),
         error_code(client_errc::incompatible_field_type)
     );
 }
 
-void test_field_parse_unexpected_null_error()
+void test_field_parse_text_unexpected_null_error()
 {
     // Arrange
     bool b = false;
     field_view fv;  // NULL
-    const auto desc = make_field_description(detail::bool_oid);
 
     // Act
-    auto err = field_parse(fv, desc, b);
+    auto err = field_parse_text(fv, detail::bool_oid, b);
 
     // Assert
     BOOST_TEST_EQ(err, error_code(client_errc::unexpected_null));
 }
 
-void test_field_parse_bool_text_success()
+void test_field_parse_binary_unexpected_null_error()
+{
+    // Arrange
+    bool b = false;
+    field_view fv;  // NULL
+
+    // Act
+    auto err = field_parse_binary(fv, detail::bool_oid, b);
+
+    // Assert
+    BOOST_TEST_EQ(err, error_code(client_errc::unexpected_null));
+}
+
+void test_field_parse_text_bool_success()
 {
     // Arrange
     bool b = false;
     std::string str = "t";
     std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
-    const auto desc = make_field_description(detail::bool_oid, protocol::format_code::text);
 
     // Act
-    auto err = field_parse(fv, desc, b);
+    auto err = field_parse_text(fv, detail::bool_oid, b);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(b, true);
 }
 
-void test_field_parse_char_text_success()
+void test_field_parse_text_char_success()
 {
     // Arrange
     char c = '\0';
     std::string str = "z";
     std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
-    const auto desc = make_field_description(detail::char_oid, protocol::format_code::text);
 
     // Act
-    auto err = field_parse(fv, desc, c);
+    auto err = field_parse_text(fv, detail::char_oid, c);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(c, 'z');
 }
 
-void test_field_parse_char_unexpected_null_error()
+void test_field_parse_text_char_unexpected_null_error()
 {
     // Arrange
     char c = '\0';
     field_view fv;  // NULL
-    const auto desc = make_field_description(detail::char_oid);
 
     // Act
-    auto err = field_parse(fv, desc, c);
+    auto err = field_parse_text(fv, detail::char_oid, c);
 
     // Assert
     BOOST_TEST_EQ(err, error_code(client_errc::unexpected_null));
 }
 
-void test_field_parse_oid_text_success()
+void test_field_parse_text_oid_success()
 {
     // Arrange
     std::uint32_t o = 0;
     std::string str = "5887";
     std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
-    const auto desc = make_field_description(detail::oid_oid, protocol::format_code::text);
 
     // Act
-    auto err = field_parse(fv, desc, o);
+    auto err = field_parse_text(fv, detail::oid_oid, o);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(o, 5887u);
 }
 
-void test_field_parse_oid_unexpected_null_error()
+void test_field_parse_text_oid_unexpected_null_error()
 {
     // Arrange
     std::uint32_t o = 0;
     field_view fv;  // NULL
-    const auto desc = make_field_description(detail::oid_oid);
 
     // Act
-    auto err = field_parse(fv, desc, o);
+    auto err = field_parse_text(fv, detail::oid_oid, o);
 
     // Assert
     BOOST_TEST_EQ(err, error_code(client_errc::unexpected_null));
 }
 
-void test_field_parse_int32_from_int2_wire_success()
+void test_field_parse_binary_int32_from_int2_wire_success()
 {
     // Arrange
     std::int32_t out_val = 0;
     static constexpr unsigned char pg_int2[] = {0x00, 0x2a};  // 42, big endian
     std::span<const unsigned char> data(pg_int2);
     field_view fv{data};
-    const auto desc = make_field_description(detail::int2_oid, protocol::format_code::binary);
 
     // Act
-    auto err = field_parse(fv, desc, out_val);
+    auto err = field_parse_binary(fv, detail::int2_oid, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code());
@@ -833,42 +799,51 @@ void test_field_parse_int32_from_int2_wire_success()
 void test_field_is_compatible_optional_delegates_to_value_type()
 {
     // An optional is compatible with whatever its value type is compatible with
+    BOOST_TEST_EQ(field_is_compatible<std::optional<std::int32_t>>(detail::int2_oid), error_code());
     BOOST_TEST_EQ(
-        field_is_compatible<std::optional<std::int32_t>>(make_field_description(detail::int2_oid)),
-        error_code()
-    );
-    BOOST_TEST_EQ(
-        field_is_compatible<std::optional<std::int32_t>>(make_field_description(detail::text_oid)),
+        field_is_compatible<std::optional<std::int32_t>>(detail::text_oid),
         error_code(client_errc::incompatible_field_type)
     );
 }
 
-void test_field_parse_optional_null_success()
+void test_field_parse_text_optional_null_success()
 {
     // Arrange
     std::optional<std::int32_t> out_val = 42;
     field_view fv;  // NULL
-    const auto desc = make_field_description(detail::int4_oid);
 
     // Act
-    auto err = field_parse(fv, desc, out_val);
+    auto err = field_parse_text(fv, detail::int4_oid, out_val);
 
     // Assert: a NULL field yields an empty optional, rather than an error
     BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST(!out_val.has_value());
 }
 
-void test_field_parse_optional_non_null_success()
+void test_field_parse_binary_optional_null_success()
+{
+    // Arrange
+    std::optional<std::int32_t> out_val = 42;
+    field_view fv;  // NULL
+
+    // Act
+    auto err = field_parse_binary(fv, detail::int4_oid, out_val);
+
+    // Assert: a NULL field yields an empty optional, rather than an error
+    BOOST_TEST_EQ(err, std::error_code());
+    BOOST_TEST(!out_val.has_value());
+}
+
+void test_field_parse_text_optional_non_null_success()
 {
     // Arrange
     std::optional<std::int32_t> out_val;
     std::string str = "42";
     std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
-    const auto desc = make_field_description(detail::int4_oid, protocol::format_code::text);
 
     // Act
-    auto err = field_parse(fv, desc, out_val);
+    auto err = field_parse_text(fv, detail::int4_oid, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code());
@@ -923,7 +898,6 @@ int main()
     test_parse_binary_bool_f_success();
     test_parse_text_bool_invalid_error();
     test_parse_binary_bool_invalid_size_error();
-    test_field_parse_unexpected_null_error();
 
     // BYTEA
     test_parse_text_bytea_success();
@@ -1019,7 +993,7 @@ int main()
     test_parse_text_text_success<std::string>("The quick brown fox jumps over the lazy dog!");
     test_parse_binary_text_success<std::string>("The quick brown fox jumps over the lazy dog!");
 
-    // field_is_compatible / field_parse
+    // field_is_compatible / field_parse_text / field_parse_binary
     test_field_is_compatible_bool_success();
     test_field_is_compatible_bool_incompatible_error();
     test_field_is_compatible_int_widening_success();
@@ -1029,18 +1003,20 @@ int main()
     test_field_is_compatible_char_incompatible_error();
     test_field_is_compatible_oid_success();
     test_field_is_compatible_oid_incompatible_error();
-    test_field_parse_unexpected_null_error();
-    test_field_parse_bool_text_success();
-    test_field_parse_char_text_success();
-    test_field_parse_char_unexpected_null_error();
-    test_field_parse_oid_text_success();
-    test_field_parse_oid_unexpected_null_error();
-    test_field_parse_int32_from_int2_wire_success();
+    test_field_parse_text_unexpected_null_error();
+    test_field_parse_binary_unexpected_null_error();
+    test_field_parse_text_bool_success();
+    test_field_parse_text_char_success();
+    test_field_parse_text_char_unexpected_null_error();
+    test_field_parse_text_oid_success();
+    test_field_parse_text_oid_unexpected_null_error();
+    test_field_parse_binary_int32_from_int2_wire_success();
 
     // Nullable fields
     test_field_is_compatible_optional_delegates_to_value_type();
-    test_field_parse_optional_null_success();
-    test_field_parse_optional_non_null_success();
+    test_field_parse_text_optional_null_success();
+    test_field_parse_binary_optional_null_success();
+    test_field_parse_text_optional_non_null_success();
 
     return boost::report_errors();
 }

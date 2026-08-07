@@ -14,7 +14,6 @@
 #include <vector>
 
 #include "nativepg/field_view.hpp"
-#include "nativepg/protocol/describe.hpp"
 
 namespace nativepg {
 
@@ -31,19 +30,26 @@ struct is_unspecialized
  * The traits struct must declare the following functions
  * (have a look at the `parsable_field` concept for reference):
  *
- *  - is_compatible: determines whether the given type is compatible
- *    with a field retrieved from the database. Invoked once per query,
+ *  - is_compatible: determines whether the given Postgres type, identified
+ *    by its OID, is compatible with your type. Invoked once per query,
  *    before parsing any data. Try to detect as much errors as possible
  *    here, as this function is invoked only once, while parsing
  *    is invoked once per row. Signature:
  *
- *    static std::error_code is_compatible(const protocol::field_description&);
+ *    static std::error_code is_compatible(std::int32_t type_oid);
  *
- *  - parse: performs the actual parsing. Return an error if the value can't
- *    be represented in your type. field_view is non-owning and can represent
- *    database NULLs - remember to check for these. Signature:
+ *  - parse_text: performs the actual parsing, for fields sent by the server
+ *    using the text format. Returns an error if the value can't be represented
+ *    in your type. type_oid is the OID that is_compatible accepted, and is
+ *    relevant if your type accepts more than one. field_view is non-owning and
+ *    can represent database NULLs - remember to check for these. Signature:
  *
- *    static std::error_code parse(field_view, const protocol::field_description&, T&)
+ *    static std::error_code parse_text(field_view, std::int32_t type_oid, T&)
+ *
+ *  - parse_binary: same, but for fields sent using the binary format.
+ *    Signature:
+ *
+ *    static std::error_code parse_binary(field_view, std::int32_t type_oid, T&)
  *
  */
 template <class T>
@@ -91,15 +97,20 @@ concept parsable_field =
         // If you are seeing an error message pointing to this expression,
         // your is_compatible function in the parse_field_traits specialization
         // for your type is missing or has an incorrect shape.
-        {
-            parse_field_traits<T>::is_compatible(protocol::field_description{})
-        } -> std::convertible_to<std::error_code>;
+        { parse_field_traits<T>::is_compatible(std::int32_t{}) } -> std::convertible_to<std::error_code>;
 
-        // If you are seeing an error message pointing to this concept,
-        // your parse function in the parse_field_traits specialization
+        // If you are seeing an error message pointing to this expression,
+        // your parse_text function in the parse_field_traits specialization
         // for your type is missing or has an incorrect shape.
         {
-            parse_field_traits<T>::parse(field_view{}, protocol::field_description{}, value)
+            parse_field_traits<T>::parse_text(field_view{}, std::int32_t{}, value)
+        } -> std::convertible_to<std::error_code>;
+
+        // If you are seeing an error message pointing to this expression,
+        // your parse_binary function in the parse_field_traits specialization
+        // for your type is missing or has an incorrect shape.
+        {
+            parse_field_traits<T>::parse_binary(field_view{}, std::int32_t{}, value)
         } -> std::convertible_to<std::error_code>;
     };
 
@@ -131,15 +142,21 @@ concept serializable_field =
 // But if you need to call the functionality here, don't invoke the traits structs directly,
 // but use these functions, as they invoke concept checking.
 template <parsable_field T>
-std::error_code field_is_compatible(const protocol::field_description& desc)
+std::error_code field_is_compatible(std::int32_t type_oid)
 {
-    return parse_field_traits<T>::is_compatible(desc);
+    return parse_field_traits<T>::is_compatible(type_oid);
 }
 
 template <parsable_field T>
-std::error_code field_parse(field_view from, const protocol::field_description& desc, T& to)
+std::error_code field_parse_text(field_view from, std::int32_t type_oid, T& to)
 {
-    return parse_field_traits<T>::parse(from, desc, to);
+    return parse_field_traits<T>::parse_text(from, type_oid, to);
+}
+
+template <parsable_field T>
+std::error_code field_parse_binary(field_view from, std::int32_t type_oid, T& to)
+{
+    return parse_field_traits<T>::parse_binary(from, type_oid, to);
 }
 
 template <serializable_field T>

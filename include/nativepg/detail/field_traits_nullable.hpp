@@ -10,13 +10,13 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <system_error>
 #include <type_traits>
 
 #include "nativepg/field_traits.hpp"
 #include "nativepg/field_view.hpp"
-#include "nativepg/protocol/describe.hpp"
 
 namespace nativepg::detail {
 
@@ -50,23 +50,26 @@ struct parse_field_traits<std::optional<T>>
         "Nested std::optional (e.g. std::optional<std::optional<T>>) is not supported"
     );
 
-    static std::error_code is_compatible(const protocol::field_description& desc)
-    {
-        return field_is_compatible<T>(desc);
-    }
+    static std::error_code is_compatible(std::int32_t type_oid) { return field_is_compatible<T>(type_oid); }
 
-    static std::error_code parse(
-        field_view from,
-        const protocol::field_description& desc,
-        std::optional<T>& to
-    )
+    static std::error_code parse_text(field_view from, std::int32_t type_oid, std::optional<T>& to)
     {
         if (from.is_null())
         {
             to.reset();
             return std::error_code{};
         }
-        return field_parse(from, desc, to.emplace());
+        return field_parse_text(from, type_oid, to.emplace());
+    }
+
+    static std::error_code parse_binary(field_view from, std::int32_t type_oid, std::optional<T>& to)
+    {
+        if (from.is_null())
+        {
+            to.reset();
+            return std::error_code{};
+        }
+        return field_parse_binary(from, type_oid, to.emplace());
     }
 };
 

@@ -8,7 +8,6 @@
 #include <boost/core/lightweight_test.hpp>
 #include <boost/multiprecision/cpp_dec_float.hpp>
 #include <boost/multiprecision/number.hpp>
-#include <system_error>
 
 #include <cstdint>
 #include <iomanip>
@@ -16,9 +15,9 @@
 #include <span>
 #include <sstream>
 #include <string>
+#include <system_error>
 
 #include "nativepg/field_traits.hpp"
-#include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/numeric.hpp"
 
 using namespace nativepg;
@@ -105,10 +104,7 @@ void test_parse_text_numeric_from_str(const std::string& str, const T& expected)
 }
 
 template <std::size_t TDigits, typename T = mp::number<mp::cpp_dec_float<TDigits>>>
-void test_parse_binary_numeric_digits_fit(
-    std::span<const unsigned char> wire,
-    std::error_code expected
-)
+void test_parse_binary_numeric_digits_fit(std::span<const unsigned char> wire, std::error_code expected)
 {
     // Arrange
     T out_val;
@@ -120,33 +116,13 @@ void test_parse_binary_numeric_digits_fit(
     BOOST_TEST_EQ(ec.value(), expected.value());
 }
 
-// Builds a field_description with the given type OID and format code (the rest of the fields are
-// irrelevant to type parsing)
-protocol::field_description make_field_description(
-    std::int32_t type_oid,
-    protocol::format_code fmt_code = protocol::format_code::text
-)
-{
-    return {
-        .name = "field",
-        .table_oid = 0,
-        .column_attribute = 0,
-        .type_oid = type_oid,
-        .type_length = 0,
-        .type_modifier = 0,
-        .fmt_code = fmt_code,
-    };
-}
-
 //
-// field_is_compatible / field_parse (field_traits_numeric.hpp)
+// field_is_compatible / field_parse_text / field_parse_binary (field_traits_numeric.hpp)
 //
 void test_field_is_compatible_numeric_success()
 {
     BOOST_TEST_EQ(
-        field_is_compatible<mp::number<mp::cpp_dec_float<50>>>(
-            make_field_description(detail::numeric_oid)
-        ),
+        field_is_compatible<mp::number<mp::cpp_dec_float<50>>>(detail::numeric_oid),
         std::error_code()
     );
 }
@@ -154,45 +130,54 @@ void test_field_is_compatible_numeric_success()
 void test_field_is_compatible_numeric_incompatible_error()
 {
     BOOST_TEST_EQ(
-        field_is_compatible<mp::number<mp::cpp_dec_float<50>>>(
-            make_field_description(23 /* int4 oid */)
-        ),
+        field_is_compatible<mp::number<mp::cpp_dec_float<50>>>(23 /* int4 oid */),
         std::error_code(client_errc::incompatible_field_type)
     );
 }
 
-void test_field_parse_numeric_unexpected_null_error()
+void test_field_parse_text_numeric_unexpected_null_error()
 {
     // Arrange
     mp::number<mp::cpp_dec_float<50>> out_val;
     field_view fv;  // NULL
-    const auto desc = make_field_description(detail::numeric_oid);
 
     // Act
-    auto err = field_parse(fv, desc, out_val);
+    auto err = field_parse_text(fv, detail::numeric_oid, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code(client_errc::unexpected_null));
 }
 
-void test_field_parse_numeric_text_success()
+void test_field_parse_binary_numeric_unexpected_null_error()
+{
+    // Arrange
+    mp::number<mp::cpp_dec_float<50>> out_val;
+    field_view fv;  // NULL
+
+    // Act
+    auto err = field_parse_binary(fv, detail::numeric_oid, out_val);
+
+    // Assert
+    BOOST_TEST_EQ(err, std::error_code(client_errc::unexpected_null));
+}
+
+void test_field_parse_text_numeric_success()
 {
     // Arrange
     mp::number<mp::cpp_dec_float<50>> out_val;
     const std::string str = "1234.5678";
     std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
-    const auto desc = make_field_description(detail::numeric_oid, protocol::format_code::text);
 
     // Act
-    auto err = field_parse(fv, desc, out_val);
+    auto err = field_parse_text(fv, detail::numeric_oid, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(out_val, mp::number<mp::cpp_dec_float<50>>("1234.5678"));
 }
 
-void test_field_parse_numeric_binary_success()
+void test_field_parse_binary_numeric_success()
 {
     // Arrange
     mp::number<mp::cpp_dec_float<50>> out_val;
@@ -200,10 +185,9 @@ void test_field_parse_numeric_binary_success()
     static constexpr unsigned char pg_num_1234_5678[] =
         {0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x04, 0xD2, 0x16, 0x2E};
     field_view fv{pg_num_1234_5678};
-    const auto desc = make_field_description(detail::numeric_oid, protocol::format_code::binary);
 
     // Act
-    auto err = field_parse(fv, desc, out_val);
+    auto err = field_parse_binary(fv, detail::numeric_oid, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code());
@@ -309,9 +293,7 @@ int main()
     test_parse_binary_numeric_success<100>(pg_num_round, dec100("1234.57"));
 
     // Check types that do not fit
-    const std::error_code failure = nativepg::make_error_code(
-        client_errc::incompatible_response_length
-    );
+    const std::error_code failure = nativepg::make_error_code(client_errc::incompatible_response_length);
     test_parse_text_numeric_digits_fit<14>("123456789012345", failure);
     test_parse_binary_numeric_digits_fit<14>(pg_15digits, failure);
     // 10 significant digits (after trailing-zero stripping) must not fit in a 9-digit type.
@@ -338,12 +320,13 @@ int main()
     test_parse_binary_numeric_digits_fit<50>(pg_too_short, parse_error);
     test_parse_binary_numeric_digits_fit<50>(pg_truncated, parse_error);
 
-    // field_is_compatible / field_parse (field_traits_numeric.hpp)
+    // field_is_compatible / field_parse_text / field_parse_binary (field_traits_numeric.hpp)
     test_field_is_compatible_numeric_success();
     test_field_is_compatible_numeric_incompatible_error();
-    test_field_parse_numeric_unexpected_null_error();
-    test_field_parse_numeric_text_success();
-    test_field_parse_numeric_binary_success();
+    test_field_parse_text_numeric_unexpected_null_error();
+    test_field_parse_binary_numeric_unexpected_null_error();
+    test_field_parse_text_numeric_success();
+    test_field_parse_binary_numeric_success();
 
     return boost::report_errors();
 }

@@ -28,6 +28,8 @@
 using namespace nativepg;
 using namespace nativepg::types;
 
+static constexpr std::size_t invalid_pos = static_cast<std::size_t>(-1);
+
 std::error_code nativepg::detail::compute_pos_map(
     const protocol::row_description& meta,
     std::span<const std::string_view> name_table,
@@ -39,7 +41,7 @@ std::error_code nativepg::detail::compute_pos_map(
 
     // Set all positions to "invalid"
     for (auto& elm : output)
-        elm = {invalid_pos, {}};
+        elm = {invalid_pos, {}, {}};
 
     // Look up every DB field in the name table
     std::size_t db_index = 0u;
@@ -49,7 +51,7 @@ std::error_code nativepg::detail::compute_pos_map(
         if (it != name_table.end())
         {
             auto cpp_index = static_cast<std::size_t>(it - name_table.begin());
-            output[cpp_index] = {db_index, field};
+            output[cpp_index] = {db_index, field.type_oid, field.fmt_code};
         }
         ++db_index;
     }

@@ -23,7 +23,6 @@
 #include "nativepg/extended_error.hpp"
 #include "nativepg/field_traits.hpp"
 #include "nativepg/field_view.hpp"
-#include "nativepg/protocol/describe.hpp"
 #include "nativepg/types/decimal.hpp"
 
 namespace nativepg::detail {
@@ -48,19 +47,25 @@ namespace nativepg {
 template <detail::is_decimal T>
 struct parse_field_traits<T>
 {
-    static std::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(std::int32_t type_oid)
     {
-        return desc.type_oid == detail::decimal_oid ? std::error_code{}
-                                                    : client_errc::incompatible_field_type;
+        return type_oid == detail::decimal_oid ? std::error_code{} : client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse(field_view from, const protocol::field_description& desc, T& to)
+    static std::error_code parse_text(field_view from, std::int32_t type_oid, T& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
-        BOOST_ASSERT(desc.type_oid == detail::decimal_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_decimal(from, to)
-                                                            : types::parse_binary_decimal(from, to);
+        BOOST_ASSERT(type_oid == detail::decimal_oid);
+        return types::parse_text_decimal(from, to);
+    }
+
+    static std::error_code parse_binary(field_view from, std::int32_t type_oid, T& to)
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(type_oid == detail::decimal_oid);
+        return types::parse_binary_decimal(from, to);
     }
 };
 

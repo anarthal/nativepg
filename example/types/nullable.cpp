@@ -135,7 +135,7 @@ static asio::awaitable<void> nullable_binary_example(connection& conn)
                  NULLIF($7::text, 'NULL')::text as vt_t
         )sql",
         {"Nullable Test values", "NULL", "true", "NULL", "21.1977", "NULL", "Value Test text"},
-        request::param_format::text,
+        protocol::format_code::text,
         protocol::format_code::binary
     );
 

@@ -11,64 +11,73 @@
 // This header is opt-in: it's included by nativepg/types/json.hpp, which is itself opt-in. Don't
 // include it directly unless you also need nativepg/types/json.hpp's parsing functions.
 
+#include <boost/assert.hpp>
 #include <boost/json/value.hpp>
-#include <system_error>
 
 #include <cstdint>
+#include <system_error>
 
 #include "nativepg/client_errc.hpp"
+#include "nativepg/field_traits.hpp"
 #include "nativepg/field_view.hpp"
-#include "nativepg/protocol/describe.hpp"
+#include "nativepg/types/json.hpp"
 
 namespace nativepg::detail {
 
 inline constexpr std::int32_t json_oid = 114;
 inline constexpr std::int32_t jsonb_oid = 3802;
 
-template <class T>
-struct field_is_compatible;
+}  // namespace nativepg::detail
 
-// JSON & JSONB
-template <>
-struct field_is_compatible<boost::json::value>
-{
-    static inline std::error_code call(const protocol::field_description& desc)
-    {
-        return (desc.type_oid == json_oid || desc.type_oid == jsonb_oid)
-                   ? std::error_code()
-                   : client_errc::incompatible_field_type;
-    }
-};
+namespace nativepg {
 
-template <class T>
-struct field_parse;
+// --- Parse
+// There is no serialization counterpart yet: nativepg/types/json.hpp implements
+// parsing only.
 
 // JSON(B) => boost::json::value
 template <>
-struct field_parse<boost::json::value>
+struct parse_field_traits<boost::json::value>
 {
-    static inline std::error_code call(
-        const field_view& from,
-        const protocol::field_description& desc,
+    static inline std::error_code is_compatible(std::int32_t type_oid)
+    {
+        return (type_oid == detail::json_oid || type_oid == detail::jsonb_oid)
+                   ? std::error_code()
+                   : client_errc::incompatible_field_type;
+    }
+
+    static inline std::error_code parse_text(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
         boost::json::value& to
     )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
+        BOOST_ASSERT(type_oid == detail::json_oid || type_oid == detail::jsonb_oid);
 
-        if (desc.type_oid == jsonb_oid)
+        // Both json and jsonb use plain JSON as their text representation
+        return types::parse_json(from.data_str(), to);
+    }
+
+    static inline std::error_code parse_binary(field_view from, std::int32_t type_oid, boost::json::value& to)
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+
+        // The binary representation of json is plain JSON, while jsonb has a version prefix
+        if (type_oid == detail::jsonb_oid)
         {
-            return desc.fmt_code == protocol::format_code::text ? types::parse_json(from.data_str(), to)
-                                                                : types::parse_binary_jsonb(from, to);
+            return types::parse_binary_jsonb(from, to);
         }
         else
         {
-            return desc.fmt_code == protocol::format_code::text ? types::parse_json(from.data_str(), to)
-                                                                : types::parse_json(from.data_str(), to);
+            BOOST_ASSERT(type_oid == detail::json_oid);
+            return types::parse_json(from.data_str(), to);
         }
     }
 };
 
-}  // namespace nativepg::detail
+}  // namespace nativepg
 
 #endif  // NATIVEPG_DETAIL_FIELD_TRAITS_JSON_HPP

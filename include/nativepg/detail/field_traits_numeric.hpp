@@ -14,53 +14,61 @@
 #include <boost/assert.hpp>
 #include <boost/multiprecision/cpp_dec_float.hpp>
 #include <boost/multiprecision/number.hpp>
-#include <system_error>
 
 #include <cstdint>
+#include <system_error>
 
 #include "nativepg/extended_error.hpp"
-#include "nativepg/protocol/describe.hpp"
+#include "nativepg/field_traits.hpp"
+#include "nativepg/field_view.hpp"
 #include "nativepg/types/numeric.hpp"
 
 namespace nativepg::detail {
 
 inline constexpr std::int32_t numeric_oid = 1700;
 
-template <class T>
-struct field_is_compatible;
+}  // namespace nativepg::detail
 
-template <unsigned Digits, class Exp, class Alloc, boost::multiprecision::expression_template_option ET>
-struct field_is_compatible<
-    boost::multiprecision::number<boost::multiprecision::cpp_dec_float<Digits, Exp, Alloc>, ET>>
-{
-    static std::error_code call(const protocol::field_description& desc)
-    {
-        return desc.type_oid == numeric_oid ? std::error_code{}
-                                            : client_errc::incompatible_field_type;
-    }
-};
+namespace nativepg {
 
 // --- Parse
-template <class T>
-struct field_parse;
+// There is no serialization counterpart yet: nativepg/types/numeric.hpp implements
+// parsing only.
 
+// NUMERIC
 template <unsigned Digits, class Exp, class Alloc, boost::multiprecision::expression_template_option ET>
-struct field_parse<
+struct parse_field_traits<
     boost::multiprecision::number<boost::multiprecision::cpp_dec_float<Digits, Exp, Alloc>, ET>>
 {
-    static std::error_code call(
-        const field_view& from,
-        const protocol::field_description& desc,
-        boost::multiprecision::number<boost::multiprecision::cpp_dec_float<Digits, Exp, Alloc>, ET>& to
+    using value_type = boost::multiprecision::
+        number<boost::multiprecision::cpp_dec_float<Digits, Exp, Alloc>, ET>;
+
+    static std::error_code is_compatible(std::int32_t type_oid)
+    {
+        return type_oid == detail::numeric_oid ? std::error_code{} : client_errc::incompatible_field_type;
+    }
+
+    static std::error_code parse_text(field_view from, [[maybe_unused]] std::int32_t type_oid, value_type& to)
+    {
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(type_oid == detail::numeric_oid);
+        return types::parse_text_numeric(from, to);
+    }
+
+    static std::error_code parse_binary(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        value_type& to
     )
     {
-        if (from.is_null()) return client_errc::unexpected_null;
-        BOOST_ASSERT(desc.type_oid == numeric_oid);
-        return desc.fmt_code == protocol::format_code::text ? types::parse_text_numeric(from, to)
-                                                            : types::parse_binary_numeric(from, to);
+        if (from.is_null())
+            return client_errc::unexpected_null;
+        BOOST_ASSERT(type_oid == detail::numeric_oid);
+        return types::parse_binary_numeric(from, to);
     }
 };
 
-}  // namespace nativepg::detail
+}  // namespace nativepg
 
 #endif

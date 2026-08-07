@@ -73,7 +73,7 @@ static capy::task<> co_main()
     statement<std::string_view> stmt{};
     req_initial.add_query("BEGIN", {})
         .add_prepare("SELECT * FROM myt WHERE f1 <> $1", stmt)
-        .add_bind(stmt.bind("abc"), request::param_format::select_best, "")
+        .add_bind(stmt.bind("abc"))
         .add_describe_portal("")
         .add(protocol::execute{.portal_name = "", .max_num_rows = 2})
         .add_sync();

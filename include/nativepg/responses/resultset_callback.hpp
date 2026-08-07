@@ -12,11 +12,12 @@
 
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
-#include "nativepg/detail/field_traits.hpp"
 #include "nativepg/detail/row_traits.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/field_traits.hpp"
 #include "nativepg/field_view.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/responses/command_info.hpp"
@@ -31,8 +32,11 @@ struct pos_map_entry
     // Index within the fields sent by the DB
     std::size_t db_index;
 
-    // Metadata required to parse the field
-    protocol::field_description descr;
+    // The OID of the field's type
+    std::int32_t type_oid;
+
+    // The format the DB uses to send the field
+    protocol::format_code fmt_code;
 };
 
 // TODO: string diagnostic
@@ -41,8 +45,6 @@ std::error_code compute_pos_map(
     std::span<const std::string_view> name_table,
     std::span<pos_map_entry> output
 );
-
-inline constexpr std::size_t invalid_pos = static_cast<std::size_t>(-1);
 
 }  // namespace detail
 
@@ -122,7 +124,7 @@ class resultset_callback_t
             boost::mp11::mp_for_each<type_identities>(
                 [&idx, &ec, &pos_map = self.pos_map_](auto type_identity) {
                     using FieldType = typename decltype(type_identity)::type;
-                    auto ec2 = detail::field_is_compatible<FieldType>::call(pos_map[idx++].descr);
+                    auto ec2 = field_is_compatible<FieldType>(pos_map[idx++].type_oid);
                     if (!ec)
                         ec = ec2;
                 }
@@ -154,13 +156,11 @@ class resultset_callback_t
             std::error_code ec;
             std::size_t idx = 0u;
             detail::for_each_member(row, [&ec, &idx, &self = this->self](auto& member) {
-                using FieldType = std::decay_t<decltype(member)>;
                 const detail::pos_map_entry& ent = self.pos_map_[idx++];
-                std::error_code ec2 = detail::field_parse<FieldType>::call(
-                    self.random_access_data_.at(ent.db_index),
-                    ent.descr,
-                    member
-                );
+                const field_view fv = self.random_access_data_.at(ent.db_index);
+                std::error_code ec2 = ent.fmt_code == protocol::format_code::text
+                                          ? field_parse_text(fv, ent.type_oid, member)
+                                          : field_parse_binary(fv, ent.type_oid, member);
                 if (!ec)
                     ec = ec2;
             });

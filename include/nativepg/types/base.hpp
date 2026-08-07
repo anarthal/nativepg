@@ -159,6 +159,28 @@ std::error_code parse_binary_int(const field_view& from, T& to)
     return {};
 }
 
+template <std::integral T>
+std::error_code serialize_text_int(const T& value, std::vector<unsigned char>& to)
+{
+    // The buffer is always big enough for any integral type, so to_chars can't fail here
+    char buffer[512];
+    auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
+    if (result.ec != std::errc{})
+        return std::error_code(std::make_error_code(result.ec));
+    to.insert(to.end(), buffer, result.ptr);
+    return {};
+}
+
+template <std::integral T>
+std::error_code serialize_binary_int(const T& value, std::vector<unsigned char>& to)
+{
+    constexpr std::size_t size = sizeof(T);
+    auto offset = to.size();
+    to.resize(offset + size);
+    boost::endian::endian_store<T, size, boost::endian::order::big>(to.data() + offset, value);
+    return {};
+}
+
 // FLOAT => float
 template <class T>
 std::error_code parse_text_float(const field_view& from, T& to)
@@ -190,6 +212,18 @@ std::error_code parse_binary_text(const field_view& from, T& to)
 {
     // TODO What about different text encodings?
     to.assign(from.data_str());
+    return {};
+}
+
+inline std::error_code serialize_text_text(std::string_view value, std::vector<unsigned char>& to)
+{
+    to.insert(to.end(), value.begin(), value.end());
+    return {};
+}
+
+inline std::error_code serialize_binary_text(std::string_view value, std::vector<unsigned char>& to)
+{
+    to.insert(to.end(), value.begin(), value.end());
     return {};
 }
 

@@ -631,10 +631,7 @@ void test_parse_binary_text_success(const T& in_val)
 //
 void test_field_is_compatible_bool_success()
 {
-    BOOST_TEST_EQ(
-        field_is_compatible<bool>(make_field_description(detail::bool_oid)),
-        boost::system::errc::success
-    );
+    BOOST_TEST_EQ(field_is_compatible<bool>(make_field_description(detail::bool_oid)), std::error_code());
 }
 
 void test_field_is_compatible_bool_incompatible_error()
@@ -650,11 +647,11 @@ void test_field_is_compatible_int_widening_success()
     // A smaller wire type is compatible with a wider C++ type
     BOOST_TEST_EQ(
         field_is_compatible<std::int32_t>(make_field_description(detail::int2_oid)),
-        boost::system::errc::success
+        std::error_code()
     );
     BOOST_TEST_EQ(
         field_is_compatible<std::int64_t>(make_field_description(detail::int4_oid)),
-        boost::system::errc::success
+        std::error_code()
     );
 }
 
@@ -675,28 +672,25 @@ void test_field_is_compatible_string_success()
 {
     BOOST_TEST_EQ(
         field_is_compatible<std::string>(make_field_description(detail::text_oid)),
-        boost::system::errc::success
+        std::error_code()
     );
     BOOST_TEST_EQ(
         field_is_compatible<std::string>(make_field_description(detail::varchar_oid)),
-        boost::system::errc::success
+        std::error_code()
     );
     BOOST_TEST_EQ(
         field_is_compatible<std::string>(make_field_description(detail::name_oid)),
-        boost::system::errc::success
+        std::error_code()
     );
     BOOST_TEST_EQ(
         field_is_compatible<std::string>(make_field_description(detail::bpchar_oid)),
-        boost::system::errc::success
+        std::error_code()
     );
 }
 
 void test_field_is_compatible_char_success()
 {
-    BOOST_TEST_EQ(
-        field_is_compatible<char>(make_field_description(detail::char_oid)),
-        boost::system::errc::success
-    );
+    BOOST_TEST_EQ(field_is_compatible<char>(make_field_description(detail::char_oid)), std::error_code());
 }
 
 void test_field_is_compatible_char_incompatible_error()
@@ -711,7 +705,7 @@ void test_field_is_compatible_oid_success()
 {
     BOOST_TEST_EQ(
         field_is_compatible<std::uint32_t>(make_field_description(detail::oid_oid)),
-        boost::system::errc::success
+        std::error_code()
     );
 }
 
@@ -860,7 +854,7 @@ void test_field_parse_optional_null_success()
     auto err = field_parse(fv, desc, out_val);
 
     // Assert: a NULL field yields an empty optional, rather than an error
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST(!out_val.has_value());
 }
 
@@ -877,7 +871,7 @@ void test_field_parse_optional_non_null_success()
     auto err = field_parse(fv, desc, out_val);
 
     // Assert
-    BOOST_TEST_EQ(err, boost::system::errc::success);
+    BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST(out_val.has_value());
     BOOST_TEST_EQ(*out_val, 42);
 }

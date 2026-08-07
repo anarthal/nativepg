@@ -39,14 +39,14 @@ namespace nativepg {
 template <>
 struct parse_field_traits<boost::json::value>
 {
-    static inline boost::system::error_code is_compatible(const protocol::field_description& desc)
+    static inline std::error_code is_compatible(const protocol::field_description& desc)
     {
         return (desc.type_oid == detail::json_oid || desc.type_oid == detail::jsonb_oid)
-                   ? boost::system::error_code()
+                   ? std::error_code()
                    : client_errc::incompatible_field_type;
     }
 
-    static inline boost::system::error_code parse(
+    static inline std::error_code parse(
         field_view from,
         const protocol::field_description& desc,
         boost::json::value& to

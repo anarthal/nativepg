@@ -46,13 +46,12 @@ namespace nativepg {
 template <>
 struct parse_field_traits<std::chrono::sys_days>
 {
-    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(const protocol::field_description& desc)
     {
-        return desc.type_oid == detail::date_oid ? boost::system::error_code()
-                                                 : client_errc::incompatible_field_type;
+        return desc.type_oid == detail::date_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
 
-    static boost::system::error_code parse(
+    static std::error_code parse(
         field_view from,
         const protocol::field_description& desc,
         std::chrono::sys_days& to
@@ -70,13 +69,12 @@ struct parse_field_traits<std::chrono::sys_days>
 template <>
 struct parse_field_traits<std::chrono::microseconds>
 {
-    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(const protocol::field_description& desc)
     {
-        return desc.type_oid == detail::time_oid ? boost::system::error_code()
-                                                 : client_errc::incompatible_field_type;
+        return desc.type_oid == detail::time_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
 
-    static boost::system::error_code parse(
+    static std::error_code parse(
         field_view from,
         const protocol::field_description& desc,
         std::chrono::microseconds& to
@@ -94,13 +92,12 @@ struct parse_field_traits<std::chrono::microseconds>
 template <>
 struct parse_field_traits<types::pg_timetz>
 {
-    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(const protocol::field_description& desc)
     {
-        return desc.type_oid == detail::timetz_oid ? boost::system::error_code()
-                                                   : client_errc::incompatible_field_type;
+        return desc.type_oid == detail::timetz_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
 
-    static boost::system::error_code parse(
+    static std::error_code parse(
         field_view from,
         const protocol::field_description& desc,
         types::pg_timetz& to
@@ -118,13 +115,13 @@ struct parse_field_traits<types::pg_timetz>
 template <>
 struct parse_field_traits<types::pg_timestamp>
 {
-    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(const protocol::field_description& desc)
     {
-        return desc.type_oid == detail::timestamp_oid ? boost::system::error_code()
+        return desc.type_oid == detail::timestamp_oid ? std::error_code()
                                                       : client_errc::incompatible_field_type;
     }
 
-    static boost::system::error_code parse(
+    static std::error_code parse(
         field_view from,
         const protocol::field_description& desc,
         types::pg_timestamp& to
@@ -142,13 +139,13 @@ struct parse_field_traits<types::pg_timestamp>
 template <>
 struct parse_field_traits<types::pg_timestamptz>
 {
-    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(const protocol::field_description& desc)
     {
-        return desc.type_oid == detail::timestamptz_oid ? boost::system::error_code()
+        return desc.type_oid == detail::timestamptz_oid ? std::error_code()
                                                         : client_errc::incompatible_field_type;
     }
 
-    static boost::system::error_code parse(
+    static std::error_code parse(
         field_view from,
         const protocol::field_description& desc,
         types::pg_timestamptz& to
@@ -167,13 +164,13 @@ struct parse_field_traits<types::pg_timestamptz>
 template <>
 struct parse_field_traits<types::pg_interval>
 {
-    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(const protocol::field_description& desc)
     {
-        return desc.type_oid == detail::interval_oid ? boost::system::error_code()
+        return desc.type_oid == detail::interval_oid ? std::error_code()
                                                      : client_errc::incompatible_field_type;
     }
 
-    static boost::system::error_code parse(
+    static std::error_code parse(
         field_view from,
         const protocol::field_description& desc,
         types::pg_interval& to

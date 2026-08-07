@@ -48,13 +48,13 @@ namespace nativepg {
 template <detail::is_decimal T>
 struct parse_field_traits<T>
 {
-    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(const protocol::field_description& desc)
     {
-        return desc.type_oid == detail::decimal_oid ? boost::system::error_code{}
+        return desc.type_oid == detail::decimal_oid ? std::error_code{}
                                                     : client_errc::incompatible_field_type;
     }
 
-    static boost::system::error_code parse(field_view from, const protocol::field_description& desc, T& to)
+    static std::error_code parse(field_view from, const protocol::field_description& desc, T& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;

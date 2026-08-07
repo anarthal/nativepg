@@ -10,9 +10,8 @@
 
 #pragma once
 
-#include <boost/system/error_code.hpp>
-
 #include <optional>
+#include <system_error>
 #include <type_traits>
 
 #include "nativepg/field_traits.hpp"
@@ -51,12 +50,12 @@ struct parse_field_traits<std::optional<T>>
         "Nested std::optional (e.g. std::optional<std::optional<T>>) is not supported"
     );
 
-    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(const protocol::field_description& desc)
     {
         return field_is_compatible<T>(desc);
     }
 
-    static boost::system::error_code parse(
+    static std::error_code parse(
         field_view from,
         const protocol::field_description& desc,
         std::optional<T>& to

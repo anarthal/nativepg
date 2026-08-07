@@ -62,15 +62,15 @@ namespace nativepg {
 template <>
 struct parse_field_traits<bool>
 {
-    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(const protocol::field_description& desc)
     {
         if (desc.type_oid == detail::bool_oid)
-            return boost::system::error_code{};
+            return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
 
-    static boost::system::error_code parse(field_view from, const protocol::field_description& desc, bool& to)
+    static std::error_code parse(field_view from, const protocol::field_description& desc, bool& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -84,15 +84,15 @@ struct parse_field_traits<bool>
 template <>
 struct parse_field_traits<std::vector<std::byte>>
 {
-    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(const protocol::field_description& desc)
     {
         if (desc.type_oid == detail::bytea_oid)
-            return boost::system::error_code{};
+            return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
 
-    static boost::system::error_code parse(
+    static std::error_code parse(
         field_view from,
         const protocol::field_description& desc,
         std::vector<std::byte>& to
@@ -111,15 +111,15 @@ struct parse_field_traits<std::vector<std::byte>>
 template <>
 struct parse_field_traits<char>
 {
-    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(const protocol::field_description& desc)
     {
         if (desc.type_oid == detail::char_oid)
-            return boost::system::error_code{};
+            return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
 
-    static boost::system::error_code parse(field_view from, const protocol::field_description& desc, char& to)
+    static std::error_code parse(field_view from, const protocol::field_description& desc, char& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -133,19 +133,15 @@ struct parse_field_traits<char>
 template <>
 struct parse_field_traits<std::int16_t>
 {
-    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(const protocol::field_description& desc)
     {
         if (desc.type_oid == detail::int2_oid)
-            return boost::system::error_code{};
+            return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
 
-    static boost::system::error_code parse(
-        field_view from,
-        const protocol::field_description& desc,
-        std::int16_t& to
-    )
+    static std::error_code parse(field_view from, const protocol::field_description& desc, std::int16_t& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -159,19 +155,15 @@ struct parse_field_traits<std::int16_t>
 template <>
 struct parse_field_traits<std::int32_t>
 {
-    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(const protocol::field_description& desc)
     {
         if (desc.type_oid == detail::int4_oid || desc.type_oid == detail::int2_oid)
-            return boost::system::error_code{};
+            return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
 
-    static boost::system::error_code parse(
-        field_view from,
-        const protocol::field_description& desc,
-        std::int32_t& to
-    )
+    static std::error_code parse(field_view from, const protocol::field_description& desc, std::int32_t& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -201,20 +193,16 @@ struct parse_field_traits<std::int32_t>
 template <>
 struct parse_field_traits<std::int64_t>
 {
-    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(const protocol::field_description& desc)
     {
         if (desc.type_oid == detail::int8_oid || desc.type_oid == detail::int4_oid ||
             desc.type_oid == detail::int2_oid)
-            return boost::system::error_code{};
+            return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
 
-    static boost::system::error_code parse(
-        field_view from,
-        const protocol::field_description& desc,
-        std::int64_t& to
-    )
+    static std::error_code parse(field_view from, const protocol::field_description& desc, std::int64_t& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -250,19 +238,15 @@ struct parse_field_traits<std::int64_t>
 template <>
 struct parse_field_traits<float>
 {
-    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(const protocol::field_description& desc)
     {
         if (desc.type_oid == detail::float4_oid)
-            return boost::system::error_code{};
+            return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
 
-    static boost::system::error_code parse(
-        field_view from,
-        const protocol::field_description& desc,
-        float& to
-    )
+    static std::error_code parse(field_view from, const protocol::field_description& desc, float& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -276,19 +260,15 @@ struct parse_field_traits<float>
 template <>
 struct parse_field_traits<double>
 {
-    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(const protocol::field_description& desc)
     {
         if (desc.type_oid == detail::float8_oid || desc.type_oid == detail::float4_oid)
-            return boost::system::error_code{};
+            return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
 
-    static boost::system::error_code parse(
-        field_view from,
-        const protocol::field_description& desc,
-        double& to
-    )
+    static std::error_code parse(field_view from, const protocol::field_description& desc, double& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -318,15 +298,15 @@ struct parse_field_traits<double>
 template <class Traits, class Alloc>
 struct parse_field_traits<std::basic_string<char, Traits, Alloc>>
 {
-    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(const protocol::field_description& desc)
     {
         if (detail::is_string_oid(desc.type_oid))
-            return boost::system::error_code{};
+            return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
 
-    static boost::system::error_code parse(
+    static std::error_code parse(
         field_view from,
         const protocol::field_description& desc,
         std::basic_string<char, Traits, Alloc>& to
@@ -344,19 +324,15 @@ struct parse_field_traits<std::basic_string<char, Traits, Alloc>>
 template <>
 struct parse_field_traits<std::uint32_t>
 {
-    static boost::system::error_code is_compatible(const protocol::field_description& desc)
+    static std::error_code is_compatible(const protocol::field_description& desc)
     {
         if (desc.type_oid == detail::oid_oid)
-            return boost::system::error_code{};
+            return std::error_code{};
 
         return client_errc::incompatible_field_type;
     }
 
-    static boost::system::error_code parse(
-        field_view from,
-        const protocol::field_description& desc,
-        std::uint32_t& to
-    )
+    static std::error_code parse(field_view from, const protocol::field_description& desc, std::uint32_t& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -376,12 +352,12 @@ struct serialize_field_traits<std::int16_t>
 {
     static constexpr std::int32_t oid = detail::int2_oid;
 
-    static boost::system::error_code serialize_text(std::int16_t value, std::vector<unsigned char>& to)
+    static std::error_code serialize_text(std::int16_t value, std::vector<unsigned char>& to)
     {
         return types::serialize_text_int(value, to);
     }
 
-    static boost::system::error_code serialize_binary(std::int16_t value, std::vector<unsigned char>& to)
+    static std::error_code serialize_binary(std::int16_t value, std::vector<unsigned char>& to)
     {
         return types::serialize_binary_int(value, to);
     }
@@ -393,12 +369,12 @@ struct serialize_field_traits<std::int32_t>
 {
     static constexpr std::int32_t oid = detail::int4_oid;
 
-    static boost::system::error_code serialize_text(std::int32_t value, std::vector<unsigned char>& to)
+    static std::error_code serialize_text(std::int32_t value, std::vector<unsigned char>& to)
     {
         return types::serialize_text_int(value, to);
     }
 
-    static boost::system::error_code serialize_binary(std::int32_t value, std::vector<unsigned char>& to)
+    static std::error_code serialize_binary(std::int32_t value, std::vector<unsigned char>& to)
     {
         return types::serialize_binary_int(value, to);
     }
@@ -410,12 +386,12 @@ struct serialize_field_traits<std::int64_t>
 {
     static constexpr std::int32_t oid = detail::int8_oid;
 
-    static boost::system::error_code serialize_text(std::int64_t value, std::vector<unsigned char>& to)
+    static std::error_code serialize_text(std::int64_t value, std::vector<unsigned char>& to)
     {
         return types::serialize_text_int(value, to);
     }
 
-    static boost::system::error_code serialize_binary(std::int64_t value, std::vector<unsigned char>& to)
+    static std::error_code serialize_binary(std::int64_t value, std::vector<unsigned char>& to)
     {
         return types::serialize_binary_int(value, to);
     }
@@ -427,12 +403,12 @@ struct serialize_field_traits<T>
 {
     static constexpr std::int32_t oid = detail::text_oid;
 
-    static boost::system::error_code serialize_text(std::string_view value, std::vector<unsigned char>& to)
+    static std::error_code serialize_text(std::string_view value, std::vector<unsigned char>& to)
     {
         return types::serialize_text_text(value, to);
     }
 
-    static boost::system::error_code serialize_binary(std::string_view value, std::vector<unsigned char>& to)
+    static std::error_code serialize_binary(std::string_view value, std::vector<unsigned char>& to)
     {
         return types::serialize_binary_text(value, to);
     }

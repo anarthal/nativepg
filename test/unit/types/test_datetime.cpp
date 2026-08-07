@@ -17,7 +17,6 @@
 #include "nativepg/types/datetime.hpp"
 
 using namespace nativepg;
-using boost::system::error_code;
 
 namespace {
 

@@ -151,7 +151,7 @@ void test_field_is_compatible_decimal_success()
 {
     BOOST_TEST_EQ(
         field_is_compatible<bd::decimal64_t>(make_field_description(detail::decimal_oid)),
-        boost::system::error_code{}
+        std::error_code{}
     );
 }
 
@@ -159,7 +159,7 @@ void test_field_is_compatible_decimal_incompatible_error()
 {
     BOOST_TEST_EQ(
         field_is_compatible<bd::decimal64_t>(make_field_description(23 /* int4 oid */)),
-        boost::system::error_code(client_errc::incompatible_field_type)
+        std::error_code(client_errc::incompatible_field_type)
     );
 }
 

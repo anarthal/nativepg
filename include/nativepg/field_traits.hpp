@@ -8,10 +8,9 @@
 #ifndef NATIVEPG_FIELD_TRAITS_HPP
 #define NATIVEPG_FIELD_TRAITS_HPP
 
-#include <boost/system/error_code.hpp>
-
 #include <concepts>
 #include <cstdint>
+#include <system_error>
 #include <vector>
 
 #include "nativepg/field_view.hpp"
@@ -38,13 +37,13 @@ struct is_unspecialized
  *    here, as this function is invoked only once, while parsing
  *    is invoked once per row. Signature:
  *
- *    static error_code is_compatible(const protocol::field_description&);
+ *    static std::error_code is_compatible(const protocol::field_description&);
  *
  *  - parse: performs the actual parsing. Return an error if the value can't
  *    be represented in your type. field_view is non-owning and can represent
  *    database NULLs - remember to check for these. Signature:
  *
- *    static error_code parse(field_view, const protocol::field_description&, T&)
+ *    static std::error_code parse(field_view, const protocol::field_description&, T&)
  *
  */
 template <class T>
@@ -68,11 +67,11 @@ struct parse_field_traits : detail::is_unspecialized
  *    format. If the value is not representable in the corresponding protocol
  *    type, an error can be returned. Signature:
  *
- *    static error_code serialize_text(const T& value, std::vector<unsigned char>& buffer)
+ *    static std::error_code serialize_text(const T& value, std::vector<unsigned char>& buffer)
  *
  *  - serialize_binary: same, but using the binary format. Signature:
  *
- *    static error_code serialize_binary(const T& value, std::vector<unsigned char>& buffer)
+ *    static std::error_code serialize_binary(const T& value, std::vector<unsigned char>& buffer)
  */
 template <class T>
 struct serialize_field_traits : detail::is_unspecialized
@@ -94,14 +93,14 @@ concept parsable_field =
         // for your type is missing or has an incorrect shape.
         {
             parse_field_traits<T>::is_compatible(protocol::field_description{})
-        } -> std::convertible_to<boost::system::error_code>;
+        } -> std::convertible_to<std::error_code>;
 
         // If you are seeing an error message pointing to this concept,
         // your parse function in the parse_field_traits specialization
         // for your type is missing or has an incorrect shape.
         {
             parse_field_traits<T>::parse(field_view{}, protocol::field_description{}, value)
-        } -> std::convertible_to<boost::system::error_code>;
+        } -> std::convertible_to<std::error_code>;
     };
 
 template <class T>
@@ -120,29 +119,25 @@ concept serializable_field =
         // If you are seeing an error message pointing to this expression,
         // your serialize_text function in the serialize_field_traits specialization
         // for your type is missing or has an incorrect shape.
-        {
-            serialize_field_traits<T>::serialize_text(value, to)
-        } -> std::convertible_to<boost::system::error_code>;
+        { serialize_field_traits<T>::serialize_text(value, to) } -> std::convertible_to<std::error_code>;
 
         // If you are seeing an error message pointing to this expression,
         // your serialize_binary function in the serialize_field_traits specialization
         // for your type is missing or has an incorrect shape.
-        {
-            serialize_field_traits<T>::serialize_binary(value, to)
-        } -> std::convertible_to<boost::system::error_code>;
+        { serialize_field_traits<T>::serialize_binary(value, to) } -> std::convertible_to<std::error_code>;
     };
 
 // Now if you, as a user, want to add support for a type, you specialize any of these.
 // But if you need to call the functionality here, don't invoke the traits structs directly,
 // but use these functions, as they invoke concept checking.
 template <parsable_field T>
-boost::system::error_code field_is_compatible(const protocol::field_description& desc)
+std::error_code field_is_compatible(const protocol::field_description& desc)
 {
     return parse_field_traits<T>::is_compatible(desc);
 }
 
 template <parsable_field T>
-boost::system::error_code field_parse(field_view from, const protocol::field_description& desc, T& to)
+std::error_code field_parse(field_view from, const protocol::field_description& desc, T& to)
 {
     return parse_field_traits<T>::parse(from, desc, to);
 }
@@ -151,13 +146,13 @@ template <serializable_field T>
 inline constexpr std::int32_t field_serialize_oid = serialize_field_traits<T>::oid;
 
 template <serializable_field T>
-boost::system::error_code field_serialize_text(const T& value, std::vector<unsigned char>& to)
+std::error_code field_serialize_text(const T& value, std::vector<unsigned char>& to)
 {
     return serialize_field_traits<T>::serialize_text(value, to);
 }
 
 template <serializable_field T>
-boost::system::error_code field_serialize_binary(const T& value, std::vector<unsigned char>& to)
+std::error_code field_serialize_binary(const T& value, std::vector<unsigned char>& to)
 {
     return serialize_field_traits<T>::serialize_binary(value, to);
 }

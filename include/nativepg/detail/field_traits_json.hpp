@@ -46,7 +46,11 @@ struct parse_field_traits<boost::json::value>
                    : client_errc::incompatible_field_type;
     }
 
-    static inline std::error_code parse_text(field_view from, std::int32_t type_oid, boost::json::value& to)
+    static inline std::error_code parse_text(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        boost::json::value& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;

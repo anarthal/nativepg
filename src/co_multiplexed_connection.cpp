@@ -169,7 +169,7 @@ struct nativepg::co_multiplexed_connection::impl
         }
     }
 
-    boost::capy::io_task<> exec(const request& req, response_handler_ref handler, diagnostics* diag = nullptr)
+    boost::capy::io_task<> exec(const request& req, response_handler_ref handler, diagnostics* = nullptr)
     {
         // Check that the request is valid
         if (auto req_ec = protocol::detail::setup_request(req, handler))

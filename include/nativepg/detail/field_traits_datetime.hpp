@@ -50,7 +50,11 @@ struct parse_field_traits<std::chrono::sys_days>
         return type_oid == detail::date_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, std::int32_t type_oid, std::chrono::sys_days& to)
+    static std::error_code parse_text(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        std::chrono::sys_days& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -58,7 +62,11 @@ struct parse_field_traits<std::chrono::sys_days>
         return types::parse_text_date(from.data(), to);
     }
 
-    static std::error_code parse_binary(field_view from, std::int32_t type_oid, std::chrono::sys_days& to)
+    static std::error_code parse_binary(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        std::chrono::sys_days& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -76,7 +84,11 @@ struct parse_field_traits<std::chrono::microseconds>
         return type_oid == detail::time_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, std::int32_t type_oid, std::chrono::microseconds& to)
+    static std::error_code parse_text(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        std::chrono::microseconds& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -84,7 +96,11 @@ struct parse_field_traits<std::chrono::microseconds>
         return types::parse_text_time(from.data(), to);
     }
 
-    static std::error_code parse_binary(field_view from, std::int32_t type_oid, std::chrono::microseconds& to)
+    static std::error_code parse_binary(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        std::chrono::microseconds& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -102,7 +118,11 @@ struct parse_field_traits<types::pg_timetz>
         return type_oid == detail::timetz_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, std::int32_t type_oid, types::pg_timetz& to)
+    static std::error_code parse_text(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        types::pg_timetz& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -110,7 +130,11 @@ struct parse_field_traits<types::pg_timetz>
         return types::parse_text_timetz(from.data(), to);
     }
 
-    static std::error_code parse_binary(field_view from, std::int32_t type_oid, types::pg_timetz& to)
+    static std::error_code parse_binary(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        types::pg_timetz& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -128,7 +152,11 @@ struct parse_field_traits<types::pg_timestamp>
         return type_oid == detail::timestamp_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, std::int32_t type_oid, types::pg_timestamp& to)
+    static std::error_code parse_text(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        types::pg_timestamp& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -136,7 +164,11 @@ struct parse_field_traits<types::pg_timestamp>
         return types::parse_text_timestamp(from.data(), to);
     }
 
-    static std::error_code parse_binary(field_view from, std::int32_t type_oid, types::pg_timestamp& to)
+    static std::error_code parse_binary(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        types::pg_timestamp& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -154,7 +186,11 @@ struct parse_field_traits<types::pg_timestamptz>
         return type_oid == detail::timestamptz_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, std::int32_t type_oid, types::pg_timestamptz& to)
+    static std::error_code parse_text(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        types::pg_timestamptz& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -162,7 +198,11 @@ struct parse_field_traits<types::pg_timestamptz>
         return types::parse_text_timestamptz(from.data(), to);
     }
 
-    static std::error_code parse_binary(field_view from, std::int32_t type_oid, types::pg_timestamptz& to)
+    static std::error_code parse_binary(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        types::pg_timestamptz& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -180,7 +220,11 @@ struct parse_field_traits<types::pg_interval>
         return type_oid == detail::interval_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, std::int32_t type_oid, types::pg_interval& to)
+    static std::error_code parse_text(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        types::pg_interval& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -188,7 +232,11 @@ struct parse_field_traits<types::pg_interval>
         return types::parse_text_interval(from.data(), to);
     }
 
-    static std::error_code parse_binary(field_view from, std::int32_t type_oid, types::pg_interval& to)
+    static std::error_code parse_binary(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        types::pg_interval& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;

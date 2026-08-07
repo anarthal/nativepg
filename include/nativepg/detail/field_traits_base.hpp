@@ -69,7 +69,7 @@ struct parse_field_traits<bool>
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, std::int32_t type_oid, bool& to)
+    static std::error_code parse_text(field_view from, [[maybe_unused]] std::int32_t type_oid, bool& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -77,7 +77,7 @@ struct parse_field_traits<bool>
         return types::parse_text_bool(from, to);
     }
 
-    static std::error_code parse_binary(field_view from, std::int32_t type_oid, bool& to)
+    static std::error_code parse_binary(field_view from, [[maybe_unused]] std::int32_t type_oid, bool& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -98,7 +98,11 @@ struct parse_field_traits<std::vector<std::byte>>
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, std::int32_t type_oid, std::vector<std::byte>& to)
+    static std::error_code parse_text(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        std::vector<std::byte>& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -106,7 +110,11 @@ struct parse_field_traits<std::vector<std::byte>>
         return types::parse_text_bytea(from, to);
     }
 
-    static std::error_code parse_binary(field_view from, std::int32_t type_oid, std::vector<std::byte>& to)
+    static std::error_code parse_binary(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        std::vector<std::byte>& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -128,7 +136,7 @@ struct parse_field_traits<char>
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, std::int32_t type_oid, char& to)
+    static std::error_code parse_text(field_view from, [[maybe_unused]] std::int32_t type_oid, char& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -136,7 +144,7 @@ struct parse_field_traits<char>
         return types::parse_text_char(from, to);
     }
 
-    static std::error_code parse_binary(field_view from, std::int32_t type_oid, char& to)
+    static std::error_code parse_binary(field_view from, [[maybe_unused]] std::int32_t type_oid, char& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -157,7 +165,11 @@ struct parse_field_traits<std::int16_t>
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, std::int32_t type_oid, std::int16_t& to)
+    static std::error_code parse_text(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        std::int16_t& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -165,7 +177,11 @@ struct parse_field_traits<std::int16_t>
         return types::parse_text_int(from, to);
     }
 
-    static std::error_code parse_binary(field_view from, std::int32_t type_oid, std::int16_t& to)
+    static std::error_code parse_binary(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        std::int16_t& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -300,7 +316,7 @@ struct parse_field_traits<float>
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, std::int32_t type_oid, float& to)
+    static std::error_code parse_text(field_view from, [[maybe_unused]] std::int32_t type_oid, float& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -308,7 +324,7 @@ struct parse_field_traits<float>
         return types::parse_text_float<float>(from, to);
     }
 
-    static std::error_code parse_binary(field_view from, std::int32_t type_oid, float& to)
+    static std::error_code parse_binary(field_view from, [[maybe_unused]] std::int32_t type_oid, float& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -329,7 +345,7 @@ struct parse_field_traits<double>
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, std::int32_t type_oid, double& to)
+    static std::error_code parse_text(field_view from, [[maybe_unused]] std::int32_t type_oid, double& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -347,7 +363,7 @@ struct parse_field_traits<double>
         }
     }
 
-    static std::error_code parse_binary(field_view from, std::int32_t type_oid, double& to)
+    static std::error_code parse_binary(field_view from, [[maybe_unused]] std::int32_t type_oid, double& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -380,7 +396,7 @@ struct parse_field_traits<std::basic_string<char, Traits, Alloc>>
 
     static std::error_code parse_text(
         field_view from,
-        std::int32_t type_oid,
+        [[maybe_unused]] std::int32_t type_oid,
         std::basic_string<char, Traits, Alloc>& to
     )
     {
@@ -392,7 +408,7 @@ struct parse_field_traits<std::basic_string<char, Traits, Alloc>>
 
     static std::error_code parse_binary(
         field_view from,
-        std::int32_t type_oid,
+        [[maybe_unused]] std::int32_t type_oid,
         std::basic_string<char, Traits, Alloc>& to
     )
     {
@@ -415,7 +431,11 @@ struct parse_field_traits<std::uint32_t>
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, std::int32_t type_oid, std::uint32_t& to)
+    static std::error_code parse_text(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        std::uint32_t& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -423,7 +443,11 @@ struct parse_field_traits<std::uint32_t>
         return types::parse_text_oid(from, to);
     }
 
-    static std::error_code parse_binary(field_view from, std::int32_t type_oid, std::uint32_t& to)
+    static std::error_code parse_binary(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        std::uint32_t& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;

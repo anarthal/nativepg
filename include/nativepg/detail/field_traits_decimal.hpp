@@ -52,7 +52,7 @@ struct parse_field_traits<T>
         return type_oid == detail::decimal_oid ? std::error_code{} : client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, std::int32_t type_oid, T& to)
+    static std::error_code parse_text(field_view from, [[maybe_unused]] std::int32_t type_oid, T& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;
@@ -60,7 +60,7 @@ struct parse_field_traits<T>
         return types::parse_text_decimal(from, to);
     }
 
-    static std::error_code parse_binary(field_view from, std::int32_t type_oid, T& to)
+    static std::error_code parse_binary(field_view from, [[maybe_unused]] std::int32_t type_oid, T& to)
     {
         if (from.is_null())
             return client_errc::unexpected_null;

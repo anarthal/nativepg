@@ -9,11 +9,12 @@
 #define NATIVEPG_PROTOCOL_BIND_HPP
 
 #include <boost/compat/function_ref.hpp>
-#include <system_error>
 
 #include <cstddef>
+#include <optional>
 #include <span>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 #include "nativepg/protocol/common.hpp"
@@ -73,6 +74,10 @@ public:
     std::error_code error() const { return err_; }
 };
 
+// TODO: rename all this and wrap this
+using serializable_ref = std::optional<
+    boost::compat::function_ref<std::error_code(std::vector<unsigned char>&)>>;
+
 struct bind
 {
     // The name of the destination portal (an empty string selects the unnamed portal).
@@ -85,9 +90,8 @@ struct bind
     format_codes parameter_fmt_codes;
 
     // The actual parameters. The number of parameters must match the number of parameters required by the
-    // query. The passed function will be called once by the implementation - it should use bind_context
-    // to serialize the parameters
-    boost::compat::function_ref<void(bind_context&)> parameters_fn;
+    // query.
+    std::span<const serializable_ref> parameters;
 
     // The result-column format codes.
     format_codes result_fmt_codes;

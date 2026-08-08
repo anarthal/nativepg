@@ -58,20 +58,23 @@ struct statement
 namespace detail {
 
 template <serializable_field T>
-protocol::serializable_ref to_serializable_ref(const T* value, bool use_text)
+protocol::serializable_ref to_serializable_ref(const T* value, bool use_binary)
 {
+    // Required for C-array parameters to work (and hence string literals)
+    using decayed_type = std::decay_t<const T&>;
+
     // TODO: nullness check
-    if (use_text)
+    if (use_binary)
     {
         return boost::compat::function_ref<std::error_code(std::vector<unsigned char>&)>{
-            boost::compat::nontype<field_serialize_text<T>>,
+            boost::compat::nontype<field_serialize_binary<decayed_type>>,
             *value
         };
     }
     else
     {
         return boost::compat::function_ref<std::error_code(std::vector<unsigned char>&)>{
-            boost::compat::nontype<field_serialize_binary<T>>,
+            boost::compat::nontype<field_serialize_text<decayed_type>>,
             *value
         };
     }
@@ -103,7 +106,7 @@ std::array<protocol::serializable_ref, sizeof...(Params)> to_serializable_refs_i
     const Params*... params
 )
 {
-    return {{to_serializable_ref(params, format_code_for(codes, I))...}};
+    return {{to_serializable_ref(params, format_code_for(codes, I) == protocol::format_code::binary)...}};
 }
 
 // Type-erases each parameter into a serializable_ref, using the format code that
@@ -195,7 +198,7 @@ public:
         return add_query(
             q,
             detail::to_serializable_refs(args.param_format, &params...),
-            detail::type_oids_for<Params>...,
+            detail::type_oids_for<Params...>,
             args
         );
     }
@@ -227,7 +230,7 @@ public:
     template <serializable_field... Params>
     request& add_prepare(std::string_view query, const statement<Params...>& stmt)
     {
-        return add_prepare(query, stmt.name, detail::type_oids_for<Params>...);
+        return add_prepare(query, stmt.name, detail::type_oids_for<Params...>);
     }
 
     // Executes a named prepared statement (PQsendQueryPrepared)

@@ -19,10 +19,10 @@
 #include <string_view>
 #include <system_error>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "nativepg/field_traits.hpp"
-#include "nativepg/parameter_ref.hpp"
 #include "nativepg/protocol/close.hpp"
 #include "nativepg/protocol/flush.hpp"
 #include "nativepg/protocol/format_codes.hpp"
@@ -58,44 +58,71 @@ struct statement
 namespace detail {
 
 template <serializable_field T>
-protocol::serializable_ref to_serializable_ref(const T& value, protocol::format_code fmt)
+protocol::serializable_ref to_serializable_ref(const T* value, bool use_text)
 {
     // TODO: nullness check
-    if (fmt == protocol::format_code::text)
+    if (use_text)
     {
         return boost::compat::function_ref<std::error_code(std::vector<unsigned char>&)>{
             boost::compat::nontype<field_serialize_text<T>>,
-            value
+            *value
         };
     }
     else
     {
-        BOOST_ASSERT(fmt == protocol::format_code::binary);
         return boost::compat::function_ref<std::error_code(std::vector<unsigned char>&)>{
             boost::compat::nontype<field_serialize_binary<T>>,
-            value
+            *value
         };
     }
 }
 
-// TODO: implement
+// Retrieves the format code to apply to the parameter at the given index.
+// Precondition: if codes is a list, idx is in range. check_format_codes_size enforces this
 inline protocol::format_code format_code_for(protocol::format_codes codes, std::size_t idx)
 {
     switch (codes.type())
     {
         case protocol::format_codes::kind::all_text: return protocol::format_code::text;
         case protocol::format_codes::kind::all_binary: return protocol::format_code::binary;
-        case protocol::format_codes::kind::list: return codes.get_list()[idx];  // TODO: range check
+        case protocol::format_codes::kind::list:
+            BOOST_ASSERT(idx < codes.get_list().size());
+            return codes.get_list()[idx];
         default: BOOST_ASSERT(false); return protocol::format_code::text;
     }
 }
 
-// TODO
+// Throws std::invalid_argument if codes is a list with a size other than num_params.
+// Single-code kinds apply to every parameter, so they always match
+void check_format_codes_size(protocol::format_codes codes, std::size_t num_params);
+
+template <std::size_t... I, serializable_field... Params>
+std::array<protocol::serializable_ref, sizeof...(Params)> to_serializable_refs_impl(
+    std::index_sequence<I...>,
+    protocol::format_codes codes,
+    const Params*... params
+)
+{
+    return {{to_serializable_ref(params, format_code_for(codes, I))...}};
+}
+
+// Type-erases each parameter into a serializable_ref, using the format code that
+// corresponds to its position. The returned refs point into *params, so the pointees
+// must outlive the returned array
 template <serializable_field... Params>
 std::array<protocol::serializable_ref, sizeof...(Params)> to_serializable_refs(
     protocol::format_codes codes,
     const Params*... params
-);
+)
+{
+    // Validate the number of format codes once, rather than once per parameter
+    check_format_codes_size(codes, sizeof...(Params));
+
+    return to_serializable_refs_impl(std::index_sequence_for<Params...>{}, codes, params...);
+}
+
+template <serializable_field... Params>
+inline constexpr std::array<std::int32_t, sizeof...(Params)> type_oids_for{{field_serialize_oid<Params>...}};
 
 }  // namespace detail
 
@@ -165,13 +192,12 @@ public:
     template <serializable_field... Params>
     request& add_query(std::string_view q, const add_query_args& args, const Params&... params)
     {
-        constexpr auto N = sizeof...(Params);
-        constexpr std::array<std::int32_t, N> type_oids{{field_serialize_oid<Params>...}};
-
-        // TODO: check for format code length
-
-        auto params_erased = detail::to_serializable_refs(args.param_format, &params...);
-        return add_query(q, params_erased, type_oids, args);
+        return add_query(
+            q,
+            detail::to_serializable_refs(args.param_format, &params...),
+            detail::type_oids_for<Params>...,
+            args
+        );
     }
 
     request& add_query(
@@ -201,8 +227,7 @@ public:
     template <serializable_field... Params>
     request& add_prepare(std::string_view query, const statement<Params...>& stmt)
     {
-        std::array<std::int32_t, sizeof...(Params)> type_oids{{field_serialize_oid<Params>...}};
-        return add_prepare(query, stmt.name, type_oids);
+        return add_prepare(query, stmt.name, detail::type_oids_for<Params>...);
     }
 
     // Executes a named prepared statement (PQsendQueryPrepared)
@@ -229,8 +254,7 @@ public:
         const std::type_identity_t<Params>&... params
     )
     {
-        auto params_erased = detail::to_serializable_refs(args.param_format, &params...);
-        return add_execute(stmt.name, params_erased, args);
+        return add_execute(stmt.name, detail::to_serializable_refs(args.param_format, &params...), args);
     }
 
     request& add_execute(

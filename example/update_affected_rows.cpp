@@ -49,7 +49,7 @@ static capy::task<> co_main()
 
     // Compose our request
     request req;
-    req.add_query("UPDATE myt SET f3 = f3 + 1 WHERE f1 <> $1", {"hehe"});
+    req.add_query("UPDATE myt SET f3 = f3 + 1 WHERE f1 <> $1", "hehe");
 
     // Structures to parse the response into
     command_info info;

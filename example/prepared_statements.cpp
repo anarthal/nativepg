@@ -80,7 +80,7 @@ static capy::task<> co_main()
     // Now execute one of the statements.
     // Note that statements are independent even if you prepared them together
     req = request();  // TODO: replace by clear when we have it
-    req.add_execute(select_stmt.bind("hola"));
+    req.add_execute(select_stmt, "hola");
     req.add_sync();
 
     std::vector<myrow> rows;

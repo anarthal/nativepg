@@ -722,12 +722,6 @@ void nativepg::protocol::format_codes::throw_invalid_argument()
     BOOST_THROW_EXCEPTION(std::invalid_argument("format_codes: kind mismatch"));
 }
 
-struct nativepg::protocol::detail::bind_context_access
-{
-    static std::size_t num_params(const bind_context& ctx) { return ctx.num_params_; }
-    static void maybe_finish_parameter(bind_context& ctx) { ctx.maybe_finish_parameter(); }
-};
-
 namespace {
 
 void serialize_fmt_codes(const format_codes& fmt_codes, detail::serialization_context& ctx)
@@ -758,61 +752,52 @@ void serialize_fmt_codes(const format_codes& fmt_codes, detail::serialization_co
     }
 }
 
-void serialize_params(
-    boost::compat::function_ref<void(bind_context&)> parameters_fn,
-    detail::serialization_context& ctx
-)
+void serialize_params(std::span<const serializable_ref> params, detail::serialization_context& ctx)
 {
-    // Allocate space for the number of parameters (not yet known)
-    auto& buffer = ctx.buffer();
-    std::size_t num_params_offset = buffer.size();
-    buffer.resize(buffer.size() + 2u);
-
-    // Call the user function, which will serialize all the parameters
-    bind_context bind_ctx(buffer);
-    parameters_fn(bind_ctx);
-    detail::bind_context_access::maybe_finish_parameter(bind_ctx);
-
-    // Check for errors
-    ctx.add_error(bind_ctx.error());
-
-    // Serialize the number of parameters
-    std::size_t num_params = detail::bind_context_access::num_params(bind_ctx);
-    if (num_params > (std::numeric_limits<std::int16_t>::max)())
+    // Number of parameters
+    if (params.size() > (std::numeric_limits<std::int16_t>::max)())
     {
         ctx.add_error(nativepg::client_errc::value_too_big);
         return;
     }
-    boost::endian::store_big_s16(buffer.data() + num_params_offset, static_cast<std::int16_t>(num_params));
+    ctx.add_integral(static_cast<std::int16_t>(params.size()));
+
+    // Each parameter is an Int32 size, followed by that many bytes.
+    // A size of -1 means NULL, and is followed by no bytes at all
+    auto& buffer = ctx.buffer();
+    for (const auto& param : params)
+    {
+        if (!param.has_value())
+        {
+            ctx.add_integral(static_cast<std::int32_t>(-1));
+            continue;
+        }
+
+        // Allocate space for the size, which is not known until the value has been serialized
+        const std::size_t size_offset = buffer.size();
+        ctx.add_bytes(std::array<unsigned char, 4>{});
+
+        // Serialize the value
+        if (auto ec = (*param)(buffer))
+        {
+            ctx.add_error(ec);
+            return;
+        }
+
+        // Compute the size of what the callback added
+        const std::size_t param_size = buffer.size() - size_offset - 4u;
+        if (param_size > (std::numeric_limits<std::int32_t>::max)())
+        {
+            ctx.add_error(nativepg::client_errc::value_too_big);
+            return;
+        }
+
+        // Write the size. Note that the buffer may have been reallocated by the callback
+        boost::endian::store_big_s32(buffer.data() + size_offset, static_cast<std::int32_t>(param_size));
+    }
 }
 
 }  // namespace
-
-void nativepg::protocol::bind_context::maybe_finish_parameter()
-{
-    // If there is no pending parameter, do nothing
-    if (param_offset_ == no_offset)
-        return;
-
-    // Compute the size of the parameter, as the number of bytes added by the user minus the header
-    // TODO: Assert is wrong. Fix this for sql that has escaped values (?) buff_ seems to contain the sql
-    // statement?
-    // BOOST_ASSERT(buff_.size() > param_offset_ + 4u);
-    std::size_t param_size = buff_.size() - param_offset_ - 4u;
-
-    // If the size exceeds INT32_MAX, error
-    if (param_size > (std::numeric_limits<std::int32_t>::max)())
-    {
-        add_error(client_errc::value_too_big);
-        return;
-    }
-
-    // Write the parameter size
-    boost::endian::store_big_s32(buff_.data() + param_offset_, static_cast<std::int32_t>(param_size));
-
-    // Clean up the offset
-    param_offset_ = no_offset;
-}
 
 std::error_code nativepg::protocol::serialize(const bind& msg, std::vector<unsigned char>& to)
 {
@@ -829,7 +814,7 @@ std::error_code nativepg::protocol::serialize(const bind& msg, std::vector<unsig
     serialize_fmt_codes(msg.parameter_fmt_codes, ctx);
 
     // Serialize the parameters
-    serialize_params(msg.parameters_fn, ctx);
+    serialize_params(msg.parameters, ctx);
 
     // Result format codes
     serialize_fmt_codes(msg.result_fmt_codes, ctx);

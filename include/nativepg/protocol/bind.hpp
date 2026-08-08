@@ -10,7 +10,6 @@
 
 #include <boost/compat/function_ref.hpp>
 
-#include <cstddef>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -22,57 +21,6 @@
 
 namespace nativepg {
 namespace protocol {
-namespace detail {
-struct bind_context_access;
-}
-
-// Used within the user-supplied callback for bind parameters.
-// For each parameter you want to add, call start_parameter(),
-// then serialize the parameter into buffer()
-class bind_context
-{
-    static inline constexpr std::size_t no_offset = static_cast<std::size_t>(-1);
-
-    std::size_t num_params_{};
-    std::size_t param_offset_{no_offset};
-    std::vector<unsigned char>& buff_;
-    std::error_code err_;
-
-    friend struct detail::bind_context_access;
-
-    void maybe_finish_parameter();
-
-public:
-    // Constructor - usually called by the library
-    bind_context(std::vector<unsigned char>& buff) noexcept : buff_(buff) {}
-
-    // Retrieves the serialization buffer
-    std::vector<unsigned char>& buffer() noexcept { return buff_; }
-
-    // Starts a parameter. Add its value with one or several add_parameter_chunk calls
-    void start_parameter()
-    {
-        // If this is not the first parameter, write the previous one
-        maybe_finish_parameter();
-
-        // Record that we're starting a parameter
-        ++num_params_;
-        param_offset_ = buff_.size();
-
-        // Allocate space for the parameter size
-        buff_.resize(buff_.size() + 4u);
-    }
-
-    // Marks the serialization as failed. Only the first error is retained
-    void add_error(std::error_code err)
-    {
-        if (!err_)
-            err_ = err;
-    }
-
-    // Returns any error added during serialization. Only the 1st one is retained
-    std::error_code error() const { return err_; }
-};
 
 // TODO: rename all this and wrap this
 using serializable_ref = std::optional<
@@ -90,7 +38,7 @@ struct bind
     format_codes parameter_fmt_codes;
 
     // The actual parameters. The number of parameters must match the number of parameters required by the
-    // query.
+    // query. An empty optional is serialized as a NULL value.
     std::span<const serializable_ref> parameters;
 
     // The result-column format codes.

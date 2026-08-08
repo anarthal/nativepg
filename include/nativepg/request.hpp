@@ -26,7 +26,6 @@
 #include "nativepg/protocol/close.hpp"
 #include "nativepg/protocol/flush.hpp"
 #include "nativepg/protocol/format_codes.hpp"
-#include "nativepg/protocol/views.hpp"
 #include "protocol/bind.hpp"
 #include "protocol/common.hpp"
 #include "protocol/describe.hpp"
@@ -55,16 +54,14 @@ struct statement
     std::string name;
 };
 
-namespace detail {
-
 template <serializable_field T>
-protocol::serializable_ref to_serializable_ref(const T* value, bool use_binary)
+protocol::serializable_ref make_serializable_ref(const T* value, protocol::format_code code)
 {
     // Required for C-array parameters to work (and hence string literals)
     using decayed_type = std::decay_t<const T&>;
 
     // TODO: nullness check
-    if (use_binary)
+    if (code == protocol::format_code::binary)
     {
         return boost::compat::function_ref<std::error_code(std::vector<unsigned char>&)>{
             boost::compat::nontype<field_serialize_binary<decayed_type>>,
@@ -73,12 +70,15 @@ protocol::serializable_ref to_serializable_ref(const T* value, bool use_binary)
     }
     else
     {
+        BOOST_ASSERT(code == protocol::format_code::text);
         return boost::compat::function_ref<std::error_code(std::vector<unsigned char>&)>{
             boost::compat::nontype<field_serialize_text<decayed_type>>,
             *value
         };
     }
 }
+
+namespace detail {
 
 // Retrieves the format code to apply to the parameter at the given index.
 // Precondition: if codes is a list, idx is in range. check_format_codes_size enforces this
@@ -106,7 +106,7 @@ std::array<protocol::serializable_ref, sizeof...(Params)> to_serializable_refs_i
     const Params*... params
 )
 {
-    return {{to_serializable_ref(params, format_code_for(codes, I) == protocol::format_code::binary)...}};
+    return {{make_serializable_ref(params, format_code_for(codes, I))...}};
 }
 
 // Type-erases each parameter into a serializable_ref, using the format code that

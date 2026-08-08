@@ -70,7 +70,7 @@ static capy::task<> co_main()
 
     // Initial execution
     request req_initial{false};  // disable auto-sync
-    req_initial.add_query("BEGIN", {})
+    req_initial.add_query("BEGIN")
         .add_query(
             "SELECT * FROM myt WHERE f1 <> $1",
             {

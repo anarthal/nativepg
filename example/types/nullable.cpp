@@ -134,9 +134,13 @@ static asio::awaitable<void> nullable_binary_example(connection& conn)
                  NULLIF($6::text, 'NULL')::text as nt_t,
                  NULLIF($7::text, 'NULL')::text as vt_t
         )sql",
-        {"Nullable Test values", "NULL", "true", "NULL", "21.1977", "NULL", "Value Test text"},
-        protocol::format_code::text,
-        protocol::format_code::binary
+        "Nullable Test values",
+        "NULL",
+        "true",
+        "NULL",
+        "21.1977",
+        "NULL",
+        "Value Test text"
     );
 
     std::vector<test_row> select_vec;

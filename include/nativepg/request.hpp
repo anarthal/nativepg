@@ -100,7 +100,7 @@ inline protocol::format_code format_code_for(protocol::format_codes codes, std::
 void check_format_codes_size(protocol::format_codes codes, std::size_t num_params);
 
 template <std::size_t... I, serializable_field... Params>
-std::array<protocol::serializable_ref, sizeof...(Params)> to_serializable_refs_impl(
+std::array<protocol::serializable_ref, sizeof...(Params)> make_serializable_refs_impl(
     std::index_sequence<I...>,
     protocol::format_codes codes,
     const Params*... params
@@ -125,7 +125,7 @@ std::array<protocol::serializable_ref, sizeof...(Params)> make_serializable_refs
 {
     // Validate the number of format codes once, rather than once per parameter
     detail::check_format_codes_size(codes, sizeof...(Params));
-    return to_serializable_refs_impl(std::index_sequence_for<Params...>{}, codes, &params...);
+    return detail::make_serializable_refs_impl(std::index_sequence_for<Params...>{}, codes, &params...);
 }
 
 // TODO: a clear method is missing

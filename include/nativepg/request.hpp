@@ -109,25 +109,24 @@ std::array<protocol::serializable_ref, sizeof...(Params)> to_serializable_refs_i
     return {{make_serializable_ref(params, format_code_for(codes, I))...}};
 }
 
-// Type-erases each parameter into a serializable_ref, using the format code that
-// corresponds to its position. The returned refs point into *params, so the pointees
-// must outlive the returned array
-template <serializable_field... Params>
-std::array<protocol::serializable_ref, sizeof...(Params)> to_serializable_refs(
-    protocol::format_codes codes,
-    const Params*... params
-)
-{
-    // Validate the number of format codes once, rather than once per parameter
-    check_format_codes_size(codes, sizeof...(Params));
-
-    return to_serializable_refs_impl(std::index_sequence_for<Params...>{}, codes, params...);
-}
-
 template <serializable_field... Params>
 inline constexpr std::array<std::int32_t, sizeof...(Params)> type_oids_for{{field_serialize_oid<Params>...}};
 
 }  // namespace detail
+
+// Type-erases each parameter into a serializable_ref, using the format code that
+// corresponds to its position. The returned refs point into params, so the pointees
+// must outlive the returned array
+template <serializable_field... Params>
+std::array<protocol::serializable_ref, sizeof...(Params)> make_serializable_refs(
+    protocol::format_codes codes,
+    const Params&... params
+)
+{
+    // Validate the number of format codes once, rather than once per parameter
+    detail::check_format_codes_size(codes, sizeof...(Params));
+    return to_serializable_refs_impl(std::index_sequence_for<Params...>{}, codes, &params...);
+}
 
 // TODO: a clear method is missing
 class request
@@ -197,7 +196,7 @@ public:
     {
         return add_query(
             q,
-            detail::to_serializable_refs(args.param_format, &params...),
+            make_serializable_refs(args.param_format, params...),
             detail::type_oids_for<Params...>,
             args
         );
@@ -257,7 +256,7 @@ public:
         const std::type_identity_t<Params>&... params
     )
     {
-        return add_execute(stmt.name, detail::to_serializable_refs(args.param_format, &params...), args);
+        return add_execute(stmt.name, make_serializable_refs(args.param_format, params...), args);
     }
 
     request& add_execute(

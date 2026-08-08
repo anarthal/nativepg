@@ -49,19 +49,10 @@ enum class request_message_type
     sync,
 };
 
-template <std::size_t N>
-struct bound_statement
-{
-    std::string_view name;
-    std::array<parameter_ref, N> params;
-};
-
 template <serializable_field... Params>
 struct statement
 {
     std::string name;
-
-    bound_statement<sizeof...(Params)> bind(const Params&... values) { return {name, {values...}}; }
 };
 
 namespace detail {

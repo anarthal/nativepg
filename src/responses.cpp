@@ -197,10 +197,7 @@ void check_execute::on_message(const any_request_message& msg, std::size_t, exte
         }
 
         // Errors
-        void operator()(const protocol::error_response& msg) const
-        {
-            detail::maybe_store_error(msg, err_out);
-        }
+        void operator()(const protocol::error_response& msg) const { detail::store_error(msg, err_out); }
 
         // The rest of the messages shouldn't arrive
         // TODO: manage multi-queries, empty queries, skipped messages
@@ -309,10 +306,7 @@ void describe_into::on_message(const any_request_message& msg, std::size_t, exte
         void operator()(const protocol::parameter_description&) const {}
 
         // Errors
-        void operator()(const protocol::error_response& msg) const
-        {
-            detail::maybe_store_error(msg, err_out);
-        }
+        void operator()(const protocol::error_response& msg) const { detail::store_error(msg, err_out); }
 
         // We only handle describe messages, so nothing else should arrive
         void operator()(protocol::parse_complete) const { BOOST_ASSERT(false); }

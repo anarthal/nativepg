@@ -12,6 +12,7 @@
 
 #include <type_traits>
 
+#include "nativepg/extended_error.hpp"
 #include "nativepg/responses/response_handler.hpp"
 
 namespace nativepg {
@@ -49,28 +50,6 @@ handler_setup_result response_setup(
     }
 }
 
-template <class H0, class... HRest>
-const extended_error* response_get_result(const H0& h0, const HRest&... hrest)
-{
-    // Get the result for the first handler
-    const extended_error& err = h0.result();
-
-    // If it is an error, return this one
-    if (err.code)
-        return &err;
-
-    // Prevent infinite recursion
-    if constexpr (sizeof...(HRest) == 0u)
-    {
-        return nullptr;
-    }
-    else
-    {
-        // Recursively look for the other handlers
-        return response_get_result(hrest...);
-    }
-}
-
 }  // namespace detail
 
 template <response_handler... Handlers>
@@ -99,7 +78,7 @@ public:
         );
     }
 
-    void on_message(const any_request_message& msg, std::size_t offset)
+    void on_message(const any_request_message& msg, std::size_t offset, extended_error& err)
     {
         // Advance to the next element, if required
         if (offset >= offsets_[current_])
@@ -107,19 +86,9 @@ public:
         BOOST_ASSERT(offset < offsets_[current_]);
 
         // Hand the message to the appropriate handler
-        boost::mp11::mp_with_index<N>(current_, [this, &msg, offset](auto I) {
-            std::get<I>(handlers_).on_message(msg, offset);
+        boost::mp11::mp_with_index<N>(current_, [this, &msg, &err, offset](auto I) {
+            std::get<I>(handlers_).on_message(msg, offset, err);
         });
-    }
-
-    const extended_error& result() const
-    {
-        static_assert(N > 0);
-        const auto* res = std::apply(
-            [](const auto&... h) { return detail::response_get_result(h...); },
-            handlers_
-        );
-        return res != nullptr ? *res : std::get<0>(handlers_).result();
     }
 
     const auto& handlers() const& { return handlers_; }

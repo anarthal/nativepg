@@ -152,28 +152,26 @@ static handler_setup_result check_setup_impl(
 
 handler_setup_result check_parse::setup(const request& req, std::size_t offset)
 {
-    err_ = {};
     return check_setup_impl(req, offset, request_message_type::parse);
 }
 
 handler_setup_result check_close::setup(const request& req, std::size_t offset)
 {
-    err_ = {};
     return check_setup_impl(req, offset, request_message_type::close);
 }
 
 handler_setup_result describe_into::setup(const request& req, std::size_t offset)
 {
     obj_->clear();
-    err_ = {};
     return check_setup_impl(req, offset, request_message_type::describe);
 }
 
-void check_execute::on_message(const any_request_message& msg, std::size_t)
+void check_execute::on_message(const any_request_message& msg, std::size_t, extended_error& err)
 {
     struct visitor
     {
         check_execute& self;
+        extended_error& err_out;
 
         // Ignore messages that might or might not appear in exec
         void operator()(protocol::bind_complete) const {}
@@ -201,7 +199,7 @@ void check_execute::on_message(const any_request_message& msg, std::size_t)
         // Errors
         void operator()(const protocol::error_response& msg) const
         {
-            detail::maybe_store_error(msg, self.err_);
+            detail::maybe_store_error(msg, err_out);
         }
 
         // The rest of the messages shouldn't arrive
@@ -212,13 +210,12 @@ void check_execute::on_message(const any_request_message& msg, std::size_t)
         void operator()(message_skipped) const { BOOST_ASSERT(false); }
     };
 
-    boost::variant2::visit(visitor{*this}, msg);
+    boost::variant2::visit(visitor{*this, err}, msg);
 }
 
 handler_setup_result resultsets_handler::setup(const request& req, std::size_t offset)
 {
     obj_->clear();
-    err_ = {};
     reset_state();
 
     auto res = detail::resultset_setup(req, offset);
@@ -230,11 +227,12 @@ handler_setup_result resultsets_handler::setup(const request& req, std::size_t o
     }
 }
 
-void resultsets_handler::on_message(const any_request_message& msg, std::size_t)
+void resultsets_handler::on_message(const any_request_message& msg, std::size_t, extended_error& err)
 {
     struct visitor
     {
         resultsets_handler& self;
+        extended_error& err_out;
 
         // Ignore messages that might or might not appear in exec
         void operator()(protocol::bind_complete) const {}
@@ -278,10 +276,10 @@ void resultsets_handler::on_message(const any_request_message& msg, std::size_t)
         // Errors
         void operator()(const protocol::error_response& msg) const
         {
-            extended_error err;
-            detail::store_error(msg, err);
-            detail::maybe_store_error(msg, self.err_);  // TODO: this is parsing twice
-            self.obj_->finish_resultset(self.num_rows_, self.num_cols_, {}, std::move(err));
+            extended_error err_temp;
+            detail::store_error(msg, err_temp);
+            err_out = err_temp;
+            self.obj_->finish_resultset(self.num_rows_, self.num_cols_, {}, std::move(err_temp));
             self.reset_state();
         }
 
@@ -293,14 +291,15 @@ void resultsets_handler::on_message(const any_request_message& msg, std::size_t)
         void operator()(message_skipped) const { BOOST_ASSERT(false); }
     };
 
-    boost::variant2::visit(visitor{*this}, msg);
+    boost::variant2::visit(visitor{*this, err}, msg);
 }
 
-void describe_into::on_message(const any_request_message& msg, std::size_t)
+void describe_into::on_message(const any_request_message& msg, std::size_t, extended_error& err)
 {
     struct visitor
     {
         describe_into& self;
+        extended_error& err_out;
 
         // The row description is the result of a describe (portal or statement).
         // A no_data reply is delivered by the FSM as an empty row description.
@@ -312,7 +311,7 @@ void describe_into::on_message(const any_request_message& msg, std::size_t)
         // Errors
         void operator()(const protocol::error_response& msg) const
         {
-            detail::maybe_store_error(msg, self.err_);
+            detail::maybe_store_error(msg, err_out);
         }
 
         // We only handle describe messages, so nothing else should arrive
@@ -326,7 +325,7 @@ void describe_into::on_message(const any_request_message& msg, std::size_t)
         void operator()(message_skipped) const { BOOST_ASSERT(false); }
     };
 
-    boost::variant2::visit(visitor{*this}, msg);
+    boost::variant2::visit(visitor{*this, err}, msg);
 }
 
 static nativepg::detail::offset_and_length insert_data(

@@ -25,7 +25,6 @@ class resultsets_handler
     };
 
     resultsets* obj_;
-    extended_error err_;
     state_t state_{state_t::parsing_meta};
     std::size_t num_cols_{};
     std::size_t num_rows_{};
@@ -41,8 +40,7 @@ public:
     resultsets_handler(resultsets& r) noexcept : obj_(&r) {}
 
     handler_setup_result setup(const request& req, std::size_t offset);
-    void on_message(const any_request_message& msg, std::size_t);
-    const extended_error& result() const { return err_; }
+    void on_message(const any_request_message& msg, std::size_t, extended_error& err);
 };
 
 }  // namespace nativepg

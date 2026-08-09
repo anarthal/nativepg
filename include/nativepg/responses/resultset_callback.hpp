@@ -58,42 +58,31 @@ class resultset_callback_t
         parsing_meta,
         parsing_data,
         done,
+        failed,
     };
 
     state_t state_{state_t::parsing_meta};
     std::array<detail::pos_map_entry, detail::row_size_v<T>> pos_map_;
     std::vector<field_view> random_access_data_;
-    extended_error err_;
     Callback cb_;
     command_info* info_{};
-
-    void store_error(std::error_code ec)
-    {
-        if (!err_.code)
-        {
-            err_.code = ec;
-            err_.diag = {};
-        }
-    }
 
     struct visitor
     {
         resultset_callback_t& self;
+        extended_error& out_err;
 
         // We shouldn't get any unexpected messages
         template <class Msg>
         void operator()(const Msg&) const
         {
-            self.store_error(client_errc::incompatible_response_type);  // just in case
+            out_err.code = client_errc::incompatible_response_type;  // just in case
             BOOST_ASSERT(false);
         }
 
         // If the server sends an error, store it.
         // We know this is the last message in the sequence.
-        void operator()(const protocol::error_response& err) const
-        {
-            detail::maybe_store_error(err, self.err_);
-        }
+        void operator()(const protocol::error_response& err) const { detail::store_error(err, out_err); }
 
         // Ignore messages that may or may not appear
         void operator()(protocol::parse_complete) const {}
@@ -106,14 +95,11 @@ class resultset_callback_t
             // TODO: this can trigger on multi-queries
             BOOST_ASSERT(self.state_ == state_t::parsing_meta);
 
-            // We now expect the rows and the CommandComplete
-            self.state_ = state_t::parsing_data;
-
             // Compute the row => C++ map
-            auto ec = detail::compute_pos_map(msg, detail::row_name_table_v<T>, self.pos_map_);
-            if (ec)
+            if (auto ec = detail::compute_pos_map(msg, detail::row_name_table_v<T>, self.pos_map_))
             {
-                self.store_error(ec);
+                out_err.code = ec;
+                self.state_ = state_t::failed;
                 return;  // we will just ignore rows
             }
 
@@ -121,6 +107,7 @@ class resultset_callback_t
             using type_identities = boost::mp11::
                 mp_transform<std::type_identity, detail::row_field_types_t<T>>;
             std::size_t idx = 0u;
+            std::error_code ec;
             boost::mp11::mp_for_each<type_identities>(
                 [&idx, &ec, &pos_map = self.pos_map_](auto type_identity) {
                     using FieldType = typename decltype(type_identity)::type;
@@ -131,20 +118,23 @@ class resultset_callback_t
             );
             if (ec)
             {
-                self.store_error(ec);
+                self.state_ = state_t::failed;
+                out_err.code = ec;
                 return;
             }
+
+            // We now expect the rows and the CommandComplete
+            self.state_ = state_t::parsing_data;
         }
 
         void operator()(const protocol::data_row& msg) const
         {
             // State check
-            BOOST_ASSERT(self.state_ == state_t::parsing_data);
-
             // If there was a previous failure, the field descriptions may not be present and
             // it's not safe to parse. We still need to get to the CommandComplete message
-            if (self.err_.code)
+            if (self.state_ == state_t::failed)
                 return;
+            BOOST_ASSERT(self.state_ == state_t::parsing_data);
 
             // TODO: check that data_row has the appropriate size
 
@@ -164,7 +154,7 @@ class resultset_callback_t
             });
             if (ec)
             {
-                self.store_error(ec);
+                out_err.code = ec;
                 return;
             }
 
@@ -174,32 +164,39 @@ class resultset_callback_t
             // We still need the CommandComplete message
         }
 
-        void on_done() const
-        {
-            // State check
-            BOOST_ASSERT(self.state_ == state_t::parsing_data);
-
-            // Done
-            self.state_ = state_t::done;
-        }
-
         void operator()(protocol::command_complete msg) const
         {
+            // State check
+            if (self.state_ == state_t::failed)
+                return;
+            BOOST_ASSERT(self.state_ == state_t::parsing_data);
+
+            // Store info
             if (auto* info = self.info_)
                 detail::from_command_complete(*info, msg);
-            on_done();
+
+            // Update state
+            self.state_ = state_t::done;
         }
 
         void operator()(protocol::portal_suspended) const
         {
+            // State check
+            if (self.state_ == state_t::failed)
+                return;
+            BOOST_ASSERT(self.state_ == state_t::parsing_data);
+
+            // Store info
             if (auto* info = self.info_)
                 info->portal_suspended = true;
-            on_done();
+
+            // Update state
+            self.state_ = state_t::done;
         }
 
         // If any of the messages we expect was skipped due to a previous error,
         // that's an error
-        void operator()(message_skipped) const { self.store_error(client_errc::step_skipped); }
+        void operator()(message_skipped) const { out_err.code = client_errc::step_skipped; }
     };
 
 public:
@@ -212,18 +209,15 @@ public:
     handler_setup_result setup(const request& req, std::size_t offset)
     {
         state_ = state_t::parsing_meta;
-        err_ = {};
         if (info_)
             detail::reset_info(*info_);
         return detail::resultset_setup(req, offset);
     }
 
-    void on_message(const any_request_message& msg, std::size_t)
+    void on_message(const any_request_message& msg, std::size_t, extended_error& err)
     {
-        boost::variant2::visit(visitor{*this}, msg);
+        boost::variant2::visit(visitor{*this, err}, msg);
     }
-
-    const extended_error& result() const { return err_; }
 };
 
 // Helper to create resultset callbacks

@@ -158,9 +158,7 @@ class resultset_callback_t
             detail::for_each_member(row, [&ec, &idx, &self = this->self](auto& member) {
                 const detail::pos_map_entry& ent = self.pos_map_[idx++];
                 const field_view fv = self.random_access_data_.at(ent.db_index);
-                std::error_code ec2 = ent.fmt_code == protocol::format_code::text
-                                          ? field_parse_text(fv, ent.type_oid, member)
-                                          : field_parse_binary(fv, ent.type_oid, member);
+                std::error_code ec2 = field_parse(fv, ent.type_oid, ent.fmt_code, member);
                 if (!ec)
                     ec = ec2;
             });

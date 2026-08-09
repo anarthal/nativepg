@@ -56,6 +56,7 @@ static const char* error_to_string(client_errc error)
         case client_errc::needs_more: return "needs_more";
         case client_errc::copy_not_allowed: return "copy_not_allowed";
         case client_errc::num_format_codes_mismatch: return "num_format_codes_mismatch";
+        case client_errc::serialize_null: return "serialize_null";
         default: return "<unknown nativepg client error>";
     }
 }

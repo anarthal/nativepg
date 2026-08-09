@@ -39,3 +39,43 @@ On the other hand, parameter type OIDs are specified in `parse` messages.
 It is common to send `parse` independently of `bind` - this is the case when
 preparing a statement and executing it later. For this reason,
 it is inviable to embed the type's OID in `serializable_ref`.
+
+## Why not split deserialization into two functions in the traits - one for text and another for binary?
+
+Simplicity. When parsing, the protocol gives you:
+
+- The type OID of what you are parsing - represented as an `std::int32_t`.
+- The format code of what you are parsing - represented as a `format_code`.
+- The raw bytes of the value, plus a flag indicating whether the value is `NULL` - represented as a `field_view`.
+
+The current traits structure intend to be as close to the protocol as possible.
+It is true that this creates some duplication, especially regarding `NULL` checks.
+We find this acceptable because writing traits is a specialized task - most users will never do it.
+The alternative would be splitting types into nullable/non-nullable, with
+different signatures. We think the complexity is not worth it.
+
+A similar argument applies to serialization.
+
+## Why does serialization represent NULL as a special error code?
+
+This is the simplest and most robust alternative. Another option would be
+changing `serializable_ref` to hold a special value when the contained type
+is `NULL`. But this:
+
+- Complicates `serializable_ref` - `function_ref` cannot hold an empty value
+  like `std::function` does.
+- Complicates serialization traits. A new function `bool is_null(const T& value)`
+  would be required, with almost all types returning `false`.
+- Makes the serialization function for nullable types less robust:
+
+```cpp
+// Serialization functions for std::optional<T>
+static bool is_null(const std::optional<T>& value) { return !value.has_value(); }
+static std::error_code serialize(const std::optional<T>& value, std::vector<unsigned char>& to) {
+    // Trust that is_null was called correctly
+    return field_serialize<T>(*value, to);
+}
+```
+
+Recall that `std::error_code` values can represent conditions
+that are not necessarily fatal errors - e.g. EOF.

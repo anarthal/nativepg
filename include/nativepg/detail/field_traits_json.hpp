@@ -20,6 +20,7 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/field_traits.hpp"
 #include "nativepg/field_view.hpp"
+#include "nativepg/protocol/common.hpp"
 #include "nativepg/types/json.hpp"
 
 namespace nativepg::detail {
@@ -32,8 +33,8 @@ inline constexpr std::int32_t jsonb_oid = 3802;
 namespace nativepg {
 
 // --- Parse
-// There is no serialization counterpart yet: nativepg/types/json.hpp implements
-// parsing only.
+// There is no serialization counterpart: nativepg/types/json.hpp implements parsing only,
+// so these types can't be used as query parameters yet.
 
 // JSON(B) => boost::json::value
 template <>
@@ -46,9 +47,10 @@ struct parse_field_traits<boost::json::value>
                    : client_errc::incompatible_field_type;
     }
 
-    static inline std::error_code parse_text(
+    static inline std::error_code parse(
         field_view from,
-        [[maybe_unused]] std::int32_t type_oid,
+        std::int32_t type_oid,
+        protocol::format_code code,
         boost::json::value& to
     )
     {
@@ -56,25 +58,11 @@ struct parse_field_traits<boost::json::value>
             return client_errc::unexpected_null;
         BOOST_ASSERT(type_oid == detail::json_oid || type_oid == detail::jsonb_oid);
 
-        // Both json and jsonb use plain JSON as their text representation
-        return types::parse_json(from.data_str(), to);
-    }
-
-    static inline std::error_code parse_binary(field_view from, std::int32_t type_oid, boost::json::value& to)
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-
-        // The binary representation of json is plain JSON, while jsonb has a version prefix
-        if (type_oid == detail::jsonb_oid)
-        {
+        // Both json and jsonb use plain JSON as their text representation. The same holds
+        // for the binary representation of json, while binary jsonb has a version prefix
+        if (code == protocol::format_code::binary && type_oid == detail::jsonb_oid)
             return types::parse_binary_jsonb(from, to);
-        }
-        else
-        {
-            BOOST_ASSERT(type_oid == detail::json_oid);
-            return types::parse_json(from.data_str(), to);
-        }
+        return types::parse_json(from.data_str(), to);
     }
 };
 

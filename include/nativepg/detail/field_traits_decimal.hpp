@@ -23,6 +23,7 @@
 #include "nativepg/extended_error.hpp"
 #include "nativepg/field_traits.hpp"
 #include "nativepg/field_view.hpp"
+#include "nativepg/protocol/common.hpp"
 #include "nativepg/types/decimal.hpp"
 
 namespace nativepg::detail {
@@ -40,8 +41,8 @@ concept is_decimal = std::same_as<T, boost::decimal::decimal32_t> ||
 namespace nativepg {
 
 // --- Parse
-// There is no serialization counterpart yet: nativepg/types/decimal.hpp implements
-// parsing only.
+// There is no serialization counterpart: nativepg/types/decimal.hpp implements parsing only,
+// so these types can't be used as query parameters yet.
 
 // NUMERIC
 template <detail::is_decimal T>
@@ -52,20 +53,18 @@ struct parse_field_traits<T>
         return type_oid == detail::decimal_oid ? std::error_code{} : client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, [[maybe_unused]] std::int32_t type_oid, T& to)
+    static std::error_code parse(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        protocol::format_code code,
+        T& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(type_oid == detail::decimal_oid);
-        return types::parse_text_decimal(from, to);
-    }
-
-    static std::error_code parse_binary(field_view from, [[maybe_unused]] std::int32_t type_oid, T& to)
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        BOOST_ASSERT(type_oid == detail::decimal_oid);
-        return types::parse_binary_decimal(from, to);
+        return code == protocol::format_code::binary ? types::parse_binary_decimal(from, to)
+                                                     : types::parse_text_decimal(from, to);
     }
 };
 

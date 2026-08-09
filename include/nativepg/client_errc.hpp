@@ -119,6 +119,11 @@ enum class client_errc : int
     // and parameters passed to a bind message. Either use a single
     // format code for all parameters, or the same number of codes than parameters.
     num_format_codes_mismatch,
+
+    // A serialization function tried to serialize a value,
+    // but the value is NULL. Mostly used as a sentinel by serialization
+    // functions to signal that a NULL should be serialized.
+    serialize_null,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

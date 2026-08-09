@@ -14,6 +14,7 @@
 #include <iomanip>
 #include <limits>
 #include <optional>
+#include <source_location>
 #include <span>
 #include <sstream>
 #include <string>
@@ -23,7 +24,9 @@
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/field_traits.hpp"
+#include "nativepg/protocol/common.hpp"
 #include "nativepg/types/base.hpp"
+#include "test_utils/test_range_eq.hpp"
 
 using namespace nativepg;
 using std::error_code;
@@ -608,7 +611,7 @@ void test_parse_binary_text_success(const T& in_val)
 }
 
 //
-// field_is_compatible / field_parse_text / field_parse_binary (field_traits_base.hpp)
+// field_is_compatible / field_parse (field_traits_base.hpp)
 //
 void test_field_is_compatible_bool_success()
 {
@@ -684,7 +687,7 @@ void test_field_parse_text_unexpected_null_error()
     field_view fv;  // NULL
 
     // Act
-    auto err = field_parse_text(fv, detail::bool_oid, b);
+    auto err = field_parse(fv, detail::bool_oid, protocol::format_code::text, b);
 
     // Assert
     BOOST_TEST_EQ(err, error_code(client_errc::unexpected_null));
@@ -697,7 +700,7 @@ void test_field_parse_binary_unexpected_null_error()
     field_view fv;  // NULL
 
     // Act
-    auto err = field_parse_binary(fv, detail::bool_oid, b);
+    auto err = field_parse(fv, detail::bool_oid, protocol::format_code::binary, b);
 
     // Assert
     BOOST_TEST_EQ(err, error_code(client_errc::unexpected_null));
@@ -712,7 +715,7 @@ void test_field_parse_text_bool_success()
     field_view fv{data};
 
     // Act
-    auto err = field_parse_text(fv, detail::bool_oid, b);
+    auto err = field_parse(fv, detail::bool_oid, protocol::format_code::text, b);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code());
@@ -728,7 +731,7 @@ void test_field_parse_text_char_success()
     field_view fv{data};
 
     // Act
-    auto err = field_parse_text(fv, detail::char_oid, c);
+    auto err = field_parse(fv, detail::char_oid, protocol::format_code::text, c);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code());
@@ -742,7 +745,7 @@ void test_field_parse_text_char_unexpected_null_error()
     field_view fv;  // NULL
 
     // Act
-    auto err = field_parse_text(fv, detail::char_oid, c);
+    auto err = field_parse(fv, detail::char_oid, protocol::format_code::text, c);
 
     // Assert
     BOOST_TEST_EQ(err, error_code(client_errc::unexpected_null));
@@ -757,7 +760,7 @@ void test_field_parse_text_oid_success()
     field_view fv{data};
 
     // Act
-    auto err = field_parse_text(fv, detail::oid_oid, o);
+    auto err = field_parse(fv, detail::oid_oid, protocol::format_code::text, o);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code());
@@ -771,7 +774,7 @@ void test_field_parse_text_oid_unexpected_null_error()
     field_view fv;  // NULL
 
     // Act
-    auto err = field_parse_text(fv, detail::oid_oid, o);
+    auto err = field_parse(fv, detail::oid_oid, protocol::format_code::text, o);
 
     // Assert
     BOOST_TEST_EQ(err, error_code(client_errc::unexpected_null));
@@ -786,7 +789,7 @@ void test_field_parse_binary_int32_from_int2_wire_success()
     field_view fv{data};
 
     // Act
-    auto err = field_parse_binary(fv, detail::int2_oid, out_val);
+    auto err = field_parse(fv, detail::int2_oid, protocol::format_code::binary, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code());
@@ -813,7 +816,7 @@ void test_field_parse_text_optional_null_success()
     field_view fv;  // NULL
 
     // Act
-    auto err = field_parse_text(fv, detail::int4_oid, out_val);
+    auto err = field_parse(fv, detail::int4_oid, protocol::format_code::text, out_val);
 
     // Assert: a NULL field yields an empty optional, rather than an error
     BOOST_TEST_EQ(err, std::error_code());
@@ -827,7 +830,7 @@ void test_field_parse_binary_optional_null_success()
     field_view fv;  // NULL
 
     // Act
-    auto err = field_parse_binary(fv, detail::int4_oid, out_val);
+    auto err = field_parse(fv, detail::int4_oid, protocol::format_code::binary, out_val);
 
     // Assert: a NULL field yields an empty optional, rather than an error
     BOOST_TEST_EQ(err, std::error_code());
@@ -843,7 +846,7 @@ void test_field_parse_text_optional_non_null_success()
     field_view fv{data};
 
     // Act
-    auto err = field_parse_text(fv, detail::int4_oid, out_val);
+    auto err = field_parse(fv, detail::int4_oid, protocol::format_code::text, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code());
@@ -883,9 +886,125 @@ static_assert(!serializable_field<char>);
 static_assert(!serializable_field<float>);
 static_assert(!serializable_field<double>);
 static_assert(!serializable_field<std::vector<std::byte>>);
-static_assert(!serializable_field<std::optional<std::int32_t>>);
 
-// TODO: serialization tests
+// An optional is serializable if and only if its value type is
+static_assert(serializable_field<std::optional<std::int32_t>>);
+static_assert(serializable_field<std::optional<std::string>>);
+static_assert(serializable_field<std::optional<std::string_view>>);
+static_assert(!serializable_field<std::optional<bool>>);
+static_assert(!serializable_field<std::optional<unmapped_type>>);
+
+// An optional advertises the OID of its value type
+static_assert(field_serialize_oid<std::optional<std::int32_t>> == field_serialize_oid<std::int32_t>);
+static_assert(field_serialize_oid<std::optional<std::string>> == field_serialize_oid<std::string>);
+
+//
+// field_serialize (field_traits_base.hpp)
+//
+
+// Serializes value and checks the resulting bytes
+template <class T>
+void check_serialize(
+    const T& value,
+    protocol::format_code code,
+    std::initializer_list<unsigned char> expected,
+    std::source_location loc = std::source_location::current()
+)
+{
+    // Arrange. Pre-populate the buffer, to verify that we append rather than overwrite
+    static constexpr unsigned char prefix[] = {0xde, 0xad};
+    std::vector<unsigned char> to(std::begin(prefix), std::end(prefix));
+
+    // Act
+    auto err = field_serialize(value, code, to);
+
+    // Assert
+    BOOST_TEST_EQ(err, std::error_code());
+    std::vector<unsigned char> expected_buff(std::begin(prefix), std::end(prefix));
+    expected_buff.insert(expected_buff.end(), expected.begin(), expected.end());
+    test::test_range_eq(to, expected_buff, loc);
+}
+
+void test_field_serialize_int_text_success()
+{
+    check_serialize(std::int16_t(-32768), protocol::format_code::text, {'-', '3', '2', '7', '6', '8'});
+    check_serialize(std::int16_t(32767), protocol::format_code::text, {'3', '2', '7', '6', '7'});
+    check_serialize(std::int32_t(0), protocol::format_code::text, {'0'});
+    check_serialize(
+        std::int32_t(-2147483648),
+        protocol::format_code::text,
+        {'-', '2', '1', '4', '7', '4', '8', '3', '6', '4', '8'}
+    );
+    check_serialize(
+        (std::numeric_limits<std::int64_t>::max)(),
+        protocol::format_code::text,
+        {'9', '2', '2', '3', '3', '7', '2', '0', '3', '6', '8', '5', '4', '7', '7', '5', '8', '0', '7'}
+    );
+}
+
+void test_field_serialize_int_binary_success()
+{
+    // Big endian, using the type's own width
+    check_serialize(std::int16_t(42), protocol::format_code::binary, {0x00, 0x2a});
+    check_serialize(std::int16_t(-2), protocol::format_code::binary, {0xff, 0xfe});
+    check_serialize(std::int32_t(42), protocol::format_code::binary, {0x00, 0x00, 0x00, 0x2a});
+    check_serialize(
+        std::int64_t(42),
+        protocol::format_code::binary,
+        {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2a}
+    );
+    check_serialize(
+        (std::numeric_limits<std::int64_t>::min)(),
+        protocol::format_code::binary,
+        {0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+    );
+}
+
+void test_field_serialize_string_success()
+{
+    // Strings are serialized identically in both formats: the raw bytes, unterminated
+    for (auto code : {protocol::format_code::text, protocol::format_code::binary})
+    {
+        check_serialize(std::string("abc"), code, {'a', 'b', 'c'});
+        check_serialize(std::string_view("abc"), code, {'a', 'b', 'c'});
+        check_serialize(std::string(), code, {});
+
+        // A string literal is a C array, which the traits accept without decaying it.
+        // The terminator is not part of the value
+        check_serialize("abc", code, {'a', 'b', 'c'});
+
+        // Embedded NULLs are preserved (no C-string semantics)
+        check_serialize(std::string("a\0b", 3), code, {'a', 0x00, 'b'});
+    }
+}
+
+//
+// Nullable serialization (field_traits_nullable.hpp)
+//
+void test_field_serialize_optional_engaged_success()
+{
+    // An engaged optional produces exactly what the underlying value would
+    check_serialize(std::optional<std::int32_t>(42), protocol::format_code::text, {'4', '2'});
+    check_serialize(std::optional<std::int32_t>(42), protocol::format_code::binary, {0x00, 0x00, 0x00, 0x2a});
+    check_serialize(std::optional<std::string>("abc"), protocol::format_code::text, {'a', 'b', 'c'});
+}
+
+void test_field_serialize_optional_null()
+{
+    for (auto code : {protocol::format_code::text, protocol::format_code::binary})
+    {
+        // Arrange
+        std::optional<std::int32_t> value;
+        std::vector<unsigned char> to{0xde, 0xad};
+
+        // Act
+        auto err = field_serialize(value, code, to);
+
+        // Assert: the sentinel is reported, and nothing is appended
+        BOOST_TEST_EQ(err, error_code(client_errc::serialize_null));
+        BOOST_TEST_EQ(to.size(), 2u);
+    }
+}
 
 }  // namespace
 
@@ -993,7 +1112,7 @@ int main()
     test_parse_text_text_success<std::string>("The quick brown fox jumps over the lazy dog!");
     test_parse_binary_text_success<std::string>("The quick brown fox jumps over the lazy dog!");
 
-    // field_is_compatible / field_parse_text / field_parse_binary
+    // field_is_compatible / field_parse
     test_field_is_compatible_bool_success();
     test_field_is_compatible_bool_incompatible_error();
     test_field_is_compatible_int_widening_success();
@@ -1017,6 +1136,13 @@ int main()
     test_field_parse_text_optional_null_success();
     test_field_parse_binary_optional_null_success();
     test_field_parse_text_optional_non_null_success();
+
+    // field_serialize
+    test_field_serialize_int_text_success();
+    test_field_serialize_int_binary_success();
+    test_field_serialize_string_success();
+    test_field_serialize_optional_engaged_success();
+    test_field_serialize_optional_null();
 
     return boost::report_errors();
 }

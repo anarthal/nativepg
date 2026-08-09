@@ -34,36 +34,46 @@ template <std::size_t num_msgs>
 struct mock_handler
 {
     std::vector<on_msg_args> msgs;
-    extended_error err;
+    extended_error err_to_return;  // will be reported by on_message
 
     handler_setup_result setup(const request&, std::size_t offset) { return {offset + num_msgs}; }
-    void on_message(const any_request_message& msg, std::size_t offset)
+    void on_message(const any_request_message& msg, std::size_t offset, extended_error& err)
     {
         msgs.push_back({to_type(msg), offset});
+        err = err_to_return;
     }
-    const extended_error& result() const { return err; }
 };
 
-// Success case
-void test_success_two_handlers()
+// Calls on_message and returns the produced error
+// TODO: duplicated
+template <response_handler Handler>
+extended_error feed(Handler& h, const any_request_message& msg, std::size_t offset)
+{
+    extended_error err;
+    h.on_message(msg, offset, err);
+    return err;
+}
+
+void test_two_handlers()
 {
     // Test setup
     request req;
     req.add_query("SELECT 1", {});
     response res{mock_handler<2>{}, mock_handler<3>{}};
+    extended_error err;
 
     // Handler setup
     BOOST_TEST_EQ(res.setup(req, 0u), handler_setup_result(5u));
 
     // The 1st handler manages the first 2 request messages, the 2nd the other ones
-    res.on_message(protocol::parse_complete{}, 0u);
-    res.on_message(protocol::bind_complete{}, 1u);
-    res.on_message(protocol::row_description{}, 2u);
-    res.on_message(protocol::data_row{}, 3u);
-    res.on_message(protocol::command_complete{}, 3u);
+    BOOST_TEST_EQ(feed(res, protocol::parse_complete{}, 0u), extended_error{});
+    BOOST_TEST_EQ(feed(res, protocol::bind_complete{}, 1u), extended_error{});
+    BOOST_TEST_EQ(feed(res, protocol::row_description{}, 2u), extended_error{});
+    BOOST_TEST_EQ(feed(res, protocol::data_row{}, 3u), extended_error{});
+    BOOST_TEST_EQ(feed(res, protocol::command_complete{}, 3u), extended_error{});
 
     // Result
-    BOOST_TEST_EQ(res.result(), extended_error{});
+    BOOST_TEST_EQ(err, extended_error{});
 
     // Check messages
     const on_msg_args expected1[] = {
@@ -79,16 +89,23 @@ void test_success_two_handlers()
     test_range_eq(std::get<1>(res.handlers()).msgs, expected2);
 }
 
-// The 1st handler that returns an error is chosen as the overall error
+// Errors are forwarded to the inner handler
 void test_errors()
 {
     // Setup
+    const extended_error first_error{client_errc::field_not_found, std::string("error")};
+    const extended_error second_error{client_errc::incompatible_field_type, std::string("other")};
+    request req;
     response res{mock_handler<1>{}, mock_handler<1>{}, mock_handler<1>{}, mock_handler<1>{}};
-    std::get<1>(res.handlers()).err = {client_errc::field_not_found, std::string("error")};
-    std::get<2>(res.handlers()).err = {client_errc::incompatible_field_type, std::string("other")};
+    std::get<1>(res.handlers()).err_to_return = first_error;
+    std::get<2>(res.handlers()).err_to_return = second_error;
+    BOOST_TEST_EQ(res.setup(req, 0u), 4u);
 
-    const extended_error expected{client_errc::field_not_found, std::string("error")};
-    BOOST_TEST_EQ(res.result(), expected);
+    // Call the handler
+    BOOST_TEST_EQ(feed(res, protocol::parse_complete{}, 0u), extended_error{});
+    BOOST_TEST_EQ(feed(res, protocol::parse_complete{}, 1u), first_error);
+    BOOST_TEST_EQ(feed(res, protocol::parse_complete{}, 2u), second_error);
+    BOOST_TEST_EQ(feed(res, protocol::parse_complete{}, 3u), extended_error{});
 }
 
 // Response can be copied
@@ -126,7 +143,7 @@ void test_deduction_guide()
 
 int main()
 {
-    test_success_two_handlers();
+    test_two_handlers();
     test_errors();
     test_deduction_guide();
     test_copy();

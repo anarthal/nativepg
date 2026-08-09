@@ -561,6 +561,22 @@ void test_error_recovery()
     });
 }
 
+// If the sync is the last message, we handle it correctly
+void test_error_recovery_sync_last()
+{
+    fixture fix;
+    fix.req.add_close_statement("abc");
+
+    // Run the FSM
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::error_response{}), needs_more);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    // Check handler messages
+    fix.check({
+        {response_msg_type::error_response, 0u},
+    });
+}
+
 // TODO: test combining simple queries and extended queries
 // TODO: test flush
 
@@ -599,6 +615,7 @@ int main()
     test_async();
     test_several_syncs();
     test_error_recovery();
+    test_error_recovery_sync_last();
 
     return boost::report_errors();
 }

@@ -65,6 +65,9 @@ struct mock_handler
     handler_setup_result setup(const request&, std::size_t offset) { return {offset}; }
     void on_message(const any_request_message& msg, std::size_t offset, extended_error& err)
     {
+        // Regression check: the passed error is always clean
+        BOOST_TEST_EQ(err, extended_error{});
+
         const std::size_t i = msgs.size();
         msgs.push_back({to_type(msg), offset});
         if (i < errors.size())
@@ -639,13 +642,16 @@ void test_handler_error_then_nonerror()
 }
 
 // Only the first error is retained
-void test_handler_error_then_error()
+// Regression check for a bug that caused the 3rd error to pass
+// a dirty extended_error into the handler
+void test_handler_three_errors()
 {
     fixture fix;
     fix.req.add_simple_query("SELECT 1");
-    fix.handler.errors = {first_error(), second_error()};
+    fix.handler.errors = {first_error(), second_error(), second_error()};
 
     BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), needs_more);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
 
@@ -653,6 +659,7 @@ void test_handler_error_then_error()
 
     fix.check({
         {response_msg_type::row_description,  0u},
+        {response_msg_type::data_row,         0u},
         {response_msg_type::command_complete, 0u},
     });
 }
@@ -713,7 +720,7 @@ int main()
 
     test_handler_error_does_not_fail_fsm();
     test_handler_error_then_nonerror();
-    test_handler_error_then_error();
+    test_handler_three_errors();
     test_fsm_error_not_reported_as_handler_error();
 
     return boost::report_errors();

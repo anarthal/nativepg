@@ -8,8 +8,6 @@
 #ifndef NATIVEPG_PROTOCOL_READ_RESPONSE_FSM_HPP
 #define NATIVEPG_PROTOCOL_READ_RESPONSE_FSM_HPP
 
-#include <boost/compat/function_ref.hpp>
-
 #include <cstddef>
 #include <span>
 #include <system_error>

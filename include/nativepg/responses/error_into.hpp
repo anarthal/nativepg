@@ -20,22 +20,22 @@ template <response_handler Handler>
 class error_into
 {
     Handler inner_;
-    extended_error* err_;
+    extended_error* err_ptr_;
 
 public:
     // TODO: ctor that decays
 
     handler_setup_result setup(const request& req, std::size_t offset)
     {
-        err_ = {};
+        err_ptr_ = {};
         return inner_.setup(req, offset);
     }
 
     void on_message(const any_request_message& msg, std::size_t offset, extended_error& err)
     {
         inner_.on_message(msg, offset, err);
-        if (err.code && !err_->code)
-            *err_ = err;
+        if (err.code && !err_ptr_->code)
+            *err_ptr_ = err;
     }
 };
 

@@ -11,9 +11,9 @@
 #include <boost/assert.hpp>
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
-#include <system_error>
 
 #include <cstddef>
+#include <system_error>
 #include <vector>
 
 #include "coroutine.hpp"
@@ -127,11 +127,10 @@ public:
                     // Check if the message is legal in our state,
                     // and if it ends the sequence we're looking for.
                     // Copy messages are never the last one, so this is safe
-                    if (auto read_res = fsm_.resume(res.message);
-                        read_res.type == protocol::read_response_fsm::result_type::done)
+                    if (auto read_ec = fsm_.resume(res.message); read_ec != client_errc::needs_more)
                     {
                         st.read_buffer.consume(consumed_);
-                        return {read_res.ec};
+                        return {read_ec};
                     }
 
                     // React to copy messages

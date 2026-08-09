@@ -25,7 +25,7 @@ using nativepg::client_errc;
 
 exec_fsm::result exec_fsm::resume(connection_state& st, std::error_code ec, std::size_t bytes_transferred)
 {
-    read_response_fsm::result res{{}};
+    std::error_code res;
     parse_message_result msg_res;
 
     switch (resume_point_)
@@ -51,8 +51,8 @@ exec_fsm::result exec_fsm::resume(connection_state& st, std::error_code ec, std:
                 // We have a message
                 res = read_fsm_.resume(msg_res.message);
                 st.read_buffer.consume(msg_res.size);
-                if (res.type == read_response_fsm::result_type::done)
-                    return res.ec;
+                if (res != client_errc::needs_more)
+                    return res;
             }
             else if (msg_res.ec == client_errc::needs_more)
             {

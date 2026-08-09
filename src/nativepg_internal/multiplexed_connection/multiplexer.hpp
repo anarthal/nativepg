@@ -81,8 +81,6 @@ public:
     [[nodiscard]]
     std::error_code on_message(std::deque<multiplexer_elem>& elms, const protocol::any_backend_message& msg)
     {
-        using protocol::read_response_fsm;
-
         if (status_ == status::initial)
         {
             // We're starting a new message. Ignore any abandoned
@@ -118,16 +116,17 @@ public:
                 // Handle the message
                 auto res = fsm_->resume(msg);
 
-                // If the FSM terminates, it means we're done with this request
-                if (res.type == read_response_fsm::result_type::done)
-                {
-                    elms.front().on_done(res.ec);
-                    elms.pop_front();
-                    status_ = status::initial;
-                }
+                // The FSM needs further messages to complete this request
+                if (res == client_errc::needs_more)
+                    return {};
+
+                // The FSM terminated, so we're done with this request
+                elms.front().on_done(res);
+                elms.pop_front();
+                status_ = status::initial;
 
                 // Any errors here are protocol violations and should cause connection teardown
-                return res.ec;
+                return res;
             }
             case status::ignoring:
             {

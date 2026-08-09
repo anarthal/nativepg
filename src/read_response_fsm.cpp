@@ -19,8 +19,6 @@ using protocol::any_backend_message;
 using kind = protocol::any_backend_message::kind;
 using protocol::detail::read_response_fsm_impl;
 using state_t = read_response_fsm_impl::state_t;
-using result = protocol::read_response_fsm::result;
-using result_type = protocol::read_response_fsm::result_type;
 
 enum class read_response_fsm_impl::state_t
 {
@@ -39,7 +37,7 @@ static void call_handler(read_response_fsm_impl& fsm, const any_request_message&
     fsm.handler.on_message(msg, fsm.current);
 }
 
-static result handle_error(read_response_fsm_impl& fsm, const protocol::error_response& err)
+static std::error_code handle_error(read_response_fsm_impl& fsm, const protocol::error_response& err)
 {
     // Call the handler with the error
     call_handler(fsm, err);
@@ -53,7 +51,7 @@ static result handle_error(read_response_fsm_impl& fsm, const protocol::error_re
     {
         switch (fsm.req->messages()[fsm.current])
         {
-            case request_message_type::sync: return result(result_type::read);
+            case request_message_type::sync: return client_errc::needs_more;
             case request_message_type::flush: break;
             default: call_handler(fsm, message_skipped{}); break;
         }
@@ -63,15 +61,15 @@ static result handle_error(read_response_fsm_impl& fsm, const protocol::error_re
     return std::error_code(client_errc::request_ends_without_sync);
 }
 
-static result advance(read_response_fsm_impl& fsm)
+static std::error_code advance(read_response_fsm_impl& fsm)
 {
     if (++fsm.current >= fsm.req->messages().size())
         return std::error_code();
     else
-        return result(result_type::read);
+        return client_errc::needs_more;
 }
 
-static result handle_bind(read_response_fsm_impl& fsm, const any_backend_message& msg)
+static std::error_code handle_bind(read_response_fsm_impl& fsm, const any_backend_message& msg)
 {
     // bind: either (bind_complete, error_response)
     BOOST_ASSERT(fsm.state == state_t::msg_first);
@@ -88,7 +86,7 @@ static result handle_bind(read_response_fsm_impl& fsm, const any_backend_message
     }
 }
 
-static result handle_close(read_response_fsm_impl& fsm, const any_backend_message& msg)
+static std::error_code handle_close(read_response_fsm_impl& fsm, const any_backend_message& msg)
 {
     // close: either (close_complete, error_response)
     BOOST_ASSERT(fsm.state == state_t::msg_first);
@@ -107,7 +105,7 @@ static result handle_close(read_response_fsm_impl& fsm, const any_backend_messag
 
 // TODO: we need to differentiate between describe statement and portal
 // only the portal version is supported now
-static result handle_describe(read_response_fsm_impl& fsm, const any_backend_message& msg)
+static std::error_code handle_describe(read_response_fsm_impl& fsm, const any_backend_message& msg)
 {
     // describe (portal)
     //   either: row_description, no_data, error_response
@@ -133,7 +131,7 @@ static result handle_describe(read_response_fsm_impl& fsm, const any_backend_mes
     }
 }
 
-static result handle_execute(read_response_fsm_impl& fsm, const any_backend_message& msg)
+static std::error_code handle_execute(read_response_fsm_impl& fsm, const any_backend_message& msg)
 {
     // execute: either:
     //   copy_out_response, then any number of copy_data, then copy_done, then either (command_complete,
@@ -153,7 +151,7 @@ static result handle_execute(read_response_fsm_impl& fsm, const any_backend_mess
                         return std::error_code(client_errc::copy_not_allowed);
                     call_handler(fsm, protocol::row_description{});
                     fsm.state = state_t::exec_copy_out;
-                    return result_type::read;
+                    return client_errc::needs_more;
                 case kind::error_response:
                     // An error finishes this message and makes the server skip everything until sync
                     return handle_error(fsm, msg.get_error_response());
@@ -172,7 +170,7 @@ static result handle_execute(read_response_fsm_impl& fsm, const any_backend_mess
                 case kind::data_row:
                     // We got a row. This doesn't change state
                     call_handler(fsm, msg.get_data_row());
-                    return result_type::read;
+                    return client_errc::needs_more;
                 default: return std::error_code(client_errc::unexpected_message);
             }
         }
@@ -182,14 +180,14 @@ static result handle_execute(read_response_fsm_impl& fsm, const any_backend_mess
             {
                 case kind::copy_data:
                     // Data is handled by upper layers, we don't need to do anything
-                    return result_type::read;
+                    return client_errc::needs_more;
                 case kind::error_response:
                     // Terminates copy out
                     return handle_error(fsm, msg.get_error_response());
                 case kind::copy_done:
                     // Terminates copy out, but should be followed by CommandComplete
                     fsm.state = state_t::exec_copy_out_needs_command_complete;
-                    return result_type::read;
+                    return client_errc::needs_more;
                 default: return std::error_code(client_errc::unexpected_message);
             }
         }
@@ -211,7 +209,7 @@ static result handle_execute(read_response_fsm_impl& fsm, const any_backend_mess
     }
 }
 
-static result handle_parse(read_response_fsm_impl& fsm, const any_backend_message& msg)
+static std::error_code handle_parse(read_response_fsm_impl& fsm, const any_backend_message& msg)
 {
     // parse: either (parse_complete, error_response)
     BOOST_ASSERT(fsm.state == state_t::msg_first);
@@ -228,7 +226,7 @@ static result handle_parse(read_response_fsm_impl& fsm, const any_backend_messag
     }
 }
 
-static result handle_sync(read_response_fsm_impl& fsm, const any_backend_message& msg)
+static std::error_code handle_sync(read_response_fsm_impl& fsm, const any_backend_message& msg)
 {
     // sync always returns ReadyForQuery. Getting an error here is a protocol error,
     // as we don't know whether the connection is healthy or not
@@ -238,7 +236,7 @@ static result handle_sync(read_response_fsm_impl& fsm, const any_backend_message
     return advance(fsm);
 }
 
-static result handle_query(read_response_fsm_impl& fsm, const any_backend_message& msg)
+static std::error_code handle_query(read_response_fsm_impl& fsm, const any_backend_message& msg)
 {
     // either
     //    at least one
@@ -267,25 +265,25 @@ static result handle_query(read_response_fsm_impl& fsm, const any_backend_messag
                         return std::error_code(client_errc::copy_not_allowed);
                     call_handler(fsm, protocol::row_description{});
                     fsm.state = state_t::query_copy_out;
-                    return result_type::read;
+                    return client_errc::needs_more;
                 case kind::error_response:
                     // An error should always be followed by ReadyForQuery
                     fsm.state = state_t::query_needs_ready;
                     call_handler(fsm, msg.get_error_response());
-                    return result_type::read;
+                    return client_errc::needs_more;
                 case kind::row_description:
                     // Row descriptions are optional, and can only appear at the beginning of
                     // a resultset, but should always precede rows
                     fsm.state = state_t::query_rows;
                     call_handler(fsm, msg.get_row_description());
-                    return result_type::read;
+                    return client_errc::needs_more;
                 case kind::command_complete:
                     // Query might return command_complete directly, without NoData.
                     // Synthesize a fake row_description to help handlers
                     fsm.state = state_t::query_first;
                     call_handler(fsm, protocol::row_description{});
                     call_handler(fsm, msg.get_command_complete());
-                    return result_type::read;
+                    return client_errc::needs_more;
                 case kind::empty_query_response:
                     // Only allowed as the first and only message. Signals that there was no query to begin
                     // with
@@ -293,7 +291,7 @@ static result handle_query(read_response_fsm_impl& fsm, const any_backend_messag
                         return std::error_code(client_errc::unexpected_message);
                     fsm.state = state_t::query_needs_ready;
                     call_handler(fsm, msg.get_empty_query_response());
-                    return result_type::read;
+                    return client_errc::needs_more;
                 case kind::ready_for_query:
                     if (fsm.state != state_t::query_first)
                         return std::error_code(client_errc::unexpected_message);
@@ -311,16 +309,16 @@ static result handle_query(read_response_fsm_impl& fsm, const any_backend_messag
                     // An error should always be followed by ReadyForQuery
                     fsm.state = state_t::query_needs_ready;
                     call_handler(fsm, msg.get_error_response());
-                    return result_type::read;
+                    return client_errc::needs_more;
                 case kind::data_row:
                     // We got a row. This doesn't change state
                     call_handler(fsm, msg.get_data_row());
-                    return result_type::read;
+                    return client_errc::needs_more;
                 case kind::command_complete:
                     // This resultset is done
                     fsm.state = state_t::query_first;
                     call_handler(fsm, msg.get_command_complete());
-                    return result_type::read;
+                    return client_errc::needs_more;
                 default: return std::error_code(client_errc::unexpected_message);
             }
         }
@@ -339,16 +337,16 @@ static result handle_query(read_response_fsm_impl& fsm, const any_backend_messag
             {
                 case kind::copy_data:
                     // Data is handled by upper layers, we don't need to do anything
-                    return result_type::read;
+                    return client_errc::needs_more;
                 case kind::error_response:
                     // An error should always be followed by ReadyForQuery
                     fsm.state = state_t::query_needs_ready;
                     call_handler(fsm, msg.get_error_response());
-                    return result_type::read;
+                    return client_errc::needs_more;
                 case kind::copy_done:
                     // Terminates copy out, but should be followed by CommandComplete
                     fsm.state = state_t::query_copy_out_needs_command_complete;
-                    return result_type::read;
+                    return client_errc::needs_more;
                 default: return std::error_code(client_errc::unexpected_message);
             }
         }
@@ -360,11 +358,11 @@ static result handle_query(read_response_fsm_impl& fsm, const any_backend_messag
                     // An error should always be followed by ReadyForQuery
                     fsm.state = state_t::query_needs_ready;
                     call_handler(fsm, msg.get_error_response());
-                    return result_type::read;
+                    return client_errc::needs_more;
                 case kind::command_complete:
                     call_handler(fsm, msg.get_command_complete());
                     fsm.state = state_t::query_first;
-                    return result_type::read;
+                    return client_errc::needs_more;
                 default: return std::error_code(client_errc::unexpected_message);
             }
         }
@@ -372,7 +370,7 @@ static result handle_query(read_response_fsm_impl& fsm, const any_backend_messag
     }
 }
 
-result protocol::read_response_fsm::resume(const any_backend_message& msg)
+std::error_code protocol::read_response_fsm::resume(const any_backend_message& msg)
 {
     // Some messages may be found interleaved with the expected message flow
     // TODO: actually do something useful with these
@@ -380,7 +378,7 @@ result protocol::read_response_fsm::resume(const any_backend_message& msg)
     {
         case kind::notice_response:
         case kind::notification_response:
-        case kind::parameter_status: return result_type::read;
+        case kind::parameter_status: return client_errc::needs_more;
         default: break;
     }
 

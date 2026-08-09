@@ -42,21 +42,6 @@ struct read_response_fsm_impl
 class read_response_fsm
 {
 public:
-    enum class result_type
-    {
-        done,
-        read,
-    };
-
-    struct result
-    {
-        result_type type;
-        std::error_code ec;
-
-        result(std::error_code ec) noexcept : type(result_type::done), ec(ec) {}
-        result(result_type t) noexcept : type(t) {}
-    };
-
     read_response_fsm(const request* req, response_handler_ref handler, bool allow_copy = false) noexcept
         : impl_{req, handler, allow_copy}
     {
@@ -71,7 +56,10 @@ public:
         return impl_.req->messages().subspan(impl_.current);
     }
 
-    result resume(const any_backend_message& msg);
+    // Feeds a message to the FSM. Returns client_errc::needs_more if more messages
+    // are required to complete the response, a success code if the response is
+    // complete, or any other error code on failure
+    std::error_code resume(const any_backend_message& msg);
 
 private:
     detail::read_response_fsm_impl impl_;

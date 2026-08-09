@@ -24,12 +24,9 @@ static const char* error_to_string(client_errc error)
 {
     switch (error)
     {
-        case client_errc::incomplete_message: return "An incomplete message was received from the server";
-        case client_errc::extra_bytes: return "Unexpected extra bytes at the end of a message were received";
-        case client_errc::protocol_value_error:
-            return "An unexpected value was found in a server-received message";
-
-            // TODO: proper phrasing for these
+        case client_errc::incomplete_message: return "incomplete_message";
+        case client_errc::extra_bytes: return "extra_bytes";
+        case client_errc::protocol_value_error: return "protocol_value_error";
         case client_errc::value_too_big: return "value_too_big";
         case client_errc::invalid_base64: return "invalid_base64";
         case client_errc::invalid_scram_message: return "invalid_scram_message";
@@ -55,6 +52,10 @@ static const char* error_to_string(client_errc error)
             return "request_mixes_simple_advanced_protocols";
         case client_errc::step_skipped: return "step_skipped";
         case client_errc::unknown_openssl_error: return "unknown_openssl_error";
+        case client_errc::unmatched_request: return "unmatched_request";
+        case client_errc::needs_more: return "needs_more";
+        case client_errc::copy_not_allowed: return "copy_not_allowed";
+        case client_errc::num_format_codes_mismatch: return "num_format_codes_mismatch";
         default: return "<unknown nativepg client error>";
     }
 }

@@ -15,15 +15,14 @@
 
 #include <chrono>
 #include <exception>
-#include <iomanip>
 #include <iostream>
 #include <string>
 #include <vector>
 
 #include "nativepg/connection.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/protocol/common.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/responses/check.hpp"
 #include "nativepg/responses/into.hpp"
 #include "nativepg/responses/response.hpp"
 
@@ -119,8 +118,6 @@ static asio::awaitable<void> nullable_binary_example(connection& conn)
     // Start timing this operation
     auto start = std::chrono::high_resolution_clock::now();
 
-    statement<std::string_view> select_stmt{"nullable_bintest"};
-
     // Compose our request
     request req{};
     req.add_query(
@@ -133,6 +130,7 @@ static asio::awaitable<void> nullable_binary_example(connection& conn)
                  NULLIF($6::text, 'NULL')::text as nt_t,
                  NULLIF($7::text, 'NULL')::text as vt_t
         )sql",
+        {.param_format = protocol::format_code::text, .result_format = protocol::format_code::binary},
         "Nullable Test values",
         "NULL",
         "true",

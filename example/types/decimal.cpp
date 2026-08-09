@@ -23,6 +23,7 @@
 
 #include "nativepg/connection.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/protocol/bind.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
 #include "nativepg/responses/into.hpp"
@@ -108,17 +109,19 @@ SELECT
     }
 }
 
-template <typename T>
 static asio::awaitable<void> execute_and_print_binary_response(
     connection& conn,
-    statement<T>& stmnt,
-    std::initializer_list<parameter_ref> params
+    std::string_view stmt_name,
+    std::span<const protocol::serializable_ref> params
 )
 {
     // Use the prepared statement
-    request req{false};
-    req.add_execute(stmnt.name, params, protocol::format_code::text, protocol::format_code::binary, 1);
-    req.add_sync();
+    request req;
+    req.add_execute(
+        stmt_name,
+        params,
+        {.param_format = protocol::format_code::text, .result_format = protocol::format_code::binary}
+    );
 
     // Structures to parse the response into
     std::vector<test_row> select_vec;
@@ -144,10 +147,10 @@ static asio::awaitable<void> decimal_binary_example(connection& conn)
     auto start = std::chrono::high_resolution_clock::now();
     diagnostics diag;
 
-    statement<std::string_view> select_stmt{"decimal_bintest"};
+    constexpr std::string_view select_stmt_name = "decimal_bintest";
 
     // Compose our request
-    request req{false};  // Turns off autosync for better efficiency
+    request req;
     req.add_prepare(
         R"sql(
         SELECT  $1 as title,
@@ -155,9 +158,8 @@ static asio::awaitable<void> decimal_binary_example(connection& conn)
                  $3::text::decimal(16, 2) as d64,
                  $4::text::decimal(34, 2) as d128
     )sql",
-        select_stmt
+        select_stmt_name
     );
-    req.add_sync();
 
     // Actually prepare the statements
     response res{check_parse()};
@@ -168,16 +170,30 @@ static asio::awaitable<void> decimal_binary_example(connection& conn)
         co_return;
     }
 
-    co_await execute_and_print_binary_response(conn, select_stmt, {"Test values", "11.21", "11.21", "11.21"});
     co_await execute_and_print_binary_response(
         conn,
-        select_stmt,
-        {"Minimum values", "-9999.99", "-9999999999999.99", "-9999999999999999999999999999999.99"}
+        select_stmt_name,
+        make_serializable_refs("Test values", "11.21", "11.21", "11.21")
     );
     co_await execute_and_print_binary_response(
         conn,
-        select_stmt,
-        {"Maximum values", "9999.99", "9999999999999.99", "9999999999999999999999999999999.99"}
+        select_stmt_name,
+        make_serializable_refs(
+            "Minimum values",
+            "-9999.99",
+            "-9999999999999.99",
+            "-9999999999999999999999999999999.99"
+        )
+    );
+    co_await execute_and_print_binary_response(
+        conn,
+        select_stmt_name,
+        make_serializable_refs(
+            "Maximum values",
+            "9999.99",
+            "9999999999999.99",
+            "9999999999999999999999999999999.99"
+        )
     );
 
     // Finish timing this method
@@ -186,9 +202,8 @@ static asio::awaitable<void> decimal_binary_example(connection& conn)
 
     std::cout << " (in " << duration << ")" << std::endl;
 
-    req = request{false};  // TODO: replace by clear when we have it
-    req.add_close_statement(select_stmt.name);
-    req.add_sync();
+    req = request{};  // TODO: replace by clear when we have it
+    req.add_close_statement(select_stmt_name);
 
     response res_close{check_close()};
     auto [err_cleanup] = co_await conn.async_exec(req, res_close, asio::as_tuple);

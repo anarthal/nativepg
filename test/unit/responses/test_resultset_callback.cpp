@@ -9,13 +9,13 @@
 #include <boost/core/lightweight_test.hpp>
 #include <boost/describe/class.hpp>
 #include <boost/describe/operators.hpp>
-#include <system_error>
 
 #include <cstdint>
 #include <initializer_list>
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
@@ -35,8 +35,8 @@
 #include "test_utils/printing.hpp"
 
 using namespace nativepg;
-using std::error_code;
 using protocol::format_code;
+using std::error_code;
 using namespace std::string_view_literals;
 
 namespace {
@@ -193,7 +193,7 @@ void test_query()
         make_field_descr("name", 25, format_code::text),
     });
     request req;
-    req.add_query("SELECT $1", {42});
+    req.add_query("SELECT $1", 42);
 
     // Handler setup
     BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(5u));
@@ -418,7 +418,7 @@ void test_command_info_portal_suspended()
         make_field_descr("name", 25, format_code::text),
     });
     request req;
-    req.add_query("SELECT $1", {42});
+    req.add_query("SELECT $1", 42);
     BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(5u));
 
     // Messages: the max row count in the Execute was reached, so we get a PortalSuspended
@@ -478,7 +478,7 @@ void test_null_info_portal_suspended()
         make_field_descr("name", 25, format_code::text),
     });
     request req;
-    req.add_query("SELECT $1", {42});
+    req.add_query("SELECT $1", 42);
     BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(5u));
 
     // Messages

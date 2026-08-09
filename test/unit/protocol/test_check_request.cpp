@@ -6,15 +6,17 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
+
 #include <system_error>
 
 #include "nativepg/client_errc.hpp"
+#include "nativepg/protocol/bind.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg_internal/check_request.hpp"
 
 using namespace nativepg;
-using std::error_code;
 using protocol::detail::check_request;
+using std::error_code;
 
 namespace {
 
@@ -23,15 +25,15 @@ void test_success()
     {
         // Extended protocol: parse, bind, describe, execute, sync
         request req;
-        req.add_query("SELECT $1", {42});
+        req.add_query("SELECT $1", 42);
 
         BOOST_TEST_EQ(check_request(req), error_code());
     }
     {
         // Extended protocol: (parse, bind, describe, execute)x2, sync
         request req(false);
-        req.add_query("SELECT $1", {42});
-        req.add_query("SELECT $2", {50});
+        req.add_query("SELECT $1", 42);
+        req.add_query("SELECT $2", 50);
         req.add(protocol::sync{});
 
         BOOST_TEST_EQ(check_request(req), error_code());
@@ -53,8 +55,8 @@ void test_success()
     {
         // Extended protocol: (parse, bind, describe, execute, sync)x2
         request req;
-        req.add_query("SELECT $1", {42});
-        req.add_query("SELECT $1", {42});
+        req.add_query("SELECT $1", 42);
+        req.add_query("SELECT $1", 42);
 
         BOOST_TEST_EQ(check_request(req), error_code());
     }
@@ -69,9 +71,9 @@ void test_success()
     {
         // Mixing: (parse, bind, describe, execute, sync), query, (parse, bind, describe, execute, sync)
         request req;
-        req.add_query("SELECT $1", {42});
+        req.add_query("SELECT $1", 42);
         req.add_simple_query("SELECT 1");
-        req.add_query("SELECT $1", {42});
+        req.add_query("SELECT $1", 42);
 
         BOOST_TEST_EQ(check_request(req), error_code());
     }
@@ -79,7 +81,7 @@ void test_success()
         // Mixing: query, (parse, bind, describe, execute, sync)
         request req;
         req.add_simple_query("SELECT 1");
-        req.add_query("SELECT $1", {42});
+        req.add_query("SELECT $1", 42);
 
         BOOST_TEST_EQ(check_request(req), error_code());
     }
@@ -87,7 +89,7 @@ void test_success()
         // Mixing: query, (parse, bind, describe, execute, sync), query
         request req;
         req.add_simple_query("SELECT 1");
-        req.add_query("SELECT $1", {42});
+        req.add_query("SELECT $1", 42);
         req.add_simple_query("SELECT 2");
 
         BOOST_TEST_EQ(check_request(req), error_code());
@@ -95,7 +97,7 @@ void test_success()
     {
         // Extended protocol: bind, sync
         request req(false);
-        req.add_bind("stmt", {});
+        req.add(protocol::bind{});
         req.add(protocol::sync{});
 
         BOOST_TEST_EQ(check_request(req), error_code());
@@ -147,7 +149,7 @@ void test_error()
         // parse, bind, describe, execute, query sync
         // A simple query in the middle of an extended batch
         request req(false);
-        req.add_query("SELECT $1", {42});
+        req.add_query("SELECT $1", 42);
         req.add_simple_query("SELECT 42");
         req.add(protocol::sync{});
 
@@ -157,7 +159,7 @@ void test_error()
         // bind, query, sync
         // A simple query in the middle of an extended batch
         request req(false);
-        req.add_bind("stmt", {});
+        req.add(protocol::bind{});
         req.add_simple_query("SELECT 1");
         req.add(protocol::sync{});
 
@@ -178,7 +180,7 @@ void test_error()
         // parse, bind, describe, execute
         // Extended batch not terminated by a sync
         request req(false);
-        req.add_query("SELECT $1", {42});
+        req.add_query("SELECT $1", 42);
 
         BOOST_TEST_EQ(check_request(req), error_code(client_errc::request_ends_without_sync));
     }
@@ -187,7 +189,7 @@ void test_error()
         // Extended batch not terminated by a sync
         request req(false);
         req.add_simple_query("SELECT 50");
-        req.add_query("SELECT $1", {42});
+        req.add_query("SELECT $1", 42);
 
         BOOST_TEST_EQ(check_request(req), error_code(client_errc::request_ends_without_sync));
     }
@@ -197,7 +199,7 @@ void test_error()
         request req(false);
         req.add_prepare("SELECT $1", "mystmt");
         req.add(protocol::sync{});
-        req.add_query("SELECT $1", {42});
+        req.add_query("SELECT $1", 42);
 
         BOOST_TEST_EQ(check_request(req), error_code(client_errc::request_ends_without_sync));
     }

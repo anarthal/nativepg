@@ -208,13 +208,11 @@ void test_prepare_typed()
 void test_execute_untyped()
 {
     request req;
-    const int value1 = 42;
-    const char* value2 = "value";
-    const protocol::serializable_ref refs[] = {
-        make_serializable_ref(&value1, protocol::format_code::text),
-        make_serializable_ref(&value2, protocol::format_code::text),
-    };
-    req.add_execute("myname", refs, {.param_format = protocol::format_code::text});
+    req.add_execute(
+        "myname",
+        make_serializable_refs(42, "value"),
+        {.param_format = protocol::format_code::text}
+    );
 
     // clang-format off
     check_payload(req, {

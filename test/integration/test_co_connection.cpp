@@ -59,8 +59,8 @@ capy::task<> test_exec_success()
 
     // Request and response
     request req;
-    req.add_query("SELECT $1 + $2 AS value", {42, 10});
-    req.add_query("SELECT $1 AS value", {"abcd"});
+    req.add_query("SELECT $1 + $2 AS value", 42, 10);
+    req.add_query("SELECT $1 AS value", "abcd");
     std::vector<row_int> ints;
     std::vector<row_string> strings;
 

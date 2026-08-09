@@ -23,17 +23,11 @@ inline void store_error(const protocol::error_response& err, extended_error& to)
     to.diag.assign(err);
 }
 
-inline void maybe_store_error(const protocol::error_response& err, extended_error& to)
-{
-    if (!to.code)
-        store_error(err, to);
-}
-
 inline void maybe_store_error(const any_request_message& msg, extended_error& to)
 {
     const auto* err = boost::variant2::get_if<protocol::error_response>(&msg);
     if (err)
-        maybe_store_error(*err, to);
+        store_error(*err, to);
 }
 
 inline void reset_info(command_info& obj)

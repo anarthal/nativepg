@@ -79,3 +79,29 @@ static std::error_code serialize(const std::optional<T>& value, std::vector<unsi
 
 Recall that `std::error_code` values can represent conditions
 that are not necessarily fatal errors - e.g. EOF.
+
+## Why do handlers keep receiving messages after they report an error?
+
+Handlers can report errors to make higher-level async operations fail.
+For example, `into()` will make `exec()` fail if you passed a type
+incompatible with what the database returned, or if the server returns an error.
+
+These are usage errors, not protocol-level errors. After they happen,
+the connection should still usable. To achieve this, all the messages
+related to the pipeline associated to the handler need to be read.
+
+Why not just discard them? Handlers may be part of pipelines.
+Some parts of the pipeline might be independent from the others.
+A handler error in the first part shouldn't condition the rest of the pipeline.
+For example:
+
+```cpp
+request req;
+req.add_query("SELECT * FROM t1")
+   .add_query("SELECT * FROM t2");
+response res {into(vec1), into(vec2)};
+```
+
+The first query might fail, and the second one succeed.
+For this to happen, `response` (which is a handler)
+must keep receiving messages, even after reporting the first failure.

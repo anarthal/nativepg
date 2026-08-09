@@ -15,6 +15,7 @@
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/responses/check.hpp"
+#include "nativepg/responses/error_into.hpp"
 #include "nativepg/responses/into.hpp"
 #include "nativepg/responses/response.hpp"
 
@@ -67,12 +68,16 @@ static capy::task<> co_main()
 
     // Structures to parse the response into
     std::vector<myrow> vec;
-    response res{check_execute(), into(vec)};
+    extended_error err1, err2;
 
-    auto [ec2] = co_await conn.exec(req, &res, &diag);
+    auto [ec2] = co_await conn.exec(
+        req,
+        response{error_into(check_execute(), err1), error_into(into(vec), err2)},
+        &diag
+    );
     print_err("Operation result", ec2, diag);
-    print_err("Q1 result", std::get<0>(res.handlers()).result());
-    print_err("Q2 result", std::get<1>(res.handlers()).result());
+    print_err("Q1 result", err1);
+    print_err("Q2 result", err2);
 
     for (const auto& r : vec)
         std::cout << "Got row: " << r.f1 << ", " << r.f3 << std::endl;

@@ -12,6 +12,7 @@
 #include <span>
 #include <system_error>
 
+#include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
@@ -33,6 +34,7 @@ struct read_response_fsm_impl
     // Working state
     std::size_t current{};
     state_t state{static_cast<state_t>(0)};
+    extended_error handler_err{};
 };
 
 }  // namespace detail
@@ -48,6 +50,7 @@ public:
 
     const request& get_request() const { return *impl_.req; }
     response_handler_ref get_handler() const { return impl_.handler; }
+    const extended_error& get_handler_error() const { return impl_.handler_err; }
 
     std::span<const request_message_type> get_remaining_messages() const
     {

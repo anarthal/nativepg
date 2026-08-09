@@ -25,11 +25,9 @@
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_connection_pool.hpp"
-#include "nativepg/extended_error.hpp"
-#include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/sync.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/sqlstate.hpp"
+#include "nativepg/responses/check.hpp"
 #include "nativepg_internal/connection_pool/sansio_connection_node.hpp"
 
 namespace nativepg::detail {
@@ -70,30 +68,6 @@ struct conn_shared_state
         : idle_connections_cv(ctx, (std::chrono::steady_clock::time_point::max)())
     {
     }
-};
-
-// TODO: this handler should be part of the public API
-class check_handler
-{
-    extended_error err_{};
-
-public:
-    handler_setup_result setup(const request& req, std::size_t offset)
-    {
-        BOOST_ASSERT(offset == 0u);
-        err_ = {};
-        return req.messages().size();
-    }
-
-    void on_message(const any_request_message& req, std::size_t)
-    {
-        if (const auto* msg = boost::variant2::get_if<protocol::error_response>(&req))
-        {
-            err_.code = parse_sqlstate(msg->sqlstate.value_or(std::string_view{}));
-            err_.diag.assign(*msg);
-        }
-    }
-    const extended_error& result() const { return err_; }
 };
 
 // The templated type is never exposed to the user. We template
@@ -184,9 +158,9 @@ public:
                 }
                 case next_connection_action::ping:
                 {
-                    check_handler handler;
+                    check handler;
                     auto [ec] = co_await run_with_timeout(
-                        conn_.exec(ping_req_, handler),
+                        conn_.exec(ping_req_, &handler),
                         params_->ping_timeout
                     );
                     last_act_ = resume(ec, collection_state::none);

@@ -8,9 +8,8 @@
 #ifndef NATIVEPG_PROTOCOL_DETAIL_EXEC_FSM_HPP
 #define NATIVEPG_PROTOCOL_DETAIL_EXEC_FSM_HPP
 
-#include <system_error>
-
 #include <cstddef>
+#include <system_error>
 
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
@@ -35,7 +34,7 @@ public:
 
     extended_error get_result(std::error_code ec) const
     {
-        return ec ? extended_error{ec, {}} : read_fsm_.get_handler().result();
+        return ec ? extended_error{ec, {}} : read_fsm_.get_handler_error();
     }
 
 private:

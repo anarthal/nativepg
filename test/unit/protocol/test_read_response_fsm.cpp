@@ -13,6 +13,7 @@
 #include <initializer_list>
 #include <iostream>
 #include <ostream>
+#include <string>
 #include <system_error>
 #include <vector>
 
@@ -33,6 +34,7 @@
 #include "nativepg/protocol/sync.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
+#include "test_utils/printing.hpp"
 #include "test_utils/response_msg_type.hpp"
 
 using namespace nativepg;
@@ -44,18 +46,33 @@ namespace {
 
 const error_code needs_more{client_errc::needs_more};
 
-// A handler that just stores its arguments
+// Some distinct errors for the handler to report
+extended_error first_error() { return {client_errc::field_not_found, diagnostics(std::string("first"))}; }
+extended_error second_error()
+{
+    return {client_errc::incompatible_field_type, diagnostics(std::string("second"))};
+}
+
+// A handler that stores its arguments, and optionally reports errors
 struct mock_handler
 {
     std::vector<on_msg_args> msgs;
-    extended_error err;
+
+    // What the handler reports on each successive on_message() call.
+    // A missing entry means "no error"
+    std::vector<extended_error> errors;
 
     handler_setup_result setup(const request&, std::size_t offset) { return {offset}; }
-    void on_message(const any_request_message& msg, std::size_t offset)
+    void on_message(const any_request_message& msg, std::size_t offset, extended_error& err)
     {
+        // Regression check: the passed error is always clean
+        BOOST_TEST_EQ(err, extended_error{});
+
+        const std::size_t i = msgs.size();
         msgs.push_back({to_type(msg), offset});
+        if (i < errors.size())
+            err = errors[i];
     }
-    const extended_error& result() const { return err; }
 };
 
 struct fixture
@@ -577,6 +594,90 @@ void test_error_recovery_sync_last()
     });
 }
 
+// --- Errors reported by the handler ---
+
+// An error reported by the handler does not cause the pipeline to fail,
+// but is reported in get_handler_error()
+// Also tests that an error in the last message doesn't cause trouble.
+void test_handler_error_does_not_fail_fsm()
+{
+    fixture fix;
+    fix.req.add_simple_query("SELECT 1");
+    fix.handler.errors = {{}, first_error()};  // fails when handed the command_complete
+
+    // The FSM runs to completion, unaffected
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), needs_more);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), needs_more);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    // The handler's error is reported separately
+    BOOST_TEST_EQ(fix.fsm.get_handler_error(), first_error());
+
+    // Every message still reached the handler, including the ones after the failure
+    fix.check({
+        {response_msg_type::row_description,  0u},
+        {response_msg_type::command_complete, 0u},
+    });
+}
+
+// A success after a failure doesn't clear the error we already recorded
+void test_handler_error_then_nonerror()
+{
+    fixture fix;
+    fix.req.add_simple_query("SELECT 1");
+    fix.handler.errors = {first_error(), {}, {}};  // fails on the row_description only
+
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), needs_more);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), needs_more);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), needs_more);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    BOOST_TEST_EQ(fix.fsm.get_handler_error(), first_error());
+
+    fix.check({
+        {response_msg_type::row_description,  0u},
+        {response_msg_type::data_row,         0u},
+        {response_msg_type::command_complete, 0u},
+    });
+}
+
+// Only the first error is retained
+// Regression check for a bug that caused the 3rd error to pass
+// a dirty extended_error into the handler
+void test_handler_three_errors()
+{
+    fixture fix;
+    fix.req.add_simple_query("SELECT 1");
+    fix.handler.errors = {first_error(), second_error(), second_error()};
+
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), needs_more);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), needs_more);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), needs_more);
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+
+    BOOST_TEST_EQ(fix.fsm.get_handler_error(), first_error());
+
+    fix.check({
+        {response_msg_type::row_description,  0u},
+        {response_msg_type::data_row,         0u},
+        {response_msg_type::command_complete, 0u},
+    });
+}
+
+// Errors detected by the FSM don't end up in get_handler_error()
+void test_fsm_error_not_reported_as_handler_error()
+{
+    fixture fix;
+    fix.req.add_prepare("SELECT 1", "stmt");
+
+    // A data_row is not a legal response to a parse
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), error_code(client_errc::unexpected_message));
+
+    // The handler never ran, so its error is still clean
+    BOOST_TEST_EQ(fix.fsm.get_handler_error(), extended_error{});
+    fix.check({});
+}
+
 // TODO: test combining simple queries and extended queries
 // TODO: test flush
 
@@ -616,6 +717,11 @@ int main()
     test_several_syncs();
     test_error_recovery();
     test_error_recovery_sync_last();
+
+    test_handler_error_does_not_fail_fsm();
+    test_handler_error_then_nonerror();
+    test_handler_three_errors();
+    test_fsm_error_not_reported_as_handler_error();
 
     return boost::report_errors();
 }

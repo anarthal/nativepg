@@ -33,8 +33,10 @@
 #include "nativepg/responses/response_handler.hpp"
 #include "nativepg/responses/resultset_callback.hpp"
 #include "test_utils/printing.hpp"
+#include "test_utils/response_msg_type.hpp"
 
 using namespace nativepg;
+using namespace nativepg::test;
 using protocol::format_code;
 using std::error_code;
 using namespace std::string_view_literals;
@@ -168,12 +170,9 @@ void test_simple_query()
     BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
 
     // Messages
-    cb.on_message(descrs, 0u);
-    cb.on_message(owning_data_row({"42", "perico"}), 0u);
-    cb.on_message(protocol::command_complete{}, 0u);
-
-    // Check result
-    BOOST_TEST_EQ(cb.result(), extended_error{});
+    BOOST_TEST_EQ(feed(cb, descrs, 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, owning_data_row({"42", "perico"}), 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, protocol::command_complete{}, 0u), extended_error{});
 
     // Rows
     std::vector<user> expected_rows{
@@ -199,15 +198,12 @@ void test_query()
     BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(5u));
 
     // Messages
-    cb.on_message(protocol::parse_complete{}, 0u);
-    cb.on_message(protocol::bind_complete{}, 1u);
-    cb.on_message(descrs, 2u);
-    cb.on_message(owning_data_row({"42", "perico"}), 3u);
-    cb.on_message(owning_data_row({"50", "pepe"}), 3u);
-    cb.on_message(protocol::command_complete{}, 3u);
-
-    // Check result
-    BOOST_TEST_EQ(cb.result(), extended_error{});
+    BOOST_TEST_EQ(feed(cb, protocol::parse_complete{}, 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, protocol::bind_complete{}, 1u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, descrs, 2u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, owning_data_row({"42", "perico"}), 3u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, owning_data_row({"50", "pepe"}), 3u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, protocol::command_complete{}, 3u), extended_error{});
 
     // Rows
     std::vector<user> expected_rows{
@@ -234,13 +230,10 @@ void test_field_match_by_name()
     BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
 
     // Messages
-    cb.on_message(descrs, 0u);
-    cb.on_message(owning_data_row({"juan", "abc", "10", "value"}), 0u);
-    cb.on_message(owning_data_row({"antonio", "def", "21", ""}), 0u);
-    cb.on_message(protocol::command_complete{}, 0u);
-
-    // Check result
-    BOOST_TEST_EQ(cb.result(), extended_error{});
+    BOOST_TEST_EQ(feed(cb, descrs, 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, owning_data_row({"juan", "abc", "10", "value"}), 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, owning_data_row({"antonio", "def", "21", ""}), 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, protocol::command_complete{}, 0u), extended_error{});
 
     // Rows
     std::vector<user> expected_rows{
@@ -265,12 +258,9 @@ void test_binary()
     BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
 
     // Messages
-    cb.on_message(descrs, 0u);
-    cb.on_message(owning_data_row({"\0\0\0\x2a"sv, "perico"}), 0u);
-    cb.on_message(protocol::command_complete{}, 0u);
-
-    // Check result
-    BOOST_TEST_EQ(cb.result(), extended_error{});
+    BOOST_TEST_EQ(feed(cb, descrs, 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, owning_data_row({"\0\0\0\x2a"sv, "perico"}), 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, protocol::command_complete{}, 0u), extended_error{});
 
     // Rows
     std::vector<user> expected_rows{
@@ -294,12 +284,9 @@ void test_type_conversions()
     BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
 
     // Messages
-    cb.on_message(descrs, 0u);
-    cb.on_message(owning_data_row({"\0\x2a"sv, "perico"}), 0u);
-    cb.on_message(protocol::command_complete{}, 0u);
-
-    // Check result
-    BOOST_TEST_EQ(cb.result(), extended_error{});
+    BOOST_TEST_EQ(feed(cb, descrs, 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, owning_data_row({"\0\x2a"sv, "perico"}), 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, protocol::command_complete{}, 0u), extended_error{});
 
     // Rows
     std::vector<user> expected_rows{
@@ -325,13 +312,10 @@ void test_command_info_affected_rows()
     BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
 
     // Messages
-    cb.on_message(descrs, 0u);
-    cb.on_message(owning_data_row({"42", "perico"}), 0u);
-    cb.on_message(owning_data_row({"50", "pepe"}), 0u);
-    cb.on_message(protocol::command_complete{.tag = "SELECT 2"}, 0u);
-
-    // Check result
-    BOOST_TEST_EQ(cb.result(), extended_error{});
+    BOOST_TEST_EQ(feed(cb, descrs, 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, owning_data_row({"42", "perico"}), 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, owning_data_row({"50", "pepe"}), 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, protocol::command_complete{.tag = "SELECT 2"}, 0u), extended_error{});
 
     // command_info was populated
     const command_info expected_info{
@@ -359,11 +343,8 @@ void test_command_info_no_affected_rows()
     BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
 
     // Messages
-    cb.on_message(descrs, 0u);
-    cb.on_message(protocol::command_complete{.tag = "CREATE TABLE"}, 0u);
-
-    // Check result
-    BOOST_TEST_EQ(cb.result(), extended_error{});
+    BOOST_TEST_EQ(feed(cb, descrs, 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, protocol::command_complete{.tag = "CREATE TABLE"}, 0u), extended_error{});
 
     // command_info records the tag, but there's no affected row count
     const command_info expected_info{
@@ -391,11 +372,8 @@ void test_command_info_invalid_tag()
     BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
 
     // Messages
-    cb.on_message(descrs, 0u);
-    cb.on_message(protocol::command_complete{.tag = "INSERT 0 bad"}, 0u);
-
-    // The invalid tag is tolerated (not surfaced as an error)
-    BOOST_TEST_EQ(cb.result(), extended_error{});
+    BOOST_TEST_EQ(feed(cb, descrs, 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, protocol::command_complete{.tag = "INSERT 0 bad"}, 0u), extended_error{});
 
     // The tag is recorded verbatim, but couldn't be parsed into a row count
     const command_info expected_info{
@@ -422,14 +400,11 @@ void test_command_info_portal_suspended()
     BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(5u));
 
     // Messages: the max row count in the Execute was reached, so we get a PortalSuspended
-    cb.on_message(protocol::parse_complete{}, 0u);
-    cb.on_message(protocol::bind_complete{}, 1u);
-    cb.on_message(descrs, 2u);
-    cb.on_message(owning_data_row({"42", "perico"}), 3u);
-    cb.on_message(protocol::portal_suspended{}, 3u);
-
-    // Check result
-    BOOST_TEST_EQ(cb.result(), extended_error{});
+    BOOST_TEST_EQ(feed(cb, protocol::parse_complete{}, 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, protocol::bind_complete{}, 1u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, descrs, 2u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, owning_data_row({"42", "perico"}), 3u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, protocol::portal_suspended{}, 3u), extended_error{});
 
     // portal_suspended is set; there was no CommandComplete tag
     const command_info expected_info{
@@ -455,12 +430,10 @@ void test_null_info_command_complete()
     BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
 
     // Messages
-    cb.on_message(descrs, 0u);
-    cb.on_message(owning_data_row({"42", "perico"}), 0u);
-    cb.on_message(protocol::command_complete{.tag = "SELECT 1"}, 0u);
+    BOOST_TEST_EQ(feed(cb, descrs, 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, owning_data_row({"42", "perico"}), 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, protocol::command_complete{.tag = "SELECT 1"}, 0u), extended_error{});
 
-    // Check result: no error, rows still collected
-    BOOST_TEST_EQ(cb.result(), extended_error{});
     std::vector<user> expected_rows{
         {42, "perico"}
     };
@@ -482,14 +455,12 @@ void test_null_info_portal_suspended()
     BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(5u));
 
     // Messages
-    cb.on_message(protocol::parse_complete{}, 0u);
-    cb.on_message(protocol::bind_complete{}, 1u);
-    cb.on_message(descrs, 2u);
-    cb.on_message(owning_data_row({"42", "perico"}), 3u);
-    cb.on_message(protocol::portal_suspended{}, 3u);
+    BOOST_TEST_EQ(feed(cb, protocol::parse_complete{}, 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, protocol::bind_complete{}, 1u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, descrs, 2u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, owning_data_row({"42", "perico"}), 3u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, protocol::portal_suspended{}, 3u), extended_error{});
 
-    // Check result: no error, rows still collected
-    BOOST_TEST_EQ(cb.result(), extended_error{});
     std::vector<user> expected_rows{
         {42, "perico"}
     };
@@ -513,13 +484,10 @@ void test_callback()
     BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
 
     // Messages
-    cb.on_message(descrs, 0u);
-    cb.on_message(owning_data_row({"42", "perico"}), 0u);
-    cb.on_message(owning_data_row({"50", "pepe"}), 0u);
-    cb.on_message(protocol::command_complete{}, 0u);
-
-    // Check result
-    BOOST_TEST_EQ(cb.result(), extended_error{});
+    BOOST_TEST_EQ(feed(cb, descrs, 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, owning_data_row({"42", "perico"}), 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, owning_data_row({"50", "pepe"}), 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, protocol::command_complete{}, 0u), extended_error{});
 
     // Rows
     std::vector<user> expected_rows{
@@ -546,13 +514,10 @@ void test_callback_info()
     BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
 
     // Messages
-    cb.on_message(descrs, 0u);
-    cb.on_message(owning_data_row({"42", "perico"}), 0u);
-    cb.on_message(owning_data_row({"50", "pepe"}), 0u);
-    cb.on_message(protocol::command_complete{"SELECT 18"}, 0u);
-
-    // Check result
-    BOOST_TEST_EQ(cb.result(), extended_error{});
+    BOOST_TEST_EQ(feed(cb, descrs, 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, owning_data_row({"42", "perico"}), 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, owning_data_row({"50", "pepe"}), 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, protocol::command_complete{"SELECT 18"}, 0u), extended_error{});
 
     // Rows
     std::vector<user> expected_rows{
@@ -585,13 +550,10 @@ void test_error_field_not_present()
     BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
 
     // Messages
-    cb.on_message(descrs, 0u);
-    cb.on_message(owning_data_row({"42", "perico"}), 0u);
-    cb.on_message(owning_data_row({"50", "pepe"}), 0u);
-    cb.on_message(protocol::command_complete{}, 0u);
-
-    // Check result
-    BOOST_TEST_EQ(cb.result(), extended_error{client_errc::field_not_found});
+    BOOST_TEST_EQ(feed(cb, descrs, 0u), extended_error{client_errc::field_not_found});
+    BOOST_TEST_EQ(feed(cb, owning_data_row({"42", "perico"}), 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, owning_data_row({"50", "pepe"}), 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, protocol::command_complete{}, 0u), extended_error{});
 }
 
 // If a field has an incompatible type, that's an error
@@ -609,12 +571,9 @@ void test_error_incompatible_field_type()
     BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
 
     // Messages
-    cb.on_message(descrs, 0u);
-    cb.on_message(owning_data_row({"42", "perico"}), 0u);
-    cb.on_message(protocol::command_complete{}, 0u);
-
-    // Check result
-    BOOST_TEST_EQ(cb.result(), extended_error{client_errc::incompatible_field_type});
+    BOOST_TEST_EQ(feed(cb, descrs, 0u), extended_error{client_errc::incompatible_field_type});
+    BOOST_TEST_EQ(feed(cb, owning_data_row({"42", "perico"}), 0u), extended_error{});
+    BOOST_TEST_EQ(feed(cb, protocol::command_complete{}, 0u), extended_error{});
 }
 
 // TODO: parsing errors

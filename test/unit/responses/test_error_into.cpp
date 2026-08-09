@@ -79,14 +79,12 @@ extended_error second_error()
     return {client_errc::incompatible_field_type, diagnostics(std::string("second"))};
 }
 
-// Feeds a message to a handler using a fresh error slot, and returns what the handler
-// reported through it. A pipeline hands each step its own slot, so sharing one across
-// calls would blur the latching behavior we're checking here
-template <class Handler>
-extended_error feed(Handler& h, const any_request_message& msg, std::size_t offset = 0u)
+// Calls on_message and returns the produced error
+template <response_handler Handler>
+extended_error feed(Handler& h, const any_request_message& msg)
 {
     extended_error err;
-    h.on_message(msg, offset, err);
+    h.on_message(msg, 0u, err);
     return err;
 }
 

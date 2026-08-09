@@ -48,9 +48,9 @@ static capy::task<> co_main()
 
     // Compose our request
     request req;
-    req.add_query("INSERT INTO myt (f1, f3) VALUES ('hola', 59)", {});
-    req.add_query("SELECT * FROM myt WHERE f1 <> 'abc'", {});
-    req.add_query("DELETE FROM myt WHERE f3 = 59", {});
+    req.add_query("INSERT INTO myt (f1, f3) VALUES ('hola', 59)");
+    req.add_query("SELECT * FROM myt WHERE f1 <> 'abc'");
+    req.add_query("DELETE FROM myt WHERE f3 = 59");
 
     // Structures to parse the response into.
     // resultsets can hold the result of any number of queries, whether they return data or not

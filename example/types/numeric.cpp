@@ -17,12 +17,14 @@
 #include <chrono>
 #include <exception>
 #include <iostream>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "nativepg/connection.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/protocol/bind.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
 #include "nativepg/responses/into.hpp"
@@ -76,8 +78,7 @@ SELECT
     '999999999999999.999999999'::numeric(25, 10) as n25,
     '999999999999999999999999999999.999999999'::numeric(50, 10) as n50,
     '999999999999999999999999999999999999999999999.999999999'::numeric(100, 10) as n100
-   )sql",
-        {}
+   )sql"
     );
 
     // Structures to parse the response into
@@ -108,16 +109,19 @@ SELECT
     }
 }
 
-template <typename T>
 static asio::awaitable<void> execute_and_print_binary_response(
     connection& conn,
-    statement<T>& stmnt,
-    std::initializer_list<parameter_ref> params
+    std::string_view stmt_name,
+    std::span<const protocol::serializable_ref> params
 )
 {
     // Use the prepared statement
     request req{false};
-    req.add_execute(stmnt.name, params, protocol::format_code::text, protocol::format_code::binary, 1);
+    req.add_execute(
+        stmt_name,
+        params,
+        {.param_format = protocol::format_code::text, .result_format = protocol::format_code::binary}
+    );
     req.add_sync();
 
     // Structures to parse the response into
@@ -145,10 +149,10 @@ static asio::awaitable<void> numeric_binary_example(connection& conn)
     auto start = std::chrono::high_resolution_clock::now();
     diagnostics diag;
 
-    statement<std::string_view> select_stmt{"numeric_bintest"};
+    constexpr std::string_view select_stmt_name = "numeric_bintest";
 
     // Compose our request
-    request req{false};  // Turns off autosync for better efficiency
+    request req;
     req.add_prepare(
         R"sql(
         SELECT  $1 as title,
@@ -156,9 +160,8 @@ static asio::awaitable<void> numeric_binary_example(connection& conn)
                  $3::text::numeric(50, 10) as n50,
                  $4::text::numeric(100, 10) as n100
     )sql",
-        select_stmt
+        select_stmt_name
     );
-    req.add_sync();
 
     // Actually prepare the statements
     response res{check_parse()};
@@ -171,24 +174,28 @@ static asio::awaitable<void> numeric_binary_example(connection& conn)
 
     co_await execute_and_print_binary_response(
         conn,
-        select_stmt,
-        {"Test values", "11.21061977", "11.21061977", "11.21061977"}
+        select_stmt_name,
+        make_serializable_refs("Test values", "11.21061977", "11.21061977", "11.21061977")
     );
     co_await execute_and_print_binary_response(
         conn,
-        select_stmt,
-        {"Minimum values",
-         "-999999999999999.9999999999",
-         "-999999999999999999999999999999.999999999",
-         "-999999999999999999999999999999999999999999999.999999999"}
+        select_stmt_name,
+        make_serializable_refs(
+            "Minimum values",
+            "-999999999999999.9999999999",
+            "-999999999999999999999999999999.999999999",
+            "-999999999999999999999999999999999999999999999.999999999"
+        )
     );
     co_await execute_and_print_binary_response(
         conn,
-        select_stmt,
-        {"Maximum values",
-         "999999999999999.9999999999",
-         "999999999999999999999999999999.999999999",
-         "999999999999999999999999999999999999999999999.999999999"}
+        select_stmt_name,
+        make_serializable_refs(
+            "Maximum values",
+            "999999999999999.9999999999",
+            "999999999999999999999999999999.999999999",
+            "999999999999999999999999999999999999999999999.999999999"
+        )
     );
 
     // Finish timing this method
@@ -197,9 +204,8 @@ static asio::awaitable<void> numeric_binary_example(connection& conn)
 
     std::cout << " (in " << duration << ")" << std::endl;
 
-    req = request{false};  // TODO: replace by clear when we have it
-    req.add_close_statement(select_stmt.name);
-    req.add_sync();
+    req = request{};  // TODO: replace by clear when we have it
+    req.add_close_statement(select_stmt_name);
 
     response res_close{check_close()};
     auto [err_cleanup] = co_await conn.async_exec(req, res_close, asio::as_tuple);

@@ -15,10 +15,8 @@
 #include <boost/describe/class.hpp>
 
 #include <chrono>
-#include <cstdint>
 #include <exception>
 #include <format>
-#include <iomanip>
 #include <iostream>
 #include <string_view>
 #include <vector>
@@ -78,7 +76,7 @@ static asio::awaitable<void> date_text_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_query("SELECT DATE '1977-06-21' as d", {});
+    req.add_query("SELECT DATE '1977-06-21' as d");
 
     // Structures to parse the response into
     std::vector<date_row> select_vec;
@@ -105,14 +103,11 @@ static asio::awaitable<void> date_binary_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_prepare("SELECT $1::text::date as d", {"date_bintest"})
-        .add_execute(
-            "date_bintest",
-            {"1977-06-21"},
-            protocol::format_code::text,
-            protocol::format_code::binary,
-            1
-        );
+    req.add_query(
+        "SELECT $1::text::date as d",
+        {.param_format = protocol::format_code::text, .result_format = protocol::format_code::binary},
+        "1977-06-21"
+    );
 
     // Structures to parse the response into
     std::vector<date_row> select_vec;
@@ -140,7 +135,7 @@ static asio::awaitable<void> time_text_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_query("SELECT TIME '12:32:06.342156' as t", {});
+    req.add_query("SELECT TIME '12:32:06.342156' as t");
 
     // Structures to parse the response into
     std::vector<time_row> select_vec;
@@ -168,14 +163,11 @@ static asio::awaitable<void> time_binary_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_prepare("SELECT $1::text::time as t", {"bintest"})
-        .add_execute(
-            "bintest",
-            {"12:34:23.43535"},
-            protocol::format_code::text,
-            protocol::format_code::binary,
-            1
-        );
+    req.add_query(
+        "SELECT $1::text::time as t",
+        {.param_format = protocol::format_code::text, .result_format = protocol::format_code::binary},
+        "12:34:23.43535"
+    );
 
     // Structures to parse the response into
     std::vector<time_row> time_vec;
@@ -203,7 +195,7 @@ static asio::awaitable<void> timetz_text_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_query("SELECT TIMETZ '12:32:06.3421+01:00' as tz", {});
+    req.add_query("SELECT TIMETZ '12:32:06.3421+01:00' as tz");
 
     // Structures to parse the response into
     std::vector<timetz_row> select_vec;
@@ -232,14 +224,11 @@ static asio::awaitable<void> timetz_binary_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_prepare("SELECT $1::text::timetz as tz", {"timetz_bintest"})
-        .add_execute(
-            "timetz_bintest",
-            {"12:34:23.43535+05:00"},
-            protocol::format_code::text,
-            protocol::format_code::binary,
-            1
-        );
+    req.add_query(
+        "SELECT $1::text::timetz as tz",
+        {.param_format = protocol::format_code::text, .result_format = protocol::format_code::binary},
+        "12:34:23.43535+05:00"
+    );
 
     // Structures to parse the response into
     std::vector<timetz_row> select_vec;
@@ -270,7 +259,7 @@ static asio::awaitable<void> timestamp_text_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_query("SELECT CURRENT_TIMESTAMP::timestamp as ts", {});
+    req.add_query("SELECT CURRENT_TIMESTAMP::timestamp as ts");
 
     // Structures to parse the response into
     std::vector<timestamp_row> select_vec;
@@ -297,14 +286,11 @@ static asio::awaitable<void> timestamp_binary_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_prepare("SELECT $1::text::timestamp as ts", {"timestamp_bintest"})
-        .add_execute(
-            "timestamp_bintest",
-            {"2026-02-08 12:34:23.43535"},
-            protocol::format_code::text,
-            protocol::format_code::binary,
-            1
-        );
+    req.add_query(
+        "SELECT $1::text::timestamp as ts",
+        {.param_format = protocol::format_code::text, .result_format = protocol::format_code::binary},
+        "2026-02-08 12:34:23.43535"
+    );
 
     // Structures to parse the response into
     std::vector<timestamp_row> select_vec;
@@ -332,7 +318,7 @@ static asio::awaitable<void> timestamptz_text_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_query("SELECT CURRENT_TIMESTAMP as tsz", {});
+    req.add_query("SELECT CURRENT_TIMESTAMP as tsz");
 
     // Structures to parse the response into
     std::vector<timestamptz_row> select_vec;
@@ -360,14 +346,11 @@ static asio::awaitable<void> timestamptz_binary_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_prepare("SELECT $1::text::timestamptz as tsz", {"timestamptz_bintest"})
-        .add_execute(
-            "timestamptz_bintest",
-            {"2026-02-08 12:34:23.43535+05:00"},
-            protocol::format_code::text,
-            protocol::format_code::binary,
-            1
-        );
+    req.add_query(
+        "SELECT $1::text::timestamptz as tsz",
+        {.param_format = protocol::format_code::text, .result_format = protocol::format_code::binary},
+        "2026-02-08 12:34:23.43535+05:00"
+    );
 
     // Structures to parse the response into
     std::vector<timestamptz_row> select_vec;
@@ -396,7 +379,7 @@ static asio::awaitable<void> interval_text_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_query("SELECT INTERVAL '5Years 1Months 3Days 7Hours 4Minutes 10seconds' as iv", {});
+    req.add_query("SELECT INTERVAL '5Years 1Months 3Days 7Hours 4Minutes 10seconds' as iv");
 
     // Structures to parse the response into
     std::vector<interval_row> select_vec;
@@ -425,14 +408,11 @@ static asio::awaitable<void> interval_binary_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_prepare("SELECT $1::text::interval as iv", {"interval_bintest"})
-        .add_execute(
-            "interval_bintest",
-            {"1977 years 6 months 21 days 12:34:23.43535"},
-            protocol::format_code::text,
-            protocol::format_code::binary,
-            1
-        );
+    req.add_query(
+        "SELECT $1::text::interval as iv",
+        {.param_format = protocol::format_code::text, .result_format = protocol::format_code::binary},
+        "1977 years 6 months 21 days 12:34:23.43535"
+    );
 
     // Structures to parse the response into
     std::vector<interval_row> select_vec;

@@ -7,13 +7,13 @@
 
 #include <boost/assert/source_location.hpp>
 #include <boost/core/lightweight_test.hpp>
-#include <system_error>
 #include <boost/variant2/variant.hpp>
 
 #include <cstddef>
 #include <initializer_list>
 #include <iostream>
 #include <ostream>
+#include <system_error>
 #include <vector>
 
 #include "nativepg/extended_error.hpp"
@@ -36,8 +36,8 @@
 
 using namespace nativepg;
 using namespace nativepg::test;
-using std::error_code;
 using protocol::read_response_fsm;
+using std::error_code;
 using result_type = read_response_fsm::result_type;
 
 // Operators
@@ -280,7 +280,7 @@ void test_parse_error()
 void test_bind()
 {
     fixture fix;
-    fix.req.add_bind("stmt", {}).add(protocol::sync{});
+    fix.req.add(protocol::bind{}).add(protocol::sync{});
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::bind_complete{}), result_type::read);
@@ -296,7 +296,7 @@ void test_bind()
 void test_bind_error()
 {
     fixture fix;
-    fix.req.add_bind("stmt", {}).add(protocol::close{}).add(protocol::sync{});
+    fix.req.add(protocol::bind{}).add(protocol::close{}).add(protocol::sync{});
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::error_response{}), result_type::read);
@@ -488,7 +488,7 @@ void test_close_error()
 void test_extended_query()
 {
     fixture fix;
-    fix.req.add_query("SELECT 1", {});
+    fix.req.add_query("SELECT 1");
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::parse_complete{}), result_type::read);
@@ -532,7 +532,7 @@ void test_several_syncs()
 {
     fixture fix;
     fix.req.add_close_statement("abc");
-    fix.req.add_query("SELECT 1", {});
+    fix.req.add_query("SELECT 1");
     fix.req.add_describe_portal("def");
 
     // Run the FSM
@@ -564,7 +564,7 @@ void test_error_recovery()
 {
     fixture fix;
     fix.req.add_close_statement("abc");
-    fix.req.add_query("SELECT 1", {});
+    fix.req.add_query("SELECT 1");
     fix.req.add_describe_portal("def");
 
     // Run the FSM

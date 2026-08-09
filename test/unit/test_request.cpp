@@ -14,6 +14,7 @@
 #include <source_location>
 #include <string_view>
 
+#include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/common.hpp"
 #include "nativepg/protocol/sync.hpp"
 #include "nativepg/request.hpp"
@@ -75,11 +76,11 @@ void test_simple_query()
     check_messages(req, {request_message_type::query});
 }
 
-// Query with parameters
+// Query with parameters, static interface
 void test_query()
 {
     request req;
-    req.add_query("SELECT $1, $2", {std::int32_t(42), "value"});
+    req.add_query("SELECT $1, $2", std::int32_t(42), "value");
 
     // clang-format off
     check_payload(req, {
@@ -120,7 +121,7 @@ void test_query()
 void test_query_text()
 {
     request req;
-    req.add_query("SELECT $1, $2", {std::int32_t(42), "value"}, protocol::format_code::text);
+    req.add_query("SELECT $1, $2", {.param_format = protocol::format_code::text}, std::int32_t(42), "value");
 
     // clang-format off
     check_payload(req, {
@@ -207,7 +208,11 @@ void test_prepare_typed()
 void test_execute_untyped()
 {
     request req;
-    req.add_execute("myname", {42, "value"});  // will use text by default
+    req.add_execute(
+        "myname",
+        make_serializable_refs(42, "value"),
+        {.param_format = protocol::format_code::text}
+    );
 
     // clang-format off
     check_payload(req, {
@@ -243,7 +248,7 @@ void test_execute_typed()
 {
     statement<std::int32_t, std::string_view> stmt{"myname"};
     request req;
-    req.add_execute(stmt.bind(42, "value"));
+    req.add_execute(stmt, 42, "value");
 
     // clang-format off
     check_payload(req, {
@@ -279,7 +284,16 @@ void test_execute_typed_optional_args()
 {
     statement<std::int32_t, std::string_view> stmt{"myname"};
     request req;
-    req.add_execute(stmt.bind(42, "value"), protocol::format_code::binary, protocol::format_code::binary, 2);
+    req.add_execute(
+        stmt,
+        {
+            .param_format = protocol::format_code::binary,
+            .result_format = protocol::format_code::binary,
+            .max_num_rows = 2,
+        },
+        42,
+        "value"
+    );
 
     // clang-format off
     check_payload(req, {
@@ -385,44 +399,6 @@ void test_close_portal()
     check_messages(req, {request_message_type::close, request_message_type::sync});
 }
 
-// Low-level
-void test_bind_untyped()
-{
-    request req;
-    req.add_bind("myname", {42, "value"});  // will use text by default
-
-    // clang-format off
-    check_payload(req, {
-        // Bind
-        0x42, 0x00, 0x00, 0x00, 0x21, 0x00, 0x6d, 0x79, 0x6e, 0x61,
-        0x6d, 0x65, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
-        0x02, 0x34, 0x32, 0x00, 0x00, 0x00, 0x05, 0x76, 0x61, 0x6c,
-        0x75, 0x65, 0x00, 0x00,
-    });
-    // clang-format on
-
-    check_messages(req, {request_message_type::bind});
-}
-
-void test_bind_typed()
-{
-    statement<std::int32_t, std::string_view> stmt{"myname"};
-    request req;
-    req.add_bind(stmt.bind(42, "value"));
-
-    // clang-format off
-    check_payload(req, {
-        // Bind
-        0x42, 0x00, 0x00, 0x00, 0x25, 0x00, 0x6d, 0x79, 0x6e, 0x61,
-        0x6d, 0x65, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x02, 0x00,
-        0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x2a, 0x00, 0x00, 0x00,
-        0x05, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x00, 0x00,
-    });
-    // clang-format on
-
-    check_messages(req, {request_message_type::bind});
-}
-
 // TODO: add with individual protocol messages
 
 // Advanced patterns involving turning off autosync
@@ -461,7 +437,10 @@ void test_prepare_batch()
 void test_execute_batch()
 {
     request req(false);
-    req.add_execute("myname", {42, "value"}).add_execute("othername", {}).add(protocol::sync{});
+    statement<int, std::string_view> stmt{"myname"};
+    req.add_execute(stmt, {.param_format = protocol::format_code::text}, 42, "value")
+        .add_execute("othername", {}, {.param_format = protocol::format_code::text})
+        .add(protocol::sync{});
 
     // clang-format off
     check_payload(req, {
@@ -528,9 +507,6 @@ int main()
 
     test_close_statement();
     test_close_portal();
-
-    test_bind_untyped();
-    test_bind_typed();
 
     test_prepare_batch();
     test_execute_batch();

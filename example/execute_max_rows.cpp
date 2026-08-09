@@ -70,12 +70,14 @@ static capy::task<> co_main()
 
     // Initial execution
     request req_initial{false};  // disable auto-sync
-    statement<std::string_view> stmt{};
-    req_initial.add_query("BEGIN", {})
-        .add_prepare("SELECT * FROM myt WHERE f1 <> $1", stmt)
-        .add_bind(stmt.bind("abc"))
-        .add_describe_portal("")
-        .add(protocol::execute{.portal_name = "", .max_num_rows = 2})
+    req_initial.add_query("BEGIN")
+        .add_query(
+            "SELECT * FROM myt WHERE f1 <> $1",
+            {
+                .max_num_rows = 2,
+            },
+            "abc"
+        )
         .add_sync();
 
     // Subsequent executions
@@ -86,7 +88,7 @@ static capy::task<> co_main()
 
     // Cleanup
     request req_final;  // with autosync
-    req_final.add_query("COMMIT", {});
+    req_final.add_query("COMMIT");
 
     // Start execution
     std::vector<myrow> rows;

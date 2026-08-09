@@ -16,14 +16,17 @@
 #include <chrono>
 #include <exception>
 #include <format>
-#include <iomanip>
 #include <iostream>
+#include <span>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
 #include "nativepg/connection.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/protocol/bind.hpp"
+#include "nativepg/protocol/common.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
 #include "nativepg/responses/into.hpp"
@@ -159,8 +162,7 @@ SELECT
     0xFFFFFFFF::oid as o1,
     repeat(chr(1114111), 1)::text as t, -- Highest valid Unicode character (U+10FFFF)
     repeat(chr(1114111), 1)::varchar as v -- Highest valid Unicode character (U+10FFFF)
-    )sql",
-        {}
+    )sql"
     );
 
     // Structures to parse the response into
@@ -194,17 +196,19 @@ SELECT
     }
 }
 
-template <typename T>
 static asio::awaitable<void> execute_and_print_binary_response(
     connection& conn,
-    statement<T>& stmnt,
-    const std::initializer_list<parameter_ref> params
+    std::string_view stmt_name,
+    std::span<const protocol::serializable_ref> params
 )
 {
     // Use the prepared statement
-    request req{false};
-    req.add_execute(stmnt.name, params, protocol::format_code::text, protocol::format_code::binary, 1);
-    req.add_sync();
+    request req;
+    req.add_execute(
+        stmt_name,
+        params,
+        {.param_format = protocol::format_code::text, .result_format = protocol::format_code::binary}
+    );
 
     // Structures to parse the response into
     std::vector<test_row> select_vec;
@@ -233,10 +237,10 @@ static asio::awaitable<void> base_binary_example(connection& conn)
     // Start timing this operation
     auto start = std::chrono::high_resolution_clock::now();
 
-    statement<std::string_view> select_stmt{"base_bintest"};
+    constexpr std::string_view select_stmt_name = "base_bintest";
 
     // Compose our request
-    request req{false};  // Turns off autosync for better efficiency
+    request req;
     req.add_prepare(
         R"sql(
         SELECT  $1 as title,
@@ -260,9 +264,8 @@ static asio::awaitable<void> base_binary_example(connection& conn)
                  $19::text as t,
                  $20::varchar as v
     )sql",
-        select_stmt
+        select_stmt_name
     );
-    req.add_sync();
 
     // Actually prepare the statements
     response res{check_parse()};
@@ -272,73 +275,85 @@ static asio::awaitable<void> base_binary_example(connection& conn)
         co_return;
     }
 
-    co_await execute_and_print_binary_response(conn, select_stmt, {"Test values",
-                                                                   "true",
-                                                                   "\x21\x06\x77",
-                                                                   "H",
-                                                                   "",
-                                                                   "ñ",
-                                                                   "€",
-                                                                   "2",
-                                                                   "3",
-                                                                   "4",
-                                                                   "5",
-                                                                   "6",
-                                                                   "7",
-                                                                   "8",
-                                                                   "9",
-                                                                   "10",
-                                                                   "Aart",
-                                                                   0x16ff,
-                                                                   "twelve",
-                                                                   "\xE2\x82\xAC"});
     co_await execute_and_print_binary_response(
         conn,
-        select_stmt,
-        {"Minimum values",
-         "false",
-         "",
-         "a",
-         "",
-         "ñ",
-         "€",
-         "-32767",
-         "-32767",
-         "-2147483647",
-         "-32767",
-         "-2147483647",
-         "-9223372036854775807",
-         "-Infinity",
-         "-Infinity",
-         "-Infinity",
-         "Kermit",
-         0x0,
-         "",
-         ""}
+        select_stmt_name,
+        make_serializable_refs(
+            "Test values",
+            "true",
+            "\x21\x06\x77",
+            "H",
+            "",
+            "ñ",
+            "€",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+            "10",
+            "Aart",
+            0x16ff,
+            "twelve",
+            "\xE2\x82\xAC"
+        )
     );
+
     co_await execute_and_print_binary_response(
         conn,
-        select_stmt,
-        {"Maximum values",
-         "true",
-         "\x0F",
-         "Z",
-         "H",
-         "ñ",
-         "€",
-         "32767",
-         "32767",
-         "2147483647",
-         "32767",
-         "2147483647",
-         "9223372036854775807",
-         "Infinity",
-         "Infinity",
-         "Infinity",
-         "Gonzalo",
-         "0xFFFFFFFF",
-         "n/a",
-         "n/a"}
+        select_stmt_name,
+        make_serializable_refs(
+            "Minimum values",
+            "false",
+            "",
+            "a",
+            "",
+            "ñ",
+            "€",
+            "-32767",
+            "-32767",
+            "-2147483647",
+            "-32767",
+            "-2147483647",
+            "-9223372036854775807",
+            "-Infinity",
+            "-Infinity",
+            "-Infinity",
+            "Kermit",
+            0x0,
+            "",
+            ""
+        )
+    );
+
+    co_await execute_and_print_binary_response(
+        conn,
+        select_stmt_name,
+        make_serializable_refs(
+            "Maximum values",
+            "true",
+            "\x0F",
+            "Z",
+            "H",
+            "ñ",
+            "€",
+            "32767",
+            "32767",
+            "2147483647",
+            "32767",
+            "2147483647",
+            "9223372036854775807",
+            "Infinity",
+            "Infinity",
+            "Infinity",
+            "Gonzalo",
+            "0xFFFFFFFF",
+            "n/a",
+            "n/a"
+        )
     );
 
     // Finish timing this method
@@ -347,9 +362,8 @@ static asio::awaitable<void> base_binary_example(connection& conn)
 
     std::cout << " (in " << duration << ")" << std::endl;
 
-    req = request{false};  // TODO: replace by clear when we have it
-    req.add_close_statement(select_stmt.name);
-    req.add_sync();
+    req = request{};  // TODO: replace by clear when we have it
+    req.add_close_statement(select_stmt_name);
 
     response res_close{check_close()};
     if (auto [err_cleanup] = co_await conn.async_exec(req, res_close, asio::as_tuple); err_cleanup.code)

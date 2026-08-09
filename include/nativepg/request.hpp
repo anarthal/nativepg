@@ -8,21 +8,21 @@
 #ifndef NATIVEPG_REQUEST_HPP
 #define NATIVEPG_REQUEST_HPP
 
-#include <system_error>
+#include <boost/compat/function_ref.hpp>
 #include <boost/throw_exception.hpp>
 
 #include <array>
-#include <cstddef>
 #include <cstdint>
-#include <initializer_list>
 #include <span>
 #include <string_view>
+#include <system_error>
+#include <type_traits>
 #include <vector>
 
 #include "nativepg/field_traits.hpp"
-#include "nativepg/parameter_ref.hpp"
 #include "nativepg/protocol/close.hpp"
 #include "nativepg/protocol/flush.hpp"
+#include "nativepg/protocol/format_codes.hpp"
 #include "protocol/bind.hpp"
 #include "protocol/common.hpp"
 #include "protocol/describe.hpp"
@@ -45,20 +45,49 @@ enum class request_message_type
     sync,
 };
 
-template <std::size_t N>
-struct bound_statement
-{
-    std::string_view name;
-    std::array<parameter_ref, N> params;
-};
-
-template <class... Params>
+template <serializable_field... Params>
 struct statement
 {
     std::string name;
-
-    bound_statement<sizeof...(Params)> bind(const Params&... values) { return {name, {values...}}; }
 };
+
+namespace detail {
+
+template <serializable_field T>
+std::error_code do_field_serialize(const T& value, protocol::format_code code, std::vector<unsigned char>& to)
+{
+    if (code == protocol::format_code::binary)
+        return serialize_field_traits<T>::serialize_binary(value, to);
+    else
+        return serialize_field_traits<T>::serialize_text(value, to);
+}
+
+template <serializable_field... Params>
+inline constexpr std::array<std::int32_t, sizeof...(Params)> type_oids_for{{field_serialize_oid<Params>...}};
+
+}  // namespace detail
+
+template <serializable_field T>
+protocol::serializable_ref make_serializable_ref(const T* value)
+{
+    // Required for C-array parameters to work (and hence string literals)
+    using decayed_type = std::decay_t<const T&>;
+
+    // TODO: nullness check
+    return boost::compat::function_ref<std::error_code(protocol::format_code, std::vector<unsigned char>&)>{
+        boost::compat::nontype<detail::do_field_serialize<decayed_type>>,
+        *value
+    };
+}
+
+// Type-erases each parameter into a serializable_ref.
+// The returned refs point into params, so the pointees
+// must outlive the returned array
+template <serializable_field... Params>
+std::array<protocol::serializable_ref, sizeof...(Params)> make_serializable_refs(const Params&... params)
+{
+    return {{make_serializable_ref(&params)...}};
+}
 
 // TODO: a clear method is missing
 class request
@@ -107,30 +136,33 @@ public:
     // Adds a simple query (PQsendQuery)
     request& add_simple_query(std::string_view q) { return add(protocol::query{q}); }
 
-    // Adds a query with parameters using the extended protocol (PQsendQueryParams)
-    request& add_query(
-        std::string_view q,
-        std::initializer_list<parameter_ref> params,
-        protocol::format_code param_format = protocol::format_code::binary,
-        protocol::format_code result_format = protocol::format_code::text,
-        std::int32_t max_num_rows = 0
-    )
+    struct add_query_args
     {
-        return add_query(
-            q,
-            std::span<const parameter_ref>(params),
-            param_format,
-            result_format,
-            max_num_rows
-        );
+        protocol::format_codes param_format = protocol::format_code::binary;
+        protocol::format_codes result_format = protocol::format_code::text;
+        std::int32_t max_num_rows = 0;
+        std::string_view statement_name = {};
+        std::string_view portal_name = {};
+    };
+
+    // Adds a query with parameters using the extended protocol (PQsendQueryParams)
+    template <serializable_field... Params>
+    request& add_query(std::string_view q, const Params&... params)
+    {
+        return add_query(q, add_query_args{}, params...);
+    }
+
+    template <serializable_field... Params>
+    request& add_query(std::string_view q, const add_query_args& args, const Params&... params)
+    {
+        return add_query(q, make_serializable_refs(params...), detail::type_oids_for<Params...>, args);
     }
 
     request& add_query(
         std::string_view q,
-        std::span<const parameter_ref> params,
-        protocol::format_code param_format = protocol::format_code::binary,
-        protocol::format_code result_format = protocol::format_code::text,
-        std::int32_t max_num_rows = 0
+        std::span<const protocol::serializable_ref> params,
+        std::span<const std::int32_t> param_type_oids,
+        const add_query_args& args
     );
 
     // Prepares a named statement (PQsendPrepare)
@@ -149,53 +181,42 @@ public:
         return *this;
     }
 
-    // Prepares a named statement (PQsendPrepare)
-    template <class... Params>
+    template <serializable_field... Params>
     request& add_prepare(std::string_view query, const statement<Params...>& stmt)
     {
-        std::array<std::int32_t, sizeof...(Params)> type_oids{{field_serialize_oid<Params>...}};
-        return add_prepare(query, stmt.name, type_oids);
+        return add_prepare(query, stmt.name, detail::type_oids_for<Params...>);
     }
+
+    struct add_execute_args
+    {
+        protocol::format_codes param_format = protocol::format_code::binary;
+        protocol::format_codes result_format = protocol::format_code::text;
+        std::int32_t max_num_rows = 0;
+        std::string_view portal_name = {};
+    };
 
     // Executes a named prepared statement (PQsendQueryPrepared)
-    // Parameter format defaults to text because binary requires sending
-    // type OIDs in prepare, and we're not sure if the user did it
+    template <serializable_field... Params>
+    request& add_execute(const statement<Params...>& stmt, const std::type_identity_t<Params>&... params)
+    {
+        return add_execute(stmt, add_execute_args{}, params...);
+    }
+
+    template <serializable_field... Params>
     request& add_execute(
-        std::string_view statement_name,
-        std::initializer_list<parameter_ref> params,
-        protocol::format_code param_format = protocol::format_code::text,
-        protocol::format_code result_format = protocol::format_code::text,
-        std::int32_t max_num_rows = 0
+        const statement<Params...>& stmt,
+        const add_execute_args& args,
+        const std::type_identity_t<Params>&... params
     )
     {
-        return add_execute(
-            statement_name,
-            std::span<const parameter_ref>(params),
-            param_format,
-            result_format,
-            max_num_rows
-        );
+        return add_execute(stmt.name, make_serializable_refs(params...), args);
     }
 
     request& add_execute(
         std::string_view statement_name,
-        std::span<const parameter_ref> params,
-        protocol::format_code param_format = protocol::format_code::text,
-        protocol::format_code result_format = protocol::format_code::text,
-        std::int32_t max_num_rows = 0
+        std::span<const protocol::serializable_ref> params,
+        const add_execute_args& args
     );
-
-    // Executes a named prepared statement (PQsendQueryPrepared)
-    template <std::size_t N>
-    request& add_execute(
-        const bound_statement<N>& stmt,
-        protocol::format_code param_format = protocol::format_code::binary,
-        protocol::format_code result_format = protocol::format_code::text,
-        std::int32_t max_num_rows = 0
-    )
-    {
-        return add_execute(stmt.name, stmt.params, param_format, result_format, max_num_rows);
-    }
 
     // Describes a named prepared statement (PQsendDescribePrepared)
     request& add_describe_statement(std::string_view statement_name)
@@ -227,43 +248,6 @@ public:
         add(protocol::close{protocol::portal_or_statement::portal, portal_name});
         maybe_add_sync();
         return *this;
-    }
-
-    // Low level
-    request& add_bind(
-        std::string_view statement_name,
-        std::initializer_list<const parameter_ref> params,
-        protocol::format_code param_format = protocol::format_code::text,
-        std::string_view portal_name = {},
-        protocol::format_code result_format = protocol::format_code::text
-    )
-    {
-        return add_bind(
-            statement_name,
-            std::span<const parameter_ref>(params),
-            param_format,
-            portal_name,
-            result_format
-        );
-    }
-
-    request& add_bind(
-        std::string_view statement_name,
-        std::span<const parameter_ref> params,
-        protocol::format_code param_format = protocol::format_code::text,
-        std::string_view portal_name = {},
-        protocol::format_code result_format = protocol::format_code::text
-    );
-
-    template <std::size_t N>
-    request& add_bind(
-        const bound_statement<N>& stmt,
-        protocol::format_code param_format = protocol::format_code::binary,
-        std::string_view portal_name = {},
-        protocol::format_code result_format = protocol::format_code::text
-    )
-    {
-        return add_bind(stmt.name, stmt.params, param_format, portal_name, result_format);
     }
 
     request& add_sync() { return add(protocol::sync{}); }

@@ -5,13 +5,11 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include <boost/container/small_vector.hpp>
-
 #include <cstdint>
 #include <span>
 #include <string_view>
 
-#include "nativepg/parameter_ref.hpp"
+#include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/common.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/parse.hpp"
@@ -21,71 +19,53 @@ using namespace nativepg;
 
 request& request::add_query(
     std::string_view q,
-    std::span<const parameter_ref> params,
-    protocol::format_code param_format,
-    protocol::format_code result_format,
-    std::int32_t max_num_rows
+    std::span<const protocol::serializable_ref> params,
+    std::span<const std::int32_t> param_type_oids,
+    const add_query_args& args
 )
 {
-    // Determine the parameter OIDs. These are required if using binary,
-    // but we always send them for consistency
-    boost::container::small_vector<std::int32_t, 128u> oids;
-    oids.reserve(params.size());
-    for (const auto& p : params)
-        oids.push_back(p.type_oid());
-
     // Add the messages
-    add(protocol::parse_t{.statement_name = {}, .query = q, .parameter_type_oids = oids});
-    add_execute({}, params, param_format, result_format, max_num_rows);
+    add(protocol::parse_t{
+        .statement_name = args.statement_name,
+        .query = q,
+        .parameter_type_oids = param_type_oids
+    });
+    add_execute(
+        args.statement_name,
+        params,
+        {
+            .param_format = args.param_format,
+            .result_format = args.result_format,
+            .max_num_rows = args.max_num_rows,
+            .portal_name = args.portal_name,
+        }
+    );
 
     return *this;
 }
 
 request& request::add_execute(
     std::string_view statement_name,
-    std::span<const parameter_ref> params,
-    protocol::format_code param_format,
-    protocol::format_code result_format,
-    std::int32_t max_num_rows
+    std::span<const protocol::serializable_ref> params,
+    const add_execute_args& args
 )
 {
-    add_bind(statement_name, params, param_format, {}, result_format);
-    add(protocol::describe{protocol::portal_or_statement::portal, {}});
+    add(protocol::bind{
+        .portal_name = args.portal_name,
+        .statement_name = statement_name,
+        .parameter_fmt_codes = args.param_format,
+        .parameters = params,
+        .result_fmt_codes = args.result_format,
+    });
+    add(protocol::describe{
+        .type = protocol::portal_or_statement::portal,
+        .name = args.portal_name,
+    });
     add(protocol::execute{
-        .portal_name = {},
-        .max_num_rows = max_num_rows,
+        .portal_name = args.portal_name,
+        .max_num_rows = args.max_num_rows,
     });
     maybe_add_sync();
 
     return *this;
-}
-
-request& request::add_bind(
-    std::string_view statement_name,
-    std::span<const parameter_ref> params,
-    protocol::format_code param_format,
-    std::string_view portal_name,
-    protocol::format_code result_format
-)
-{
-    return add(
-        protocol::bind{
-            .portal_name = portal_name,
-            .statement_name = statement_name,
-            .parameter_fmt_codes = param_format,
-            .parameters_fn =
-                [params, param_format](protocol::bind_context& ctx) {
-                    for (const parameter_ref& param : params)
-                    {
-                        ctx.start_parameter();
-                        const auto ec = param_format == protocol::format_code::binary
-                                            ? param.serialize_binary(ctx.buffer())
-                                            : param.serialize_text(ctx.buffer());
-                        if (ec)
-                            ctx.add_error(ec);
-                    }
-                },
-            .result_fmt_codes = result_format,
-        }
-    );
 }

@@ -27,3 +27,15 @@ These can happen in C++ (`std::size_t` is always unsigned).
 PostgreSQL already performs a level of type coercion. Passing Postgres an `int4` where an `int8` is
 required works. Accepting several C++ types for a single Postgres type during parsing
 (i.e. `int4` being compatible with `std::int32_t` and `std::int64_t`) implements similar type coercion rules in the C++ side.
+
+## Why does `serializable_ref` deal with `format_code`, but not with the type's OID?
+
+Because both parameter values and parameter format codes are part of the `bind`
+message. The serialized parameter value should use the format code advertised
+in `bind`. Making `serializable_ref` know about `format_code` makes it impossible
+for them to go out of sync.
+
+On the other hand, parameter type OIDs are specified in `parse` messages.
+It is common to send `parse` independently of `bind` - this is the case when
+preparing a statement and executing it later. For this reason,
+it is inviable to embed the type's OID in `serializable_ref`.

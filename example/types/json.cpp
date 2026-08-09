@@ -53,8 +53,7 @@ static asio::awaitable<void> json_text_example(connection& conn)
     req.add_query(
         R"sql(
         SELECT '{ "name": "John", "age": 30, "address": { "street": "Main St", "city": "New York" }}'::json as j
-        )sql",
-        {}
+        )sql"
     );
 
     // Structures to parse the response into
@@ -84,14 +83,11 @@ static asio::awaitable<void> json_binary_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_prepare("SELECT $1::text::json as j", {"json_bintest"})
-        .add_execute(
-            "json_bintest",
-            {R"json({ "name": "John", "age": 30, "address": { "street": "Main St", "city": "New York" }})json"},
-            protocol::format_code::text,
-            protocol::format_code::binary,
-            1
-        );
+    req.add_query(
+        "SELECT $1::text::json as j",
+        {.param_format = protocol::format_code::text, .result_format = protocol::format_code::binary},
+        R"json({ "name": "John", "age": 30, "address": { "street": "Main St", "city": "New York" }})json"
+    );
 
     // Structures to parse the response into
     std::vector<json_row> select_vec;
@@ -123,8 +119,7 @@ static asio::awaitable<void> jsonb_text_example(connection& conn)
     req.add_query(
         R"sql(
         SELECT '{ "name": "John", "age": 30, "address": { "street": "Main St", "city": "New York" }}'::jsonb as jb
-        )sql",
-        {}
+        )sql"
     );
 
     // Structures to parse the response into
@@ -154,14 +149,11 @@ static asio::awaitable<void> jsonb_binary_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_prepare("SELECT $1::jsonb as jb", {"jsonb_bintest"})
-        .add_execute(
-            "jsonb_bintest",
-            {R"json({ "name": "John", "age": 30, "address": { "street": "Main St", "city": "New York" }})json"},
-            protocol::format_code::text,
-            protocol::format_code::binary,
-            1
-        );
+    req.add_query(
+        "SELECT $1::jsonb as jb",
+        {.param_format = protocol::format_code::text, .result_format = protocol::format_code::binary},
+        R"json({ "name": "John", "age": 30, "address": { "street": "Main St", "city": "New York" }})json"
+    );
 
     // Structures to parse the response into
     std::vector<jsonb_row> select_vec;

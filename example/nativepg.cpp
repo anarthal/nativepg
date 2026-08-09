@@ -55,8 +55,8 @@ static asio::awaitable<void> co_main()
 
     // Compose our request
     request req;
-    req.add_query("SELECT * FROM myt' WHERE f1 <> $1", {"abc"});
-    req.add_query("SELECT * FROM myt WHERE f1 <> 'abc'", {});
+    req.add_query("SELECT * FROM myt' WHERE f1 <> $1", "abc");
+    req.add_query("SELECT * FROM myt WHERE f1 <> 'abc'");
 
     // Structures to parse the response into
     std::vector<myrow> vec1, vec2;

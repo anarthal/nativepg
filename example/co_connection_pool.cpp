@@ -85,7 +85,7 @@ static capy::io_task<std::string> get_employee_details(co_connection_pool& pool,
 
     // Build the query. Positional parameters in PostgreSQL use $N.
     request req;
-    req.add_query("SELECT first_name, last_name FROM employee WHERE id = $1", {employee_id});
+    req.add_query("SELECT first_name, last_name FROM employee WHERE id = $1", employee_id);
 
     std::vector<employee> rows;
 

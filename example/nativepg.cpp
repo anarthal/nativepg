@@ -60,12 +60,9 @@ static asio::awaitable<void> co_main()
 
     // Structures to parse the response into
     std::vector<myrow> vec1, vec2;
-    response res{into(vec1), into(vec2)};
 
-    auto [err] = co_await conn.async_exec(req, &res, asio::as_tuple);
+    auto [err] = co_await conn.async_exec(req, response{into(vec1), into(vec2)}, asio::as_tuple);
     print_err("Operation result: ", err);
-    print_err("Q1 result: ", std::get<0>(res.handlers()).result());
-    print_err("Q2 result: ", std::get<1>(res.handlers()).result());
 
     for (const auto& r : vec1)
         std::cout << "Got row (1): " << r.f1 << ", " << r.f3 << std::endl;

@@ -9,17 +9,35 @@
 #define NATIVEPG_PROTOCOL_READ_RESPONSE_FSM_HPP
 
 #include <boost/compat/function_ref.hpp>
-#include <system_error>
 
 #include <cstddef>
 #include <span>
+#include <system_error>
 
 #include "nativepg/protocol/any_backend_message.hpp"
-#include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
 
 namespace nativepg::protocol {
+
+namespace detail {
+
+// Split here so we don't need to declare private functions in this header
+struct read_response_fsm_impl
+{
+    enum class state_t;
+
+    // Params
+    const request* req;
+    response_handler_ref handler;
+    bool allow_copy;
+
+    // Working state
+    std::size_t current{};
+    state_t state{static_cast<state_t>(0)};
+};
+
+}  // namespace detail
 
 class read_response_fsm
 {
@@ -40,40 +58,23 @@ public:
     };
 
     read_response_fsm(const request* req, response_handler_ref handler, bool allow_copy = false) noexcept
-        : req_(req), handler_(handler), allow_copy_(allow_copy)
+        : impl_{req, handler, allow_copy}
     {
         BOOST_ASSERT(req != nullptr);
     }
 
-    const request& get_request() const { return *req_; }
-    response_handler_ref get_handler() const { return handler_; }
+    const request& get_request() const { return *impl_.req; }
+    response_handler_ref get_handler() const { return impl_.handler; }
 
     std::span<const request_message_type> get_remaining_messages() const
     {
-        return req_->messages().subspan(current_);
+        return impl_.req->messages().subspan(impl_.current);
     }
 
     result resume(const any_backend_message& msg);
 
 private:
-    enum class state_t;
-
-    const request* req_;
-    response_handler_ref handler_;
-    std::size_t current_{};
-    state_t state_{static_cast<state_t>(0)};
-    bool allow_copy_;
-
-    inline void call_handler(const any_request_message& msg) { handler_.on_message(msg, current_); }
-    result advance();
-    result handle_bind(const any_backend_message&);
-    result handle_close(const any_backend_message&);
-    result handle_describe(const any_backend_message&);
-    result handle_execute(const any_backend_message&);
-    result handle_parse(const any_backend_message&);
-    result handle_sync(const any_backend_message&);
-    result handle_query(const any_backend_message&);
-    result handle_error(const error_response& err);
+    detail::read_response_fsm_impl impl_;
 };
 
 }  // namespace nativepg::protocol

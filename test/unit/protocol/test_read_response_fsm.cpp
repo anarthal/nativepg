@@ -48,14 +48,12 @@ const error_code needs_more{client_errc::needs_more};
 struct mock_handler
 {
     std::vector<on_msg_args> msgs;
-    extended_error err;
 
     handler_setup_result setup(const request&, std::size_t offset) { return {offset}; }
-    void on_message(const any_request_message& msg, std::size_t offset)
+    void on_message(const any_request_message& msg, std::size_t offset, extended_error&)
     {
         msgs.push_back({to_type(msg), offset});
     }
-    const extended_error& result() const { return err; }
 };
 
 struct fixture
@@ -576,6 +574,13 @@ void test_error_recovery_sync_last()
         {response_msg_type::error_response, 0u},
     });
 }
+
+// --- Errors reported by the handler ---
+// 1. An error reported by the handler does not cause the pipeline to fail,
+//     but is reported in get_handler_error()
+// 2. Handler reports error, then non-error => error wins
+// 3. Handler reports error, then another error => first error wins
+// 4. An error reported by the FSM does not finish in get_handler_error()
 
 // TODO: test combining simple queries and extended queries
 // TODO: test flush

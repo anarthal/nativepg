@@ -8,6 +8,11 @@
 #ifndef NATIVEPG_ERROR_INTO_HPP
 #define NATIVEPG_ERROR_INTO_HPP
 
+#include <concepts>
+#include <cstddef>
+#include <type_traits>
+#include <utility>
+
 #include "nativepg/extended_error.hpp"
 #include "nativepg/responses/response_handler.hpp"
 
@@ -23,11 +28,15 @@ class error_into
     extended_error* err_ptr_;
 
 public:
-    // TODO: ctor that decays
+    template <class H>
+        requires std::constructible_from<Handler, H&&>
+    error_into(H&& handler, extended_error& err) : inner_(std::forward<H>(handler)), err_ptr_(&err)
+    {
+    }
 
     handler_setup_result setup(const request& req, std::size_t offset)
     {
-        err_ptr_ = {};
+        *err_ptr_ = {};
         return inner_.setup(req, offset);
     }
 
@@ -39,7 +48,9 @@ public:
     }
 };
 
-// TODO: class template deduction guides
+template <class H>
+error_into(H&&, extended_error&) -> error_into<std::decay_t<H>>;
+
 }  // namespace nativepg
 
 #endif

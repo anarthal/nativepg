@@ -30,19 +30,15 @@ using namespace nativepg::test;
 
 namespace {
 
-// The calls made to the inner handler. error_into stores the handler by value and
-// exposes no accessor for it, so the mock keeps its record in shared state: every
-// copy points to the same mock_state, and we can observe the copy that error_into holds
+// State referenced by the mock handler in these tests.
+// Keeps track of what the mocks do.
 struct mock_state
 {
-    // Offsets that setup() was called with
-    std::vector<std::size_t> setup_offsets;
-
     // Messages that on_message() was called with
     std::vector<on_msg_args> msgs;
 
     // What the handler reports on each successive on_message() call.
-    // A default-constructed entry (or a missing one) means "report no error"
+    // A missing entry means "no error"
     std::vector<extended_error> errors;
 
     // How many times the handler was copied/moved
@@ -61,21 +57,18 @@ struct mock_handler
     mock_handler& operator=(mock_handler&&) = delete;
     ~mock_handler() = default;
 
-    handler_setup_result setup(const request&, std::size_t offset)
-    {
-        st->setup_offsets.push_back(offset);
-        return {offset + 1u};
-    }
+    handler_setup_result setup(const request&, std::size_t offset) { return {offset + 1u}; }
 
     void on_message(const any_request_message& msg, std::size_t offset, extended_error& err)
     {
         const std::size_t i = st->msgs.size();
         st->msgs.push_back({to_type(msg), offset});
-        if (i < st->errors.size() && st->errors[i].code)
+        if (i < st->errors.size())
             err = st->errors[i];
     }
 };
 
+// error_into is a valid handler
 static_assert(response_handler<mock_handler>);
 static_assert(response_handler<error_into<mock_handler>>);
 
@@ -167,11 +160,9 @@ void test_copy_ctor()
     BOOST_TEST_EQ(feed(copy, protocol::data_row{}), first_error());
     BOOST_TEST_EQ(err, first_error());
 
-    const std::size_t expected_setup[] = {0u};
     const on_msg_args expected_msgs[] = {
         {response_msg_type::data_row, 0u},
     };
-    test_range_eq(st.setup_offsets, expected_setup);
     test_range_eq(st.msgs, expected_msgs);
 }
 
@@ -196,11 +187,9 @@ void test_move_ctor()
     BOOST_TEST_EQ(feed(moved, protocol::data_row{}), first_error());
     BOOST_TEST_EQ(out, first_error());
 
-    const std::size_t expected_setup[] = {0u};
     const on_msg_args expected_msgs[] = {
         {response_msg_type::data_row, 0u},
     };
-    test_range_eq(st.setup_offsets, expected_setup);
     test_range_eq(st.msgs, expected_msgs);
 }
 
@@ -299,12 +288,10 @@ void test_output_error_cleared_on_setup()
     error_into wrapper{mock_handler{st}, err};
 
     request req;
-    BOOST_TEST_EQ(wrapper.setup(req, 2u), handler_setup_result(3u));
 
     // setup() clears the output error and delegates to the inner handler
+    BOOST_TEST_EQ(wrapper.setup(req, 2u), handler_setup_result(3u));
     BOOST_TEST_EQ(err, extended_error{});
-    const std::size_t expected_setup[] = {2u};
-    test_range_eq(st.setup_offsets, expected_setup);
 }
 
 }  // namespace

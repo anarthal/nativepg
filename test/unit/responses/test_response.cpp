@@ -44,16 +44,6 @@ struct mock_handler
     }
 };
 
-// Calls on_message and returns the produced error
-// TODO: duplicated
-template <response_handler Handler>
-extended_error feed(Handler& h, const any_request_message& msg, std::size_t offset)
-{
-    extended_error err;
-    h.on_message(msg, offset, err);
-    return err;
-}
-
 void test_two_handlers()
 {
     // Test setup

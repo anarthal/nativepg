@@ -79,15 +79,6 @@ extended_error second_error()
     return {client_errc::incompatible_field_type, diagnostics(std::string("second"))};
 }
 
-// Calls on_message and returns the produced error
-template <response_handler Handler>
-extended_error feed(Handler& h, const any_request_message& msg)
-{
-    extended_error err;
-    h.on_message(msg, 42u, err);
-    return err;
-}
-
 //
 // Constructor decays
 //
@@ -155,7 +146,7 @@ void test_copy_ctor()
     request req;
     BOOST_TEST_EQ(copy.setup(req, 0u), handler_setup_result(1u));
     st.errors = {first_error()};
-    BOOST_TEST_EQ(feed(copy, protocol::data_row{}), first_error());
+    BOOST_TEST_EQ(feed(copy, protocol::data_row{}, 42u), first_error());
     BOOST_TEST_EQ(err, first_error());
 
     const on_msg_args expected_msgs[] = {
@@ -182,7 +173,7 @@ void test_move_ctor()
     request req;
     BOOST_TEST_EQ(moved.setup(req, 0u), handler_setup_result(1u));
     st.errors = {first_error()};
-    BOOST_TEST_EQ(feed(moved, protocol::data_row{}), first_error());
+    BOOST_TEST_EQ(feed(moved, protocol::data_row{}, 42u), first_error());
     BOOST_TEST_EQ(out, first_error());
 
     const on_msg_args expected_msgs[] = {
@@ -202,11 +193,11 @@ void test_nonerror_error()
     error_into handler{mock_handler{st}, err};
 
     // The 1st message succeeds, so nothing is captured
-    BOOST_TEST_EQ(feed(handler, protocol::data_row{}), extended_error{});
+    BOOST_TEST_EQ(feed(handler, protocol::data_row{}, 42u), extended_error{});
     BOOST_TEST_EQ(err, extended_error{});
 
     // The 2nd one fails, and the error is set
-    BOOST_TEST_EQ(feed(handler, protocol::command_complete{}), second_error());
+    BOOST_TEST_EQ(feed(handler, protocol::command_complete{}, 42u), second_error());
     BOOST_TEST_EQ(err, second_error());
 
     // The inner handler saw both messages
@@ -225,11 +216,11 @@ void test_error_nonerror()
     error_into wrapper{mock_handler{st}, err};
 
     // The 1st message fails and sets
-    BOOST_TEST_EQ(feed(wrapper, protocol::data_row{}), first_error());
+    BOOST_TEST_EQ(feed(wrapper, protocol::data_row{}, 42u), first_error());
     BOOST_TEST_EQ(err, first_error());
 
     // A later success doesn't clear what we captured
-    BOOST_TEST_EQ(feed(wrapper, protocol::command_complete{}), extended_error{});
+    BOOST_TEST_EQ(feed(wrapper, protocol::command_complete{}, 42u), extended_error{});
     BOOST_TEST_EQ(err, first_error());
 
     const on_msg_args expected_msgs[] = {
@@ -247,11 +238,11 @@ void test_error_error()
     error_into wrapper{mock_handler{st}, err};
 
     // The 1st error sets the output
-    BOOST_TEST_EQ(feed(wrapper, protocol::data_row{}), first_error());
+    BOOST_TEST_EQ(feed(wrapper, protocol::data_row{}, 42u), first_error());
     BOOST_TEST_EQ(err, first_error());
 
     // The 2nd error is reported to the caller, but the first one is the one we keep
-    BOOST_TEST_EQ(feed(wrapper, protocol::command_complete{}), second_error());
+    BOOST_TEST_EQ(feed(wrapper, protocol::command_complete{}, 42u), second_error());
     BOOST_TEST_EQ(err, first_error());
 
     const on_msg_args expected_msgs[] = {
@@ -270,7 +261,7 @@ void test_error_message()
     error_into wrapper{mock_handler{st}, out};
 
     // If the inner handler doesn't report the error, we don't, either
-    BOOST_TEST_EQ(feed(wrapper, protocol::error_response{}), extended_error{});
+    BOOST_TEST_EQ(feed(wrapper, protocol::error_response{}, 42u), extended_error{});
     BOOST_TEST_EQ(out, extended_error{});
 
     const on_msg_args expected_msgs[] = {

@@ -201,7 +201,7 @@ struct nativepg::co_multiplexed_connection::impl
         // callback is sync). On cancellation, elm is valid and should be marked as cancelled.
         if (done_event.is_set())
         {
-            co_return {result_ec ? result_ec : std::error_code(handler.result().code)};
+            co_return {result_ec};
         }
         else
         {

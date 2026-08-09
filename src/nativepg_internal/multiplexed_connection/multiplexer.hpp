@@ -121,7 +121,8 @@ public:
                     return {};
 
                 // The FSM terminated, so we're done with this request
-                elms.front().on_done(res);
+                // TODO: we don't have diagnostics here?
+                elms.front().on_done(res ? res : fsm_->get_handler_error().code);
                 elms.pop_front();
                 status_ = status::initial;
 

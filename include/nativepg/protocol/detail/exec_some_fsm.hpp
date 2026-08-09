@@ -129,8 +129,9 @@ public:
                     // Copy messages are never the last one, so this is safe
                     if (auto read_ec = fsm_.resume(res.message); read_ec != client_errc::needs_more)
                     {
+                        // TODO: we don't have diagnostics here?
                         st.read_buffer.consume(consumed_);
-                        return {read_ec};
+                        return {read_ec ? read_ec : fsm_.get_handler_error().code};
                     }
 
                     // React to copy messages

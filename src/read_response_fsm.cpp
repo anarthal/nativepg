@@ -34,7 +34,8 @@ enum class read_response_fsm_impl::state_t
 
 static void call_handler(read_response_fsm_impl& fsm, const any_request_message& msg)
 {
-    fsm.handler.on_message(msg, fsm.current);
+    // First error wins. Pass a dummy object if there is already an error
+    fsm.handler.on_message(msg, fsm.current, fsm.handler_err.code ? fsm.dummy_err : fsm.handler_err);
 }
 
 static std::error_code handle_error(read_response_fsm_impl& fsm, const protocol::error_response& err)

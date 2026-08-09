@@ -8,11 +8,11 @@
 #ifndef NATIVEPG_RESPONSE_HANDLER_HPP
 #define NATIVEPG_RESPONSE_HANDLER_HPP
 
-#include <system_error>
 #include <boost/variant2/variant.hpp>
 
 #include <concepts>
 #include <cstddef>
+#include <system_error>
 
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/bind.hpp"
@@ -67,24 +67,22 @@ concept response_handler = requires(
     T& handler,
     const request& req,
     const any_request_message& msg,
+    extended_error& err,
     std::size_t offset
 ) {
     { handler.setup(req, offset) } -> std::convertible_to<handler_setup_result>;
-    { handler.on_message(msg, offset) };
-    { handler.result() } -> std::same_as<const extended_error&>;
+    { handler.on_message(msg, offset, err) };
 };
 
 // Type-erased reference to a response handler
 class response_handler_ref
 {
     using setup_fn = handler_setup_result (*)(void*, const request&, std::size_t);
-    using on_message_fn = void (*)(void*, const any_request_message&, std::size_t);
-    using result_fn = const extended_error& (*)(const void*);
+    using on_message_fn = void (*)(void*, const any_request_message&, std::size_t, extended_error&);
 
     void* obj_;
     setup_fn setup_;
     on_message_fn on_message_;
-    result_fn result_;
 
     template <class T>
     static handler_setup_result do_setup(void* obj, const request& req, std::size_t offset)
@@ -93,30 +91,27 @@ class response_handler_ref
     }
 
     template <class T>
-    static void do_on_message(void* obj, const any_request_message& msg, std::size_t offset)
+    static void do_on_message(
+        void* obj,
+        const any_request_message& msg,
+        std::size_t offset,
+        extended_error& err
+    )
     {
-        static_cast<T*>(obj)->on_message(msg, offset);
-    }
-
-    template <class T>
-    static const extended_error& do_result(const void* obj)
-    {
-        return static_cast<const T*>(obj)->result();
+        static_cast<T*>(obj)->on_message(msg, offset, err);
     }
 
 public:
     template <response_handler T>
-    response_handler_ref(T* obj) noexcept
-        : obj_(obj), setup_(&do_setup<T>), on_message_(&do_on_message<T>), result_(&do_result<T>)
+    response_handler_ref(T* obj) noexcept : obj_(obj), setup_(&do_setup<T>), on_message_(&do_on_message<T>)
     {
     }
 
     handler_setup_result setup(const request& req, std::size_t offset) { return setup_(obj_, req, offset); }
-    void on_message(const any_request_message& req, std::size_t offset)
+    void on_message(const any_request_message& req, std::size_t offset, extended_error& err)
     {
-        return on_message_(obj_, req, offset);
+        return on_message_(obj_, req, offset, err);
     }
-    const extended_error& result() const { return result_(obj_); }
 };
 
 }  // namespace nativepg

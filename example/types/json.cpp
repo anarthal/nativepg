@@ -53,8 +53,7 @@ static asio::awaitable<void> json_text_example(connection& conn)
     req.add_query(
         R"sql(
         SELECT '{ "name": "John", "age": 30, "address": { "street": "Main St", "city": "New York" }}'::json as j
-        )sql",
-        {}
+        )sql"
     );
 
     // Structures to parse the response into

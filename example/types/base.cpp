@@ -162,8 +162,7 @@ SELECT
     0xFFFFFFFF::oid as o1,
     repeat(chr(1114111), 1)::text as t, -- Highest valid Unicode character (U+10FFFF)
     repeat(chr(1114111), 1)::varchar as v -- Highest valid Unicode character (U+10FFFF)
-    )sql",
-        {}
+    )sql"
     );
 
     // Structures to parse the response into

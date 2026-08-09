@@ -488,7 +488,7 @@ void test_close_error()
 void test_extended_query()
 {
     fixture fix;
-    fix.req.add_query("SELECT 1", {});
+    fix.req.add_query("SELECT 1");
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::parse_complete{}), result_type::read);
@@ -532,7 +532,7 @@ void test_several_syncs()
 {
     fixture fix;
     fix.req.add_close_statement("abc");
-    fix.req.add_query("SELECT 1", {});
+    fix.req.add_query("SELECT 1");
     fix.req.add_describe_portal("def");
 
     // Run the FSM
@@ -564,7 +564,7 @@ void test_error_recovery()
 {
     fixture fix;
     fix.req.add_close_statement("abc");
-    fix.req.add_query("SELECT 1", {});
+    fix.req.add_query("SELECT 1");
     fix.req.add_describe_portal("def");
 
     // Run the FSM

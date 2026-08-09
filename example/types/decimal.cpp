@@ -77,8 +77,7 @@ SELECT
     '9999.99'::decimal(7, 2) as d32,
     '9999999999999.99'::decimal(16, 2) as d64,
     '9999999999999999999999999999999.99'::decimal(34, 2) as d128
-   )sql",
-        {}
+   )sql"
     );
 
     // Structures to parse the response into

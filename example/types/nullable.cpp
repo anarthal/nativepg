@@ -84,8 +84,7 @@ SELECT  'Nullable Test values' as title,
         21.1977::float8 vt_f8,
         NULL::text nt_t,
         'Value Test text'::text vt_t
-    )sql",
-        {}
+    )sql"
     );
 
     // Structures to parse the response into

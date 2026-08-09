@@ -76,7 +76,7 @@ static asio::awaitable<void> date_text_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_query("SELECT DATE '1977-06-21' as d", {});
+    req.add_query("SELECT DATE '1977-06-21' as d");
 
     // Structures to parse the response into
     std::vector<date_row> select_vec;
@@ -135,7 +135,7 @@ static asio::awaitable<void> time_text_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_query("SELECT TIME '12:32:06.342156' as t", {});
+    req.add_query("SELECT TIME '12:32:06.342156' as t");
 
     // Structures to parse the response into
     std::vector<time_row> select_vec;
@@ -195,7 +195,7 @@ static asio::awaitable<void> timetz_text_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_query("SELECT TIMETZ '12:32:06.3421+01:00' as tz", {});
+    req.add_query("SELECT TIMETZ '12:32:06.3421+01:00' as tz");
 
     // Structures to parse the response into
     std::vector<timetz_row> select_vec;
@@ -259,7 +259,7 @@ static asio::awaitable<void> timestamp_text_example(connection& conn)
 
     // Compose our request
     request req;
-    req.add_query("SELECT CURRENT_TIMESTAMP::timestamp as ts", {});
+    req.add_query("SELECT CURRENT_TIMESTAMP::timestamp as ts");
 
     // Structures to parse the response into
     std::vector<timestamp_row> select_vec;

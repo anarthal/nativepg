@@ -34,7 +34,7 @@ struct read_response_fsm_impl
     // Working state
     std::size_t current{};
     state_t state{static_cast<state_t>(0)};
-    extended_error handler_err{}, dummy_err{};
+    extended_error handler_err{};
 };
 
 }  // namespace detail

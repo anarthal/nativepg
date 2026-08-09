@@ -8,6 +8,7 @@
 #include <system_error>
 
 #include "nativepg/client_errc.hpp"
+#include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/read_response_fsm.hpp"
@@ -35,7 +36,15 @@ enum class read_response_fsm_impl::state_t
 static void call_handler(read_response_fsm_impl& fsm, const any_request_message& msg)
 {
     // First error wins. Pass a dummy object if there is already an error
-    fsm.handler.on_message(msg, fsm.current, fsm.handler_err.code ? fsm.dummy_err : fsm.handler_err);
+    if (fsm.handler_err.code) [[unlikely]]
+    {
+        extended_error dummy;
+        fsm.handler.on_message(msg, fsm.current, dummy);
+    }
+    else [[likely]]
+    {
+        fsm.handler.on_message(msg, fsm.current, fsm.handler_err);
+    }
 }
 
 static std::error_code handle_error(read_response_fsm_impl& fsm, const protocol::error_response& err)

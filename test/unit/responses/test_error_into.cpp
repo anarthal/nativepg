@@ -84,7 +84,7 @@ template <response_handler Handler>
 extended_error feed(Handler& h, const any_request_message& msg)
 {
     extended_error err;
-    h.on_message(msg, 0u, err);
+    h.on_message(msg, 42u, err);
     return err;
 }
 
@@ -159,7 +159,7 @@ void test_copy_ctor()
     BOOST_TEST_EQ(err, first_error());
 
     const on_msg_args expected_msgs[] = {
-        {response_msg_type::data_row, 0u},
+        {response_msg_type::data_row, 42u},
     };
     test_range_eq(st.msgs, expected_msgs);
 }
@@ -186,7 +186,7 @@ void test_move_ctor()
     BOOST_TEST_EQ(out, first_error());
 
     const on_msg_args expected_msgs[] = {
-        {response_msg_type::data_row, 0u},
+        {response_msg_type::data_row, 42u},
     };
     test_range_eq(st.msgs, expected_msgs);
 }
@@ -211,8 +211,8 @@ void test_nonerror_error()
 
     // The inner handler saw both messages
     const on_msg_args expected_msgs[] = {
-        {response_msg_type::data_row,         0u},
-        {response_msg_type::command_complete, 0u},
+        {response_msg_type::data_row,         42u},
+        {response_msg_type::command_complete, 42u},
     };
     test_range_eq(st.msgs, expected_msgs);
 }
@@ -233,8 +233,8 @@ void test_error_nonerror()
     BOOST_TEST_EQ(err, first_error());
 
     const on_msg_args expected_msgs[] = {
-        {response_msg_type::data_row,         0u},
-        {response_msg_type::command_complete, 0u},
+        {response_msg_type::data_row,         42u},
+        {response_msg_type::command_complete, 42u},
     };
     test_range_eq(st.msgs, expected_msgs);
 }
@@ -255,8 +255,8 @@ void test_error_error()
     BOOST_TEST_EQ(err, first_error());
 
     const on_msg_args expected_msgs[] = {
-        {response_msg_type::data_row,         0u},
-        {response_msg_type::command_complete, 0u},
+        {response_msg_type::data_row,         42u},
+        {response_msg_type::command_complete, 42u},
     };
     test_range_eq(st.msgs, expected_msgs);
 }
@@ -274,7 +274,7 @@ void test_error_message()
     BOOST_TEST_EQ(out, extended_error{});
 
     const on_msg_args expected_msgs[] = {
-        {response_msg_type::error_response, 0u},
+        {response_msg_type::error_response, 42u},
     };
     test_range_eq(st.msgs, expected_msgs);
 }

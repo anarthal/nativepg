@@ -46,6 +46,10 @@ public:
         if (err.code && !err_ptr_->code)
             *err_ptr_ = err;
     }
+
+    // Access the inner handler
+    Handler& handler() noexcept { return inner_; }
+    const Handler& handler() const noexcept { return inner_; }
 };
 
 template <class H>

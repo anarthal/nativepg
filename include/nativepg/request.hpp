@@ -8,18 +8,15 @@
 #ifndef NATIVEPG_REQUEST_HPP
 #define NATIVEPG_REQUEST_HPP
 
-#include <boost/compat/detail/nontype.hpp>
 #include <boost/compat/function_ref.hpp>
 #include <boost/throw_exception.hpp>
 
 #include <array>
-#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <string_view>
 #include <system_error>
 #include <type_traits>
-#include <utility>
 #include <vector>
 
 #include "nativepg/field_traits.hpp"
@@ -184,16 +181,12 @@ public:
         return *this;
     }
 
-    // Prepares a named statement (PQsendPrepare)
     template <serializable_field... Params>
     request& add_prepare(std::string_view query, const statement<Params...>& stmt)
     {
         return add_prepare(query, stmt.name, detail::type_oids_for<Params...>);
     }
 
-    // Executes a named prepared statement (PQsendQueryPrepared)
-    // Parameter format defaults to text because binary requires sending
-    // type OIDs in prepare, and we're not sure if the user did it
     struct add_execute_args
     {
         protocol::format_codes param_format = protocol::format_code::binary;
@@ -202,6 +195,7 @@ public:
         std::string_view portal_name = {};
     };
 
+    // Executes a named prepared statement (PQsendQueryPrepared)
     template <serializable_field... Params>
     request& add_execute(const statement<Params...>& stmt, const std::type_identity_t<Params>&... params)
     {

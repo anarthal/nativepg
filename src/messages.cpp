@@ -754,7 +754,7 @@ void serialize_fmt_codes(const format_codes& fmt_codes, detail::serialization_co
 }
 
 // Retrieves the format code to apply to the parameter at the given index.
-// Precondition: if codes is a list, idx is in range. check_format_codes_size enforces this
+// Precondition: if codes is a list, idx is in range.
 static format_code format_code_for(format_codes codes, std::size_t idx)
 {
     switch (codes.type())

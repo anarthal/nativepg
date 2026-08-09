@@ -38,6 +38,7 @@
 #include "nativepg/protocol/detail/serialization_context.hpp"
 #include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/flush.hpp"
+#include "nativepg/protocol/format_codes.hpp"
 #include "nativepg/protocol/header.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/parse.hpp"
@@ -752,7 +753,26 @@ void serialize_fmt_codes(const format_codes& fmt_codes, detail::serialization_co
     }
 }
 
-void serialize_params(std::span<const serializable_ref> params, detail::serialization_context& ctx)
+// Retrieves the format code to apply to the parameter at the given index.
+// Precondition: if codes is a list, idx is in range. check_format_codes_size enforces this
+static format_code format_code_for(format_codes codes, std::size_t idx)
+{
+    switch (codes.type())
+    {
+        case format_codes::kind::all_text: return format_code::text;
+        case format_codes::kind::all_binary: return format_code::binary;
+        case format_codes::kind::list:
+            BOOST_ASSERT(idx < codes.get_list().size());
+            return codes.get_list()[idx];
+        default: BOOST_ASSERT(false); return format_code::text;
+    }
+}
+
+void serialize_params(
+    std::span<const serializable_ref> params,
+    format_codes codes,
+    detail::serialization_context& ctx
+)
 {
     // Number of parameters
     if (params.size() > (std::numeric_limits<std::int16_t>::max)())
@@ -765,8 +785,9 @@ void serialize_params(std::span<const serializable_ref> params, detail::serializ
     // Each parameter is an Int32 size, followed by that many bytes.
     // A size of -1 means NULL, and is followed by no bytes at all
     auto& buffer = ctx.buffer();
-    for (const auto& param : params)
+    for (std::size_t i = 0; i < params.size(); ++i)
     {
+        const auto& param = params[i];
         if (!param.has_value())
         {
             ctx.add_integral(static_cast<std::int32_t>(-1));
@@ -778,7 +799,7 @@ void serialize_params(std::span<const serializable_ref> params, detail::serializ
         ctx.add_bytes(std::array<unsigned char, 4>{});
 
         // Serialize the value
-        if (auto ec = (*param)(buffer))
+        if (auto ec = (*param)(format_code_for(codes, i), buffer))
         {
             ctx.add_error(ec);
             return;
@@ -801,6 +822,13 @@ void serialize_params(std::span<const serializable_ref> params, detail::serializ
 
 std::error_code nativepg::protocol::serialize(const bind& msg, std::vector<unsigned char>& to)
 {
+    // Are the passed format codes compatible with the parameters?
+    if (msg.parameter_fmt_codes.type() == format_codes::kind::list &&
+        msg.parameter_fmt_codes.get_list().size() != msg.parameters.size())
+    {
+        return client_errc::num_format_codes_mismatch;
+    }
+
     detail::serialization_context ctx(to);
 
     // Header
@@ -814,7 +842,7 @@ std::error_code nativepg::protocol::serialize(const bind& msg, std::vector<unsig
     serialize_fmt_codes(msg.parameter_fmt_codes, ctx);
 
     // Serialize the parameters
-    serialize_params(msg.parameters, ctx);
+    serialize_params(msg.parameters, msg.parameter_fmt_codes, ctx);
 
     // Result format codes
     serialize_fmt_codes(msg.result_fmt_codes, ctx);

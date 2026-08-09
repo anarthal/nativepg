@@ -24,7 +24,7 @@ namespace protocol {
 
 // TODO: rename all this and wrap this
 using serializable_ref = std::optional<
-    boost::compat::function_ref<std::error_code(std::vector<unsigned char>&)>>;
+    boost::compat::function_ref<std::error_code(format_code, std::vector<unsigned char>&)>>;
 
 struct bind
 {

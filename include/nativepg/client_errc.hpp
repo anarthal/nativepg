@@ -114,6 +114,11 @@ enum class client_errc : int
     // You issued a COPY SQL statement through an API that doesn't support COPY operations.
     // Use an appropriate API, instead
     copy_not_allowed,
+
+    // There is a mismatch between the number of format codes
+    // and parameters passed to a bind message. Either use a single
+    // format code for all parameters, or the same number of codes than parameters.
+    num_format_codes_mismatch,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

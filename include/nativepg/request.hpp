@@ -54,59 +54,15 @@ struct statement
     std::string name;
 };
 
-template <serializable_field T>
-protocol::serializable_ref make_serializable_ref(const T* value, protocol::format_code code)
-{
-    // Required for C-array parameters to work (and hence string literals)
-    using decayed_type = std::decay_t<const T&>;
-
-    // TODO: nullness check
-    if (code == protocol::format_code::binary)
-    {
-        return boost::compat::function_ref<std::error_code(std::vector<unsigned char>&)>{
-            boost::compat::nontype<field_serialize_binary<decayed_type>>,
-            *value
-        };
-    }
-    else
-    {
-        BOOST_ASSERT(code == protocol::format_code::text);
-        return boost::compat::function_ref<std::error_code(std::vector<unsigned char>&)>{
-            boost::compat::nontype<field_serialize_text<decayed_type>>,
-            *value
-        };
-    }
-}
-
 namespace detail {
 
-// Retrieves the format code to apply to the parameter at the given index.
-// Precondition: if codes is a list, idx is in range. check_format_codes_size enforces this
-inline protocol::format_code format_code_for(protocol::format_codes codes, std::size_t idx)
+template <serializable_field T>
+std::error_code do_field_serialize(const T& value, protocol::format_code code, std::vector<unsigned char>& to)
 {
-    switch (codes.type())
-    {
-        case protocol::format_codes::kind::all_text: return protocol::format_code::text;
-        case protocol::format_codes::kind::all_binary: return protocol::format_code::binary;
-        case protocol::format_codes::kind::list:
-            BOOST_ASSERT(idx < codes.get_list().size());
-            return codes.get_list()[idx];
-        default: BOOST_ASSERT(false); return protocol::format_code::text;
-    }
-}
-
-// Throws std::invalid_argument if codes is a list with a size other than num_params.
-// Single-code kinds apply to every parameter, so they always match
-void check_format_codes_size(protocol::format_codes codes, std::size_t num_params);
-
-template <std::size_t... I, serializable_field... Params>
-std::array<protocol::serializable_ref, sizeof...(Params)> make_serializable_refs_impl(
-    std::index_sequence<I...>,
-    protocol::format_codes codes,
-    const Params*... params
-)
-{
-    return {{make_serializable_ref(params, format_code_for(codes, I))...}};
+    if (code == protocol::format_code::binary)
+        return serialize_field_traits<T>::serialize_binary(value, to);
+    else
+        return serialize_field_traits<T>::serialize_text(value, to);
 }
 
 template <serializable_field... Params>
@@ -114,18 +70,26 @@ inline constexpr std::array<std::int32_t, sizeof...(Params)> type_oids_for{{fiel
 
 }  // namespace detail
 
-// Type-erases each parameter into a serializable_ref, using the format code that
-// corresponds to its position. The returned refs point into params, so the pointees
+template <serializable_field T>
+protocol::serializable_ref make_serializable_ref(const T* value)
+{
+    // Required for C-array parameters to work (and hence string literals)
+    using decayed_type = std::decay_t<const T&>;
+
+    // TODO: nullness check
+    return boost::compat::function_ref<std::error_code(protocol::format_code, std::vector<unsigned char>&)>{
+        boost::compat::nontype<detail::do_field_serialize<decayed_type>>,
+        *value
+    };
+}
+
+// Type-erases each parameter into a serializable_ref.
+// The returned refs point into params, so the pointees
 // must outlive the returned array
 template <serializable_field... Params>
-std::array<protocol::serializable_ref, sizeof...(Params)> make_serializable_refs(
-    protocol::format_codes codes,
-    const Params&... params
-)
+std::array<protocol::serializable_ref, sizeof...(Params)> make_serializable_refs(const Params&... params)
 {
-    // Validate the number of format codes once, rather than once per parameter
-    detail::check_format_codes_size(codes, sizeof...(Params));
-    return detail::make_serializable_refs_impl(std::index_sequence_for<Params...>{}, codes, &params...);
+    return {{make_serializable_ref(&params)...}};
 }
 
 // TODO: a clear method is missing
@@ -194,12 +158,7 @@ public:
     template <serializable_field... Params>
     request& add_query(std::string_view q, const add_query_args& args, const Params&... params)
     {
-        return add_query(
-            q,
-            make_serializable_refs(args.param_format, params...),
-            detail::type_oids_for<Params...>,
-            args
-        );
+        return add_query(q, make_serializable_refs(params...), detail::type_oids_for<Params...>, args);
     }
 
     request& add_query(
@@ -256,7 +215,7 @@ public:
         const std::type_identity_t<Params>&... params
     )
     {
-        return add_execute(stmt.name, make_serializable_refs(args.param_format, params...), args);
+        return add_execute(stmt.name, make_serializable_refs(params...), args);
     }
 
     request& add_execute(

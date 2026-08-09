@@ -5,36 +5,17 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include <boost/throw_exception.hpp>
-
-#include <cstddef>
 #include <cstdint>
 #include <span>
-#include <stdexcept>
 #include <string_view>
 
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/common.hpp"
 #include "nativepg/protocol/describe.hpp"
-#include "nativepg/protocol/format_codes.hpp"
 #include "nativepg/protocol/parse.hpp"
 #include "nativepg/request.hpp"
 
 using namespace nativepg;
-
-void nativepg::detail::check_format_codes_size(protocol::format_codes codes, std::size_t num_params)
-{
-    // The single-code kinds apply to every parameter, so they match any number of them
-    if (codes.type() == protocol::format_codes::kind::list && codes.get_list().size() != num_params)
-    {
-        BOOST_THROW_EXCEPTION(
-            std::out_of_range(
-                "nativepg::request: the number of parameter format codes doesn't match the number of "
-                "parameters"
-            )
-        );
-    }
-}
 
 request& request::add_query(
     std::string_view q,
@@ -76,7 +57,10 @@ request& request::add_execute(
         .parameters = params,
         .result_fmt_codes = args.result_format,
     });
-    add(protocol::describe{protocol::portal_or_statement::portal, {}});
+    add(protocol::describe{
+        .type = protocol::portal_or_statement::portal,
+        .name = args.portal_name,
+    });
     add(protocol::execute{
         .portal_name = args.portal_name,
         .max_num_rows = args.max_num_rows,

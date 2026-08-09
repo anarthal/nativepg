@@ -19,6 +19,7 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/field_traits.hpp"
 #include "nativepg/field_view.hpp"
+#include "nativepg/protocol/common.hpp"
 #include "nativepg/types.hpp"
 
 namespace nativepg::detail {
@@ -38,8 +39,8 @@ inline constexpr std::int32_t daterange_oid = 3912;
 namespace nativepg {
 
 // --- Parse
-// There is no serialization counterpart yet: nativepg/types/datetime.hpp implements
-// parsing only.
+// There is no serialization counterpart: nativepg/types/datetime.hpp implements parsing only,
+// so these types can't be used as query parameters yet.
 
 // DATE
 template <>
@@ -50,28 +51,18 @@ struct parse_field_traits<std::chrono::sys_days>
         return type_oid == detail::date_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(
+    static std::error_code parse(
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
+        protocol::format_code code,
         std::chrono::sys_days& to
     )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(type_oid == detail::date_oid);
-        return types::parse_text_date(from.data(), to);
-    }
-
-    static std::error_code parse_binary(
-        field_view from,
-        [[maybe_unused]] std::int32_t type_oid,
-        std::chrono::sys_days& to
-    )
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        BOOST_ASSERT(type_oid == detail::date_oid);
-        return types::parse_binary_date(from.data(), to);
+        return code == protocol::format_code::binary ? types::parse_binary_date(from.data(), to)
+                                                     : types::parse_text_date(from.data(), to);
     }
 };
 
@@ -84,28 +75,18 @@ struct parse_field_traits<std::chrono::microseconds>
         return type_oid == detail::time_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(
+    static std::error_code parse(
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
+        protocol::format_code code,
         std::chrono::microseconds& to
     )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(type_oid == detail::time_oid);
-        return types::parse_text_time(from.data(), to);
-    }
-
-    static std::error_code parse_binary(
-        field_view from,
-        [[maybe_unused]] std::int32_t type_oid,
-        std::chrono::microseconds& to
-    )
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        BOOST_ASSERT(type_oid == detail::time_oid);
-        return types::parse_binary_time(from.data(), to);
+        return code == protocol::format_code::binary ? types::parse_binary_time(from.data(), to)
+                                                     : types::parse_text_time(from.data(), to);
     }
 };
 
@@ -118,28 +99,18 @@ struct parse_field_traits<types::pg_timetz>
         return type_oid == detail::timetz_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(
+    static std::error_code parse(
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
+        protocol::format_code code,
         types::pg_timetz& to
     )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(type_oid == detail::timetz_oid);
-        return types::parse_text_timetz(from.data(), to);
-    }
-
-    static std::error_code parse_binary(
-        field_view from,
-        [[maybe_unused]] std::int32_t type_oid,
-        types::pg_timetz& to
-    )
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        BOOST_ASSERT(type_oid == detail::timetz_oid);
-        return types::parse_binary_timetz(from.data(), to);
+        return code == protocol::format_code::binary ? types::parse_binary_timetz(from.data(), to)
+                                                     : types::parse_text_timetz(from.data(), to);
     }
 };
 
@@ -152,28 +123,18 @@ struct parse_field_traits<types::pg_timestamp>
         return type_oid == detail::timestamp_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(
+    static std::error_code parse(
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
+        protocol::format_code code,
         types::pg_timestamp& to
     )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(type_oid == detail::timestamp_oid);
-        return types::parse_text_timestamp(from.data(), to);
-    }
-
-    static std::error_code parse_binary(
-        field_view from,
-        [[maybe_unused]] std::int32_t type_oid,
-        types::pg_timestamp& to
-    )
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        BOOST_ASSERT(type_oid == detail::timestamp_oid);
-        return types::parse_binary_timestamp(from.data(), to);
+        return code == protocol::format_code::binary ? types::parse_binary_timestamp(from.data(), to)
+                                                     : types::parse_text_timestamp(from.data(), to);
     }
 };
 
@@ -186,28 +147,18 @@ struct parse_field_traits<types::pg_timestamptz>
         return type_oid == detail::timestamptz_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(
+    static std::error_code parse(
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
+        protocol::format_code code,
         types::pg_timestamptz& to
     )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(type_oid == detail::timestamptz_oid);
-        return types::parse_text_timestamptz(from.data(), to);
-    }
-
-    static std::error_code parse_binary(
-        field_view from,
-        [[maybe_unused]] std::int32_t type_oid,
-        types::pg_timestamptz& to
-    )
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        BOOST_ASSERT(type_oid == detail::timestamptz_oid);
-        return types::parse_binary_timestamptz(from.data(), to);
+        return code == protocol::format_code::binary ? types::parse_binary_timestamptz(from.data(), to)
+                                                     : types::parse_text_timestamptz(from.data(), to);
     }
 };
 
@@ -220,28 +171,18 @@ struct parse_field_traits<types::pg_interval>
         return type_oid == detail::interval_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(
+    static std::error_code parse(
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
+        protocol::format_code code,
         types::pg_interval& to
     )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(type_oid == detail::interval_oid);
-        return types::parse_text_interval(from.data(), to);
-    }
-
-    static std::error_code parse_binary(
-        field_view from,
-        [[maybe_unused]] std::int32_t type_oid,
-        types::pg_interval& to
-    )
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        BOOST_ASSERT(type_oid == detail::interval_oid);
-        return types::parse_binary_interval(from.data(), to);
+        return code == protocol::format_code::binary ? types::parse_binary_interval(from.data(), to)
+                                                     : types::parse_text_interval(from.data(), to);
     }
 };
 

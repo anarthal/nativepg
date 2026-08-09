@@ -787,20 +787,22 @@ void serialize_params(
     auto& buffer = ctx.buffer();
     for (std::size_t i = 0; i < params.size(); ++i)
     {
-        const auto& param = params[i];
-        if (!param.has_value())
-        {
-            ctx.add_integral(static_cast<std::int32_t>(-1));
-            continue;
-        }
-
         // Allocate space for the size, which is not known until the value has been serialized
         const std::size_t size_offset = buffer.size();
         ctx.add_bytes(std::array<unsigned char, 4>{});
 
         // Serialize the value
-        if (auto ec = (*param)(format_code_for(codes, i), buffer))
+        if (auto ec = params[i](format_code_for(codes, i), buffer))
         {
+            // This is not a failure, but the parameter stating that it's a SQL NULL.
+            // Discard anything it may have written and encode it as a -1 size
+            if (ec == nativepg::client_errc::serialize_null)
+            {
+                buffer.resize(size_offset);
+                ctx.add_integral(static_cast<std::int32_t>(-1));
+                continue;
+            }
+
             ctx.add_error(ec);
             return;
         }

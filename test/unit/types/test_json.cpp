@@ -183,7 +183,7 @@ void test_parse_binary_jsonb_version_only_is_noop()
 }
 
 //
-// field_is_compatible / field_parse_text / field_parse_binary (field_traits_json.hpp)
+// field_is_compatible / field_parse (field_traits_json.hpp)
 //
 void test_field_is_compatible_json_success()
 {
@@ -210,7 +210,7 @@ void test_field_parse_text_unexpected_null_error()
     field_view fv;  // NULL
 
     // Act
-    auto err = field_parse_text(fv, detail::json_oid, out_val);
+    auto err = field_parse(fv, detail::json_oid, protocol::format_code::text, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code(client_errc::unexpected_null));
@@ -223,7 +223,7 @@ void test_field_parse_binary_unexpected_null_error()
     field_view fv;  // NULL
 
     // Act
-    auto err = field_parse_binary(fv, detail::jsonb_oid, out_val);
+    auto err = field_parse(fv, detail::jsonb_oid, protocol::format_code::binary, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code(client_errc::unexpected_null));
@@ -237,7 +237,7 @@ void test_field_parse_text_json_success()
     const auto fv = make_field_view(str);
 
     // Act
-    auto err = field_parse_text(fv, detail::json_oid, out_val);
+    auto err = field_parse(fv, detail::json_oid, protocol::format_code::text, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code{});
@@ -252,7 +252,7 @@ void test_field_parse_binary_json_success()
     const auto fv = make_field_view(str);
 
     // Act
-    auto err = field_parse_binary(fv, detail::json_oid, out_val);
+    auto err = field_parse(fv, detail::json_oid, protocol::format_code::binary, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code{});
@@ -267,7 +267,7 @@ void test_field_parse_text_jsonb_success()
     const auto fv = make_field_view(str);
 
     // Act
-    auto err = field_parse_text(fv, detail::jsonb_oid, out_val);
+    auto err = field_parse(fv, detail::jsonb_oid, protocol::format_code::text, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code{});
@@ -285,7 +285,7 @@ void test_field_parse_binary_jsonb_success()
     const auto fv = make_field_view(wire);
 
     // Act
-    auto err = field_parse_binary(fv, detail::jsonb_oid, out_val);
+    auto err = field_parse(fv, detail::jsonb_oid, protocol::format_code::binary, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code{});

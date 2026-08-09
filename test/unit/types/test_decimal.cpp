@@ -126,7 +126,7 @@ void test_parse_binary_decimal_error(std::span<const unsigned char> wire, std::e
 }
 
 //
-// field_is_compatible / field_parse_text / field_parse_binary (field_traits_decimal.hpp)
+// field_is_compatible / field_parse (field_traits_decimal.hpp)
 //
 void test_field_is_compatible_decimal_success()
 {
@@ -148,7 +148,7 @@ void test_field_parse_text_decimal_unexpected_null_error()
     field_view fv;  // NULL
 
     // Act
-    auto err = field_parse_text(fv, detail::decimal_oid, out_val);
+    auto err = field_parse(fv, detail::decimal_oid, protocol::format_code::text, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code(client_errc::unexpected_null));
@@ -161,7 +161,7 @@ void test_field_parse_binary_decimal_unexpected_null_error()
     field_view fv;  // NULL
 
     // Act
-    auto err = field_parse_binary(fv, detail::decimal_oid, out_val);
+    auto err = field_parse(fv, detail::decimal_oid, protocol::format_code::binary, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code(client_errc::unexpected_null));
@@ -176,7 +176,7 @@ void test_field_parse_text_decimal_success()
     field_view fv{data};
 
     // Act
-    auto err = field_parse_text(fv, detail::decimal_oid, out_val);
+    auto err = field_parse(fv, detail::decimal_oid, protocol::format_code::text, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code{});
@@ -193,7 +193,7 @@ void test_field_parse_binary_decimal_success()
     field_view fv{pg_num_1234_5678};
 
     // Act
-    auto err = field_parse_binary(fv, detail::decimal_oid, out_val);
+    auto err = field_parse(fv, detail::decimal_oid, protocol::format_code::binary, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code{});
@@ -305,7 +305,7 @@ int main()
     test_parse_binary_decimal_error<d32>(pg_too_short, parse_error);
     test_parse_binary_decimal_error<d32>(pg_truncated, parse_error);
 
-    // field_is_compatible / field_parse_text / field_parse_binary (field_traits_decimal.hpp)
+    // field_is_compatible / field_parse (field_traits_decimal.hpp)
     test_field_is_compatible_decimal_success();
     test_field_is_compatible_decimal_incompatible_error();
     test_field_parse_text_decimal_unexpected_null_error();

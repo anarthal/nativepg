@@ -14,9 +14,12 @@
 #include <optional>
 #include <system_error>
 #include <type_traits>
+#include <vector>
 
+#include "nativepg/client_errc.hpp"
 #include "nativepg/field_traits.hpp"
 #include "nativepg/field_view.hpp"
+#include "nativepg/protocol/common.hpp"
 
 namespace nativepg::detail {
 
@@ -39,9 +42,6 @@ inline constexpr auto is_optional_v = is_optional<T>::value;
 namespace nativepg {
 
 // --- Parse
-// A NULL field yields an empty optional, rather than an error.
-// There is no serialization counterpart yet: serialize_field_traits has no way
-// to express a NULL parameter.
 template <parsable_field T>
 struct parse_field_traits<std::optional<T>>
 {
@@ -52,24 +52,42 @@ struct parse_field_traits<std::optional<T>>
 
     static std::error_code is_compatible(std::int32_t type_oid) { return field_is_compatible<T>(type_oid); }
 
-    static std::error_code parse_text(field_view from, std::int32_t type_oid, std::optional<T>& to)
+    static std::error_code parse(
+        field_view from,
+        std::int32_t type_oid,
+        protocol::format_code code,
+        std::optional<T>& to
+    )
     {
         if (from.is_null())
         {
             to.reset();
             return std::error_code{};
         }
-        return field_parse_text(from, type_oid, to.emplace());
+        return field_parse(from, type_oid, code, to.emplace());
     }
+};
 
-    static std::error_code parse_binary(field_view from, std::int32_t type_oid, std::optional<T>& to)
+// --- Serialize
+template <serializable_field T>
+struct serialize_field_traits<std::optional<T>>
+{
+    static_assert(
+        !detail::is_optional_v<T>,
+        "Nested std::optional (e.g. std::optional<std::optional<T>>) is not supported"
+    );
+
+    // A NULL has no type of its own, so we advertise the value type's OID
+    static constexpr std::int32_t oid = field_serialize_oid<T>;
+
+    static std::error_code serialize(
+        const std::optional<T>& value,
+        protocol::format_code code,
+        std::vector<unsigned char>& to
+    )
     {
-        if (from.is_null())
-        {
-            to.reset();
-            return std::error_code{};
-        }
-        return field_parse_binary(from, type_oid, to.emplace());
+        // serialize_null indicates that a NULL value should be serialized (not an error)
+        return value.has_value() ? field_serialize(*value, code, to) : client_errc::serialize_null;
     }
 };
 

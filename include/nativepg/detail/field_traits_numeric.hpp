@@ -21,6 +21,7 @@
 #include "nativepg/extended_error.hpp"
 #include "nativepg/field_traits.hpp"
 #include "nativepg/field_view.hpp"
+#include "nativepg/protocol/common.hpp"
 #include "nativepg/types/numeric.hpp"
 
 namespace nativepg::detail {
@@ -32,8 +33,8 @@ inline constexpr std::int32_t numeric_oid = 1700;
 namespace nativepg {
 
 // --- Parse
-// There is no serialization counterpart yet: nativepg/types/numeric.hpp implements
-// parsing only.
+// There is no serialization counterpart: nativepg/types/numeric.hpp implements parsing only,
+// so these types can't be used as query parameters yet.
 
 // NUMERIC
 template <unsigned Digits, class Exp, class Alloc, boost::multiprecision::expression_template_option ET>
@@ -48,24 +49,18 @@ struct parse_field_traits<
         return type_oid == detail::numeric_oid ? std::error_code{} : client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, [[maybe_unused]] std::int32_t type_oid, value_type& to)
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        BOOST_ASSERT(type_oid == detail::numeric_oid);
-        return types::parse_text_numeric(from, to);
-    }
-
-    static std::error_code parse_binary(
+    static std::error_code parse(
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
+        protocol::format_code code,
         value_type& to
     )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(type_oid == detail::numeric_oid);
-        return types::parse_binary_numeric(from, to);
+        return code == protocol::format_code::binary ? types::parse_binary_numeric(from, to)
+                                                     : types::parse_text_numeric(from, to);
     }
 };
 

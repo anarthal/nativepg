@@ -10,7 +10,6 @@
 
 #include <boost/compat/function_ref.hpp>
 
-#include <optional>
 #include <span>
 #include <string_view>
 #include <system_error>
@@ -22,9 +21,9 @@
 namespace nativepg {
 namespace protocol {
 
-// TODO: rename all this and wrap this
-using serializable_ref = std::optional<
-    boost::compat::function_ref<std::error_code(format_code, std::vector<unsigned char>&)>>;
+// A type-erased reference to a bind parameter value.
+using serializable_ref = boost::compat::function_ref<
+    std::error_code(format_code, std::vector<unsigned char>&)>;
 
 struct bind
 {
@@ -38,7 +37,7 @@ struct bind
     format_codes parameter_fmt_codes;
 
     // The actual parameters. The number of parameters must match the number of parameters required by the
-    // query. An empty optional is serialized as a NULL value.
+    // query. A parameter that reports client_errc::serialize_null is serialized as a NULL value.
     std::span<const serializable_ref> parameters;
 
     // The result-column format codes.

@@ -10,8 +10,10 @@
 
 #include <cstdint>
 #include <initializer_list>
+#include <optional>
 #include <ostream>
 #include <source_location>
+#include <span>
 #include <string_view>
 
 #include "nativepg/protocol/bind.hpp"
@@ -242,6 +244,127 @@ void test_execute_untyped()
             request_message_type::sync,
         }
     );
+}
+
+// NULL parameters. An empty optional is encoded as a -1 length, followed by no value bytes
+void test_execute_null_text()
+{
+    request req;
+    req.add_execute(
+        "myname",
+        make_serializable_refs(std::optional<std::int32_t>(), "value"),
+        {.param_format = protocol::format_code::text}
+    );
+
+    // clang-format off
+    check_payload(req, {
+        // Bind. Note the 0xffffffff length for the 1st parameter, with no value bytes
+        0x42, 0x00, 0x00, 0x00, 0x1f, 0x00, 0x6d, 0x79, 0x6e, 0x61,
+        0x6d, 0x65, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xff, 0xff,
+        0xff, 0x00, 0x00, 0x00, 0x05, 0x76, 0x61, 0x6c, 0x75, 0x65,
+        0x00, 0x00,
+
+        // Describe
+        0x44, 0x00, 0x00, 0x00, 0x06, 0x50, 0x00,
+
+        // Execute
+        0x45, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+        // Sync
+        0x53, 0x00, 0x00, 0x00, 0x04
+    });
+    // clang-format on
+
+    check_messages(
+        req,
+        {
+            request_message_type::bind,
+            request_message_type::describe,
+            request_message_type::execute,
+            request_message_type::sync,
+        }
+    );
+}
+
+// A NULL is encoded the same way regardless of the format code. This also checks
+// that the lengths of the surrounding parameters are unaffected
+void test_execute_null_binary_mixed()
+{
+    request req;
+    req.add_execute(
+        "s",
+        make_serializable_refs(
+            std::int32_t(1),
+            std::optional<std::int32_t>(),
+            std::optional<std::int32_t>(7)
+        ),
+        {.param_format = protocol::format_code::binary}
+    );
+
+    // clang-format off
+    check_payload(req, {
+        // Bind
+        0x42, 0x00, 0x00, 0x00, 0x23, 0x00, 0x73, 0x00, 0x00, 0x01,
+        0x00, 0x01, 0x00, 0x03,
+        0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01,  // 1
+        0xff, 0xff, 0xff, 0xff,                          // NULL
+        0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x07,  // 7
+        0x00, 0x00,
+
+        // Describe
+        0x44, 0x00, 0x00, 0x00, 0x06, 0x50, 0x00,
+
+        // Execute
+        0x45, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+        // Sync
+        0x53, 0x00, 0x00, 0x00, 0x04
+    });
+    // clang-format on
+
+    check_messages(
+        req,
+        {
+            request_message_type::bind,
+            request_message_type::describe,
+            request_message_type::execute,
+            request_message_type::sync,
+        }
+    );
+}
+
+// A per-parameter list of format codes applies each code to its own parameter
+void test_execute_format_code_list()
+{
+    constexpr protocol::format_code codes[]{protocol::format_code::text, protocol::format_code::binary};
+
+    request req;
+    req.add_execute(
+        "myname",
+        make_serializable_refs(std::int32_t(42), std::int32_t(42)),
+        {.param_format = std::span<const protocol::format_code>(codes)}
+    );
+
+    // clang-format off
+    check_payload(req, {
+        // Bind. The same value is serialized as text and as binary
+        0x42, 0x00, 0x00, 0x00, 0x24, 0x00, 0x6d, 0x79, 0x6e, 0x61,
+        0x6d, 0x65, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01, 0x00,
+        0x02,
+        0x00, 0x00, 0x00, 0x02, 0x34, 0x32,              // "42"
+        0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x2a,  // 42
+        0x00, 0x00,
+
+        // Describe
+        0x44, 0x00, 0x00, 0x00, 0x06, 0x50, 0x00,
+
+        // Execute
+        0x45, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+        // Sync
+        0x53, 0x00, 0x00, 0x00, 0x04
+    });
+    // clang-format on
 }
 
 void test_execute_typed()
@@ -499,6 +622,9 @@ int main()
     test_prepare_typed();
 
     test_execute_untyped();
+    test_execute_null_text();
+    test_execute_null_binary_mixed();
+    test_execute_format_code_list();
     test_execute_typed();
     test_execute_typed_optional_args();
 

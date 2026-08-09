@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "nativepg/field_view.hpp"
+#include "nativepg/protocol/common.hpp"
 
 namespace nativepg {
 
@@ -38,18 +39,13 @@ struct is_unspecialized
  *
  *    static std::error_code is_compatible(std::int32_t type_oid);
  *
- *  - parse_text: performs the actual parsing, for fields sent by the server
- *    using the text format. Returns an error if the value can't be represented
- *    in your type. type_oid is the OID that is_compatible accepted, and is
- *    relevant if your type accepts more than one. field_view is non-owning and
+ *  - parse: performs the actual parsing. Returns an error if the value can't be
+ *    represented in your type. type_oid is the OID that is_compatible accepted, and is
+ *    relevant if your type accepts more than one. code states whether the server sent
+ *    the field using the text or the binary format. field_view is non-owning and
  *    can represent database NULLs - remember to check for these. Signature:
  *
- *    static std::error_code parse_text(field_view, std::int32_t type_oid, T&)
- *
- *  - parse_binary: same, but for fields sent using the binary format.
- *    Signature:
- *
- *    static std::error_code parse_binary(field_view, std::int32_t type_oid, T&)
+ *    static std::error_code parse(field_view, std::int32_t type_oid, protocol::format_code code, T&)
  *
  */
 template <class T>
@@ -69,15 +65,15 @@ struct parse_field_traits : detail::is_unspecialized
  *    when using the binary format. For example, a 2-byte integer type
  *    should be assigned the int2 type OID.
  *
- *  - serialize_text: serialized the value into a buffer, using the text
- *    format. If the value is not representable in the corresponding protocol
- *    type, an error can be returned. Signature:
+ *  - serialize: appends the value to a buffer, using the format stated by code.
+ *    If the value is not representable in the corresponding protocol type, an error
+ *    can be returned. Signature:
  *
- *    static std::error_code serialize_text(const T& value, std::vector<unsigned char>& buffer)
+ *    static std::error_code serialize(
+ *        const T& value, protocol::format_code code, std::vector<unsigned char>& buffer)
  *
- *  - serialize_binary: same, but using the binary format. Signature:
- *
- *    static std::error_code serialize_binary(const T& value, std::vector<unsigned char>& buffer)
+ *    To express that the value is a SQL NULL, return client_errc::serialize_null
+ *    without appending anything to the buffer.
  */
 template <class T>
 struct serialize_field_traits : detail::is_unspecialized
@@ -100,17 +96,10 @@ concept parsable_field =
         { parse_field_traits<T>::is_compatible(std::int32_t{}) } -> std::convertible_to<std::error_code>;
 
         // If you are seeing an error message pointing to this expression,
-        // your parse_text function in the parse_field_traits specialization
+        // your parse function in the parse_field_traits specialization
         // for your type is missing or has an incorrect shape.
         {
-            parse_field_traits<T>::parse_text(field_view{}, std::int32_t{}, value)
-        } -> std::convertible_to<std::error_code>;
-
-        // If you are seeing an error message pointing to this expression,
-        // your parse_binary function in the parse_field_traits specialization
-        // for your type is missing or has an incorrect shape.
-        {
-            parse_field_traits<T>::parse_binary(field_view{}, std::int32_t{}, value)
+            parse_field_traits<T>::parse(field_view{}, std::int32_t{}, protocol::format_code{}, value)
         } -> std::convertible_to<std::error_code>;
     };
 
@@ -128,14 +117,11 @@ concept serializable_field =
         { serialize_field_traits<T>::oid } -> std::convertible_to<std::int32_t>;
 
         // If you are seeing an error message pointing to this expression,
-        // your serialize_text function in the serialize_field_traits specialization
+        // your serialize function in the serialize_field_traits specialization
         // for your type is missing or has an incorrect shape.
-        { serialize_field_traits<T>::serialize_text(value, to) } -> std::convertible_to<std::error_code>;
-
-        // If you are seeing an error message pointing to this expression,
-        // your serialize_binary function in the serialize_field_traits specialization
-        // for your type is missing or has an incorrect shape.
-        { serialize_field_traits<T>::serialize_binary(value, to) } -> std::convertible_to<std::error_code>;
+        {
+            serialize_field_traits<T>::serialize(value, protocol::format_code{}, to)
+        } -> std::convertible_to<std::error_code>;
     };
 
 // Now if you, as a user, want to add support for a type, you specialize any of these.
@@ -148,30 +134,18 @@ std::error_code field_is_compatible(std::int32_t type_oid)
 }
 
 template <parsable_field T>
-std::error_code field_parse_text(field_view from, std::int32_t type_oid, T& to)
+std::error_code field_parse(field_view from, std::int32_t type_oid, protocol::format_code code, T& to)
 {
-    return parse_field_traits<T>::parse_text(from, type_oid, to);
-}
-
-template <parsable_field T>
-std::error_code field_parse_binary(field_view from, std::int32_t type_oid, T& to)
-{
-    return parse_field_traits<T>::parse_binary(from, type_oid, to);
+    return parse_field_traits<T>::parse(from, type_oid, code, to);
 }
 
 template <serializable_field T>
 inline constexpr std::int32_t field_serialize_oid = serialize_field_traits<T>::oid;
 
 template <serializable_field T>
-std::error_code field_serialize_text(const T& value, std::vector<unsigned char>& to)
+std::error_code field_serialize(const T& value, protocol::format_code code, std::vector<unsigned char>& to)
 {
-    return serialize_field_traits<T>::serialize_text(value, to);
-}
-
-template <serializable_field T>
-std::error_code field_serialize_binary(const T& value, std::vector<unsigned char>& to)
-{
-    return serialize_field_traits<T>::serialize_binary(value, to);
+    return serialize_field_traits<T>::serialize(value, code, to);
 }
 
 }  // namespace nativepg

@@ -20,6 +20,7 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/field_traits.hpp"
 #include "nativepg/field_view.hpp"
+#include "nativepg/protocol/common.hpp"
 #include "nativepg/types/base.hpp"
 
 namespace nativepg::detail {
@@ -69,20 +70,18 @@ struct parse_field_traits<bool>
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, [[maybe_unused]] std::int32_t type_oid, bool& to)
+    static std::error_code parse(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        protocol::format_code code,
+        bool& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(type_oid == detail::bool_oid);
-        return types::parse_text_bool(from, to);
-    }
-
-    static std::error_code parse_binary(field_view from, [[maybe_unused]] std::int32_t type_oid, bool& to)
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        BOOST_ASSERT(type_oid == detail::bool_oid);
-        return types::parse_binary_bool(from, to);
+        return code == protocol::format_code::binary ? types::parse_binary_bool(from, to)
+                                                     : types::parse_text_bool(from, to);
     }
 };
 
@@ -98,28 +97,18 @@ struct parse_field_traits<std::vector<std::byte>>
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(
+    static std::error_code parse(
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
+        protocol::format_code code,
         std::vector<std::byte>& to
     )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(type_oid == detail::bytea_oid);
-        return types::parse_text_bytea(from, to);
-    }
-
-    static std::error_code parse_binary(
-        field_view from,
-        [[maybe_unused]] std::int32_t type_oid,
-        std::vector<std::byte>& to
-    )
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        BOOST_ASSERT(type_oid == detail::bytea_oid);
-        return types::parse_binary_bytea(from, to);
+        return code == protocol::format_code::binary ? types::parse_binary_bytea(from, to)
+                                                     : types::parse_text_bytea(from, to);
     }
 };
 
@@ -136,20 +125,18 @@ struct parse_field_traits<char>
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, [[maybe_unused]] std::int32_t type_oid, char& to)
+    static std::error_code parse(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        protocol::format_code code,
+        char& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(type_oid == detail::char_oid);
-        return types::parse_text_char(from, to);
-    }
-
-    static std::error_code parse_binary(field_view from, [[maybe_unused]] std::int32_t type_oid, char& to)
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        BOOST_ASSERT(type_oid == detail::char_oid);
-        return types::parse_binary_char(from, to);
+        return code == protocol::format_code::binary ? types::parse_binary_char(from, to)
+                                                     : types::parse_text_char(from, to);
     }
 };
 
@@ -165,28 +152,18 @@ struct parse_field_traits<std::int16_t>
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(
+    static std::error_code parse(
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
+        protocol::format_code code,
         std::int16_t& to
     )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(type_oid == detail::int2_oid);
-        return types::parse_text_int(from, to);
-    }
-
-    static std::error_code parse_binary(
-        field_view from,
-        [[maybe_unused]] std::int32_t type_oid,
-        std::int16_t& to
-    )
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        BOOST_ASSERT(type_oid == detail::int2_oid);
-        return types::parse_binary_int(from, to);
+        return code == protocol::format_code::binary ? types::parse_binary_int(from, to)
+                                                     : types::parse_text_int(from, to);
     }
 };
 
@@ -202,39 +179,28 @@ struct parse_field_traits<std::int32_t>
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, std::int32_t type_oid, std::int32_t& to)
+    static std::error_code parse(
+        field_view from,
+        std::int32_t type_oid,
+        protocol::format_code code,
+        std::int32_t& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
+        const bool binary = code == protocol::format_code::binary;
         switch (type_oid)
         {
             case detail::int2_oid:
             {
                 std::int16_t value{};
-                const auto ec = types::parse_text_int(from, value);
+                const auto ec = binary ? types::parse_binary_int(from, value)
+                                       : types::parse_text_int(from, value);
                 to = value;
                 return ec;
             }
-            case detail::int4_oid: return types::parse_text_int(from, to);
-
-            default: BOOST_ASSERT(false); return {client_errc::incompatible_field_type};
-        }
-    }
-
-    static std::error_code parse_binary(field_view from, std::int32_t type_oid, std::int32_t& to)
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        switch (type_oid)
-        {
-            case detail::int2_oid:
-            {
-                std::int16_t value{};
-                const auto ec = types::parse_binary_int(from, value);
-                to = value;
-                return ec;
-            }
-            case detail::int4_oid: return types::parse_binary_int(from, to);
+            case detail::int4_oid:
+                return binary ? types::parse_binary_int(from, to) : types::parse_text_int(from, to);
 
             default: BOOST_ASSERT(false); return {client_errc::incompatible_field_type};
         }
@@ -253,52 +219,36 @@ struct parse_field_traits<std::int64_t>
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, std::int32_t type_oid, std::int64_t& to)
+    static std::error_code parse(
+        field_view from,
+        std::int32_t type_oid,
+        protocol::format_code code,
+        std::int64_t& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
+        const bool binary = code == protocol::format_code::binary;
         switch (type_oid)
         {
             case detail::int2_oid:
             {
                 std::int16_t value{};
-                const auto ec = types::parse_text_int(from, value);
+                const auto ec = binary ? types::parse_binary_int(from, value)
+                                       : types::parse_text_int(from, value);
                 to = value;
                 return ec;
             }
             case detail::int4_oid:
             {
                 std::int32_t value{};
-                const auto ec = types::parse_text_int(from, value);
+                const auto ec = binary ? types::parse_binary_int(from, value)
+                                       : types::parse_text_int(from, value);
                 to = value;
                 return ec;
             }
-            case detail::int8_oid: return types::parse_text_int(from, to);
-            default: BOOST_ASSERT(false); return {client_errc::incompatible_field_type};
-        }
-    }
-
-    static std::error_code parse_binary(field_view from, std::int32_t type_oid, std::int64_t& to)
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        switch (type_oid)
-        {
-            case detail::int2_oid:
-            {
-                std::int16_t value{};
-                const auto ec = types::parse_binary_int(from, value);
-                to = value;
-                return ec;
-            }
-            case detail::int4_oid:
-            {
-                std::int32_t value{};
-                const auto ec = types::parse_binary_int(from, value);
-                to = value;
-                return ec;
-            }
-            case detail::int8_oid: return types::parse_binary_int(from, to);
+            case detail::int8_oid:
+                return binary ? types::parse_binary_int(from, to) : types::parse_text_int(from, to);
             default: BOOST_ASSERT(false); return {client_errc::incompatible_field_type};
         }
     }
@@ -316,20 +266,18 @@ struct parse_field_traits<float>
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, [[maybe_unused]] std::int32_t type_oid, float& to)
+    static std::error_code parse(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        protocol::format_code code,
+        float& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(type_oid == detail::float4_oid);
-        return types::parse_text_float<float>(from, to);
-    }
-
-    static std::error_code parse_binary(field_view from, [[maybe_unused]] std::int32_t type_oid, float& to)
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        BOOST_ASSERT(type_oid == detail::float4_oid);
-        return types::parse_binary_float<float>(from, to);
+        return code == protocol::format_code::binary ? types::parse_binary_float<float>(from, to)
+                                                     : types::parse_text_float<float>(from, to);
     }
 };
 
@@ -345,35 +293,26 @@ struct parse_field_traits<double>
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(field_view from, [[maybe_unused]] std::int32_t type_oid, double& to)
+    static std::error_code parse(
+        field_view from,
+        [[maybe_unused]] std::int32_t type_oid,
+        protocol::format_code code,
+        double& to
+    )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
+        const bool binary = code == protocol::format_code::binary;
         switch (type_oid)
         {
-            case detail::float8_oid: return types::parse_text_float<double>(from, to);
+            case detail::float8_oid:
+                return binary ? types::parse_binary_float<double>(from, to)
+                              : types::parse_text_float<double>(from, to);
             case detail::float4_oid:
             {
                 float value{};
-                const auto ec = types::parse_text_float<float>(from, value);
-                to = value;
-                return ec;
-            }
-            default: BOOST_ASSERT(false); return {client_errc::incompatible_field_type};
-        }
-    }
-
-    static std::error_code parse_binary(field_view from, [[maybe_unused]] std::int32_t type_oid, double& to)
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        switch (type_oid)
-        {
-            case detail::float8_oid: return types::parse_binary_float<double>(from, to);
-            case detail::float4_oid:
-            {
-                float value{};
-                const auto ec = types::parse_binary_float<float>(from, value);
+                const auto ec = binary ? types::parse_binary_float<float>(from, value)
+                                       : types::parse_text_float<float>(from, value);
                 to = value;
                 return ec;
             }
@@ -394,28 +333,18 @@ struct parse_field_traits<std::basic_string<char, Traits, Alloc>>
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(
+    static std::error_code parse(
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
+        protocol::format_code code,
         std::basic_string<char, Traits, Alloc>& to
     )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(detail::is_string_oid(type_oid));
-        return types::parse_text_text(from, to);
-    }
-
-    static std::error_code parse_binary(
-        field_view from,
-        [[maybe_unused]] std::int32_t type_oid,
-        std::basic_string<char, Traits, Alloc>& to
-    )
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        BOOST_ASSERT(detail::is_string_oid(type_oid));
-        return types::parse_binary_text(from, to);
+        return code == protocol::format_code::binary ? types::parse_binary_text(from, to)
+                                                     : types::parse_text_text(from, to);
     }
 };
 
@@ -431,28 +360,18 @@ struct parse_field_traits<std::uint32_t>
         return client_errc::incompatible_field_type;
     }
 
-    static std::error_code parse_text(
+    static std::error_code parse(
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
+        protocol::format_code code,
         std::uint32_t& to
     )
     {
         if (from.is_null())
             return client_errc::unexpected_null;
         BOOST_ASSERT(type_oid == detail::oid_oid);
-        return types::parse_text_oid(from, to);
-    }
-
-    static std::error_code parse_binary(
-        field_view from,
-        [[maybe_unused]] std::int32_t type_oid,
-        std::uint32_t& to
-    )
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        BOOST_ASSERT(type_oid == detail::oid_oid);
-        return types::parse_binary_oid(from, to);
+        return code == protocol::format_code::binary ? types::parse_binary_oid(from, to)
+                                                     : types::parse_text_oid(from, to);
     }
 };
 
@@ -466,14 +385,14 @@ struct serialize_field_traits<std::int16_t>
 {
     static constexpr std::int32_t oid = detail::int2_oid;
 
-    static std::error_code serialize_text(std::int16_t value, std::vector<unsigned char>& to)
+    static std::error_code serialize(
+        std::int16_t value,
+        protocol::format_code code,
+        std::vector<unsigned char>& to
+    )
     {
-        return types::serialize_text_int(value, to);
-    }
-
-    static std::error_code serialize_binary(std::int16_t value, std::vector<unsigned char>& to)
-    {
-        return types::serialize_binary_int(value, to);
+        return code == protocol::format_code::binary ? types::serialize_binary_int(value, to)
+                                                     : types::serialize_text_int(value, to);
     }
 };
 
@@ -483,14 +402,14 @@ struct serialize_field_traits<std::int32_t>
 {
     static constexpr std::int32_t oid = detail::int4_oid;
 
-    static std::error_code serialize_text(std::int32_t value, std::vector<unsigned char>& to)
+    static std::error_code serialize(
+        std::int32_t value,
+        protocol::format_code code,
+        std::vector<unsigned char>& to
+    )
     {
-        return types::serialize_text_int(value, to);
-    }
-
-    static std::error_code serialize_binary(std::int32_t value, std::vector<unsigned char>& to)
-    {
-        return types::serialize_binary_int(value, to);
+        return code == protocol::format_code::binary ? types::serialize_binary_int(value, to)
+                                                     : types::serialize_text_int(value, to);
     }
 };
 
@@ -500,14 +419,14 @@ struct serialize_field_traits<std::int64_t>
 {
     static constexpr std::int32_t oid = detail::int8_oid;
 
-    static std::error_code serialize_text(std::int64_t value, std::vector<unsigned char>& to)
+    static std::error_code serialize(
+        std::int64_t value,
+        protocol::format_code code,
+        std::vector<unsigned char>& to
+    )
     {
-        return types::serialize_text_int(value, to);
-    }
-
-    static std::error_code serialize_binary(std::int64_t value, std::vector<unsigned char>& to)
-    {
-        return types::serialize_binary_int(value, to);
+        return code == protocol::format_code::binary ? types::serialize_binary_int(value, to)
+                                                     : types::serialize_text_int(value, to);
     }
 };
 
@@ -517,14 +436,14 @@ struct serialize_field_traits<T>
 {
     static constexpr std::int32_t oid = detail::text_oid;
 
-    static std::error_code serialize_text(std::string_view value, std::vector<unsigned char>& to)
+    static std::error_code serialize(
+        std::string_view value,
+        protocol::format_code code,
+        std::vector<unsigned char>& to
+    )
     {
-        return types::serialize_text_text(value, to);
-    }
-
-    static std::error_code serialize_binary(std::string_view value, std::vector<unsigned char>& to)
-    {
-        return types::serialize_binary_text(value, to);
+        return code == protocol::format_code::binary ? types::serialize_binary_text(value, to)
+                                                     : types::serialize_text_text(value, to);
     }
 };
 

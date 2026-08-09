@@ -53,15 +53,6 @@ struct statement
 
 namespace detail {
 
-template <serializable_field T>
-std::error_code do_field_serialize(const T& value, protocol::format_code code, std::vector<unsigned char>& to)
-{
-    if (code == protocol::format_code::binary)
-        return serialize_field_traits<T>::serialize_binary(value, to);
-    else
-        return serialize_field_traits<T>::serialize_text(value, to);
-}
-
 template <serializable_field... Params>
 inline constexpr std::array<std::int32_t, sizeof...(Params)> type_oids_for{{field_serialize_oid<Params>...}};
 
@@ -72,12 +63,7 @@ protocol::serializable_ref make_serializable_ref(const T* value)
 {
     // Required for C-array parameters to work (and hence string literals)
     using decayed_type = std::decay_t<const T&>;
-
-    // TODO: nullness check
-    return boost::compat::function_ref<std::error_code(protocol::format_code, std::vector<unsigned char>&)>{
-        boost::compat::nontype<detail::do_field_serialize<decayed_type>>,
-        *value
-    };
+    return protocol::serializable_ref{boost::compat::nontype<field_serialize<decayed_type>>, *value};
 }
 
 // Type-erases each parameter into a serializable_ref.

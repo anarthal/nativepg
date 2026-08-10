@@ -7,9 +7,11 @@
 
 #include <boost/describe.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <string_view>
 #include <tuple>
 #include <type_traits>
@@ -42,10 +44,14 @@ std::error_code do_field_parse(field_view fv, std::int32_t type_oid, protocol::f
     return field_parse(fv, type_oid, code, static_cast<Row*>(row)->*member);
 }
 
-template <class Row, class FieldType, FieldType Row::* member>
+template <std::size_t N, class Row, class FieldType>
 struct cpp_field_descriptor
 {
-    std::string_view name;
+    std::array<char, N> name;
+    FieldType Row::* member;
+
+    using row_type = Row;
+    using field_type = FieldType;
 
     constexpr friend bool operator==(const cpp_field_descriptor&, const cpp_field_descriptor&) = default;
 };
@@ -59,47 +65,73 @@ struct member_ptr_traits<T C::*>
     using field_type = T;
 };
 
-template <auto member>
-constexpr auto make_cpp_descriptor(std::string_view name)
+template <std::size_t N, class Row, class FieldType>
+constexpr auto make_cpp_descriptor(std::string_view name, FieldType Row::* member)
 {
-    using ClassType = typename member_ptr_traits<decltype(member)>::class_type;
-    using FieldType = typename member_ptr_traits<decltype(member)>::field_type;
-    return cpp_field_descriptor<ClassType, FieldType, member>{name};
+    cpp_field_descriptor<N, Row, FieldType> res{};
+    std::copy(name.begin(), name.end(), res.name.begin());
+    res.member = member;
+    return res;
 }
 
-template <class Row, template <class...> class ListType, class... D>
-constexpr auto get_describe_descriptors_impl(ListType<D...>)
+template <auto v>
+struct wrapper
 {
-    return std::make_tuple(make_cpp_descriptor<D::pointer>(D::name)...);
+    static constexpr auto value = v;
+};
+
+template <std::size_t N, class Row, class FieldType>
+constexpr auto make_cpp_descriptor2(std::string_view name, FieldType Row::* member)
+{
+    return wrapper<make_cpp_descriptor<std::size_t N>(std::string_view name, FieldType Row::* member)>{};
 }
 
-template <class Row>
-constexpr auto get_describe_descriptors()
+template <std::size_t N, class Row, class FieldType>
+constexpr auto make_cpp_descriptor(const char (&str)[N], FieldType Row::* member)
 {
-    using row_members = describe::describe_members<Row, describe::mod_public | describe::mod_inherited>;
-    return get_describe_descriptors_impl<Row>(row_members{});
+    cpp_field_descriptor<N - 1, Row, FieldType> res{};
+    std::copy(str, str + N - 1, res.name.begin());
+    res.member = member;
+    return res;
 }
 
-template <class Row, class FieldType, FieldType Row::* member>
-constexpr cpp_field_descriptor_erased erase_descriptor(cpp_field_descriptor<Row, FieldType, member> desc)
+// template <class Row, template <class...> class ListType, class... D>
+// constexpr auto get_describe_descriptors_impl(ListType<D...>)
+// {
+//     return std::make_tuple(make_cpp_descriptor<std::strlen(D::name)>(D::name, D::pointer)...);
+// }
+
+// template <class Row>
+// constexpr auto get_describe_descriptors()
+// {
+//     using row_members = describe::describe_members<Row, describe::mod_public | describe::mod_inherited>;
+//     return get_describe_descriptors_impl<Row>(row_members{});
+// }
+
+template <auto descriptor>
+constexpr cpp_field_descriptor_erased erase_descriptor()
 {
-    return {.field_name = desc.name, .parse_fn = do_field_parse<Row, FieldType, member>};
+    using Row = decltype(descriptor)::row_type;
+    using FieldType = decltype(descriptor)::field_type;
+    return {
+        .field_name = {descriptor.name.data(), descriptor.name.size()},
+        .parse_fn = do_field_parse<Row, FieldType, descriptor.member>
+    };
 }
 
-constexpr struct erase_descriptors_t
+template <auto... descriptors>
+constexpr std::array<cpp_field_descriptor_erased, sizeof...(descriptors)> erase_descriptors()
 {
-    template <class... Descriptors>
-    constexpr std::array<cpp_field_descriptor_erased, sizeof...(Descriptors)> operator()(
-        Descriptors... descs
-    ) const
-    {
-        return {{erase_descriptor(descs)...}};
-    }
+    return {{erase_descriptor<descriptors>()...}};
+}
 
-} erase_descriptors;
-
-// template <class Row, class... FieldType>
-// constexpr std::vector<cpp_field_descriptor_erased>
+template <auto... descriptors>
+constexpr std::array<cpp_field_descriptor_erased, sizeof...(descriptors)> erase_descriptors2(
+    std::tuple<wrapper<descriptors>...>
+)
+{
+    return {{erase_descriptor<descriptors>()...}};
+}
 
 }  // namespace nativepg
 
@@ -119,14 +151,14 @@ struct manual_row
 };
 
 // constexpr auto metadata = std::make_tuple();
-constexpr auto metadata = get_describe_descriptors<myrow>();
+// constexpr auto metadata = get_describe_descriptors<myrow>();
 constexpr auto metadata2 = std::tuple{
-    make_cpp_descriptor<&myrow::f3>("f3"),
-    make_cpp_descriptor<&myrow::f1>("f1")
+    wrapper<make_cpp_descriptor("f3", &myrow::f3)>{},
+    wrapper<make_cpp_descriptor("f1", &myrow::f1)>{}
 };
-static_assert(metadata == metadata2);
+// static_assert(metadata == metadata2);
 
-constexpr auto descs = std::apply(erase_descriptors, metadata);
+constexpr auto descs = erase_descriptors2(metadata2);
 
 int main()
 {

@@ -124,6 +124,10 @@ enum class client_errc : int
     // but the value is NULL. Mostly used as a sentinel by serialization
     // functions to signal that a NULL should be serialized.
     serialize_null,
+
+    // The server returned us a field list with a duplicate name.
+    // This is an edge case that shouldn't happen with a well-behaved server.
+    duplicate_name,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

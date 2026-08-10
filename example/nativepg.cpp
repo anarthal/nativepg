@@ -5,29 +5,104 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include <boost/asio/as_tuple.hpp>
-#include <boost/asio/awaitable.hpp>
-#include <boost/asio/co_spawn.hpp>
-#include <boost/asio/io_context.hpp>
-#include <boost/asio/ip/address_v4.hpp>
-#include <boost/asio/ip/tcp.hpp>
-#include <boost/asio/this_coro.hpp>
-#include <boost/describe/class.hpp>
+#include <boost/describe.hpp>
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
-#include <exception>
-#include <iostream>
 #include <string_view>
+#include <tuple>
+#include <type_traits>
 #include <vector>
 
-#include "nativepg/connection.hpp"
-#include "nativepg/extended_error.hpp"
-#include "nativepg/request.hpp"
-#include "nativepg/responses/check.hpp"
-#include "nativepg/responses/into.hpp"
-#include "nativepg/responses/response.hpp"
+#include "nativepg/field_traits.hpp"
+#include "nativepg/field_view.hpp"
+#include "nativepg/protocol/common.hpp"
 
-namespace asio = boost::asio;
+namespace describe = boost::describe;
+
+namespace nativepg {
+
+using parse_field_cb = std::error_code (*)(field_view, std::int32_t, protocol::format_code, void*);
+
+// Describes a C++ field. An array of these describes a C++ struct
+struct cpp_field_descriptor_erased
+{
+    // The field name to look up in the DB query
+    std::string_view field_name;
+
+    // Parses a field against the row struct
+    parse_field_cb parse_fn;
+};
+
+// A function suitable for parse_field_cb
+template <class Row, class FieldType, FieldType Row::* member>
+std::error_code do_field_parse(field_view fv, std::int32_t type_oid, protocol::format_code code, void* row)
+{
+    return field_parse(fv, type_oid, code, static_cast<Row*>(row)->*member);
+}
+
+template <class Row, class FieldType, FieldType Row::* member>
+struct cpp_field_descriptor
+{
+    std::string_view name;
+
+    constexpr friend bool operator==(const cpp_field_descriptor&, const cpp_field_descriptor&) = default;
+};
+
+template <class T>
+struct member_ptr_traits;
+template <class C, class T>
+struct member_ptr_traits<T C::*>
+{
+    using class_type = C;
+    using field_type = T;
+};
+
+template <auto member>
+constexpr auto make_cpp_descriptor(std::string_view name)
+{
+    using ClassType = typename member_ptr_traits<decltype(member)>::class_type;
+    using FieldType = typename member_ptr_traits<decltype(member)>::field_type;
+    return cpp_field_descriptor<ClassType, FieldType, member>{name};
+}
+
+template <class Row, template <class...> class ListType, class... D>
+constexpr auto get_describe_descriptors_impl(ListType<D...>)
+{
+    return std::make_tuple(make_cpp_descriptor<D::pointer>(D::name)...);
+}
+
+template <class Row>
+constexpr auto get_describe_descriptors()
+{
+    using row_members = describe::describe_members<Row, describe::mod_public | describe::mod_inherited>;
+    return get_describe_descriptors_impl<Row>(row_members{});
+}
+
+template <class Row, class FieldType, FieldType Row::* member>
+constexpr cpp_field_descriptor_erased erase_descriptor(cpp_field_descriptor<Row, FieldType, member> desc)
+{
+    return {.field_name = desc.name, .parse_fn = do_field_parse<Row, FieldType, member>};
+}
+
+constexpr struct erase_descriptors_t
+{
+    template <class... Descriptors>
+    constexpr std::array<cpp_field_descriptor_erased, sizeof...(Descriptors)> operator()(
+        Descriptors... descs
+    ) const
+    {
+        return {{erase_descriptor(descs)...}};
+    }
+
+} erase_descriptors;
+
+// template <class Row, class... FieldType>
+// constexpr std::vector<cpp_field_descriptor_erased>
+
+}  // namespace nativepg
+
 using namespace nativepg;
 
 struct myrow
@@ -37,53 +112,25 @@ struct myrow
 };
 BOOST_DESCRIBE_STRUCT(myrow, (), (f3, f1))
 
-static void print_err(const char* prefix, const extended_error& err)
+struct manual_row
 {
-    std::cout << prefix << err.code.message() << ": " << err.diag.message() << '\n';
-}
+    int field1;
+    float field2;
+};
 
-static asio::awaitable<void> co_main()
-{
-    // Create a connection
-    connection conn{co_await asio::this_coro::executor};
+// constexpr auto metadata = std::make_tuple();
+constexpr auto metadata = get_describe_descriptors<myrow>();
+constexpr auto metadata2 = std::tuple{
+    make_cpp_descriptor<&myrow::f3>("f3"),
+    make_cpp_descriptor<&myrow::f1>("f1")
+};
+static_assert(metadata == metadata2);
 
-    // Connect
-    co_await conn.async_connect(
-        {.hostname = "localhost", .username = "postgres", .password = "secret", .database = "postgres"}
-    );
-    std::cout << "Startup complete\n";
-
-    // Compose our request
-    request req;
-    req.add_query("SELECT * FROM myt' WHERE f1 <> $1", "abc");
-    req.add_query("SELECT * FROM myt WHERE f1 <> 'abc'");
-
-    // Structures to parse the response into
-    std::vector<myrow> vec1, vec2;
-
-    auto [err] = co_await conn.async_exec(req, response{into(vec1), into(vec2)}, asio::as_tuple);
-    print_err("Operation result: ", err);
-
-    for (const auto& r : vec1)
-        std::cout << "Got row (1): " << r.f1 << ", " << r.f3 << std::endl;
-    for (const auto& r : vec2)
-        std::cout << "Got row (2): " << r.f1 << ", " << r.f3 << std::endl;
-
-    request req2;
-    req2.add_simple_query("SELECT 1");
-    co_await conn.async_exec(req2, check());
-
-    std::cout << "Done\n";
-}
+constexpr auto descs = std::apply(erase_descriptors, metadata);
 
 int main()
 {
-    asio::io_context ctx;
-
-    asio::co_spawn(ctx, co_main(), [](std::exception_ptr exc) {
-        if (exc)
-            std::rethrow_exception(exc);
-    });
-
-    ctx.run();
+    // static_assert(expression, );
+    // constexpr auto desc = get_describe_descriptors<myrow>();
+    // constexpr auto erased_desc = erase_descriptor<class Row, class DescriptorWrapper>()
 }

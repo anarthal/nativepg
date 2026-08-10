@@ -15,6 +15,8 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <span>
+#include <system_error>
 #include <tuple>
 
 #include "nativepg/extended_error.hpp"
@@ -22,6 +24,7 @@
 #include "nativepg/field_view.hpp"
 #include "nativepg/member_descriptor.hpp"
 #include "nativepg/protocol/common.hpp"
+#include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/responses/command_info.hpp"
 #include "nativepg/responses/detail/response_utils.hpp"
@@ -83,6 +86,12 @@ std::error_code metadata_check(
     const protocol::row_description& meta,
     std::span<const erased_member_descriptor> cpp_descriptors,
     std::span<mapper_entry> output
+);
+
+std::error_code parse_row(
+    std::span<const mapper_entry> mapper,
+    const protocol::data_row& input,
+    void* output
 );
 
 }  // namespace detail
@@ -158,28 +167,12 @@ class resultset_callback_t
                 return;
             BOOST_ASSERT(self.state_ == state_t::parsing_data);
 
-            // TODO: check that data_row has the appropriate size
-
             // Now invoke parse
             T row{};
-            std::size_t i = 0u;
-            for (auto fv : msg.columns)
-            {
-                const detail::mapper_entry& entry = self.mapper_.at(i);
-                if (entry.parse_fn)
-                {
-                    // The field is mapped
-                    if (auto ec = entry.parse_fn(fv, entry.type_oid, entry.code, &row))
-                    {
-                        out_err.code = ec;
-                        return;
-                    }
-                }
-
-                ++i;
-            }
+            out_err.code = detail::parse_row(self.mapper_, msg, &row);
 
             // Invoke the user-supplied callback
+            // TODO: move or pass by reference?
             self.cb_(std::move(row));
 
             // We still need the CommandComplete message

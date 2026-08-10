@@ -6,6 +6,7 @@
 //
 
 #include <boost/assert.hpp>
+#include <boost/container/small_vector.hpp>
 #include <boost/endian/conversion.hpp>
 
 #include <algorithm>
@@ -28,40 +29,87 @@
 using namespace nativepg;
 using namespace nativepg::types;
 
-static constexpr std::size_t invalid_pos = static_cast<std::size_t>(-1);
-
-std::error_code nativepg::detail::compute_pos_map(
+std::error_code nativepg::detail::metadata_check(
     const protocol::row_description& meta,
-    std::span<const std::string_view> name_table,
-    std::span<pos_map_entry> output
+    std::span<const erased_member_descriptor> cpp_descriptors,
+    std::span<mapper_entry> output
 )
 {
-    // Name table should be the same size as the pos map
-    BOOST_ASSERT(name_table.size() == output.size());
+    // The map is indexed by DB position, so it should have one entry per DB field
+    BOOST_ASSERT(output.size() == meta.field_descriptions.size());
 
-    // Set all positions to "invalid"
+    // Mark all DB fields as unmapped
     for (auto& elm : output)
-        elm = {invalid_pos, {}, {}};
+        elm = {};
 
-    // Look up every DB field in the name table
+    // Records which C++ members have been mapped, to detect the ones missing from the query output
+    // TODO: string diagnostics here
+    boost::container::small_vector<bool, 64u> mapped(cpp_descriptors.size(), false);
+
+    // Look up every DB field in the C++ descriptor table. The row description is a parsing
+    // view, so traverse it only once and use the DB field order as the outer loop
     std::size_t db_index = 0u;
     for (const auto& field : meta.field_descriptions)
     {
-        auto it = std::find(name_table.begin(), name_table.end(), field.name);
-        if (it != name_table.end())
+        // TODO: could we sort by name at compile time?
+        const auto it = std::find_if(
+            cpp_descriptors.begin(),
+            cpp_descriptors.end(),
+            [&field](const erased_member_descriptor& desc) { return desc.field_name == field.name; }
+        );
+
+        // DB fields without a matching C++ member are left unmapped, and get skipped when parsing
+        // rows. If the query returns several fields with the same name, only the first one is mapped
+        if (it != cpp_descriptors.end())
         {
-            auto cpp_index = static_cast<std::size_t>(it - name_table.begin());
-            output[cpp_index] = {db_index, field.type_oid, field.fmt_code};
+            const auto cpp_index = static_cast<std::size_t>(it - cpp_descriptors.begin());
+
+            // If the field is already mapped, we have some sort of duplication.
+            // Reject the case altogether, just in case
+            if (mapped[cpp_index])
+                return client_errc::duplicate_name;
+
+            // The DB type should be compatible with the C++ type we're parsing into
+            if (auto ec = it->is_compatible_fn(field.type_oid))
+                return ec;
+
+            mapped[cpp_index] = true;
+            output[db_index] = {it->parse_fn, field.type_oid, field.fmt_code};
         }
         ++db_index;
     }
 
-    // If there is any unmapped field, it is an error
-    if (std::find_if(output.begin(), output.end(), [](const pos_map_entry& ent) {
-            return ent.db_index == invalid_pos;
-        }) != output.end())
-    {
+    // Any C++ member that wasn't present in the query output is an error
+    if (std::find(mapped.begin(), mapped.end(), false) != mapped.end())
         return client_errc::field_not_found;
+
+    return {};
+}
+
+std::error_code nativepg::detail::parse_row(
+    std::span<const mapper_entry> mapper,
+    const protocol::data_row& input,
+    void* output
+)
+{
+    // Double-check that the message that the server sent us
+    // has the same number of rows than the describe that we got.
+    // Otherwise, something has gone very wrong
+    if (input.columns.size() != mapper.size())
+        return client_errc::unexpected_message;  // TODO: not probably the best code
+
+    std::size_t i = 0u;
+    for (auto fv : input.columns)
+    {
+        const detail::mapper_entry& entry = mapper[i];
+        if (entry.parse_fn)  // The field is mapped
+        {
+            if (auto ec = entry.parse_fn(fv, entry.type_oid, entry.code, output))
+            {
+                return ec;
+            }
+        }
+        ++i;
     }
 
     return {};

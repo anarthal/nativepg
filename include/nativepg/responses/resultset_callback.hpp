@@ -9,16 +9,19 @@
 #define NATIVEPG_RESULTSET_CALLBACK_HPP
 
 #include <boost/assert.hpp>
+#include <boost/container/small_vector.hpp>
 
+#include <array>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
-#include <vector>
+#include <tuple>
 
-#include "nativepg/detail/row_traits.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/field_traits.hpp"
 #include "nativepg/field_view.hpp"
+#include "nativepg/member_descriptor.hpp"
+#include "nativepg/protocol/common.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/responses/command_info.hpp"
 #include "nativepg/responses/detail/response_utils.hpp"
@@ -27,30 +30,66 @@ namespace nativepg {
 
 namespace detail {
 
-struct pos_map_entry
+using field_parse_cb = std::error_code (*)(field_view, std::int32_t, protocol::format_code, void*);
+using field_is_compatible_cb = std::error_code (*)(std::int32_t);
+
+// A function suitable for parse_field_cb
+template <class Row, class FieldType, FieldType Row::* member>
+std::error_code do_field_parse(field_view fv, std::int32_t type_oid, protocol::format_code code, void* row)
 {
-    // Index within the fields sent by the DB
-    std::size_t db_index;
+    return field_parse(fv, type_oid, code, static_cast<Row*>(row)->*member);
+}
 
-    // The OID of the field's type
+// Describes a C++ field. An array of these describes a C++ struct
+struct erased_member_descriptor
+{
+    // The field name to look up in the DB query
+    std::string_view field_name;
+
+    // Checks for compatibility
+    field_is_compatible_cb is_compatible_fn;
+
+    // Parses a field against the row struct
+    field_parse_cb parse_fn;
+};
+
+template <class Row, class FieldType, FieldType Row::* member>
+constexpr erased_member_descriptor erase_descriptor(member_descriptor<Row, FieldType, member> desc)
+{
+    return {
+        .field_name = desc.name,
+        .is_compatible_fn = field_is_compatible<FieldType>,
+        .parse_fn = do_field_parse<Row, FieldType, member>
+    };
+}
+
+template <class Row, class... Descriptors>
+constexpr std::array<erased_member_descriptor, sizeof...(Descriptors)> erase_descriptors(
+    std::tuple<Descriptors...> descs
+)
+{
+    return std::apply([](auto... desc) { return std::array(erase_descriptor(desc)...); }, descs);
+}
+
+struct mapper_entry
+{
+    field_parse_cb parse_fn;
     std::int32_t type_oid;
-
-    // The format the DB uses to send the field
-    protocol::format_code fmt_code;
+    protocol::format_code code;
 };
 
 // TODO: string diagnostic
-std::error_code compute_pos_map(
+std::error_code metadata_check(
     const protocol::row_description& meta,
-    std::span<const std::string_view> name_table,
-    std::span<pos_map_entry> output
+    std::span<const erased_member_descriptor> cpp_descriptors,
+    std::span<mapper_entry> output
 );
 
 }  // namespace detail
 
 // Handles a resultset (i.e. a row_description + data_rows + command_complete)
 // by invoking a user-supplied callback
-template <class T, std::invocable<T&&> Callback>
+template <class T, class DescriptorTupleTag, std::invocable<T&&> Callback>
 class resultset_callback_t
 {
     enum class state_t
@@ -61,9 +100,11 @@ class resultset_callback_t
         failed,
     };
 
+    static inline constexpr auto descriptors = DescriptorTupleTag::get();
+    static inline constexpr std::size_t row_size = std::tuple_size_v<decltype(descriptors)>;
+
     state_t state_{state_t::parsing_meta};
-    std::array<detail::pos_map_entry, detail::row_size_v<T>> pos_map_;
-    std::vector<field_view> random_access_data_;
+    boost::container::small_vector<detail::mapper_entry, row_size * 5 / 4> mapper_;
     Callback cb_;
     command_info* info_{};
 
@@ -95,32 +136,13 @@ class resultset_callback_t
             // TODO: this can trigger on multi-queries
             BOOST_ASSERT(self.state_ == state_t::parsing_meta);
 
-            // Compute the row => C++ map
-            if (auto ec = detail::compute_pos_map(msg, detail::row_name_table_v<T>, self.pos_map_))
+            // Compute the query => C++ map
+            self.mapper_.resize(msg.field_descriptions.size());
+            if (auto ec = detail::metadata_check(msg, descriptors, self.mapper_))
             {
                 out_err.code = ec;
                 self.state_ = state_t::failed;
                 return;  // we will just ignore rows
-            }
-
-            // Metadata check
-            using type_identities = boost::mp11::
-                mp_transform<std::type_identity, detail::row_field_types_t<T>>;
-            std::size_t idx = 0u;
-            std::error_code ec;
-            boost::mp11::mp_for_each<type_identities>(
-                [&idx, &ec, &pos_map = self.pos_map_](auto type_identity) {
-                    using FieldType = typename decltype(type_identity)::type;
-                    auto ec2 = field_is_compatible<FieldType>(pos_map[idx++].type_oid);
-                    if (!ec)
-                        ec = ec2;
-                }
-            );
-            if (ec)
-            {
-                self.state_ = state_t::failed;
-                out_err.code = ec;
-                return;
             }
 
             // We now expect the rows and the CommandComplete
@@ -138,24 +160,23 @@ class resultset_callback_t
 
             // TODO: check that data_row has the appropriate size
 
-            // Copy the pointers to the data that we will be using to a random access collection
-            self.random_access_data_.assign(msg.columns.begin(), msg.columns.end());
-
             // Now invoke parse
             T row{};
-            std::error_code ec;
-            std::size_t idx = 0u;
-            detail::for_each_member(row, [&ec, &idx, &self = this->self](auto& member) {
-                const detail::pos_map_entry& ent = self.pos_map_[idx++];
-                const field_view fv = self.random_access_data_.at(ent.db_index);
-                std::error_code ec2 = field_parse(fv, ent.type_oid, ent.fmt_code, member);
-                if (!ec)
-                    ec = ec2;
-            });
-            if (ec)
+            std::size_t i = 0u;
+            for (auto fv : msg.columns)
             {
-                out_err.code = ec;
-                return;
+                const detail::mapper_entry& entry = self.mapper_.at(i);
+                if (entry.parse_fn)
+                {
+                    // The field is mapped
+                    if (auto ec = entry.parse_fn(fv, entry.type_oid, entry.code, &row))
+                    {
+                        out_err.code = ec;
+                        return;
+                    }
+                }
+
+                ++i;
             }
 
             // Invoke the user-supplied callback

@@ -11,6 +11,7 @@
 #include <boost/describe/class.hpp>
 
 #include <iostream>
+#include <tuple>
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
@@ -28,6 +29,17 @@ struct myrow
     std::string f1;
     std::int32_t f3;
 };
+
+struct manual_meta
+{
+    using type = myrow;
+
+    static constexpr auto descriptors = std::tuple{
+        make_member_descriptor<&myrow::f1>("f1"),
+        make_member_descriptor<&myrow::f3>("f3")
+    };
+};
+
 BOOST_DESCRIBE_STRUCT(myrow, (), (f1, f3))
 
 static void print_err(const char* prefix, std::error_code err, const diagnostics& diag)
@@ -72,7 +84,7 @@ static capy::task<> co_main()
 
     auto [ec2] = co_await conn.exec(
         req,
-        response{error_into(check_execute(), err1), error_into(into(vec), err2)},
+        response{error_into(check_execute(), err1), error_into(into(vec, manual_meta{}), err2)},
         &diag
     );
     print_err("Operation result", ec2, diag);

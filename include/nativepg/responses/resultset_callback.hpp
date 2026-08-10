@@ -71,7 +71,12 @@ constexpr std::array<erased_member_descriptor, sizeof...(Descriptors)> erase_des
     std::tuple<Descriptors...> descs
 )
 {
-    return std::apply([](auto... desc) { return std::array(erase_descriptor(desc)...); }, descs);
+    return std::apply(
+        [](auto... desc) {
+            return std::array<erased_member_descriptor, sizeof...(Descriptors)>{{erase_descriptor(desc)...}};
+        },
+        descs
+    );
 }
 
 struct mapper_entry
@@ -98,7 +103,7 @@ std::error_code parse_row(
 
 // Handles a resultset (i.e. a row_description + data_rows + command_complete)
 // by invoking a user-supplied callback
-template <class T, class DescriptorTupleTag, std::invocable<T&&> Callback>
+template <class MetaInfo, std::invocable<typename MetaInfo::type&&> Callback>
 class resultset_callback_t
 {
     enum class state_t
@@ -109,8 +114,9 @@ class resultset_callback_t
         failed,
     };
 
-    static inline constexpr auto descriptors = DescriptorTupleTag::get();
-    static inline constexpr std::size_t row_size = std::tuple_size_v<decltype(descriptors)>;
+    using T = typename MetaInfo::type;
+    static inline constexpr auto descriptors = detail::erase_descriptors<T>(MetaInfo::descriptors);
+    static inline constexpr std::size_t row_size = descriptors.size();
 
     state_t state_{state_t::parsing_meta};
     boost::container::small_vector<detail::mapper_entry, row_size * 5 / 4> mapper_;
@@ -235,10 +241,10 @@ public:
 };
 
 // Helper to create resultset callbacks
-template <class T, std::invocable<T&&> Callback>
+template <class MetaInfo, std::invocable<typename MetaInfo::type&&> Callback>
 auto resultset_callback(Callback&& cb, command_info* info = nullptr)
 {
-    return resultset_callback_t<T, std::decay_t<Callback>>{std::forward<Callback>(cb), info};
+    return resultset_callback_t<MetaInfo, std::decay_t<Callback>>{std::forward<Callback>(cb), info};
 }
 
 }  // namespace nativepg

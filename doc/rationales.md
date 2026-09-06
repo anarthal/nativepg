@@ -105,3 +105,18 @@ response res {into(vec1), into(vec2)};
 The first query might fail, and the second one succeed.
 For this to happen, `response` (which is a handler)
 must keep receiving messages, even after reporting the first failure.
+
+## Why don't `any_backend_message` and `any_request_message` use `std::variant`?
+
+I don't like variants :) Now on technical arguments:
+
+- All options in both variants are trivially copyable/destructible.
+  The implementation using a `union` is very easy to do.
+- A `std::variant` specialization can't be forward declared, but a custom class can.
+- Variants with many options (like `any_backend_message`) increase compile times.
+
+The library is one of the biggest consumers of these types.
+I initially coded this using `std::variant` and then switched to the custom class.
+My code simplified after the switch.
+
+I've followed `boost::json::value` conventions for accessor names.

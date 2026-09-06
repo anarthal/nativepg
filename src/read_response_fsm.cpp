@@ -13,6 +13,7 @@
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/response_handler.hpp"
 
 using namespace nativepg;
@@ -63,7 +64,7 @@ static std::error_code handle_error(read_response_fsm_impl& fsm, const protocol:
         {
             case request_message_type::sync: return client_errc::needs_more;
             case request_message_type::flush: break;
-            default: call_handler(fsm, message_skipped{}); break;
+            default: call_handler(fsm, any_request_message::message_skipped()); break;
         }
     }
 

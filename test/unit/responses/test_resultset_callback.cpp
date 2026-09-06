@@ -29,11 +29,12 @@
 #include "nativepg/protocol/execute.hpp"
 #include "nativepg/protocol/parse.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/into.hpp"
 #include "nativepg/responses/response_handler.hpp"
 #include "nativepg/responses/resultset_callback.hpp"
 #include "test_utils/printing.hpp"
-#include "test_utils/response_msg_type.hpp"
+#include "test_utils/response_handler_utils.hpp"
 
 using namespace nativepg;
 using namespace nativepg::test;
@@ -81,7 +82,7 @@ struct owning_row_description
         }
     }
 
-    operator protocol::row_description() const { return msg; }
+    operator any_request_message() const { return msg; }
 };
 
 struct owning_data_row
@@ -117,7 +118,7 @@ struct owning_data_row
         }
     }
 
-    operator protocol::data_row() const { return msg; }
+    operator any_request_message() const { return msg; }
 };
 
 protocol::field_description make_field_descr(

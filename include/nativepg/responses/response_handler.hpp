@@ -8,47 +8,17 @@
 #ifndef NATIVEPG_RESPONSE_HANDLER_HPP
 #define NATIVEPG_RESPONSE_HANDLER_HPP
 
-#include <boost/variant2/variant.hpp>
-
 #include <concepts>
 #include <cstddef>
 #include <system_error>
 
 #include "nativepg/extended_error.hpp"
-#include "nativepg/protocol/bind.hpp"
-#include "nativepg/protocol/close.hpp"
-#include "nativepg/protocol/command_complete.hpp"
-#include "nativepg/protocol/data_row.hpp"
-#include "nativepg/protocol/describe.hpp"
-#include "nativepg/protocol/empty_query_response.hpp"
-#include "nativepg/protocol/execute.hpp"
-#include "nativepg/protocol/notice_error.hpp"
-#include "nativepg/protocol/parse.hpp"
 #include "nativepg/request.hpp"
 
 namespace nativepg {
 
 class diagnostics;
-
-// Not an actual message, but a placeholder type to signal
-// that the corresponding message was skipped due to a previous error
-struct message_skipped
-{
-};
-
-// TODO: maybe make this a class
-using any_request_message = boost::variant2::variant<
-    protocol::bind_complete,
-    protocol::close_complete,
-    protocol::command_complete,
-    protocol::data_row,
-    protocol::parameter_description,
-    protocol::row_description,
-    protocol::empty_query_response,
-    protocol::portal_suspended,
-    protocol::error_response,
-    protocol::parse_complete,
-    message_skipped>;
+class any_request_message;
 
 // TODO: improve API
 struct handler_setup_result

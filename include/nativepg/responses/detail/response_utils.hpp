@@ -9,6 +9,7 @@
 #define NATIVEPG_RESPONSE_UTILS_HPP
 
 #include "nativepg/protocol/command_complete_tag.hpp"
+#include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/command_info.hpp"
 #include "nativepg/responses/response_handler.hpp"
 #include "nativepg/sqlstate.hpp"
@@ -25,9 +26,8 @@ inline void store_error(const protocol::error_response& err, extended_error& to)
 
 inline void maybe_store_error(const any_request_message& msg, extended_error& to)
 {
-    const auto* err = boost::variant2::get_if<protocol::error_response>(&msg);
-    if (err)
-        store_error(*err, to);
+    if (msg.type() == any_request_message::kind::error_response)
+        store_error(msg.get_error_response(), to);
 }
 
 inline void reset_info(command_info& obj)

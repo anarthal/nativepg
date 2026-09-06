@@ -9,10 +9,14 @@
 #define NATIVEPG_RESULTSET_CALLBACK_HPP
 
 #include <boost/assert.hpp>
+#include <boost/mp11/algorithm.hpp>
 
+#include <array>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "nativepg/detail/row_traits.hpp"
@@ -20,6 +24,7 @@
 #include "nativepg/field_traits.hpp"
 #include "nativepg/field_view.hpp"
 #include "nativepg/protocol/describe.hpp"
+#include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/command_info.hpp"
 #include "nativepg/responses/detail/response_utils.hpp"
 
@@ -67,137 +72,108 @@ class resultset_callback_t
     Callback cb_;
     command_info* info_{};
 
-    struct visitor
+    // Metadata
+    void on_row_description(const protocol::row_description& msg, extended_error& out_err)
     {
-        resultset_callback_t& self;
-        extended_error& out_err;
+        // State check
+        // TODO: this can trigger on multi-queries
+        BOOST_ASSERT(state_ == state_t::parsing_meta);
 
-        // We shouldn't get any unexpected messages
-        template <class Msg>
-        void operator()(const Msg&) const
+        // Compute the row => C++ map
+        if (auto ec = detail::compute_pos_map(msg, detail::row_name_table_v<T>, pos_map_))
         {
-            out_err.code = client_errc::incompatible_response_type;  // just in case
-            BOOST_ASSERT(false);
+            out_err.code = ec;
+            state_ = state_t::failed;
+            return;  // we will just ignore rows
         }
 
-        // If the server sends an error, store it.
-        // We know this is the last message in the sequence.
-        void operator()(const protocol::error_response& err) const { detail::store_error(err, out_err); }
-
-        // Ignore messages that may or may not appear
-        void operator()(protocol::parse_complete) const {}
-        void operator()(protocol::bind_complete) const {}
-
-        // Metadata
-        void operator()(const protocol::row_description& msg) const
+        // Metadata check
+        using type_identities = boost::mp11::mp_transform<std::type_identity, detail::row_field_types_t<T>>;
+        std::size_t idx = 0u;
+        std::error_code ec;
+        boost::mp11::mp_for_each<type_identities>([&idx, &ec, &pos_map = pos_map_](auto type_identity) {
+            using FieldType = typename decltype(type_identity)::type;
+            auto ec2 = field_is_compatible<FieldType>(pos_map[idx++].type_oid);
+            if (!ec)
+                ec = ec2;
+        });
+        if (ec)
         {
-            // State check
-            // TODO: this can trigger on multi-queries
-            BOOST_ASSERT(self.state_ == state_t::parsing_meta);
-
-            // Compute the row => C++ map
-            if (auto ec = detail::compute_pos_map(msg, detail::row_name_table_v<T>, self.pos_map_))
-            {
-                out_err.code = ec;
-                self.state_ = state_t::failed;
-                return;  // we will just ignore rows
-            }
-
-            // Metadata check
-            using type_identities = boost::mp11::
-                mp_transform<std::type_identity, detail::row_field_types_t<T>>;
-            std::size_t idx = 0u;
-            std::error_code ec;
-            boost::mp11::mp_for_each<type_identities>(
-                [&idx, &ec, &pos_map = self.pos_map_](auto type_identity) {
-                    using FieldType = typename decltype(type_identity)::type;
-                    auto ec2 = field_is_compatible<FieldType>(pos_map[idx++].type_oid);
-                    if (!ec)
-                        ec = ec2;
-                }
-            );
-            if (ec)
-            {
-                self.state_ = state_t::failed;
-                out_err.code = ec;
-                return;
-            }
-
-            // We now expect the rows and the CommandComplete
-            self.state_ = state_t::parsing_data;
+            state_ = state_t::failed;
+            out_err.code = ec;
+            return;
         }
 
-        void operator()(const protocol::data_row& msg) const
+        // We now expect the rows and the CommandComplete
+        state_ = state_t::parsing_data;
+    }
+
+    void on_data_row(const protocol::data_row& msg, extended_error& out_err)
+    {
+        // State check
+        // If there was a previous failure, the field descriptions may not be present and
+        // it's not safe to parse. We still need to get to the CommandComplete message
+        if (state_ == state_t::failed)
+            return;
+        BOOST_ASSERT(state_ == state_t::parsing_data);
+
+        // TODO: check that data_row has the appropriate size
+
+        // Copy the pointers to the data that we will be using to a random access collection
+        random_access_data_.assign(msg.columns.begin(), msg.columns.end());
+
+        // Now invoke parse
+        T row{};
+        std::error_code ec;
+        std::size_t idx = 0u;
+        detail::for_each_member(row, [&ec, &idx, this](auto& member) {
+            const detail::pos_map_entry& ent = pos_map_[idx++];
+            const field_view fv = random_access_data_.at(ent.db_index);
+            std::error_code ec2 = field_parse(fv, ent.type_oid, ent.fmt_code, member);
+            if (!ec)
+                ec = ec2;
+        });
+        if (ec)
         {
-            // State check
-            // If there was a previous failure, the field descriptions may not be present and
-            // it's not safe to parse. We still need to get to the CommandComplete message
-            if (self.state_ == state_t::failed)
-                return;
-            BOOST_ASSERT(self.state_ == state_t::parsing_data);
-
-            // TODO: check that data_row has the appropriate size
-
-            // Copy the pointers to the data that we will be using to a random access collection
-            self.random_access_data_.assign(msg.columns.begin(), msg.columns.end());
-
-            // Now invoke parse
-            T row{};
-            std::error_code ec;
-            std::size_t idx = 0u;
-            detail::for_each_member(row, [&ec, &idx, &self = this->self](auto& member) {
-                const detail::pos_map_entry& ent = self.pos_map_[idx++];
-                const field_view fv = self.random_access_data_.at(ent.db_index);
-                std::error_code ec2 = field_parse(fv, ent.type_oid, ent.fmt_code, member);
-                if (!ec)
-                    ec = ec2;
-            });
-            if (ec)
-            {
-                out_err.code = ec;
-                return;
-            }
-
-            // Invoke the user-supplied callback
-            self.cb_(std::move(row));
-
-            // We still need the CommandComplete message
+            out_err.code = ec;
+            return;
         }
 
-        void operator()(protocol::command_complete msg) const
-        {
-            // State check
-            if (self.state_ == state_t::failed)
-                return;
-            BOOST_ASSERT(self.state_ == state_t::parsing_data);
+        // Invoke the user-supplied callback
+        cb_(std::move(row));
 
-            // Store info
-            if (auto* info = self.info_)
-                detail::from_command_complete(*info, msg);
+        // We still need the CommandComplete message
+    }
 
-            // Update state
-            self.state_ = state_t::done;
-        }
+    void on_command_complete(const protocol::command_complete& msg)
+    {
+        // State check
+        if (state_ == state_t::failed)
+            return;
+        BOOST_ASSERT(state_ == state_t::parsing_data);
 
-        void operator()(protocol::portal_suspended) const
-        {
-            // State check
-            if (self.state_ == state_t::failed)
-                return;
-            BOOST_ASSERT(self.state_ == state_t::parsing_data);
+        // Store info
+        if (auto* info = info_)
+            detail::from_command_complete(*info, msg);
 
-            // Store info
-            if (auto* info = self.info_)
-                info->portal_suspended = true;
+        // Update state
+        state_ = state_t::done;
+    }
 
-            // Update state
-            self.state_ = state_t::done;
-        }
+    void on_portal_suspended()
+    {
+        // State check
+        if (state_ == state_t::failed)
+            return;
+        BOOST_ASSERT(state_ == state_t::parsing_data);
 
-        // If any of the messages we expect was skipped due to a previous error,
-        // that's an error
-        void operator()(message_skipped) const { out_err.code = client_errc::step_skipped; }
-    };
+        // Store info
+        if (auto* info = info_)
+            info->portal_suspended = true;
+
+        // Update state
+        state_ = state_t::done;
+    }
 
 public:
     template <std::invocable<T&&> Cb>
@@ -216,7 +192,34 @@ public:
 
     void on_message(const any_request_message& msg, std::size_t, extended_error& err)
     {
-        boost::variant2::visit(visitor{*this, err}, msg);
+        using kind = any_request_message::kind;
+
+        switch (msg.type())
+        {
+            // If the server sends an error, store it.
+            // We know this is the last message in the sequence.
+            case kind::error_response: detail::store_error(msg.get_error_response(), err); break;
+
+            // Ignore messages that may or may not appear
+            case kind::parse_complete:
+            case kind::bind_complete: break;
+
+            // Messages that we always expect
+            case kind::row_description: on_row_description(msg.get_row_description(), err); break;
+            case kind::data_row: on_data_row(msg.get_data_row(), err); break;
+            case kind::command_complete: on_command_complete(msg.get_command_complete()); break;
+            case kind::portal_suspended: on_portal_suspended(); break;
+
+            // If any of the messages we expect was skipped due to a previous error,
+            // that's an error
+            case kind::message_skipped: err.code = client_errc::step_skipped; break;
+
+            // We shouldn't get any unexpected messages
+            default:
+                err.code = client_errc::incompatible_response_type;  // just in case
+                BOOST_ASSERT(false);
+                break;
+        }
     }
 };
 

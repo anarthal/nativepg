@@ -19,14 +19,16 @@
 #include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/error_into.hpp"
 #include "nativepg/responses/response_handler.hpp"
 #include "test_utils/printing.hpp"
-#include "test_utils/response_msg_type.hpp"
+#include "test_utils/response_handler_utils.hpp"
 #include "test_utils/test_range_eq.hpp"
 
 using namespace nativepg;
 using namespace nativepg::test;
+using kind = any_request_message::kind;
 
 namespace {
 
@@ -62,7 +64,7 @@ struct mock_handler
     void on_message(const any_request_message& msg, std::size_t offset, extended_error& err)
     {
         const std::size_t i = st->msgs.size();
-        st->msgs.push_back({to_type(msg), offset});
+        st->msgs.push_back({msg.type(), offset});
         if (i < st->errors.size())
             err = st->errors[i];
     }
@@ -150,7 +152,7 @@ void test_copy_ctor()
     BOOST_TEST_EQ(err, first_error());
 
     const on_msg_args expected_msgs[] = {
-        {response_msg_type::data_row, 42u},
+        {kind::data_row, 42u},
     };
     test_range_eq(st.msgs, expected_msgs);
 }
@@ -177,7 +179,7 @@ void test_move_ctor()
     BOOST_TEST_EQ(out, first_error());
 
     const on_msg_args expected_msgs[] = {
-        {response_msg_type::data_row, 42u},
+        {kind::data_row, 42u},
     };
     test_range_eq(st.msgs, expected_msgs);
 }
@@ -202,8 +204,8 @@ void test_nonerror_error()
 
     // The inner handler saw both messages
     const on_msg_args expected_msgs[] = {
-        {response_msg_type::data_row,         42u},
-        {response_msg_type::command_complete, 42u},
+        {kind::data_row,         42u},
+        {kind::command_complete, 42u},
     };
     test_range_eq(st.msgs, expected_msgs);
 }
@@ -224,8 +226,8 @@ void test_error_nonerror()
     BOOST_TEST_EQ(err, first_error());
 
     const on_msg_args expected_msgs[] = {
-        {response_msg_type::data_row,         42u},
-        {response_msg_type::command_complete, 42u},
+        {kind::data_row,         42u},
+        {kind::command_complete, 42u},
     };
     test_range_eq(st.msgs, expected_msgs);
 }
@@ -246,8 +248,8 @@ void test_error_error()
     BOOST_TEST_EQ(err, first_error());
 
     const on_msg_args expected_msgs[] = {
-        {response_msg_type::data_row,         42u},
-        {response_msg_type::command_complete, 42u},
+        {kind::data_row,         42u},
+        {kind::command_complete, 42u},
     };
     test_range_eq(st.msgs, expected_msgs);
 }
@@ -265,7 +267,7 @@ void test_error_message()
     BOOST_TEST_EQ(out, extended_error{});
 
     const on_msg_args expected_msgs[] = {
-        {response_msg_type::error_response, 42u},
+        {kind::error_response, 42u},
     };
     test_range_eq(st.msgs, expected_msgs);
 }

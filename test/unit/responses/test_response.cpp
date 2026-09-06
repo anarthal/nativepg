@@ -18,14 +18,16 @@
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/parse.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/response.hpp"
 #include "nativepg/responses/response_handler.hpp"
 #include "test_utils/printing.hpp"
-#include "test_utils/response_msg_type.hpp"
+#include "test_utils/response_handler_utils.hpp"
 #include "test_utils/test_range_eq.hpp"
 
 using namespace nativepg;
 using namespace nativepg::test;
+using kind = any_request_message::kind;
 
 namespace {
 
@@ -39,7 +41,7 @@ struct mock_handler
     handler_setup_result setup(const request&, std::size_t offset) { return {offset + num_msgs}; }
     void on_message(const any_request_message& msg, std::size_t offset, extended_error& err)
     {
-        msgs.push_back({to_type(msg), offset});
+        msgs.push_back({msg.type(), offset});
         err = err_to_return;
     }
 };
@@ -67,13 +69,13 @@ void test_two_handlers()
 
     // Check messages
     const on_msg_args expected1[] = {
-        {response_msg_type::parse_complete, 0u},
-        {response_msg_type::bind_complete,  1u},
+        {kind::parse_complete, 0u},
+        {kind::bind_complete,  1u},
     };
     const on_msg_args expected2[] = {
-        {response_msg_type::row_description,  2u},
-        {response_msg_type::data_row,         3u},
-        {response_msg_type::command_complete, 3u},
+        {kind::row_description,  2u},
+        {kind::data_row,         3u},
+        {kind::command_complete, 3u},
     };
     test_range_eq(std::get<0>(res.handlers()).msgs, expected1);
     test_range_eq(std::get<1>(res.handlers()).msgs, expected2);

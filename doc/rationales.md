@@ -106,7 +106,7 @@ The first query might fail, and the second one succeed.
 For this to happen, `response` (which is a handler)
 must keep receiving messages, even after reporting the first failure.
 
-## Why don't `any_backend_message` and `any_response_message` use `std::variant`?
+## Why don't `any_backend_message` and `any_request_message` use `std::variant`?
 
 I don't like variants :) Now on technical arguments:
 

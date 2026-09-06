@@ -33,6 +33,7 @@
 #include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/protocol/sync.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/response_handler.hpp"
 #include "test_utils/printing.hpp"
 #include "test_utils/response_msg_type.hpp"
@@ -41,6 +42,7 @@ using namespace nativepg;
 using namespace nativepg::test;
 using protocol::read_response_fsm;
 using std::error_code;
+using kind = any_request_message::kind;
 
 namespace {
 
@@ -69,7 +71,7 @@ struct mock_handler
         BOOST_TEST_EQ(err, extended_error{});
 
         const std::size_t i = msgs.size();
-        msgs.push_back({to_type(msg), offset});
+        msgs.push_back({msg.type(), offset});
         if (i < errors.size())
             err = errors[i];
     }
@@ -106,10 +108,10 @@ void test_simple_query()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::row_description,  0u},
-        {response_msg_type::data_row,         0u},
-        {response_msg_type::data_row,         0u},
-        {response_msg_type::command_complete, 0u},
+        {kind::row_description,  0u},
+        {kind::data_row,         0u},
+        {kind::data_row,         0u},
+        {kind::command_complete, 0u},
     });
 }
 
@@ -126,8 +128,8 @@ void test_simple_query_no_rows()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::row_description,  0u},
-        {response_msg_type::command_complete, 0u},
+        {kind::row_description,  0u},
+        {kind::command_complete, 0u},
     });
 }
 
@@ -144,8 +146,8 @@ void test_simple_query_no_data()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::row_description,  0u},
-        {response_msg_type::command_complete, 0u},
+        {kind::row_description,  0u},
+        {kind::command_complete, 0u},
     });
 }
 
@@ -167,14 +169,14 @@ void test_simple_query_multi()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::row_description,  0u},
-        {response_msg_type::data_row,         0u},
-        {response_msg_type::data_row,         0u},
-        {response_msg_type::command_complete, 0u},
-        {response_msg_type::row_description,  0u},
-        {response_msg_type::command_complete, 0u},
-        {response_msg_type::row_description,  0u},
-        {response_msg_type::command_complete, 0u},
+        {kind::row_description,  0u},
+        {kind::data_row,         0u},
+        {kind::data_row,         0u},
+        {kind::command_complete, 0u},
+        {kind::row_description,  0u},
+        {kind::command_complete, 0u},
+        {kind::row_description,  0u},
+        {kind::command_complete, 0u},
     });
 }
 
@@ -190,7 +192,7 @@ void test_simple_query_empty()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::empty_query_response, 0u},
+        {kind::empty_query_response, 0u},
     });
 }
 
@@ -206,7 +208,7 @@ void test_simple_query_error()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::error_response, 0u},
+        {kind::error_response, 0u},
     });
 }
 
@@ -224,9 +226,9 @@ void test_simple_query_error_skipping()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::error_response,   0u},
-        {response_msg_type::row_description,  1u},
-        {response_msg_type::command_complete, 1u},
+        {kind::error_response,   0u},
+        {kind::row_description,  1u},
+        {kind::command_complete, 1u},
     });
 }
 
@@ -244,7 +246,7 @@ void test_parse()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::parse_complete, 0u},
+        {kind::parse_complete, 0u},
     });
 }
 
@@ -262,8 +264,8 @@ void test_parse_error()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::error_response,  0u},
-        {response_msg_type::message_skipped, 1u},
+        {kind::error_response,  0u},
+        {kind::message_skipped, 1u},
     });
 }
 
@@ -279,7 +281,7 @@ void test_bind()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::bind_complete, 0u},
+        {kind::bind_complete, 0u},
     });
 }
 
@@ -295,8 +297,8 @@ void test_bind_error()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::error_response,  0u},
-        {response_msg_type::message_skipped, 1u},
+        {kind::error_response,  0u},
+        {kind::message_skipped, 1u},
     });
 }
 
@@ -314,9 +316,9 @@ void test_execute()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::data_row,         0u},
-        {response_msg_type::data_row,         0u},
-        {response_msg_type::command_complete, 0u},
+        {kind::data_row,         0u},
+        {kind::data_row,         0u},
+        {kind::command_complete, 0u},
     });
 }
 
@@ -332,7 +334,7 @@ void test_execute_no_rows()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::command_complete, 0u},
+        {kind::command_complete, 0u},
     });
 }
 
@@ -350,9 +352,9 @@ void test_execute_portal_suspended()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::data_row,         0u},
-        {response_msg_type::data_row,         0u},
-        {response_msg_type::portal_suspended, 0u},
+        {kind::data_row,         0u},
+        {kind::data_row,         0u},
+        {kind::portal_suspended, 0u},
     });
 }
 
@@ -368,7 +370,7 @@ void test_execute_empty()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::empty_query_response, 0u},
+        {kind::empty_query_response, 0u},
     });
 }
 
@@ -384,8 +386,8 @@ void test_execute_error()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::error_response,  0u},
-        {response_msg_type::message_skipped, 1u},
+        {kind::error_response,  0u},
+        {kind::message_skipped, 1u},
     });
 }
 
@@ -401,7 +403,7 @@ void test_describe_portal()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::row_description, 0u},
+        {kind::row_description, 0u},
     });
 }
 
@@ -418,7 +420,7 @@ void test_describe_portal_no_data()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::row_description, 0u},
+        {kind::row_description, 0u},
     });
 }
 
@@ -435,8 +437,8 @@ void test_describe_portal_error()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::error_response,  0u},
-        {response_msg_type::message_skipped, 1u},
+        {kind::error_response,  0u},
+        {kind::message_skipped, 1u},
     });
 }
 
@@ -452,7 +454,7 @@ void test_close()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::close_complete, 0u},
+        {kind::close_complete, 0u},
     });
 }
 
@@ -469,8 +471,8 @@ void test_close_error()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::error_response,  0u},
-        {response_msg_type::message_skipped, 1u},
+        {kind::error_response,  0u},
+        {kind::message_skipped, 1u},
     });
 }
 
@@ -491,11 +493,11 @@ void test_extended_query()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::parse_complete,   0u},
-        {response_msg_type::bind_complete,    1u},
-        {response_msg_type::row_description,  2u},
-        {response_msg_type::data_row,         3u},
-        {response_msg_type::command_complete, 3u},
+        {kind::parse_complete,   0u},
+        {kind::bind_complete,    1u},
+        {kind::row_description,  2u},
+        {kind::data_row,         3u},
+        {kind::command_complete, 3u},
     });
 }
 
@@ -514,7 +516,7 @@ void test_async()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::parse_complete, 0u}
+        {kind::parse_complete, 0u}
     });
 }
 
@@ -540,13 +542,13 @@ void test_several_syncs()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::close_complete,   0u},
-        {response_msg_type::parse_complete,   2u},
-        {response_msg_type::bind_complete,    3u},
-        {response_msg_type::row_description,  4u},
-        {response_msg_type::data_row,         5u},
-        {response_msg_type::command_complete, 5u},
-        {response_msg_type::row_description,  7u},
+        {kind::close_complete,   0u},
+        {kind::parse_complete,   2u},
+        {kind::bind_complete,    3u},
+        {kind::row_description,  4u},
+        {kind::data_row,         5u},
+        {kind::command_complete, 5u},
+        {kind::row_description,  7u},
     });
 }
 
@@ -569,12 +571,12 @@ void test_error_recovery()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::close_complete,  0u},
-        {response_msg_type::parse_complete,  2u},
-        {response_msg_type::error_response,  3u},
-        {response_msg_type::message_skipped, 4u},
-        {response_msg_type::message_skipped, 5u},
-        {response_msg_type::row_description, 7u},
+        {kind::close_complete,  0u},
+        {kind::parse_complete,  2u},
+        {kind::error_response,  3u},
+        {kind::message_skipped, 4u},
+        {kind::message_skipped, 5u},
+        {kind::row_description, 7u},
     });
 }
 
@@ -590,7 +592,7 @@ void test_error_recovery_sync_last()
 
     // Check handler messages
     fix.check({
-        {response_msg_type::error_response, 0u},
+        {kind::error_response, 0u},
     });
 }
 
@@ -615,8 +617,8 @@ void test_handler_error_does_not_fail_fsm()
 
     // Every message still reached the handler, including the ones after the failure
     fix.check({
-        {response_msg_type::row_description,  0u},
-        {response_msg_type::command_complete, 0u},
+        {kind::row_description,  0u},
+        {kind::command_complete, 0u},
     });
 }
 
@@ -635,9 +637,9 @@ void test_handler_error_then_nonerror()
     BOOST_TEST_EQ(fix.fsm.get_handler_error(), first_error());
 
     fix.check({
-        {response_msg_type::row_description,  0u},
-        {response_msg_type::data_row,         0u},
-        {response_msg_type::command_complete, 0u},
+        {kind::row_description,  0u},
+        {kind::data_row,         0u},
+        {kind::command_complete, 0u},
     });
 }
 
@@ -658,9 +660,9 @@ void test_handler_three_errors()
     BOOST_TEST_EQ(fix.fsm.get_handler_error(), first_error());
 
     fix.check({
-        {response_msg_type::row_description,  0u},
-        {response_msg_type::data_row,         0u},
-        {response_msg_type::command_complete, 0u},
+        {kind::row_description,  0u},
+        {kind::data_row,         0u},
+        {kind::command_complete, 0u},
     });
 }
 

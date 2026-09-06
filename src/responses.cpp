@@ -19,6 +19,7 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/check.hpp"
 #include "nativepg/responses/describe_into.hpp"
 #include "nativepg/responses/field_descriptions.hpp"

@@ -7,7 +7,6 @@
 
 #include <boost/assert/source_location.hpp>
 #include <boost/core/lightweight_test.hpp>
-#include <boost/variant2/variant.hpp>
 
 #include <cstddef>
 #include <initializer_list>

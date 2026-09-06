@@ -63,7 +63,7 @@ static std::error_code handle_error(read_response_fsm_impl& fsm, const protocol:
         {
             case request_message_type::sync: return client_errc::needs_more;
             case request_message_type::flush: break;
-            default: call_handler(fsm, message_skipped{}); break;
+            default: call_handler(fsm, any_request_message::message_skipped()); break;
         }
     }
 

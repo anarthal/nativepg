@@ -81,7 +81,7 @@ struct owning_row_description
         }
     }
 
-    operator protocol::row_description() const { return msg; }
+    operator any_request_message() const { return msg; }
 };
 
 struct owning_data_row
@@ -117,7 +117,7 @@ struct owning_data_row
         }
     }
 
-    operator protocol::data_row() const { return msg; }
+    operator any_request_message() const { return msg; }
 };
 
 protocol::field_description make_field_descr(

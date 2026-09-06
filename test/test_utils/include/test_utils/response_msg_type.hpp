@@ -8,8 +8,6 @@
 #ifndef NATIVEPG_TEST_RESPONSE_MSG_TYPE_HPP
 #define NATIVEPG_TEST_RESPONSE_MSG_TYPE_HPP
 
-#include <boost/variant2/variant.hpp>
-
 #include <cstddef>
 #include <ostream>
 
@@ -55,24 +53,22 @@ inline std::ostream& operator<<(std::ostream& os, response_msg_type t) { return 
 
 inline response_msg_type to_type(const any_request_message& msg)
 {
-    struct visitor
-    {
-        // clang-format off
-        response_msg_type operator()(const protocol::bind_complete&) const { return response_msg_type::bind_complete;}
-        response_msg_type operator()(const protocol::close_complete&) const { return response_msg_type::close_complete;}
-        response_msg_type operator()(const protocol::command_complete&) const { return response_msg_type::command_complete;}
-        response_msg_type operator()(const protocol::data_row&) const { return response_msg_type::data_row;}
-        response_msg_type operator()(const protocol::parameter_description&) const { return response_msg_type::parameter_description;}
-        response_msg_type operator()(const protocol::row_description&) const { return response_msg_type::row_description;}
-        response_msg_type operator()(const protocol::empty_query_response&) const { return response_msg_type::empty_query_response;}
-        response_msg_type operator()(const protocol::portal_suspended&) const { return response_msg_type::portal_suspended;}
-        response_msg_type operator()(const protocol::error_response&) const { return response_msg_type::error_response;}
-        response_msg_type operator()(const protocol::parse_complete&) const { return response_msg_type::parse_complete;}
-        response_msg_type operator()(const message_skipped&) const { return response_msg_type::message_skipped;}
-        // clang-format on
-    };
+    using kind = any_request_message::kind;
 
-    return boost::variant2::visit(visitor{}, msg);
+    switch (msg.type())
+    {
+        case kind::bind_complete: return response_msg_type::bind_complete;
+        case kind::close_complete: return response_msg_type::close_complete;
+        case kind::command_complete: return response_msg_type::command_complete;
+        case kind::data_row: return response_msg_type::data_row;
+        case kind::parameter_description: return response_msg_type::parameter_description;
+        case kind::row_description: return response_msg_type::row_description;
+        case kind::empty_query_response: return response_msg_type::empty_query_response;
+        case kind::portal_suspended: return response_msg_type::portal_suspended;
+        case kind::error_response: return response_msg_type::error_response;
+        case kind::parse_complete: return response_msg_type::parse_complete;
+        default: return response_msg_type::message_skipped;
+    }
 }
 
 struct on_msg_args

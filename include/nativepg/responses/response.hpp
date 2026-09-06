@@ -9,7 +9,11 @@
 #define NATIVEPG_RESPONSE_HPP
 
 #include <boost/assert.hpp>
+#include <boost/mp11/algorithm.hpp>
 
+#include <array>
+#include <cstddef>
+#include <tuple>
 #include <type_traits>
 
 #include "nativepg/extended_error.hpp"

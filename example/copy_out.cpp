@@ -9,7 +9,6 @@
 #include <boost/capy/task.hpp>
 #include <boost/corosio/io_context.hpp>
 #include <boost/describe/class.hpp>
-#include <boost/variant2/variant.hpp>
 
 #include <iostream>
 

@@ -7,10 +7,12 @@
 
 #include <boost/assert.hpp>
 #include <boost/endian/conversion.hpp>
+#include <boost/throw_exception.hpp>
 
 #include <algorithm>
 #include <cstring>
 #include <span>
+#include <stdexcept>
 #include <system_error>
 #include <vector>
 
@@ -27,6 +29,11 @@
 
 using namespace nativepg;
 using namespace nativepg::types;
+
+void nativepg::any_request_message::throw_invalid_argument()
+{
+    BOOST_THROW_EXCEPTION(std::invalid_argument("any_request_message: kind mismatch"));
+}
 
 static constexpr std::size_t invalid_pos = static_cast<std::size_t>(-1);
 
@@ -168,46 +175,38 @@ handler_setup_result describe_into::setup(const request& req, std::size_t offset
 
 void check_execute::on_message(const any_request_message& msg, std::size_t, extended_error& err)
 {
-    struct visitor
-    {
-        check_execute& self;
-        extended_error& err_out;
+    using kind = any_request_message::kind;
 
+    switch (msg.type())
+    {
         // Ignore messages that might or might not appear in exec
-        void operator()(protocol::bind_complete) const {}
-        void operator()(protocol::parse_complete) const {}
+        case kind::bind_complete:
+        case kind::parse_complete: break;
 
         // Ignore metadata
-        void operator()(const protocol::row_description&) const {}
+        case kind::row_description: break;
 
         // Ignore any data
-        void operator()(const protocol::data_row&) const {}
+        case kind::data_row: break;
 
         // EOF
-        void operator()(protocol::command_complete msg) const
-        {
-            if (self.info_)
-                detail::from_command_complete(*self.info_, msg);
-        }
+        case kind::command_complete:
+            if (info_)
+                detail::from_command_complete(*info_, msg.get_command_complete());
+            break;
 
-        void operator()(protocol::portal_suspended) const
-        {
-            if (self.info_)
-                self.info_->portal_suspended = true;
-        }
+        case kind::portal_suspended:
+            if (info_)
+                info_->portal_suspended = true;
+            break;
 
         // Errors
-        void operator()(const protocol::error_response& msg) const { detail::store_error(msg, err_out); }
+        case kind::error_response: detail::store_error(msg.get_error_response(), err); break;
 
         // The rest of the messages shouldn't arrive
         // TODO: manage multi-queries, empty queries, skipped messages
-        void operator()(const protocol::close_complete&) const { BOOST_ASSERT(false); }
-        void operator()(const protocol::parameter_description&) const { BOOST_ASSERT(false); }
-        void operator()(const protocol::empty_query_response&) const { BOOST_ASSERT(false); }
-        void operator()(message_skipped) const { BOOST_ASSERT(false); }
-    };
-
-    boost::variant2::visit(visitor{*this, err}, msg);
+        default: BOOST_ASSERT(false); break;
+    }
 }
 
 handler_setup_result resultsets_handler::setup(const request& req, std::size_t offset)
@@ -226,100 +225,86 @@ handler_setup_result resultsets_handler::setup(const request& req, std::size_t o
 
 void resultsets_handler::on_message(const any_request_message& msg, std::size_t, extended_error& err)
 {
-    struct visitor
-    {
-        resultsets_handler& self;
-        extended_error& err_out;
+    using kind = any_request_message::kind;
 
+    switch (msg.type())
+    {
         // Ignore messages that might or might not appear in exec
-        void operator()(protocol::bind_complete) const {}
-        void operator()(protocol::parse_complete) const {}
+        case kind::bind_complete:
+        case kind::parse_complete: break;
 
         // Metadata
-        void operator()(const protocol::row_description& msg) const
+        case kind::row_description:
         {
-            BOOST_ASSERT(self.state_ == state_t::parsing_meta);
-            self.num_cols_ = msg.field_descriptions.size();
-            self.obj_->add_row_description(msg);
-            self.state_ = state_t::parsing_data;
+            const auto& descr = msg.get_row_description();
+            BOOST_ASSERT(state_ == state_t::parsing_meta);
+            num_cols_ = descr.field_descriptions.size();
+            obj_->add_row_description(descr);
+            state_ = state_t::parsing_data;
+            break;
         }
 
         // Data
-        void operator()(const protocol::data_row& msg) const
-        {
-            BOOST_ASSERT(self.state_ == state_t::parsing_data);
+        case kind::data_row:
+            BOOST_ASSERT(state_ == state_t::parsing_data);
             // TODO: check that the number of rows matches with what we received in the field description
-            self.obj_->add_row(msg);
-            ++self.num_rows_;
-        }
+            obj_->add_row(msg.get_data_row());
+            ++num_rows_;
+            break;
 
         // EOF
-        void operator()(protocol::command_complete msg) const
+        case kind::command_complete:
         {
-            BOOST_ASSERT(self.state_ == state_t::parsing_data);
+            BOOST_ASSERT(state_ == state_t::parsing_data);
             command_info info;
-            detail::from_command_complete(info, msg);
-            self.obj_->finish_resultset(self.num_rows_, self.num_cols_, std::move(info), {});
-            self.reset_state();
+            detail::from_command_complete(info, msg.get_command_complete());
+            obj_->finish_resultset(num_rows_, num_cols_, std::move(info), {});
+            reset_state();
+            break;
         }
 
-        void operator()(protocol::portal_suspended) const
-        {
-            BOOST_ASSERT(self.state_ == state_t::parsing_data);
-            self.obj_->finish_resultset(self.num_rows_, self.num_cols_, {.portal_suspended = true}, {});
-            self.reset_state();
-        }
+        case kind::portal_suspended:
+            BOOST_ASSERT(state_ == state_t::parsing_data);
+            obj_->finish_resultset(num_rows_, num_cols_, {.portal_suspended = true}, {});
+            reset_state();
+            break;
 
         // Errors
-        void operator()(const protocol::error_response& msg) const
+        case kind::error_response:
         {
             extended_error err_temp;
-            detail::store_error(msg, err_temp);
-            err_out = err_temp;
-            self.obj_->finish_resultset(self.num_rows_, self.num_cols_, {}, std::move(err_temp));
-            self.reset_state();
+            detail::store_error(msg.get_error_response(), err_temp);
+            err = err_temp;
+            obj_->finish_resultset(num_rows_, num_cols_, {}, std::move(err_temp));
+            reset_state();
+            break;
         }
 
         // The rest of the messages shouldn't arrive
         // TODO: manage multi-queries, empty queries, skipped messages
-        void operator()(const protocol::close_complete&) const { BOOST_ASSERT(false); }
-        void operator()(const protocol::parameter_description&) const { BOOST_ASSERT(false); }
-        void operator()(const protocol::empty_query_response&) const { BOOST_ASSERT(false); }
-        void operator()(message_skipped) const { BOOST_ASSERT(false); }
-    };
-
-    boost::variant2::visit(visitor{*this, err}, msg);
+        default: BOOST_ASSERT(false); break;
+    }
 }
 
 void describe_into::on_message(const any_request_message& msg, std::size_t, extended_error& err)
 {
-    struct visitor
-    {
-        describe_into& self;
-        extended_error& err_out;
+    using kind = any_request_message::kind;
 
+    switch (msg.type())
+    {
         // The row description is the result of a describe (portal or statement).
         // A no_data reply is delivered by the FSM as an empty row description.
-        void operator()(const protocol::row_description& msg) const { self.obj_->assign(msg); }
+        case kind::row_description: obj_->assign(msg.get_row_description()); break;
 
         // A describe statement is preceded by a parameter description, which we don't store
-        void operator()(const protocol::parameter_description&) const {}
+        case kind::parameter_description: break;
 
         // Errors
-        void operator()(const protocol::error_response& msg) const { detail::store_error(msg, err_out); }
+        case kind::error_response: detail::store_error(msg.get_error_response(), err); break;
 
         // We only handle describe messages, so nothing else should arrive
-        void operator()(protocol::parse_complete) const { BOOST_ASSERT(false); }
-        void operator()(protocol::bind_complete) const { BOOST_ASSERT(false); }
-        void operator()(const protocol::data_row&) const { BOOST_ASSERT(false); }
-        void operator()(protocol::command_complete) const { BOOST_ASSERT(false); }
-        void operator()(protocol::portal_suspended) const { BOOST_ASSERT(false); }
-        void operator()(const protocol::close_complete&) const { BOOST_ASSERT(false); }
-        void operator()(const protocol::empty_query_response&) const { BOOST_ASSERT(false); }
-        void operator()(message_skipped) const { BOOST_ASSERT(false); }
-    };
-
-    boost::variant2::visit(visitor{*this, err}, msg);
+        default: BOOST_ASSERT(false); break;
+    }
 }
 
 static nativepg::detail::offset_and_length insert_data(

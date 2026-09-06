@@ -19,6 +19,7 @@
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/protocol/parse.hpp"
 #include "nativepg/responses/any_request_message.hpp"
+#include "test_utils/response_handler_utils.hpp"
 
 using namespace nativepg;
 using kind = any_request_message::kind;
@@ -58,67 +59,67 @@ protocol::error_response sample_error_response() { return {{.sqlstate = "42P01"}
 void test_ctor_bind_complete()
 {
     any_request_message msg{protocol::bind_complete{}};
-    BOOST_TEST(msg.type() == kind::bind_complete);
+    BOOST_TEST_EQ(msg.type(), kind::bind_complete);
 }
 
 void test_ctor_close_complete()
 {
     any_request_message msg{protocol::close_complete{}};
-    BOOST_TEST(msg.type() == kind::close_complete);
+    BOOST_TEST_EQ(msg.type(), kind::close_complete);
 }
 
 void test_ctor_command_complete()
 {
     any_request_message msg{sample_command_complete()};
-    BOOST_TEST(msg.type() == kind::command_complete);
+    BOOST_TEST_EQ(msg.type(), kind::command_complete);
 }
 
 void test_ctor_data_row()
 {
     any_request_message msg{sample_data_row()};
-    BOOST_TEST(msg.type() == kind::data_row);
+    BOOST_TEST_EQ(msg.type(), kind::data_row);
 }
 
 void test_ctor_parameter_description()
 {
     any_request_message msg{sample_parameter_description()};
-    BOOST_TEST(msg.type() == kind::parameter_description);
+    BOOST_TEST_EQ(msg.type(), kind::parameter_description);
 }
 
 void test_ctor_row_description()
 {
     any_request_message msg{sample_row_description()};
-    BOOST_TEST(msg.type() == kind::row_description);
+    BOOST_TEST_EQ(msg.type(), kind::row_description);
 }
 
 void test_ctor_empty_query_response()
 {
     any_request_message msg{protocol::empty_query_response{}};
-    BOOST_TEST(msg.type() == kind::empty_query_response);
+    BOOST_TEST_EQ(msg.type(), kind::empty_query_response);
 }
 
 void test_ctor_portal_suspended()
 {
     any_request_message msg{protocol::portal_suspended{}};
-    BOOST_TEST(msg.type() == kind::portal_suspended);
+    BOOST_TEST_EQ(msg.type(), kind::portal_suspended);
 }
 
 void test_ctor_error_response()
 {
     any_request_message msg{sample_error_response()};
-    BOOST_TEST(msg.type() == kind::error_response);
+    BOOST_TEST_EQ(msg.type(), kind::error_response);
 }
 
 void test_ctor_parse_complete()
 {
     any_request_message msg{protocol::parse_complete{}};
-    BOOST_TEST(msg.type() == kind::parse_complete);
+    BOOST_TEST_EQ(msg.type(), kind::parse_complete);
 }
 
 void test_ctor_message_skipped()
 {
     any_request_message msg = any_request_message::message_skipped();
-    BOOST_TEST(msg.type() == kind::message_skipped);
+    BOOST_TEST_EQ(msg.type(), kind::message_skipped);
 }
 
 //

@@ -68,9 +68,14 @@ static const char* to_string(nativepg::any_request_message::kind value)
     }
 }
 
+std::ostream& nativepg::operator<<(std::ostream& os, any_request_message::kind value)
+{
+    return os << to_string(value);
+}
+
 std::ostream& nativepg::test::operator<<(std::ostream& os, const on_msg_args& v)
 {
-    return os << "{ " << to_string(v.type) << ", " << v.offset << " }";
+    return os << "{ " << v.type << ", " << v.offset << " }";
 }
 
 // --- CI server ---

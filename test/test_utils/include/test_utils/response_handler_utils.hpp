@@ -37,4 +37,11 @@ extended_error feed(Handler& h, const any_request_message& msg, std::size_t offs
 
 }  // namespace nativepg::test
 
+// Allow printing any_request_message::kind
+namespace nativepg {
+
+std::ostream& operator<<(std::ostream& os, any_request_message::kind value);
+
+}
+
 #endif

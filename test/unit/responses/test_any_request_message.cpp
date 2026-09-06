@@ -7,11 +7,7 @@
 
 #include <boost/core/lightweight_test.hpp>
 
-#include <cstdint>
-#include <iostream>
 #include <stdexcept>
-#include <string_view>
-#include <vector>
 
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/close.hpp"
@@ -36,12 +32,24 @@ namespace {
 // without serializing actual message contents.
 //
 protocol::command_complete sample_command_complete() { return {.tag = "SELECT 1"}; }
-protocol::data_row sample_data_row() { return {.columns = {3u, {}}}; }
+protocol::data_row sample_data_row()
+{
+    return {
+        .columns = {3u, {}}
+    };
+}
 protocol::parameter_description sample_parameter_description()
 {
-    return {.parameter_type_oids = {nullptr, 4u}};
+    return {
+        .parameter_type_oids = {nullptr, 4u}
+    };
 }
-protocol::row_description sample_row_description() { return {.field_descriptions = {5u, {}}}; }
+protocol::row_description sample_row_description()
+{
+    return {
+        .field_descriptions = {5u, {}}
+    };
+}
 protocol::error_response sample_error_response() { return {{.sqlstate = "42P01"}}; }
 
 //
@@ -149,101 +157,214 @@ void test_get_error_response()
 //
 // as_xxx accessors
 //
-struct named_message
-{
-    const char* name;
-    any_request_message msg;
-};
-
-// One message per kind
-std::vector<named_message> all_messages()
-{
-    return {
-        {"bind_complete",         protocol::bind_complete{}              },
-        {"close_complete",        protocol::close_complete{}             },
-        {"command_complete",      sample_command_complete()              },
-        {"data_row",              sample_data_row()                      },
-        {"parameter_description", sample_parameter_description()         },
-        {"row_description",       sample_row_description()               },
-        {"empty_query_response",  protocol::empty_query_response{}       },
-        {"portal_suspended",      protocol::portal_suspended{}           },
-        {"error_response",        sample_error_response()                },
-        {"parse_complete",        protocol::parse_complete{}             },
-        {"message_skipped",       any_request_message::message_skipped()},
-    };
-}
-
-// Checks that the given accessor throws for every kind other than the expected one
-template <class Accessor>
-void check_other_kinds_throw(kind expected, Accessor accessor)
-{
-    for (const auto& elm : all_messages())
-    {
-        if (elm.msg.type() == expected)
-            continue;
-
-        bool threw = false;
-        try
-        {
-            accessor(elm.msg);
-        }
-        catch (const std::invalid_argument&)
-        {
-            threw = true;
-        }
-        if (!BOOST_TEST(threw))
-            std::cerr << "  while accessing a " << elm.name << " message" << std::endl;
-    }
-}
 
 void test_as_command_complete()
 {
     any_request_message msg{sample_command_complete()};
+
+    // Success
     BOOST_TEST_EQ(msg.as_command_complete().tag, "SELECT 1");
 
-    check_other_kinds_throw(kind::command_complete, [](const any_request_message& m) {
-        m.as_command_complete();
-    });
+    // Type mismatches
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::bind_complete{}).as_command_complete(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::close_complete{}).as_command_complete(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(any_request_message(protocol::data_row{}).as_command_complete(), std::invalid_argument);
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::parameter_description{}).as_command_complete(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::row_description{}).as_command_complete(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::empty_query_response{}).as_command_complete(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::portal_suspended{}).as_command_complete(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::error_response{}).as_command_complete(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::parse_complete{}).as_command_complete(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(any_request_message::message_skipped().as_command_complete(), std::invalid_argument);
 }
 
 void test_as_data_row()
 {
     any_request_message msg{sample_data_row()};
+
+    // Success
     BOOST_TEST_EQ(msg.as_data_row().columns.size(), 3u);
 
-    check_other_kinds_throw(kind::data_row, [](const any_request_message& m) { m.as_data_row(); });
+    // Type mismatches
+    BOOST_TEST_THROWS(any_request_message(protocol::bind_complete{}).as_data_row(), std::invalid_argument);
+    BOOST_TEST_THROWS(any_request_message(protocol::close_complete{}).as_data_row(), std::invalid_argument);
+    BOOST_TEST_THROWS(any_request_message(protocol::command_complete{}).as_data_row(), std::invalid_argument);
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::parameter_description{}).as_data_row(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(any_request_message(protocol::row_description{}).as_data_row(), std::invalid_argument);
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::empty_query_response{}).as_data_row(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(any_request_message(protocol::portal_suspended{}).as_data_row(), std::invalid_argument);
+    BOOST_TEST_THROWS(any_request_message(protocol::error_response{}).as_data_row(), std::invalid_argument);
+    BOOST_TEST_THROWS(any_request_message(protocol::parse_complete{}).as_data_row(), std::invalid_argument);
+    BOOST_TEST_THROWS(any_request_message::message_skipped().as_data_row(), std::invalid_argument);
 }
 
 void test_as_parameter_description()
 {
     any_request_message msg{sample_parameter_description()};
+
+    // Success
     BOOST_TEST_EQ(msg.as_parameter_description().parameter_type_oids.size(), 4u);
 
-    check_other_kinds_throw(kind::parameter_description, [](const any_request_message& m) {
-        m.as_parameter_description();
-    });
+    // Type mismatches
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::bind_complete{}).as_parameter_description(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::close_complete{}).as_parameter_description(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::command_complete{}).as_parameter_description(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::data_row{}).as_parameter_description(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::row_description{}).as_parameter_description(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::empty_query_response{}).as_parameter_description(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::portal_suspended{}).as_parameter_description(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::error_response{}).as_parameter_description(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::parse_complete{}).as_parameter_description(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message::message_skipped().as_parameter_description(),
+        std::invalid_argument
+    );
 }
 
 void test_as_row_description()
 {
     any_request_message msg{sample_row_description()};
+
+    // Success
     BOOST_TEST_EQ(msg.as_row_description().field_descriptions.size(), 5u);
 
-    check_other_kinds_throw(kind::row_description, [](const any_request_message& m) {
-        m.as_row_description();
-    });
+    // Type mismatches
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::bind_complete{}).as_row_description(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::close_complete{}).as_row_description(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::command_complete{}).as_row_description(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(any_request_message(protocol::data_row{}).as_row_description(), std::invalid_argument);
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::parameter_description{}).as_row_description(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::empty_query_response{}).as_row_description(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::portal_suspended{}).as_row_description(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::error_response{}).as_row_description(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::parse_complete{}).as_row_description(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(any_request_message::message_skipped().as_row_description(), std::invalid_argument);
 }
 
 void test_as_error_response()
 {
     any_request_message msg{sample_error_response()};
+
+    // Success
     BOOST_TEST_EQ(msg.as_error_response().sqlstate.value(), "42P01");
 
-    check_other_kinds_throw(kind::error_response, [](const any_request_message& m) {
-        m.as_error_response();
-    });
+    // Type mismatches
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::bind_complete{}).as_error_response(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::close_complete{}).as_error_response(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::command_complete{}).as_error_response(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(any_request_message(protocol::data_row{}).as_error_response(), std::invalid_argument);
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::parameter_description{}).as_error_response(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::row_description{}).as_error_response(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::empty_query_response{}).as_error_response(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::portal_suspended{}).as_error_response(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(
+        any_request_message(protocol::parse_complete{}).as_error_response(),
+        std::invalid_argument
+    );
+    BOOST_TEST_THROWS(any_request_message::message_skipped().as_error_response(), std::invalid_argument);
 }
-
 }  // namespace
 
 int main()

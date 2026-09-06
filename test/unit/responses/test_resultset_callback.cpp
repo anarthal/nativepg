@@ -34,7 +34,7 @@
 #include "nativepg/responses/response_handler.hpp"
 #include "nativepg/responses/resultset_callback.hpp"
 #include "test_utils/printing.hpp"
-#include "test_utils/response_msg_type.hpp"
+#include "test_utils/response_handler_utils.hpp"
 
 using namespace nativepg;
 using namespace nativepg::test;

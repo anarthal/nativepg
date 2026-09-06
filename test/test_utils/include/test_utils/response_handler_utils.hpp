@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_TEST_RESPONSE_MSG_TYPE_HPP
-#define NATIVEPG_TEST_RESPONSE_MSG_TYPE_HPP
+#ifndef NATIVEPG_TEST_RESPONSE_HANDLER_UTILS_HPP
+#define NATIVEPG_TEST_RESPONSE_HANDLER_UTILS_HPP
 
 #include <cstddef>
 #include <iosfwd>

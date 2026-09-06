@@ -23,7 +23,7 @@
 #include "nativepg/responses/error_into.hpp"
 #include "nativepg/responses/response_handler.hpp"
 #include "test_utils/printing.hpp"
-#include "test_utils/response_msg_type.hpp"
+#include "test_utils/response_handler_utils.hpp"
 #include "test_utils/test_range_eq.hpp"
 
 using namespace nativepg;

@@ -16,7 +16,7 @@
 #include "nativepg/responses/response_handler.hpp"
 #include "test_utils/ci_server.hpp"
 #include "test_utils/printing.hpp"
-#include "test_utils/response_msg_type.hpp"
+#include "test_utils/response_handler_utils.hpp"
 
 // --- Printing ---
 std::ostream& nativepg::operator<<(std::ostream& os, const extended_error& err)

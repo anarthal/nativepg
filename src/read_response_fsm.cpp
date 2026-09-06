@@ -13,6 +13,7 @@
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/response_handler.hpp"
 
 using namespace nativepg;

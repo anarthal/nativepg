@@ -14,11 +14,11 @@
 
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/responses/any_request_message.hpp"
 
 namespace nativepg {
 
 class diagnostics;
+class any_request_message;
 
 // TODO: improve API
 struct handler_setup_result

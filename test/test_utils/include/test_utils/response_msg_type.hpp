@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <ostream>
 
+#include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/response_handler.hpp"
 
 namespace nativepg::test {

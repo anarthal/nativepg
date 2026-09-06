@@ -9,6 +9,7 @@
 #define NATIVEPG_RESPONSE_UTILS_HPP
 
 #include "nativepg/protocol/command_complete_tag.hpp"
+#include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/command_info.hpp"
 #include "nativepg/responses/response_handler.hpp"
 #include "nativepg/sqlstate.hpp"

@@ -6,19 +6,23 @@
 //
 
 /**
- * Measures latency and throughput of simple SELECT queries run through a
- * single dedicated connection.
+ * Compares latency and throughput of simple SELECT queries run through a
+ * dedicated connection vs. a multiplexed one.
  *
- * The benchmark spawns nsess sessions that run concurrently. Each session runs
- * nqueries SELECT queries, one after another. All sessions share a single
- * co_connection; because a dedicated connection can only serve one request at
- * a time, access to it is serialized with a capy::async_mutex.
+ * Both benchmarks have the same shape: nsess sessions run concurrently, and
+ * each session runs nqueries SELECT queries one after another. They differ
+ * only in how the sessions reach the server:
+ *   - Dedicated: all sessions share a single co_connection. Since a dedicated
+ *     connection can only serve one request at a time, access to it is
+ *     serialized with a capy::async_mutex.
+ *   - Multiplexed: all sessions share a single co_multiplexed_connection,
+ *     which accepts concurrent requests and pipelines them itself, so no
+ *     mutex is needed.
  *
  * Reported figures:
- *   - Latency: wall time of each individual exec() call. Time spent waiting
- *     for the mutex is *not* included, so these numbers describe the
- *     connection's per-request service time, not the queueing delay a session
- *     observes.
+ *   - Latency: wall time from issuing a query to having its response, as a
+ *     session sees it. For the dedicated case that includes the time queued
+ *     on the mutex, which is the bulk of it under contention.
  *   - Throughput: total wall time of the run divided by the total number of
  *     queries, plus its reciprocal in queries/second. Connection
  *     establishment happens before the clock starts and is excluded.
@@ -40,6 +44,7 @@
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
+#include <boost/capy/when_any.hpp>
 #include <boost/corosio/io_context.hpp>
 
 #include <chrono>
@@ -51,9 +56,11 @@
 #include <iostream>
 #include <string_view>
 #include <system_error>
+#include <variant>
 #include <vector>
 
 #include "nativepg/co_connection.hpp"
+#include "nativepg/co_multiplexed_connection.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
 
@@ -158,11 +165,12 @@ capy::io_task<> dedicated_session(dedicated_state& st)
     co_return {};
 }
 
-void print_results(double elapsed_secs, const stats& latency)
+void print_results(const char* name, double elapsed_secs, const stats& latency)
 {
     const auto total_queries = static_cast<double>(latency.count());
 
     std::cout << std::fixed << std::setprecision(2)                                        //
+              << "\n=== " << name << " ===\n"                                              //
               << "Sessions:            " << nsess << '\n'                                  //
               << "Queries per session: " << nqueries << '\n'                               //
               << "Queries run:         " << latency.count() << '\n'                        //
@@ -170,7 +178,7 @@ void print_results(double elapsed_secs, const stats& latency)
               << "  total time:        " << elapsed_secs * 1e3 << " ms\n"                  //
               << "  time per query:    " << elapsed_secs * 1e6 / total_queries << " us\n"  //
               << "  queries/second:    " << total_queries / elapsed_secs << '\n'           //
-              << "\nexec() latency (us)\n"                                                 //
+              << "\nQuery latency (us)\n"                                                  //
               << "  mean:              " << latency.mean() << '\n'                         //
               << "  stddev:            " << latency.stddev() << '\n';
 }
@@ -186,6 +194,13 @@ capy::task<> run_dedicated()
     if (auto [ec] = co_await st.conn.connect(make_connect_params()); ec)
         die("connect", ec);
 
+    // Discard one query, so that first-query costs don't land in the
+    // measurement (the multiplexed benchmark does the same)
+    request warmup;
+    warmup.add_query(query, query_param);
+    if (auto [ec] = co_await st.conn.exec(warmup, check_execute()); ec)
+        die("warmup", ec);
+
     // Tasks are lazy: none of these run until when_all awaits them
     std::vector<capy::io_task<>> sessions;
     sessions.reserve(nsess);
@@ -197,10 +212,87 @@ capy::task<> run_dedicated()
         die("session", ec);
     const auto t1 = clock_type::now();
 
-    print_results(std::chrono::duration<double>(t1 - t0).count(), st.latency);
+    print_results("Dedicated connection", std::chrono::duration<double>(t1 - t0).count(), st.latency);
 }
 
-capy::task<> co_main() { return run_dedicated(); }
+struct multiplexed_state
+{
+    co_multiplexed_connection conn;
+    stats latency;  // shared by all sessions; they all run on the same executor
+
+    explicit multiplexed_state(capy::executor_ref ex) : conn(ex) {}
+};
+
+// Runs nqueries queries serially. No mutex here: a multiplexed connection
+// accepts concurrent requests and pipelines them itself.
+capy::io_task<> multiplexed_session(multiplexed_state& st)
+{
+    // Serializing the request once and reusing it keeps request composition
+    // out of the measurement.
+    request req;
+    req.add_query(query, query_param);
+
+    for (int i = 0; i < nqueries; ++i)
+    {
+        const auto t1 = clock_type::now();
+
+        if (auto [ec] = co_await st.conn.exec(req, check_execute()); ec)
+            die("execute", ec);
+
+        const auto t2 = clock_type::now();
+
+        st.latency.add(std::chrono::duration<double, std::micro>(t2 - t1).count());
+    }
+
+    co_return {};
+}
+
+// Runs all the sessions and reports the results. Must run concurrently with
+// conn.run(), which is what actually drives the connection.
+capy::io_task<> multiplexed_bench(multiplexed_state& st)
+{
+    // A multiplexed connection has no separate connect step: exec() blocks
+    // until run() has established the session. Pay that cost with a single
+    // warm-up query, before the clock starts.
+    request warmup;
+    warmup.add_query(query, query_param);
+    if (auto [ec] = co_await st.conn.exec(warmup, check_execute()); ec)
+        die("warmup", ec);
+
+    // Tasks are lazy: none of these run until when_all awaits them
+    std::vector<capy::io_task<>> sessions;
+    sessions.reserve(nsess);
+    for (int i = 0; i < nsess; ++i)
+        sessions.push_back(multiplexed_session(st));
+
+    const auto t0 = clock_type::now();
+    if (auto [ec] = co_await capy::when_all(std::move(sessions)); ec)
+        die("session", ec);
+    const auto t1 = clock_type::now();
+
+    print_results("Multiplexed connection", std::chrono::duration<double>(t1 - t0).count(), st.latency);
+
+    co_return {};
+}
+
+capy::task<> run_multiplexed()
+{
+    // Setup
+    multiplexed_state st{co_await capy::this_coro::executor};
+    multiplexed_config cfg{.transport = make_connect_params()};
+
+    // run() only returns on error, so race it against the benchmark: once the
+    // benchmark wins, when_any stop-requests run() and waits for it to unwind.
+    auto res = co_await capy::when_any(st.conn.run(std::move(cfg)), multiplexed_bench(st));
+    if (res.index() == 0)
+        die("multiplexed", std::get<0>(res));
+}
+
+capy::task<> co_main()
+{
+    co_await run_dedicated();
+    co_await run_multiplexed();
+}
 
 }  // namespace
 

@@ -74,7 +74,6 @@ namespace {
 
 // Benchmark parameters
 constexpr std::string_view query = "SELECT first_name FROM employee WHERE id = $1";
-constexpr std::int64_t query_param = 1;
 constexpr int nqueries = 1000;
 constexpr int nsess = 10;
 
@@ -136,12 +135,12 @@ struct dedicated_state
 
 // Runs nqueries queries serially, taking the mutex around each one, and folds
 // each exec() latency into the shared accumulator.
-capy::io_task<> dedicated_session(dedicated_state& st)
+capy::io_task<> dedicated_session(dedicated_state& st, std::int64_t session_id)
 {
     // Serializing the request once and reusing it keeps request composition
     // out of the measurement.
     request req;
-    req.add_query(query, query_param);
+    req.add_query(query, session_id);
 
     for (int i = 0; i < nqueries; ++i)
     {
@@ -197,7 +196,7 @@ capy::task<> run_dedicated()
     // Discard one query, so that first-query costs don't land in the
     // measurement (the multiplexed benchmark does the same)
     request warmup;
-    warmup.add_query(query, query_param);
+    warmup.add_query(query, -1);
     if (auto [ec] = co_await st.conn.exec(warmup, check_execute()); ec)
         die("warmup", ec);
 
@@ -205,7 +204,7 @@ capy::task<> run_dedicated()
     std::vector<capy::io_task<>> sessions;
     sessions.reserve(nsess);
     for (int i = 0; i < nsess; ++i)
-        sessions.push_back(dedicated_session(st));
+        sessions.push_back(dedicated_session(st, i));
 
     const auto t0 = clock_type::now();
     if (auto [ec] = co_await capy::when_all(std::move(sessions)); ec)
@@ -225,12 +224,12 @@ struct multiplexed_state
 
 // Runs nqueries queries serially. No mutex here: a multiplexed connection
 // accepts concurrent requests and pipelines them itself.
-capy::io_task<> multiplexed_session(multiplexed_state& st)
+capy::io_task<> multiplexed_session(multiplexed_state& st, std::int64_t session_id)
 {
     // Serializing the request once and reusing it keeps request composition
     // out of the measurement.
     request req;
-    req.add_query(query, query_param);
+    req.add_query(query, session_id);
 
     for (int i = 0; i < nqueries; ++i)
     {
@@ -255,7 +254,7 @@ capy::io_task<> multiplexed_bench(multiplexed_state& st)
     // until run() has established the session. Pay that cost with a single
     // warm-up query, before the clock starts.
     request warmup;
-    warmup.add_query(query, query_param);
+    warmup.add_query(query, -1);
     if (auto [ec] = co_await st.conn.exec(warmup, check_execute()); ec)
         die("warmup", ec);
 
@@ -263,7 +262,7 @@ capy::io_task<> multiplexed_bench(multiplexed_state& st)
     std::vector<capy::io_task<>> sessions;
     sessions.reserve(nsess);
     for (int i = 0; i < nsess; ++i)
-        sessions.push_back(multiplexed_session(st));
+        sessions.push_back(multiplexed_session(st, i));
 
     const auto t0 = clock_type::now();
     if (auto [ec] = co_await capy::when_all(std::move(sessions)); ec)

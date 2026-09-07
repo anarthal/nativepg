@@ -10,7 +10,7 @@ should try to answer a particular question. It should contain
 two cases, and potentially reach to a conclusion.
 
 The conclusions here have been extracted by running the benchmarks
-on a i7-10510U 1.80GHz CPU with 8 cores, under Ubuntu 24.04
+on a i7-10510U 1.80GHz CPU with 4 cores/8 threads, under Ubuntu 24.04
 and clang-20 built with CMake 4.2.1 using the Release configuration.
 
 The server runs in localhost, using Docker (`postgres:17.4`).

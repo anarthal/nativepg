@@ -172,8 +172,6 @@ void print_results(const char* name, double elapsed_secs, const stats& latency)
               << "  stddev:            " << latency.stddev() << '\n';
 }
 
-// Runs all the sessions against a single connection and reports the results.
-// The connection must already be established.
 capy::task<> run_dedicated()
 {
     // Setup
@@ -212,8 +210,6 @@ struct multiplexed_state
     explicit multiplexed_state(capy::executor_ref ex) : conn(ex) {}
 };
 
-// Runs nqueries queries serially. No mutex here: a multiplexed connection
-// accepts concurrent requests and pipelines them itself.
 capy::io_task<> multiplexed_session(multiplexed_state& st, std::int64_t session_id)
 {
     // Serializing the request once and reusing it keeps request composition
@@ -244,7 +240,7 @@ capy::io_task<> multiplexed_bench(multiplexed_state& st)
     // until run() has established the session. Pay that cost with a single
     // warm-up query, before the clock starts.
     request warmup;
-    warmup.add_query(query, -1);
+    warmup.add_query(query, static_cast<std::int64_t>(-1));
     if (auto [ec] = co_await st.conn.exec(warmup, check_execute()); ec)
         die("warmup", ec);
 

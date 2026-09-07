@@ -138,14 +138,18 @@ capy::io_task<> dedicated_session(dedicated_state& st)
 
     for (int i = 0; i < nqueries; ++i)
     {
-        // Only one session may use the connection at a time
-        auto [lock_ec, lock] = co_await st.mtx.scoped_lock();
-        if (lock_ec)
-            co_return {lock_ec};  // canceled while queued
-
         const auto t1 = clock_type::now();
-        if (auto [ec] = co_await st.conn.exec(req, check_execute()); ec)
-            die("execute", ec);
+
+        {
+            // Only one session may use the connection at a time
+            auto [lock_ec, lock] = co_await st.mtx.scoped_lock();
+            if (lock_ec)
+                co_return {lock_ec};  // canceled while queued
+
+            if (auto [ec] = co_await st.conn.exec(req, check_execute()); ec)
+                die("execute", ec);
+        }
+
         const auto t2 = clock_type::now();
 
         st.latency.add(std::chrono::duration<double, std::micro>(t2 - t1).count());

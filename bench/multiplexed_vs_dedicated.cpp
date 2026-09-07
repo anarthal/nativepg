@@ -6,18 +6,22 @@
 //
 
 /**
- * Compares latency and throughput of simple SELECT queries run through a
- * dedicated connection vs. a multiplexed one.
+ * Tries to answer the question: are multiplexed connections faster
+ * than dedicated connections?
  *
- * Both benchmarks have the same shape: nsess sessions run concurrently, and
- * each session runs nqueries SELECT queries one after another. They differ
- * only in how the sessions reach the server:
- *   - Dedicated: all sessions share a single co_connection. Since a dedicated
- *     connection can only serve one request at a time, access to it is
- *     serialized with a capy::async_mutex.
- *   - Multiplexed: all sessions share a single co_multiplexed_connection,
- *     which accepts concurrent requests and pipelines them itself, so no
- *     mutex is needed.
+ * Measures latency and throughput
+ * for a workload composed of simple SELECT queries (suitable for being multiplexed).
+ * Queries are issued by a number of independent sessions running in parallel.
+ *
+ *   - Multiplexed: all sessions share a single co_multiplexed_connection.
+ *   - Dedicated: all sessions share a single co_connection. Access is arbitrated
+ *     using a capy::async_mutex.
+ *
+ * Doing this measures connection utilization (i.e. given a fixed number of connections,
+ * which case uses it more effectively?). This is important because Postgres is
+ * one process per connection, so the max number of connections is limited
+ * (usually max_connections=100). Intuitively, multiplexed connections should be faster
+ * because they are full-duplex, while dedicated connections are half-duplex.
  *
  * Reported figures:
  *   - Latency: wall time from issuing a query to having its response, as a
@@ -75,7 +79,7 @@ namespace {
 // Benchmark parameters
 constexpr std::string_view query = "SELECT first_name FROM employee WHERE id = $1";
 constexpr int nqueries = 1000;
-constexpr int nsess = 10;
+constexpr int nsess = 100;
 
 connect_params make_connect_params()
 {

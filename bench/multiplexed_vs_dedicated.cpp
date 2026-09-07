@@ -34,6 +34,7 @@
 
 #include <boost/assert/source_location.hpp>
 #include <boost/capy/ex/async_mutex.hpp>
+#include <boost/capy/ex/executor_ref.hpp>
 #include <boost/capy/ex/run_async.hpp>
 #include <boost/capy/ex/this_coro.hpp>
 #include <boost/capy/io_task.hpp>
@@ -62,13 +63,15 @@ namespace corosio = boost::corosio;
 
 using clock_type = std::chrono::steady_clock;
 
+namespace {
+
 // Benchmark parameters
 constexpr std::string_view query = "SELECT first_name FROM employee WHERE id = $1";
 constexpr std::int64_t query_param = 1;
 constexpr int nqueries = 1000;
 constexpr int nsess = 10;
 
-static connect_params make_connect_params()
+connect_params make_connect_params()
 {
     return {
         .hostname = "localhost",
@@ -81,7 +84,7 @@ static connect_params make_connect_params()
 // Turns an unexpected error into an exception. The benchmark has nothing
 // meaningful to report if any query fails, so bail out. run_async's exception
 // handler prints the message and exits.
-static void die_on_error(
+void die_on_error(
     const char* prefix,
     const extended_error& err,
     boost::source_location loc = BOOST_CURRENT_LOCATION
@@ -117,7 +120,7 @@ struct stats
 };
 
 // Sorts samples in place and summarizes them
-static stats summarize(std::vector<double>& samples)
+stats summarize(std::vector<double>& samples)
 {
     if (samples.empty())
         return {};
@@ -145,9 +148,17 @@ static stats summarize(std::vector<double>& samples)
     };
 }
 
+struct dedicated_state
+{
+    co_connection conn;
+    capy::async_mutex mtx;
+
+    explicit dedicated_state(capy::executor_ref ex) : conn(ex) {}
+};
+
 // Runs nqueries queries serially, taking the mutex around each one.
 // Returns the per-query exec() latencies, in microseconds.
-static capy::io_task<std::vector<double>> dedicated_session(co_connection& conn, capy::async_mutex& mtx)
+capy::io_task<std::vector<double>> dedicated_session(dedicated_state& st)
 {
     // Serializing the request once and reusing it keeps request composition
     // out of the measurement.
@@ -161,12 +172,12 @@ static capy::io_task<std::vector<double>> dedicated_session(co_connection& conn,
     for (int i = 0; i < nqueries; ++i)
     {
         // Only one session may use the connection at a time
-        auto [lock_ec, lock] = co_await mtx.scoped_lock();
+        auto [lock_ec, lock] = co_await st.mtx.scoped_lock();
         if (lock_ec)
             co_return {lock_ec, {}};  // canceled while queued
 
         const auto t1 = clock_type::now();
-        auto [ec] = co_await conn.exec(req, check_execute(), &diag);
+        auto [ec] = co_await st.conn.exec(req, check_execute(), &diag);
         const auto t2 = clock_type::now();
         die_on_error("execute", {ec, diag});
 
@@ -176,7 +187,7 @@ static capy::io_task<std::vector<double>> dedicated_session(co_connection& conn,
     co_return {{}, std::move(latencies)};
 }
 
-static void print_results(double elapsed_secs, std::vector<double>& latencies)
+void print_results(double elapsed_secs, std::vector<double>& latencies)
 {
     const auto st = summarize(latencies);
     const auto total_queries = static_cast<double>(st.count);
@@ -200,20 +211,26 @@ static void print_results(double elapsed_secs, std::vector<double>& latencies)
 
 // Runs all the sessions against a single connection and reports the results.
 // The connection must already be established.
-static capy::task<> run_dedicated(co_connection& conn)
+capy::task<> run_dedicated()
 {
-    capy::async_mutex mtx;
+    // Setup
+    dedicated_state st{co_await capy::this_coro::executor};
+
+    // Establishing the connection is not part of the measurement
+    diagnostics diag;
+    auto [ec] = co_await st.conn.connect(make_connect_params(), &diag);
+    die_on_error("connect", {ec, diag});
 
     // Tasks are lazy: none of these run until when_all awaits them
     std::vector<capy::io_task<std::vector<double>>> sessions;
     sessions.reserve(nsess);
     for (int i = 0; i < nsess; ++i)
-        sessions.push_back(dedicated_session(conn, mtx));
+        sessions.push_back(dedicated_session(st));
 
     const auto t0 = clock_type::now();
-    auto [ec, per_session] = co_await capy::when_all(std::move(sessions));
+    auto [ec2, per_session] = co_await capy::when_all(std::move(sessions));
     const auto t1 = clock_type::now();
-    die_on_error("session", {ec});
+    die_on_error("session", {ec2});
 
     // Merge the per-session samples
     std::vector<double> latencies;
@@ -224,17 +241,9 @@ static capy::task<> run_dedicated(co_connection& conn)
     print_results(std::chrono::duration<double>(t1 - t0).count(), latencies);
 }
 
-static capy::task<> co_main()
-{
-    co_connection conn{co_await capy::this_coro::executor};
-    diagnostics diag;
+capy::task<> co_main() { return run_dedicated(); }
 
-    // Establishing the connection is not part of the measurement
-    auto [ec] = co_await conn.connect(make_connect_params(), &diag);
-    die_on_error("connect", {ec, diag});
-
-    co_await run_dedicated(conn);
-}
+}  // namespace
 
 int main()
 {

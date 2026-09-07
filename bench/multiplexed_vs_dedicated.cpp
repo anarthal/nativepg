@@ -42,10 +42,10 @@
 #include <boost/capy/when_all.hpp>
 #include <boost/corosio/io_context.hpp>
 
-#include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
@@ -94,105 +94,81 @@ connect_params make_connect_params()
     std::exit(1);
 }
 
-// Latency summary, in microseconds. Built from the raw per-query samples.
-struct stats
+// Latency accumulator, in microseconds. Samples are folded in as they are
+// produced (Welford's online algorithm), so we never store them.
+class stats
 {
-    std::size_t count{};
-    double mean{};
-    double min{};
-    double max{};
-    double p50{};
-    double p90{};
-    double p99{};
+    std::size_t count_{};
+    double mean_{};
+    double m2_{};  // sum of squared deviations from the running mean
+
+public:
+    void add(double sample)
+    {
+        ++count_;
+        const double delta = sample - mean_;
+        mean_ += delta / static_cast<double>(count_);
+        m2_ += delta * (sample - mean_);
+    }
+
+    std::size_t count() const { return count_; }
+    double mean() const { return mean_; }
+
+    // Sample standard deviation
+    double stddev() const { return count_ < 2u ? 0.0 : std::sqrt(m2_ / static_cast<double>(count_ - 1u)); }
 };
-
-// Sorts samples in place and summarizes them
-stats summarize(std::vector<double>& samples)
-{
-    if (samples.empty())
-        return {};
-
-    std::sort(samples.begin(), samples.end());
-
-    const auto percentile = [&samples](double q) {
-        const auto n = samples.size();
-        auto i = static_cast<std::size_t>(q * static_cast<double>(n));
-        return samples[std::min(i, n - 1u)];
-    };
-
-    double sum = 0.0;
-    for (double s : samples)
-        sum += s;
-
-    return {
-        .count = samples.size(),
-        .mean = sum / static_cast<double>(samples.size()),
-        .min = samples.front(),
-        .max = samples.back(),
-        .p50 = percentile(0.50),
-        .p90 = percentile(0.90),
-        .p99 = percentile(0.99),
-    };
-}
 
 struct dedicated_state
 {
     co_connection conn;
     capy::async_mutex mtx;
+    stats latency;  // shared by all sessions; they all run on the same executor
 
     explicit dedicated_state(capy::executor_ref ex) : conn(ex) {}
 };
 
-// Runs nqueries queries serially, taking the mutex around each one.
-// Returns the per-query exec() latencies, in microseconds.
-capy::io_task<std::vector<double>> dedicated_session(dedicated_state& st)
+// Runs nqueries queries serially, taking the mutex around each one, and folds
+// each exec() latency into the shared accumulator.
+capy::io_task<> dedicated_session(dedicated_state& st)
 {
     // Serializing the request once and reusing it keeps request composition
     // out of the measurement.
     request req;
     req.add_query(query, query_param);
 
-    std::vector<double> latencies;
-    latencies.reserve(nqueries);
-
     for (int i = 0; i < nqueries; ++i)
     {
         // Only one session may use the connection at a time
         auto [lock_ec, lock] = co_await st.mtx.scoped_lock();
         if (lock_ec)
-            co_return {lock_ec, {}};  // canceled while queued
+            co_return {lock_ec};  // canceled while queued
 
         const auto t1 = clock_type::now();
         if (auto [ec] = co_await st.conn.exec(req, check_execute()); ec)
             die("execute", ec);
         const auto t2 = clock_type::now();
 
-        latencies.push_back(std::chrono::duration<double, std::micro>(t2 - t1).count());
+        st.latency.add(std::chrono::duration<double, std::micro>(t2 - t1).count());
     }
 
-    co_return {{}, std::move(latencies)};
+    co_return {};
 }
 
-void print_results(double elapsed_secs, std::vector<double>& latencies)
+void print_results(double elapsed_secs, const stats& latency)
 {
-    const auto st = summarize(latencies);
-    const auto total_queries = static_cast<double>(st.count);
+    const auto total_queries = static_cast<double>(latency.count());
 
     std::cout << std::fixed << std::setprecision(2)                                        //
               << "Sessions:            " << nsess << '\n'                                  //
               << "Queries per session: " << nqueries << '\n'                               //
-              << "Queries run:         " << st.count << '\n'                               //
+              << "Queries run:         " << latency.count() << '\n'                        //
               << "\nThroughput\n"                                                          //
               << "  total time:        " << elapsed_secs * 1e3 << " ms\n"                  //
               << "  time per query:    " << elapsed_secs * 1e6 / total_queries << " us\n"  //
               << "  queries/second:    " << total_queries / elapsed_secs << '\n'           //
               << "\nexec() latency (us)\n"                                                 //
-              << "  mean:              " << st.mean << '\n'                                //
-              << "  min:               " << st.min << '\n'                                 //
-              << "  p50:               " << st.p50 << '\n'                                 //
-              << "  p90:               " << st.p90 << '\n'                                 //
-              << "  p99:               " << st.p99 << '\n'                                 //
-              << "  max:               " << st.max << '\n';
+              << "  mean:              " << latency.mean() << '\n'                         //
+              << "  stddev:            " << latency.stddev() << '\n';
 }
 
 // Runs all the sessions against a single connection and reports the results.
@@ -207,24 +183,17 @@ capy::task<> run_dedicated()
         die("connect", ec);
 
     // Tasks are lazy: none of these run until when_all awaits them
-    std::vector<capy::io_task<std::vector<double>>> sessions;
+    std::vector<capy::io_task<>> sessions;
     sessions.reserve(nsess);
     for (int i = 0; i < nsess; ++i)
         sessions.push_back(dedicated_session(st));
 
     const auto t0 = clock_type::now();
-    auto [ec2, per_session] = co_await capy::when_all(std::move(sessions));
+    if (auto [ec] = co_await capy::when_all(std::move(sessions)); ec)
+        die("session", ec);
     const auto t1 = clock_type::now();
-    if (ec2)
-        die("session", ec2);
 
-    // Merge the per-session samples
-    std::vector<double> latencies;
-    latencies.reserve(static_cast<std::size_t>(nsess) * nqueries);
-    for (const auto& s : per_session)
-        latencies.insert(latencies.end(), s.begin(), s.end());
-
-    print_results(std::chrono::duration<double>(t1 - t0).count(), latencies);
+    print_results(std::chrono::duration<double>(t1 - t0).count(), st.latency);
 }
 
 capy::task<> co_main() { return run_dedicated(); }

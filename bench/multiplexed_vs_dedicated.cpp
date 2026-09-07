@@ -45,15 +45,15 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <iomanip>
 #include <iostream>
-#include <string>
 #include <string_view>
 #include <system_error>
 #include <vector>
 
 #include "nativepg/co_connection.hpp"
-#include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
 
@@ -81,30 +81,17 @@ connect_params make_connect_params()
     };
 }
 
-// Turns an unexpected error into an exception. The benchmark has nothing
-// meaningful to report if any query fails, so bail out. run_async's exception
-// handler prints the message and exits.
-void die_on_error(
+// The benchmark has nothing meaningful to report if any operation fails,
+// so bail out as soon as one does.
+[[noreturn]] void die(
     const char* prefix,
-    const extended_error& err,
+    std::error_code ec,
     boost::source_location loc = BOOST_CURRENT_LOCATION
 )
 {
-    if (!err.code)
-        return;
-
-    std::string msg{prefix};
-    msg += " (";
-    msg += loc.file_name();
-    msg += ':';
-    msg += std::to_string(loc.line());
-    msg += ')';
-    if (!err.diag.message().empty())
-    {
-        msg += ": ";
-        msg += err.diag.message();
-    }
-    throw std::system_error(err.code, msg);
+    std::cerr << prefix << ": " << ec << ": " << ec.message() << "\n"
+              << "  Called from " << loc << std::endl;
+    std::exit(1);
 }
 
 // Latency summary, in microseconds. Built from the raw per-query samples.
@@ -165,7 +152,6 @@ capy::io_task<std::vector<double>> dedicated_session(dedicated_state& st)
     request req;
     req.add_query(query, query_param);
 
-    diagnostics diag;
     std::vector<double> latencies;
     latencies.reserve(nqueries);
 
@@ -177,9 +163,9 @@ capy::io_task<std::vector<double>> dedicated_session(dedicated_state& st)
             co_return {lock_ec, {}};  // canceled while queued
 
         const auto t1 = clock_type::now();
-        auto [ec] = co_await st.conn.exec(req, check_execute(), &diag);
+        if (auto [ec] = co_await st.conn.exec(req, check_execute()); ec)
+            die("execute", ec);
         const auto t2 = clock_type::now();
-        die_on_error("execute", {ec, diag});
 
         latencies.push_back(std::chrono::duration<double, std::micro>(t2 - t1).count());
     }
@@ -217,9 +203,8 @@ capy::task<> run_dedicated()
     dedicated_state st{co_await capy::this_coro::executor};
 
     // Establishing the connection is not part of the measurement
-    diagnostics diag;
-    auto [ec] = co_await st.conn.connect(make_connect_params(), &diag);
-    die_on_error("connect", {ec, diag});
+    if (auto [ec] = co_await st.conn.connect(make_connect_params()); ec)
+        die("connect", ec);
 
     // Tasks are lazy: none of these run until when_all awaits them
     std::vector<capy::io_task<std::vector<double>>> sessions;
@@ -230,7 +215,8 @@ capy::task<> run_dedicated()
     const auto t0 = clock_type::now();
     auto [ec2, per_session] = co_await capy::when_all(std::move(sessions));
     const auto t1 = clock_type::now();
-    die_on_error("session", {ec2});
+    if (ec2)
+        die("session", ec2);
 
     // Merge the per-session samples
     std::vector<double> latencies;

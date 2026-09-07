@@ -58,4 +58,5 @@ include(CTest)
 if (BUILD_TESTING)
     add_subdirectory(test)
     add_subdirectory(example) # Build the examples to prevent code rotting
+    add_subdirectory(bench) # same
 endif()

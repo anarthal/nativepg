@@ -48,7 +48,7 @@ public:
     {
     }
 
-    co_multiplexed_connection(co_multiplexed_connection&&) = default;
+    co_multiplexed_connection(co_multiplexed_connection&&) noexcept;
     co_multiplexed_connection(const co_multiplexed_connection&) = delete;
 
     co_multiplexed_connection& operator=(co_multiplexed_connection&&) noexcept;

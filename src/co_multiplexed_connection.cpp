@@ -216,6 +216,9 @@ nativepg::co_multiplexed_connection::co_multiplexed_connection(boost::capy::exec
 {
 }
 
+nativepg::co_multiplexed_connection::co_multiplexed_connection(co_multiplexed_connection&&) noexcept =
+    default;
+
 nativepg::co_multiplexed_connection& nativepg::co_multiplexed_connection::operator=(
     co_multiplexed_connection&&
 ) noexcept = default;

@@ -28,6 +28,7 @@
 #include "nativepg/protocol/detail/exec_fsm.hpp"
 #include "nativepg/protocol/detail/exec_some_fsm.hpp"
 #include "nativepg/protocol/parse_message.hpp"
+#include "nativepg/protocol/terminate.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
 
@@ -55,6 +56,31 @@ struct co_connection::impl
 
         auto [ec2, ep] = co_await boost::corosio::connect(sock, endpoints);
         co_return {ec2};
+    }
+
+    capy::io_task<> shutdown()
+    {
+        // TODO: we should probably have some state checks
+        // TODO: we could really serialize to a fixed storage block, this is known size
+        // TODO: an error here shouldn't prevent the function from closing the transport
+        //       (the error should not happen, to begin with)
+        // Serialize the terminate request
+        st.write_buffer.clear();
+        if (auto ec = protocol::serialize(protocol::terminate{}, st.write_buffer))
+            co_return {ec};
+
+        // Write it
+        auto [write_ec, bytes] = co_await capy::write(stream, capy::make_buffer(st.write_buffer));
+
+        // Close the underlying transport anyway.
+        // No tcp_socket::shutdown() here to match what libpq does.
+        // At least on Linux, it does nothing:
+        // both close() and shutdown(SHUT_RDWR) will send a RST if there is pending
+        // data in the read buffer (e.g. a pending NotificationResponse),
+        // and a FIN otherwise. Should't be a big deal.
+        sock.close();
+
+        co_return {write_ec};
     }
 
     void setup_request(const request& req, response_handler_ref handler)
@@ -198,6 +224,8 @@ capy::io_task<> co_connection::connect(connect_params params, diagnostics* diag)
         }
     }
 }
+
+capy::io_task<> co_connection::shutdown() { return impl_->shutdown(); }
 
 capy::io_task<> co_connection::exec(const request& req, response_handler_ref handler, diagnostics* diag)
 {

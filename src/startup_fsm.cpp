@@ -88,8 +88,10 @@ startup_fsm_impl::result startup_fsm_impl::resume(
     {
         NATIVEPG_CORO_INITIAL
 
+        // Reset any pending state
+        st.reset();
+
         // Compose the startup message
-        st.write_buffer.clear();
         if (auto ec = serialize(make_startup_message(*params_), st.write_buffer))
         {
             return ec;

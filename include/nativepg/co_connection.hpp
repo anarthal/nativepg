@@ -105,6 +105,9 @@ public:
 
     boost::capy::io_task<> connect(connect_params params, diagnostics* diag = nullptr);
 
+    // Closes the connection (PQfinish)
+    boost::capy::io_task<> shutdown();
+
     boost::capy::io_task<> exec(
         const request& req,
         response_handler_ref handler,

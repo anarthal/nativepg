@@ -8,5 +8,8 @@
 if (NATIVEPG_COROSIO_API)
     add_executable(nativepg_bench_multiplexed_vs_dedicated multiplexed_vs_dedicated.cpp)
     target_link_libraries(nativepg_bench_multiplexed_vs_dedicated PRIVATE nativepg_corosio)
+
+    add_executable(nativepg_bench_multiplexed_scaling multiplexed_scaling.cpp)
+    target_link_libraries(nativepg_bench_multiplexed_scaling PRIVATE nativepg_corosio)
 endif()
 

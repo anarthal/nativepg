@@ -26,7 +26,6 @@
  *     );
  */
 
-#include <boost/assert/source_location.hpp>
 #include <boost/capy/ex/async_mutex.hpp>
 #include <boost/capy/ex/executor_ref.hpp>
 #include <boost/capy/ex/run_async.hpp>
@@ -38,23 +37,21 @@
 #include <boost/corosio/io_context.hpp>
 
 #include <chrono>
-#include <cmath>
-#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-#include <iomanip>
 #include <iostream>
 #include <string_view>
-#include <system_error>
 #include <variant>
 #include <vector>
 
+#include "bench_utils.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_multiplexed_connection.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
 
 using namespace nativepg;
+using namespace nativepg::bench;
 namespace capy = boost::capy;
 namespace corosio = boost::corosio;
 
@@ -66,43 +63,6 @@ namespace {
 constexpr std::string_view query = "SELECT first_name FROM employee WHERE id = $1";
 constexpr int nqueries = 1000;
 constexpr int nsess = 100;
-
-// The benchmark has nothing meaningful to report if any operation fails,
-// so bail out as soon as one does.
-[[noreturn]] void die(
-    const char* prefix,
-    std::error_code ec,
-    boost::source_location loc = BOOST_CURRENT_LOCATION
-)
-{
-    std::cerr << prefix << ": " << ec << ": " << ec.message() << "\n"
-              << "  Called from " << loc << std::endl;
-    std::exit(1);
-}
-
-// Latency accumulator, in microseconds. Samples are folded in as they are
-// produced (Welford's online algorithm), so we never store them.
-class stats
-{
-    std::size_t count_{};
-    double mean_{};
-    double m2_{};  // sum of squared deviations from the running mean
-
-public:
-    void add(double sample)
-    {
-        ++count_;
-        const double delta = sample - mean_;
-        mean_ += delta / static_cast<double>(count_);
-        m2_ += delta * (sample - mean_);
-    }
-
-    std::size_t count() const { return count_; }
-    double mean() const { return mean_; }
-
-    // Sample standard deviation
-    double stddev() const { return count_ < 2u ? 0.0 : std::sqrt(m2_ / static_cast<double>(count_ - 1u)); }
-};
 
 struct dedicated_state
 {
@@ -144,24 +104,6 @@ capy::io_task<> dedicated_session(dedicated_state& st, std::int64_t session_id)
     co_return {};
 }
 
-void print_results(const char* name, double elapsed_secs, const stats& latency)
-{
-    const auto total_queries = static_cast<double>(latency.count());
-
-    std::cout << std::fixed << std::setprecision(2)                                        //
-              << "\n=== " << name << " ===\n"                                              //
-              << "Sessions:            " << nsess << '\n'                                  //
-              << "Queries per session: " << nqueries << '\n'                               //
-              << "Queries run:         " << latency.count() << '\n'                        //
-              << "\nThroughput\n"                                                          //
-              << "  total time:        " << elapsed_secs * 1e3 << " ms\n"                  //
-              << "  time per query:    " << elapsed_secs * 1e6 / total_queries << " us\n"  //
-              << "  queries/second:    " << total_queries / elapsed_secs << '\n'           //
-              << "\nQuery latency (us)\n"                                                  //
-              << "  mean:              " << latency.mean() << '\n'                         //
-              << "  stddev:            " << latency.stddev() << '\n';
-}
-
 capy::task<> run_dedicated(const connect_params& params)
 {
     // Setup
@@ -189,7 +131,14 @@ capy::task<> run_dedicated(const connect_params& params)
         die("session", ec);
     const auto t1 = clock_type::now();
 
-    print_results("Dedicated connection", std::chrono::duration<double>(t1 - t0).count(), st.latency);
+    print_results(
+        "Dedicated connection",
+        1u,
+        nsess,
+        nqueries,
+        std::chrono::duration<double>(t1 - t0).count(),
+        st.latency
+    );
 }
 
 struct multiplexed_state
@@ -245,7 +194,14 @@ capy::io_task<> multiplexed_bench(multiplexed_state& st)
         die("session", ec);
     const auto t1 = clock_type::now();
 
-    print_results("Multiplexed connection", std::chrono::duration<double>(t1 - t0).count(), st.latency);
+    print_results(
+        "Multiplexed connection",
+        1u,
+        nsess,
+        nqueries,
+        std::chrono::duration<double>(t1 - t0).count(),
+        st.latency
+    );
 
     co_return {};
 }

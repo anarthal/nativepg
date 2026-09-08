@@ -53,7 +53,7 @@ only one connection in-flight at any given time.
 We measure latency, as seen by an individual session, and throughput,
 as queries completed per unit of time.
 
-**Conclusions**: multiplexed is faster. The larger the network latency,
+**Discussion**: multiplexed is faster. The larger the network latency,
 the more significant the improvement.
 
 - For the localhost server, the multiplexed connection has around 20% more throughput.
@@ -64,7 +64,7 @@ the more significant the improvement.
   Since we're running 100 sessions in parallel, this number indicates
   that we're pipelining as expected.
 
-Future work:
+Follow ups:
 
 - We need to open more than one multiplexed connection to scale effectively,
   especially if the network latency is small. Boost.Redis' recommendation
@@ -73,3 +73,35 @@ Future work:
   using sync network calls, where Redis uses a single thread for all connections
   and non-blocking calls.
 - We should measure whether coalescing writes is really worth the complexity.
+
+## Does opening more than one multiplexed connection help scale?
+
+Source: [`multiplexed_scaling.cpp`](multiplexed_scaling.cpp).
+
+The workload is composed of simple SELECT queries (suitable for being
+multiplexed), issued by a number of independent sessions running in
+parallel. A number of multiplexed connections are shared between the sessions.
+The benchmark varies the number of connections and records latency and throughput.
+
+Results for the localhost server:
+
+![multiplexed_scaling_localhost](multiplexed_scaling_localhost.jpg)
+
+The AWS server shows degraded performance for any number of connections
+greater than one.
+
+**Conclusions**: opening more connections helps as long as server CPU
+is the limiting factor.
+
+- The localhost benchmark is CPU-bound. It shows improvements when increasing
+  the number of connections until 7, where it flattens. The benchmark is run
+  in a 4 core/8 thread machine, and client code is single-threaded.
+  Opening more connections improves performance due to Postgres'
+  process-per-connection architecture, until all CPUs are used.
+- The AWS benchmark is network-bound and shows no improvement.
+
+Follow ups:
+
+- Connection pools need to take multiplexed connections into account.
+  There should be an easy way for users to create many multiplexed connections
+  and distribute their work among them.

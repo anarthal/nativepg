@@ -32,6 +32,15 @@ struct connection_state
 
     // TODO: this is safe for now, but is there any case where it may not be?
     diagnostics shared_diag;
+
+    void reset()
+    {
+        write_buffer.clear();
+        read_buffer.reset();
+        backend_process_id = {};
+        backend_secret_key = {};
+        // shared_diag are transient by nature
+    }
 };
 
 }  // namespace nativepg::protocol

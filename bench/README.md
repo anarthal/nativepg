@@ -19,11 +19,12 @@ For the server, I've got two setups:
 - One running in localhost, using Docker (`postgres:17.4` image).
   This setup represents use cases where the network latency is small
   (e.g. where both client and server run in the same machine or
-  availability zone).
+  availability zone). Caveat: client and server run in the same
+  machine and may influence each other.
 - One running in AWS, on a `t3.micro` EC2 instance with an Ubuntu 26.04 image.
   It uses the system's Postgres installation (v18.6).
   This setup represents use cases where network latency is large.
-  A full network round-trip here takes around 100ms.
+  A full network round-trip here takes around 100ms (observed with Wireshark).
 
 ## Are multiplexed connections worth it?
 
@@ -45,8 +46,9 @@ Doing this measures connection utilization (i.e. given a fixed number
 of connections, which case uses them more effectively?). This is
 important because Postgres is one process per connection, so the max
 number of connections is limited (usually `max_connections=100`).
-Intuitively, multiplexed connections should be faster because they are
-full-duplex, while dedicated connections are half-duplex.
+Intuitively, multiplexed connections should be faster because they
+pipeline concurrent requests, while dedicated connections keep
+only one connection in-flight at any given time.
 
 We measure latency, as seen by an individual session, and throughput,
 as queries completed per unit of time.
@@ -54,15 +56,20 @@ as queries completed per unit of time.
 **Conclusions**: multiplexed is faster. The larger the network latency,
 the more significant the improvement.
 
-- For the localhost server, the multiplexed connection is around 20% faster.
+- For the localhost server, the multiplexed connection has around 20% more throughput.
   Wireshark reveals almost no coalescing of writes into fewer TCP segments.
-  Speed likely comes from being full-duplex, rather than from write coalescing.
-- For the AWS server, the multiplexed connection is 80x faster.
-  We can see much more write coalescing here.
+  Speed likely comes from pipelining, rather than from write coalescing.
+- For the AWS server, the multiplexed connection has 75x more throughput,
+  with much more write coalescing than in the localhost case.
+  Since we're running 100 sessions in parallel, this number indicates
+  that we're pipelining as expected.
 
 Future work:
 
 - We need to open more than one multiplexed connection to scale effectively,
   especially if the network latency is small. Boost.Redis' recommendation
   of one multiplexed connection per application does not transfer to us.
+  This is because each Postgres connection is handled by one process
+  using sync network calls, where Redis uses a single thread for all connections
+  and non-blocking calls.
 - We should measure whether coalescing writes is really worth the complexity.

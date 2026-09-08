@@ -67,16 +67,6 @@ constexpr std::string_view query = "SELECT first_name FROM employee WHERE id = $
 constexpr int nqueries = 1000;
 constexpr int nsess = 100;
 
-connect_params make_connect_params()
-{
-    return {
-        .hostname = "localhost",
-        .username = "postgres",
-        .password = "secret",
-        .database = "postgres",
-    };
-}
-
 // The benchmark has nothing meaningful to report if any operation fails,
 // so bail out as soon as one does.
 [[noreturn]] void die(
@@ -172,13 +162,13 @@ void print_results(const char* name, double elapsed_secs, const stats& latency)
               << "  stddev:            " << latency.stddev() << '\n';
 }
 
-capy::task<> run_dedicated()
+capy::task<> run_dedicated(const connect_params& params)
 {
     // Setup
     dedicated_state st{co_await capy::this_coro::executor};
 
     // Establishing the connection is not part of the measurement
-    if (auto [ec] = co_await st.conn.connect(make_connect_params()); ec)
+    if (auto [ec] = co_await st.conn.connect(params); ec)
         die("connect", ec);
 
     // Discard one query, so that first-query costs don't land in the
@@ -260,11 +250,11 @@ capy::io_task<> multiplexed_bench(multiplexed_state& st)
     co_return {};
 }
 
-capy::task<> run_multiplexed()
+capy::task<> run_multiplexed(const connect_params& params)
 {
     // Setup
     multiplexed_state st{co_await capy::this_coro::executor};
-    multiplexed_config cfg{.transport = make_connect_params()};
+    multiplexed_config cfg{.transport = params};
 
     // run() only returns on error, so race it against the benchmark: once the
     // benchmark wins, when_any stop-requests run() and waits for it to unwind.
@@ -273,16 +263,30 @@ capy::task<> run_multiplexed()
         die("multiplexed", std::get<0>(res));
 }
 
-capy::task<> co_main()
+// params must outlive this coroutine
+capy::task<> co_main(const connect_params& params)
 {
-    co_await run_dedicated();
-    co_await run_multiplexed();
+    co_await run_dedicated(params);
+    co_await run_multiplexed(params);
 }
 
 }  // namespace
 
-int main()
+int main(int argc, char** argv)
 {
+    // All arguments are positional and required
+    if (argc != 5)
+    {
+        std::cerr << "Usage: " << argv[0] << " <hostname> <username> <password> <database>\n";
+        return 1;
+    }
+    const connect_params params{
+        .hostname = argv[1],
+        .username = argv[2],
+        .password = argv[3],
+        .database = argv[4],
+    };
+
     // The I/O context, required for all I/O operations
     corosio::io_context ctx;
 
@@ -302,7 +306,7 @@ int main()
             }
             exit(1);
         }
-    )(co_main());
+    )(co_main(params));
 
     // Executes all pending work, including the main coroutine
     ctx.run();

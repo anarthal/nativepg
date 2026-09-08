@@ -5,9 +5,8 @@ This is a work in progress.
 
 Frequently, I've found benchmarks that output a bunch of numbers
 that look cool but end up translating into little useful information.
-For nativepg, I'm trying an **A/B approach**. Every benchmark
-should try to answer a particular question. It should contain
-two cases, and potentially reach a conclusion.
+For nativepg, I'm trying a hypothesis-driven approach, where every benchmark
+tries to answer a particular question.
 
 The conclusions here have been extracted by running the benchmarks
 on an i7-10510U 1.80GHz CPU with 4 cores/8 threads, under Ubuntu 24.04,
@@ -87,7 +86,7 @@ Results for the localhost server:
 
 ![multiplexed_scaling_localhost](multiplexed_scaling_localhost.jpg)
 
-The AWS server shows degraded performance for any number of connections
+The AWS server shows no performance improvement for any number of connections
 greater than one.
 
 **Conclusions**: opening more connections helps as long as server CPU

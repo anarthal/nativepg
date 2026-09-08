@@ -105,6 +105,15 @@ static capy::task<> co_main()
         print_err("Error closing", ec, diag);
         co_return;
     }
+
+    // Orderly close the connection.
+    // May report a failure if the server is gone.
+    // The connection is closed anyway in that case.
+    if (auto [shutdown_ec] = co_await conn.shutdown(); shutdown_ec)
+    {
+        print_err("Error during shutdown", shutdown_ec, {});
+        co_return;
+    }
 }
 
 int main()

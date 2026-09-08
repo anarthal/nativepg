@@ -62,6 +62,8 @@ struct co_connection::impl
     {
         // TODO: we should probably have some state checks
         // TODO: we could really serialize to a fixed storage block, this is known size
+        // TODO: an error here shouldn't prevent the function from closing the transport
+        //       (the error should not happen, to begin with)
         // Serialize the terminate request
         st.write_buffer.clear();
         if (auto ec = protocol::serialize(protocol::terminate{}, st.write_buffer))
@@ -70,8 +72,12 @@ struct co_connection::impl
         // Write it
         auto [write_ec, bytes] = co_await capy::write(stream, capy::make_buffer(st.write_buffer));
 
-        // Close the underlying transport anyway
-        sock.shutdown(corosio::tcp_socket::shutdown_type::shutdown_both);
+        // Close the underlying transport anyway.
+        // No tcp_socket::shutdown() here to match what libpq does.
+        // At least on Linux, it does nothing:
+        // both close() and shutdown(SHUT_RDWR) will send a RST if there is pending
+        // data in the read buffer (e.g. a pending NotificationResponse),
+        // and a FIN otherwise. Should't be a big deal.
         sock.close();
 
         co_return {write_ec};

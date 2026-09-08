@@ -12,10 +12,17 @@ two cases, and potentially reach to a conclusion.
 The conclusions here have been extracted by running the benchmarks
 on a i7-10510U 1.80GHz CPU with 4 cores/8 threads, under Ubuntu 24.04
 and clang-20 built with CMake 4.2.1 using the Release configuration.
+All benchmarks use plaintext TCP.
 
-The server runs in localhost, using Docker (`postgres:17.4`).
-Ideally, both pieces of code should run in independent machines
-to reduce mutual influence, but that's a task for the future.
+For the server, I've got two setups:
+
+- One running in localhost, using Docker (`postgres:17.4` image).
+  This setup represents use cases where the network latency is small
+  (e.g. where both client and server run in the same cloud/machine).
+- One running in AWS, on a `t3.micro` server with a Ubuntu 26.04 image.
+  It uses the system's Postgres installation (v18.6).
+  This setup represents use cases where network latency is large.
+  A full network round-trip here takes around 100ms.
 
 ## Are multiplexed connections worth it?
 
@@ -43,11 +50,19 @@ full-duplex, while dedicated connections are half-duplex.
 We measure latency, as seen by an individual session, and throughput,
 as queries completed per unit of time.
 
-**Conclusions**: multiplexed is faster, but not as faster as I thought
-it would be (around 20% faster). Wireshark reveals no write multiplexing
-most of the time, probably due to the speculative write architecture
-that Corosio implements. Speed likely comes from being full-duplex,
-rather than write multiplexing.
+**Conclusions**: multiplexed is faster. The bigger the network latency,
+the more significant the improvements are.
 
-- We need to open more than one multiplexed connection to scale effectively.
-- We may be able to drop write multiplexing altogether.
+- For the localhost server, the multiplexed connection is around 20% faster.
+  Wireshark reveals almost no coalescing of write packets.
+  Speed likely comes from being full-duplex, rather than write packet coalescing.
+- For the AWS server, the multiplexed version is x80 times faster.
+  We can see much more write packet coalescing here.
+
+Future lines:
+
+- We need to open more than one multiplexed connection to scale effectively,
+  especially if the network latency is small. Boost.Redis' single
+  multiplexed connection per application recommendation
+  does not work for us.
+- We should measure whether coalescing writes is really worth the complexity.

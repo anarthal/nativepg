@@ -64,7 +64,7 @@ the more significant the improvement.
   Since we're running 100 sessions in parallel, this number indicates
   that we're pipelining as expected.
 
-Follow ups:
+Follow-ups:
 
 - We need to open more than one multiplexed connection to scale effectively,
   especially if the network latency is small. Boost.Redis' recommendation
@@ -80,7 +80,7 @@ Source: [`multiplexed_scaling.cpp`](multiplexed_scaling.cpp).
 
 The workload is composed of simple SELECT queries (suitable for being
 multiplexed), issued by a number of independent sessions running in
-parallel. A number of multiplexed connections are shared between the sessions.
+parallel. The sessions share a pool of multiplexed connections.
 The benchmark varies the number of connections and records latency and throughput.
 
 Results for the localhost server:
@@ -93,14 +93,14 @@ greater than one.
 **Conclusions**: opening more connections helps as long as server CPU
 is the limiting factor.
 
-- The localhost benchmark is CPU-bound. It shows improvements when increasing
-  the number of connections until 7, where it flattens. The benchmark is run
-  in a 4 core/8 thread machine, and client code is single-threaded.
-  Opening more connections improves performance due to Postgres'
-  process-per-connection architecture, until all CPUs are used.
+- The localhost benchmark is CPU-bound. Throughput improves as the number of
+  connections grows, up to 7 connections, where it flattens. The benchmark is
+  run on a 4-core/8-thread machine, and the client code is single-threaded.
+  Because of Postgres' process-per-connection architecture, opening more
+  connections improves performance until all CPUs are busy.
 - The AWS benchmark is network-bound and shows no improvement.
 
-Follow ups:
+Follow-ups:
 
 - Connection pools need to take multiplexed connections into account.
   There should be an easy way for users to create many multiplexed connections

@@ -128,8 +128,12 @@ In the past, I've had bad experiences with the interaction between Nagle's
 algorithm and TCP delayed ACK (as explained
 [here](https://brooker.co.za/blog/2024/05/09/nagle.html)) - see
 [this issue in Boost.MySQL](https://github.com/boostorg/mysql/issues/181).
-This library attempts to minimize latency and batches writes
-as much as it can, neglecting any possible benefit that Nagle's algorithm may bring.
+
+This library attempts to minimize latency. With Nagle enabled, in a pipelining scenario
+where several concurrent requests are started (e.g. concurrent `co_multiplexed_connection::exec()` calls),
+only the first one will be sent to the server. The rest will be held until the first one is acknowledged.
+The library tries to batch writes as much as possible,
+neglecting any possible benefit that Nagle's algorithm may bring.
 
 Note that both libpq and the Postgres server disable Nagle's algorithm
 unconditionally, too.

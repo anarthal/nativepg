@@ -120,3 +120,14 @@ I initially coded this using `std::variant` and then switched to the custom clas
 My code simplified after the switch.
 
 I've followed `boost::json::value` conventions for accessor names.
+
+## Why do you disable Nagle's algorithm (TCP_NODELAY)?
+
+I've had bad experiences with Nagle's algorithm + TCP delayed ack
+(as explained [here](https://brooker.co.za/blog/2024/05/09/nagle.html))
+in the past - see [this issue in Boost.MySQL](https://github.com/boostorg/mysql/issues/181).
+This library attempts to minimize latency and batches writes
+as much as it can, neglecting any possible benefit that Nagle's algorithm may report.
+
+Note that both libpq and the Postgres server disable Nagle's algorithm
+unconditionally, too.

@@ -11,5 +11,8 @@ if (NATIVEPG_COROSIO_API)
 
     add_executable(nativepg_bench_multiplexed_scaling multiplexed_scaling.cpp)
     target_link_libraries(nativepg_bench_multiplexed_scaling PRIVATE nativepg_corosio)
+
+    add_executable(nativepg_bench_multiplexed_coalescing multiplexed_coalescing.cpp)
+    target_link_libraries(nativepg_bench_multiplexed_coalescing PRIVATE nativepg_corosio)
 endif()
 

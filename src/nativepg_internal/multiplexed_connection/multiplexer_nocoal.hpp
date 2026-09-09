@@ -5,28 +5,30 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-// Inspired by Boost.Redis multiplexer.
-// Many thanks Marcelo Zimbres Silva for the original design.
+// Benchmark-only variant of detail::multiplexer that does not coalesce
+// pending requests into a single write buffer. Instead, prepare_write()
+// hands out one request payload at a time, pointing directly into the
+// request object, so the writer issues one write per request and no copy
+// is performed. Everything else (cancellation bookkeeping, response
+// dispatching) is identical to the coalescing multiplexer, and the shared
+// pieces are reused from multiplexer.hpp.
 
-#ifndef NATIVEPG_MULTIPLEXER_HPP
-#define NATIVEPG_MULTIPLEXER_HPP
+#ifndef NATIVEPG_MULTIPLEXER_NOCOAL_HPP
+#define NATIVEPG_MULTIPLEXER_NOCOAL_HPP
 
 #include <boost/compat/function_ref.hpp>
 
-#include <algorithm>
 #include <cstddef>
 #include <deque>
-#include <optional>
+#include <ranges>
 #include <span>
 #include <system_error>
-#include <vector>
 
-#include "nativepg/client_errc.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
-#include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
 #include "nativepg/responses/response_handler.hpp"
+#include "nativepg_internal/multiplexed_connection/multiplexer.hpp"
 
 namespace nativepg {
 
@@ -34,129 +36,10 @@ class request;
 
 namespace detail {
 
-enum class multiplexer_elem_status
-{
-    pending,
-    in_flight,
-    abandoned_pending,
-    abandoned_in_flight,
-};
-
-struct multiplexer_elem
-{
-    const request* req;
-    response_handler_ref res;
-    boost::compat::function_ref<void(std::error_code)> on_done;  // TODO: do we have any alternative?
-    multiplexer_elem_status status{multiplexer_elem_status::pending};
-    std::size_t num_rfq{};  // Expected number of ready-for-query messages. Populated lazily
-};
-
-inline std::size_t get_expected_rfqs(std::span<const request_message_type> msgs)
-{
-    return std::ranges::count_if(msgs, [](request_message_type type) {
-        return type == request_message_type::query || type == request_message_type::sync;
-    });
-}
-
-class read_response_stream_fsm
-{
-    enum class status
-    {
-        initial,
-        reading,
-        ignoring,
-    };
-
-    status status_{status::initial};
-    std::optional<protocol::read_response_fsm> fsm_;  // TODO: don't like optional
-    std::size_t remaining_rfq_{};
-
-public:
-    read_response_stream_fsm() = default;
-
-    void reset() { status_ = status::initial; }
-
-    bool is_reading() const { return status_ == status::reading; }
-
-    [[nodiscard]]
-    std::error_code on_message(std::deque<multiplexer_elem>& elms, const protocol::any_backend_message& msg)
-    {
-        if (status_ == status::initial)
-        {
-            // We're starting a new message. Ignore any abandoned
-            // requests that are not expecting any message back
-            auto it = std::ranges::find_if(elms, [](const multiplexer_elem& elm) {
-                return elm.status != multiplexer_elem_status::abandoned_pending;
-            });
-            elms.erase(elms.begin(), it);
-
-            // If we have no request, something went extremely wrong
-            if (elms.empty())
-                return std::error_code(client_errc::unmatched_request);
-            const auto& elm = elms.front();
-
-            // Determine if we should care about responses or not
-            if (elm.status == multiplexer_elem_status::abandoned_in_flight)
-            {
-                status_ = status::ignoring;
-                remaining_rfq_ = elm.num_rfq;
-            }
-            else
-            {
-                BOOST_ASSERT(elm.status == multiplexer_elem_status::in_flight);
-                status_ = status::reading;
-                fsm_.emplace(elm.req, elm.res);
-            }
-        }
-
-        switch (status_)
-        {
-            case status::reading:
-            {
-                // Handle the message
-                auto res = fsm_->resume(msg);
-
-                // The FSM needs further messages to complete this request
-                if (res == client_errc::needs_more)
-                    return {};
-
-                // The FSM terminated, so we're done with this request
-                // TODO: we don't have diagnostics here?
-                elms.front().on_done(res ? res : fsm_->get_handler_error().code);
-                elms.pop_front();
-                status_ = status::initial;
-
-                // Any errors here are protocol violations and should cause connection teardown
-                return res;
-            }
-            case status::ignoring:
-            {
-                // We only care about ready for queries
-                BOOST_ASSERT(remaining_rfq_ > 0u);
-                if (msg.type() == protocol::any_backend_message::kind::ready_for_query &&
-                    --remaining_rfq_ == 0u)
-                {
-                    elms.pop_front();
-                    status_ = status::initial;
-                }
-                return {};
-            }
-            default: BOOST_ASSERT(false); return std::error_code(client_errc::unmatched_request);
-        }
-    }
-
-    void abandon_current()
-    {
-        BOOST_ASSERT(is_reading());
-        remaining_rfq_ = get_expected_rfqs(fsm_->get_remaining_messages());
-        status_ = status::ignoring;
-    }
-};
-
-class multiplexer
+class multiplexer_nocoal
 {
 public:
-    multiplexer() = default;
+    multiplexer_nocoal() = default;
 
     // Adds a request. To be called by execute
     multiplexer_elem* add(
@@ -205,24 +88,31 @@ public:
         elem->on_done = &ignore;
     }
 
+    // Returns the payload of the next request to be written, marking it as in-flight,
+    // or an empty span if there is nothing pending. As opposed to the coalescing
+    // multiplexer, only one request is returned per call, and the returned span points
+    // into the request object rather than into an owned buffer (no copy is made).
+    // WARNING: because the payload is not copied, the request must stay alive while the
+    // write is in progress. Cancelling a request while its payload is being written is
+    // therefore not supported here. This is fine for benchmarking, which never cancels.
     std::span<const unsigned char> prepare_write()
     {
-        write_buffer_.clear();
-
-        // Go over all pending elements, add them to the write buffer, and mark them as in-progress
-        // TODO: ideally, we shouldn't need to copy the payload, but cancellations get much trickier
-        for (auto& elm : pending_requests())
+        // Go over the pending elements until we find a healthy one to write
+        while (num_pending_ > 0u)
         {
+            // The pending elements are at the end of the queue. Take the first one
+            // and mark it as no longer pending, so the pending/in-flight boundary advances
+            auto& elm = *(elems_.begin() + pending_offset());
+            --num_pending_;
+
             switch (elm.status)
             {
                 case multiplexer_elem_status::pending:
                 {
                     // Healthy request
                     BOOST_ASSERT(elm.req);
-                    auto payload = elm.req->payload();
-                    write_buffer_.insert(write_buffer_.end(), payload.begin(), payload.end());
                     elm.status = multiplexer_elem_status::in_flight;
-                    break;
+                    return elm.req->payload();
                 }
                 case multiplexer_elem_status::abandoned_pending:
                 {
@@ -233,10 +123,7 @@ public:
             }
         }
 
-        // All the elements are now in-progress
-        num_pending_ = 0u;
-
-        return write_buffer_;
+        return {};
     }
 
     [[nodiscard]]
@@ -273,7 +160,6 @@ public:
     }
 
 private:
-    std::vector<unsigned char> write_buffer_;
     std::deque<multiplexer_elem> elems_;
     check null_handler_;
     std::size_t num_pending_{};
@@ -284,14 +170,8 @@ private:
     // Gets the offset in the deque where the pending requests start
     std::size_t pending_offset() const { return elems_.size() - num_pending_; }
 
-    // Gets a view containing all the pending requests. They are at the end
+    // Gets a view containing all the in-flight requests. They are at the beginning
     // of the queue.
-    std::ranges::subrange<std::deque<multiplexer_elem>::iterator> pending_requests()
-    {
-        return std::ranges::subrange(elems_.begin() + pending_offset(), elems_.end());
-    }
-
-    // Same, for in-flight requests
     std::ranges::subrange<std::deque<multiplexer_elem>::iterator> in_flight_requests()
     {
         return std::ranges::subrange(elems_.begin(), elems_.begin() + pending_offset());
@@ -301,4 +181,4 @@ private:
 }  // namespace detail
 }  // namespace nativepg
 
-#endif  // BOOST_REDIS_MULTIPLEXER_HPP
+#endif

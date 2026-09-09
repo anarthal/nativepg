@@ -21,19 +21,19 @@
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
-#include "nativepg/co_multiplexed_connection.hpp"
+#include "nativepg/co_multiplexed_connection_nocoal.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/parse_message.hpp"
 #include "nativepg_internal/check_request.hpp"
-#include "nativepg_internal/multiplexed_connection/multiplexer.hpp"
+#include "nativepg_internal/multiplexed_connection/multiplexer_nocoal.hpp"
 #include "nativepg_internal/notification_queue.hpp"
 
 namespace capy = boost::capy;
 
-struct nativepg::co_multiplexed_connection::impl
+struct nativepg::co_multiplexed_connection_nocoal::impl
 {
     co_connection conn;
-    detail::multiplexer mpx;
+    detail::multiplexer_nocoal mpx;
     capy::async_event write_evt;
     detail::notification_queue notif_queue{256u};  // TODO: make configurable
 
@@ -47,7 +47,9 @@ struct nativepg::co_multiplexed_connection::impl
 
         while (true)
         {
-            // Attempt to prepare any pending requests
+            // Attempt to prepare the next pending request. As opposed to the
+            // coalescing connection, this returns a single request's payload,
+            // pointing into the request object (no copy is made)
             auto buff = mpx.prepare_write();
 
             // No more requests to write. Wait for more
@@ -211,26 +213,29 @@ struct nativepg::co_multiplexed_connection::impl
     }
 };
 
-nativepg::co_multiplexed_connection::co_multiplexed_connection(boost::capy::execution_context& ctx)
+nativepg::co_multiplexed_connection_nocoal::co_multiplexed_connection_nocoal(
+    boost::capy::execution_context& ctx
+)
     : impl_(std::make_unique<impl>(ctx))
 {
 }
 
-nativepg::co_multiplexed_connection::co_multiplexed_connection(co_multiplexed_connection&&) noexcept =
-    default;
-
-nativepg::co_multiplexed_connection& nativepg::co_multiplexed_connection::operator=(
-    co_multiplexed_connection&&
+nativepg::co_multiplexed_connection_nocoal::co_multiplexed_connection_nocoal(
+    co_multiplexed_connection_nocoal&&
 ) noexcept = default;
 
-nativepg::co_multiplexed_connection::~co_multiplexed_connection() = default;
+nativepg::co_multiplexed_connection_nocoal& nativepg::co_multiplexed_connection_nocoal::operator=(
+    co_multiplexed_connection_nocoal&&
+) noexcept = default;
 
-boost::capy::io_task<> nativepg::co_multiplexed_connection::run(multiplexed_config cfg)
+nativepg::co_multiplexed_connection_nocoal::~co_multiplexed_connection_nocoal() = default;
+
+boost::capy::io_task<> nativepg::co_multiplexed_connection_nocoal::run(multiplexed_config cfg)
 {
     return impl_->run(std::move(cfg));
 }
 
-boost::capy::io_task<> nativepg::co_multiplexed_connection::exec(
+boost::capy::io_task<> nativepg::co_multiplexed_connection_nocoal::exec(
     const request& req,
     response_handler_ref handler,
     diagnostics* diag
@@ -239,7 +244,7 @@ boost::capy::io_task<> nativepg::co_multiplexed_connection::exec(
     return impl_->exec(req, handler, diag);
 }
 
-boost::capy::io_task<> nativepg::co_multiplexed_connection::read_notifications(
+boost::capy::io_task<> nativepg::co_multiplexed_connection_nocoal::read_notifications(
     std::vector<notification_event>& output
 )
 {

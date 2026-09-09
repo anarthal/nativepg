@@ -13,6 +13,7 @@
 #include <boost/capy/write.hpp>
 #include <boost/corosio/connect.hpp>
 #include <boost/corosio/resolver.hpp>
+#include <boost/corosio/socket_option.hpp>
 #include <boost/corosio/tcp_socket.hpp>
 
 #include <memory>
@@ -55,7 +56,15 @@ struct co_connection::impl
             co_return {ec};
 
         auto [ec2, ep] = co_await boost::corosio::connect(sock, endpoints);
-        co_return {ec2};
+        if (ec2)
+            co_return {ec2};
+
+        // Disable Nagle's algorithm.
+        // Must be done after async_connect because it re-opens the socket
+        // for every candidate endpoint, discarding options.
+        sock.set_option(corosio::socket_option::no_delay(true));
+
+        co_return {};
     }
 
     capy::io_task<> shutdown()

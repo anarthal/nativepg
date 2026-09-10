@@ -18,8 +18,6 @@
 
 namespace nativepg::test {
 
-namespace detail {
-
 template <class T>
 struct optional_wrapper
 {
@@ -36,8 +34,6 @@ struct optional_wrapper
     }
 };
 
-}  // namespace detail
-
 // std::optional doesn't have operator<<
 template <class T>
 bool test_opt_eq(
@@ -46,7 +42,7 @@ bool test_opt_eq(
     boost::source_location loc = BOOST_CURRENT_LOCATION
 )
 {
-    bool ok = BOOST_TEST_EQ(detail::optional_wrapper{opt1}, detail::optional_wrapper{opt2});
+    bool ok = BOOST_TEST_EQ(optional_wrapper{opt1}, optional_wrapper{opt2});
     if (!ok)
         std::cerr << "  Called from " << loc << std::endl;
     return ok;

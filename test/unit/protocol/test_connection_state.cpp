@@ -9,6 +9,7 @@
 #include <boost/core/lightweight_test.hpp>
 
 #include <optional>
+#include <ostream>
 
 #include "nativepg/encoding.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
@@ -23,6 +24,32 @@ using kind = any_backend_message::kind;
 
 namespace {
 
+// Comprehensive list of what we track
+struct tracked_values
+{
+    std::uint32_t backend_process_id;
+    std::uint32_t backend_secret_key;
+    std::optional<bool> standard_conforming_strings;
+    std::optional<encoding> client_encoding;
+
+    explicit tracked_values(const connection_state& st) noexcept
+        : backend_process_id(st.backend_process_id),
+          backend_secret_key(st.backend_secret_key),
+          standard_conforming_strings(st.standard_conforming_strings),
+          client_encoding(st.client_encoding)
+    {
+    }
+
+    friend bool operator==(const tracked_values&, const tracked_values&) noexcept = default;
+    friend std::ostream& operator<<(std::ostream& os, const tracked_values& v)
+    {
+        return os << "{ .backend_process_id=" << v.backend_process_id
+                  << ", .backend_secret_key=" << v.backend_secret_key
+                  << ", .standard_conforming_strings=" << optional_wrapper{v.standard_conforming_strings}
+                  << ", .client_encoding=" << optional_wrapper{v.client_encoding} << " }";
+    }
+};
+
 // Values that make an unexpected change visible: any test that expects
 // no change checks that these survive untouched.
 constexpr std::uint32_t initial_process_id = 42u;
@@ -34,6 +61,16 @@ void set_initial_values(connection_state& st)
     st.backend_secret_key = initial_secret_key;
     st.update_tracked(parameter_status{.name = "client_encoding", .value = "LATIN1"});
     st.update_tracked(parameter_status{.name = "standard_conforming_strings", .value = "on"});
+}
+
+connection_state make_initial_state()
+{
+    return connection_state{
+        .backend_process_id = initial_process_id,
+        .backend_secret_key = initial_secret_key,
+        .standard_conforming_strings = true,
+        .client_encoding = encoding::latin1,
+    };
 }
 
 // Checks that a message leaves every tracked field untouched
@@ -53,13 +90,13 @@ void check_no_change(const any_backend_message& msg, boost::source_location loc 
 // A name we know about updates client_encoding
 void test_client_encoding_known()
 {
-    connection_state st;
-    set_initial_values(st);
+    auto st = make_initial_state();
+    tracked_values expected{st};
 
     st.update_tracked(parameter_status{.name = "client_encoding", .value = "UTF8"});
 
-    test_opt_eq(st.client_encoding, encoding::utf8);
-    test_opt_eq(st.standard_conforming_strings, true);
+    expected.client_encoding = encoding::utf8;
+    BOOST_TEST_EQ(tracked_values{st}, expected);
 }
 
 // A name we don't know about makes client_encoding unknown, rather than

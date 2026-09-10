@@ -10,15 +10,18 @@
 #include <boost/capy/task.hpp>
 #include <boost/core/lightweight_test.hpp>
 
+#include <optional>
 #include <system_error>
 
 #include "nativepg/co_connection.hpp"
+#include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
 #include "test_utils/ci_server.hpp"
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
+#include "test_utils/test_opt_eq.hpp"
 
 namespace capy = boost::capy;
 using namespace nativepg;
@@ -56,11 +59,30 @@ capy::task<> test_shutdown()
         co_return;
 }
 
+// shutdown invalidates any GUC we had recorded
+capy::task<> test_gucs()
+{
+    // Setup
+    diagnostics diag;
+    co_connection conn{co_await capy::this_coro::executor};
+    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
+        co_return;
+    test_opt_eq(conn.client_encoding(), encoding::utf8);
+
+    // Shut the connection down
+    auto [shutdown_ec] = co_await conn.shutdown();
+    BOOST_TEST_EQ(shutdown_ec, std::error_code());
+
+    // Check
+    test_opt_eq(conn.client_encoding(), std::nullopt);
+}
+
 }  // namespace
 
 int main()
 {
     run_coroutine_test(test_shutdown());
+    run_coroutine_test(test_gucs());
 
     return boost::report_errors();
 }

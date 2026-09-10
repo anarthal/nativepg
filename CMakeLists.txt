@@ -25,7 +25,7 @@ add_library(nativepg
 
     # External API
     src/error.cpp
-    src/encoding.cpp
+    src/parse_encoding.cpp
     src/messages.cpp
     src/startup_fsm.cpp
     src/scram_sha256_fsm.cpp

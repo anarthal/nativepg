@@ -18,6 +18,7 @@
 #include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/detail/read_buffer.hpp"
+#include "nativepg/protocol/parse_encoding.hpp"
 
 namespace nativepg::protocol {
 

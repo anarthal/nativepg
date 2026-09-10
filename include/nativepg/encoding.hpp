@@ -8,9 +8,6 @@
 #ifndef NATIVEPG_ENCODING_HPP
 #define NATIVEPG_ENCODING_HPP
 
-#include <optional>
-#include <string_view>
-
 namespace nativepg {
 
 enum class encoding
@@ -58,12 +55,6 @@ enum class encoding
     win1257,
     win1258,
 };
-
-// Parses a client_encoding value, as reported by the server in a ParameterStatus
-// message (e.g. "UTF8"). The server always uses the canonical, uppercase name.
-//   https://www.postgresql.org/docs/current/multibyte.html
-// Returns an empty optional if the name is not one of the encodings we know about.
-std::optional<encoding> parse_encoding(std::string_view name);
 
 }  // namespace nativepg
 

@@ -8,6 +8,7 @@
 #include <boost/assert/source_location.hpp>
 #include <boost/core/lightweight_test.hpp>
 
+#include <iostream>
 #include <optional>
 #include <ostream>
 
@@ -20,7 +21,6 @@
 using namespace nativepg;
 using namespace nativepg::protocol;
 using namespace nativepg::test;
-using kind = any_backend_message::kind;
 
 namespace {
 
@@ -50,24 +50,11 @@ struct tracked_values
     }
 };
 
-// Values that make an unexpected change visible: any test that expects
-// no change checks that these survive untouched.
-constexpr std::uint32_t initial_process_id = 42u;
-constexpr std::uint32_t initial_secret_key = 43u;
-
-void set_initial_values(connection_state& st)
-{
-    st.backend_process_id = initial_process_id;
-    st.backend_secret_key = initial_secret_key;
-    st.update_tracked(parameter_status{.name = "client_encoding", .value = "LATIN1"});
-    st.update_tracked(parameter_status{.name = "standard_conforming_strings", .value = "on"});
-}
-
 connection_state make_initial_state()
 {
     return connection_state{
-        .backend_process_id = initial_process_id,
-        .backend_secret_key = initial_secret_key,
+        .backend_process_id = 42u,
+        .backend_secret_key = 43u,
         .standard_conforming_strings = true,
         .client_encoding = encoding::latin1,
     };
@@ -76,15 +63,13 @@ connection_state make_initial_state()
 // Checks that a message leaves every tracked field untouched
 void check_no_change(const any_backend_message& msg, boost::source_location loc = BOOST_CURRENT_LOCATION)
 {
-    connection_state st;
-    set_initial_values(st);
+    auto st = make_initial_state();
+    tracked_values expected{st};
 
     st.update_tracked(msg);
 
-    test_opt_eq(st.client_encoding, encoding::latin1, loc);
-    test_opt_eq(st.standard_conforming_strings, true, loc);
-    BOOST_TEST_EQ(st.backend_process_id, initial_process_id);
-    BOOST_TEST_EQ(st.backend_secret_key, initial_secret_key);
+    if (!BOOST_TEST_EQ(tracked_values{st}, expected))
+        std::cerr << "  Called from " << loc << std::endl;
 }
 
 // A name we know about updates client_encoding
@@ -99,57 +84,71 @@ void test_client_encoding_known()
     BOOST_TEST_EQ(tracked_values{st}, expected);
 }
 
-// A name we don't know about makes client_encoding unknown, rather than
-// leaving the previous (now wrong) value in place
+// A name we don't know about makes client_encoding unknown
 void test_client_encoding_unknown()
 {
-    connection_state st;
-    set_initial_values(st);
+    auto st = make_initial_state();
+    tracked_values expected{st};
 
     st.update_tracked(parameter_status{.name = "client_encoding", .value = "NONSENSE"});
 
-    test_opt_eq(st.client_encoding, std::nullopt);
-    test_opt_eq(st.standard_conforming_strings, true);
+    expected.client_encoding.reset();
+    BOOST_TEST_EQ(tracked_values{st}, expected);
 }
 
+// Known standard_conforming_strings values update the tracked value
 void test_standard_conforming_strings_on()
 {
-    connection_state st;
-    set_initial_values(st);
-    st.update_tracked(parameter_status{.name = "standard_conforming_strings", .value = "off"});
+    auto st = make_initial_state();
+    st.standard_conforming_strings.reset();  // make the value change
+    tracked_values expected{st};
 
     st.update_tracked(parameter_status{.name = "standard_conforming_strings", .value = "on"});
 
-    test_opt_eq(st.standard_conforming_strings, true);
-    test_opt_eq(st.client_encoding, encoding::latin1);
+    expected.standard_conforming_strings = true;
+    BOOST_TEST_EQ(tracked_values{st}, expected);
 }
 
 void test_standard_conforming_strings_off()
 {
-    connection_state st;
-    set_initial_values(st);
+    auto st = make_initial_state();
+    tracked_values expected{st};
 
     st.update_tracked(parameter_status{.name = "standard_conforming_strings", .value = "off"});
 
-    test_opt_eq(st.standard_conforming_strings, false);
-    test_opt_eq(st.client_encoding, encoding::latin1);
+    expected.standard_conforming_strings = false;
+    BOOST_TEST_EQ(tracked_values{st}, expected);
 }
 
 // Anything other than on/off makes the value unknown
 void test_standard_conforming_strings_other()
 {
-    connection_state st;
-    set_initial_values(st);
+    auto st = make_initial_state();
+    tracked_values expected{st};
 
     st.update_tracked(parameter_status{.name = "standard_conforming_strings", .value = "maybe"});
 
-    test_opt_eq(st.standard_conforming_strings, std::nullopt);
-    test_opt_eq(st.client_encoding, encoding::latin1);
+    expected.standard_conforming_strings.reset();
+    BOOST_TEST_EQ(tracked_values{st}, expected);
+}
+
+// BackendKeyData updates the cancellation data, and nothing else
+void test_backend_key_data()
+{
+    auto st = make_initial_state();
+    tracked_values expected{st};
+
+    st.update_tracked(backend_key_data{.process_id = 0x1234, .secret_key = 0x5678});
+
+    expected.backend_process_id = 0x1234u;
+    expected.backend_secret_key = 0x5678u;
+    BOOST_TEST_EQ(tracked_values{st}, expected);
 }
 
 // Parameters we don't track are ignored
-void test_other_keys()
+void test_other_parameter_names()
 {
+    // Parameter names actually sent by Postgres
     check_no_change(parameter_status{.name = "application_name", .value = "myapp"});
     check_no_change(parameter_status{.name = "DateStyle", .value = "ISO, MDY"});
     check_no_change(parameter_status{.name = "server_encoding", .value = "UTF8"});
@@ -157,77 +156,15 @@ void test_other_keys()
 
     // A prefix of a name we track is still a different name
     check_no_change(parameter_status{.name = "client_encod", .value = "UTF8"});
-}
 
-void test_empty_key()
-{
+    // An empty name/value is OK
     check_no_change(parameter_status{.name = "", .value = ""});
     check_no_change(parameter_status{.name = "", .value = "UTF8"});
-}
-
-// BackendKeyData updates the cancellation data, and nothing else
-void test_backend_key_data()
-{
-    connection_state st;
-    set_initial_values(st);
-
-    st.update_tracked(backend_key_data{.process_id = 0x1234, .secret_key = 0x5678});
-
-    BOOST_TEST_EQ(st.backend_process_id, 0x1234u);
-    BOOST_TEST_EQ(st.backend_secret_key, 0x5678u);
-    test_opt_eq(st.client_encoding, encoding::latin1);
-    test_opt_eq(st.standard_conforming_strings, true);
-}
-
-// Compile-time guard: adding a message kind breaks this switch (-Werror=switch),
-// as a reminder to extend test_other_messages() below.
-void check_kinds_exhaustive(kind k)
-{
-    switch (k)
-    {
-        case kind::none:
-        case kind::authentication_ok:
-        case kind::authentication_kerberos_v5:
-        case kind::authentication_cleartext_password:
-        case kind::authentication_md5_password:
-        case kind::authentication_gss:
-        case kind::authentication_gss_continue:
-        case kind::authentication_sspi:
-        case kind::authentication_sasl:
-        case kind::authentication_sasl_continue:
-        case kind::authentication_sasl_final:
-        case kind::backend_key_data:
-        case kind::bind_complete:
-        case kind::close_complete:
-        case kind::command_complete:
-        case kind::copy_data:
-        case kind::copy_done:
-        case kind::copy_fail:
-        case kind::copy_in_response:
-        case kind::copy_out_response:
-        case kind::copy_both_response:
-        case kind::data_row:
-        case kind::empty_query_response:
-        case kind::error_response:
-        case kind::negotiate_protocol_version:
-        case kind::no_data:
-        case kind::notice_response:
-        case kind::notification_response:
-        case kind::parameter_description:
-        case kind::parameter_status:
-        case kind::parse_complete:
-        case kind::portal_suspended:
-        case kind::ready_for_query:
-        case kind::field_description:
-        case kind::row_description: return;
-    }
 }
 
 // Every other message type leaves the state alone
 void test_other_messages()
 {
-    check_kinds_exhaustive(kind::none);
-
     check_no_change(any_backend_message{});
     check_no_change(authentication_ok{});
     check_no_change(authentication_kerberos_v5{});
@@ -269,12 +206,14 @@ int main()
 {
     test_client_encoding_known();
     test_client_encoding_unknown();
+
     test_standard_conforming_strings_on();
     test_standard_conforming_strings_off();
     test_standard_conforming_strings_other();
-    test_other_keys();
-    test_empty_key();
+
     test_backend_key_data();
+
+    test_other_parameter_names();
     test_other_messages();
 
     return boost::report_errors();

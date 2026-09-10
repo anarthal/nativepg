@@ -92,6 +92,8 @@ startup_fsm_impl::result startup_fsm_impl::resume(
         st.reset();
 
         // Compose the startup message
+        // TODO: when we implement custom params in connect_params,
+        // update the GUCs in connection_state with these initial values
         if (auto ec = serialize(make_startup_message(*params_), st.write_buffer))
         {
             return ec;

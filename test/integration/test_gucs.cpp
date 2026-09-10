@@ -21,6 +21,7 @@
 #include "test_utils/ci_server.hpp"
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
+#include "test_utils/test_opt_eq.hpp"
 
 namespace capy = boost::capy;
 using namespace nativepg;
@@ -39,24 +40,24 @@ capy::task<> test_standard_conforming_strings()
     co_connection conn{co_await capy::this_coro::executor};
 
     // Not connected yet, so we know nothing
-    BOOST_TEST(conn.standard_conforming_strings() == std::nullopt);
+    test_opt_eq(conn.standard_conforming_strings(), std::nullopt);
 
     // Connecting reports the server's default
     if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
         co_return;
-    BOOST_TEST(conn.standard_conforming_strings());
+    test_opt_eq(conn.standard_conforming_strings(), true);
 
     // Changing the value is picked up
     request req;
     req.add_simple_query("SET standard_conforming_strings TO off");
     if (!check_success(co_await conn.exec(req, check(), &diag), diag))
         co_return;
-    BOOST_TEST_NOT(conn.standard_conforming_strings());
+    test_opt_eq(conn.standard_conforming_strings(), false);
 
     // Shutting down invalidates the value
     auto [shutdown_ec] = co_await conn.shutdown();
     BOOST_TEST_EQ(shutdown_ec, std::error_code());
-    BOOST_TEST(conn.standard_conforming_strings() == std::nullopt);
+    test_opt_eq(conn.standard_conforming_strings(), std::nullopt);
 }
 
 capy::task<> test_client_encoding()

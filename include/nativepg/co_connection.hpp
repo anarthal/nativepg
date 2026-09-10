@@ -136,7 +136,7 @@ public:
     protocol::connection_state& state();
 
     // Values reported via ParameterStatus
-    std::optional<bool> standard_confirming_strings() const;
+    std::optional<bool> standard_conforming_strings() const;
     std::optional<encoding> client_encoding() const;
 };
 

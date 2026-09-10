@@ -35,7 +35,7 @@ struct connection_state
     std::uint32_t backend_secret_key{};
 
     // GUCs reported via ParameterStatus
-    std::optional<bool> standard_confirming_strings;
+    std::optional<bool> standard_conforming_strings;
     std::optional<encoding> client_encoding;
 
     // TODO: this is safe for now, but is there any case where it may not be?
@@ -73,7 +73,7 @@ struct connection_state
         read_buffer.reset();
         backend_process_id = {};
         backend_secret_key = {};
-        standard_confirming_strings.reset();
+        standard_conforming_strings.reset();
         client_encoding.reset();
         // shared_diag are transient by nature
     }

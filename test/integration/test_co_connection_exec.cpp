@@ -49,7 +49,7 @@ using boost::describe::operators::operator==;
 using boost::describe::operators::operator<<;
 
 // Exec (potentially with pipelining) works
-capy::task<> test_exec_success()
+capy::task<> test_success()
 {
     // Setup
     diagnostics diag;
@@ -79,7 +79,7 @@ capy::task<> test_exec_success()
 
 int main()
 {
-    run_coroutine_test(test_exec_success());
+    run_coroutine_test(test_success());
 
     return boost::report_errors();
 }

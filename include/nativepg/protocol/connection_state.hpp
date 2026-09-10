@@ -14,11 +14,11 @@
 
 #include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/protocol/any_backend_message.hpp"
+#include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/detail/read_buffer.hpp"
 
 namespace nativepg::protocol {
-
-class any_backend_message;
 
 struct connection_state
 {
@@ -44,7 +44,27 @@ struct connection_state
     // TODO: move to compiled
     void update_tracked(const any_backend_message& msg)
     {
-        // TODO: implement this: update GUCs, and in the future, maybe TXN status
+        switch (msg.type())
+        {
+            case any_backend_message::kind::backend_key_data:
+                update_tracked(msg.get_backend_key_data());
+                return;
+            case any_backend_message::kind::parameter_status:
+                update_tracked(msg.get_parameter_status());
+                return;
+            default: return;
+        }
+    }
+
+    void update_tracked(const backend_key_data& msg)
+    {
+        backend_process_id = msg.process_id;
+        backend_secret_key = msg.secret_key;
+    }
+
+    void update_tracked(const parameter_status& msg)
+    {
+        // TODO: implement this
     }
 
     void reset()

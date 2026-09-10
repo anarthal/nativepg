@@ -183,11 +183,7 @@ startup_fsm_impl::result startup_fsm_impl::resume(
             switch (msg.type())
             {
                 case kind::backend_key_data:
-                {
-                    st.update_tracked(msg.get_backend_key_data());
-                    break;
-                }
-                case kind::parameter_status: st.update_tracked(msg.get_parameter_status()); break;
+                case kind::parameter_status: st.update_tracked(msg); break;
                 case kind::error_response: return process_error(msg.get_error_response(), diag);
                 case kind::notice_response:
                     // TODO: record these somehow

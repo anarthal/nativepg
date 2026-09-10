@@ -10,17 +10,15 @@
 
 #include <cstdint>
 #include <optional>
-#include <string_view>
 #include <vector>
 
 #include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
-#include "nativepg/protocol/any_backend_message.hpp"
-#include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/detail/read_buffer.hpp"
-#include "nativepg/protocol/parse_encoding.hpp"
 
 namespace nativepg::protocol {
+
+class any_backend_message;
 
 struct connection_state
 {
@@ -43,45 +41,8 @@ struct connection_state
     // TODO: this is safe for now, but is there any case where it may not be?
     diagnostics shared_diag;
 
-    // TODO: move to compiled
-    void update_tracked(const any_backend_message& msg)
-    {
-        switch (msg.type())
-        {
-            case any_backend_message::kind::backend_key_data:
-                update_tracked(msg.get_backend_key_data());
-                return;
-            case any_backend_message::kind::parameter_status:
-                update_tracked(msg.get_parameter_status());
-                return;
-            default: return;
-        }
-    }
-
-    void update_tracked(const backend_key_data& msg)
-    {
-        backend_process_id = msg.process_id;
-        backend_secret_key = msg.secret_key;
-    }
-
-    void update_tracked(const parameter_status& msg)
-    {
-        // Any value we don't understand leaves the GUC as unknown, rather than
-        // guessing: escaping with the wrong assumption is a correctness problem.
-        if (msg.name == "standard_conforming_strings")
-        {
-            if (msg.value == "on")
-                standard_conforming_strings = true;
-            else if (msg.value == "off")
-                standard_conforming_strings = false;
-            else
-                standard_conforming_strings.reset();
-        }
-        else if (msg.name == "client_encoding")
-        {
-            client_encoding = parse_encoding(msg.value);
-        }
-    }
+    // Updates GUCs as required
+    void update_tracked(const any_backend_message& msg);
 
     void reset_gucs()
     {

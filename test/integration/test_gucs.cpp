@@ -29,51 +29,62 @@ using namespace nativepg::test;
 
 namespace {
 
-// After shutdown, the connection is unusable: exec fails and performs no I/O
-capy::task<> test_shutdown()
+// Tests that we process each reported GUC correctly.
+// Doesn't test all possible functions that may mutate GUCs - this should be
+// tested by each function's tests.
+
+capy::task<> test_standard_conforming_strings()
 {
     // Setup
     diagnostics diag;
     co_connection conn{co_await capy::this_coro::executor};
+
+    // Not connected yet, so we know nothing
+    test_opt_eq(conn.standard_conforming_strings(), std::nullopt);
+
+    // Connecting reports the server's default
     if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
         co_return;
+    test_opt_eq(conn.standard_conforming_strings(), true);
 
-    // Sanity check: the connection works before shutting it down
+    // Changing the value is picked up
     request req;
-    req.add_simple_query("SELECT 1");
+    req.add_simple_query("SET standard_conforming_strings TO off");
     if (!check_success(co_await conn.exec(req, check(), &diag), diag))
         co_return;
+    test_opt_eq(conn.standard_conforming_strings(), false);
 
-    // Shut the connection down. This should succeed
+    // Shutting down invalidates the value
     auto [shutdown_ec] = co_await conn.shutdown();
     BOOST_TEST_EQ(shutdown_ec, std::error_code());
-
-    // exec no longer works
-    auto [exec_ec] = co_await conn.exec(req, check());
-    BOOST_TEST_NE(exec_ec, std::error_code());
-
-    // The connection can be re-opened
-    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
-        co_return;
-    if (!check_success(co_await conn.exec(req, check(), &diag), diag))
-        co_return;
+    test_opt_eq(conn.standard_conforming_strings(), std::nullopt);
 }
 
-// shutdown invalidates any GUC we had recorded
-capy::task<> test_gucs()
+capy::task<> test_client_encoding()
 {
     // Setup
     diagnostics diag;
     co_connection conn{co_await capy::this_coro::executor};
+
+    // Not connected yet, so we know nothing
+    test_opt_eq(conn.client_encoding(), std::nullopt);
+
+    // Connecting reports the server's default
     if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
         co_return;
     test_opt_eq(conn.client_encoding(), encoding::utf8);
 
-    // Shut the connection down
+    // Changing the value is picked up.
+    // LATIN1 is chosen because the server can convert to it from UTF8.
+    request req;
+    req.add_simple_query("SET client_encoding TO 'LATIN1'");
+    if (!check_success(co_await conn.exec(req, check(), &diag), diag))
+        co_return;
+    test_opt_eq(conn.client_encoding(), encoding::latin1);
+
+    // Shutting down invalidates the value
     auto [shutdown_ec] = co_await conn.shutdown();
     BOOST_TEST_EQ(shutdown_ec, std::error_code());
-
-    // Check
     test_opt_eq(conn.client_encoding(), std::nullopt);
 }
 
@@ -81,8 +92,8 @@ capy::task<> test_gucs()
 
 int main()
 {
-    run_coroutine_test(test_shutdown());
-    run_coroutine_test(test_gucs());
+    run_coroutine_test(test_standard_conforming_strings());
+    run_coroutine_test(test_client_encoding());
 
     return boost::report_errors();
 }

@@ -23,6 +23,7 @@
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
+#include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
@@ -80,6 +81,9 @@ struct co_connection::impl
 
         // Write it
         auto [write_ec, bytes] = co_await capy::write(stream, capy::make_buffer(st.write_buffer));
+
+        // GUCs should be reported as unknown for unestablished connections
+        st.reset_gucs();
 
         // Close the underlying transport anyway.
         // No tcp_socket::shutdown() here to match what libpq does.
@@ -284,5 +288,12 @@ capy::io_task<> co_connection::read_some_messages() { return impl_->read_some_me
 capy::any_stream& co_connection::stream() { return impl_->stream; }
 
 protocol::connection_state& co_connection::state() { return impl_->st; }
+
+std::optional<bool> co_connection::standard_conforming_strings() const
+{
+    return impl_->st.standard_conforming_strings;
+}
+
+std::optional<encoding> co_connection::client_encoding() const { return impl_->st.client_encoding; }
 
 }  // namespace nativepg

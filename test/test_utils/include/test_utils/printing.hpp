@@ -24,6 +24,9 @@ std::ostream& operator<<(std::ostream& os, const command_info&);
 class diagnostics;
 std::ostream& operator<<(std::ostream& os, const diagnostics&);
 
+enum class encoding;
+std::ostream& operator<<(std::ostream& os, encoding);
+
 }  // namespace nativepg
 
 #endif

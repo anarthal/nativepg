@@ -101,6 +101,9 @@ struct nativepg::co_multiplexed_connection::impl
                 // Account for the message bytes
                 consumed += res.size;
 
+                // Process any status updates
+                st.update_tracked(res.message);
+
                 // Handle notifications
                 // TODO: although this is a valid backpressure strategy,
                 // it interacts poorly with running requests in the same coroutine.

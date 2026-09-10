@@ -19,13 +19,16 @@
 #include <vector>
 
 #include "nativepg/co_connection.hpp"
+#include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/responses/check.hpp"
 #include "nativepg/responses/into.hpp"
 #include "nativepg/responses/response.hpp"
 #include "test_utils/ci_server.hpp"
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
+#include "test_utils/test_opt_eq.hpp"
 
 namespace capy = boost::capy;
 using namespace nativepg;
@@ -49,7 +52,7 @@ using boost::describe::operators::operator==;
 using boost::describe::operators::operator<<;
 
 // Exec (potentially with pipelining) works
-capy::task<> test_exec_success()
+capy::task<> test_success()
 {
     // Setup
     diagnostics diag;
@@ -75,11 +78,31 @@ capy::task<> test_exec_success()
     BOOST_TEST_ALL_EQ(strings.begin(), strings.end(), strings_expected.begin(), strings_expected.end());
 }
 
+// exec processes any GUC reported while reading the response
+capy::task<> test_gucs()
+{
+    // Setup
+    diagnostics diag;
+    co_connection conn{co_await capy::this_coro::executor};
+    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
+        co_return;
+
+    // Change a GUC
+    request req;
+    req.add_simple_query("SET client_encoding TO 'LATIN1'");
+    if (!check_success(co_await conn.exec(req, check(), &diag), diag))
+        co_return;
+
+    // Check
+    test_opt_eq(conn.client_encoding(), encoding::latin1);
+}
+
 }  // namespace
 
 int main()
 {
-    run_coroutine_test(test_exec_success());
+    run_coroutine_test(test_success());
+    run_coroutine_test(test_gucs());
 
     return boost::report_errors();
 }

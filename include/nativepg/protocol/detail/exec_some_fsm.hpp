@@ -124,6 +124,9 @@ public:
                     // We have a message, process it
                     consumed_ += res.size;
 
+                    // Process any status updates
+                    st.update_tracked(res.message);
+
                     // Check if the message is legal in our state,
                     // and if it ends the sequence we're looking for.
                     // Copy messages are never the last one, so this is safe

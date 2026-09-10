@@ -16,13 +16,14 @@
 
 #include <concepts>
 #include <memory>
+#include <optional>
 #include <span>
 
 #include "nativepg/connect_params.hpp"
+#include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/copy.hpp"
-#include "nativepg/protocol/startup_fsm.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
 
@@ -133,6 +134,10 @@ public:
     // TODO: I don't like this
     boost::capy::any_stream& stream();
     protocol::connection_state& state();
+
+    // Values reported via ParameterStatus
+    std::optional<bool> standard_conforming_strings() const;
+    std::optional<encoding> client_encoding() const;
 };
 
 }  // namespace nativepg

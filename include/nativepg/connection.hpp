@@ -65,13 +65,22 @@ struct physical_connect_op
     )
     {
         if (ec)
+        {
             self.complete(ec);
+            return;
+        }
         boost::asio::async_connect(impl.sock, results, std::move(self));
     }
 
     template <class Self>
     void operator()(Self& self, boost::system::error_code ec, boost::asio::ip::tcp::endpoint)
     {
+        // Disable Nagle's algorithm.
+        // Must be done after async_connect because it re-opens the socket
+        // for every candidate endpoint, discarding options.
+        if (!ec)
+            impl.sock.set_option(boost::asio::ip::tcp::no_delay(true), ec);
+
         self.complete(ec);
     }
 };

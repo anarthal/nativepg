@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 #include "nativepg/encoding.hpp"
@@ -64,7 +65,27 @@ struct connection_state
 
     void update_tracked(const parameter_status& msg)
     {
-        // TODO: implement this
+        // Any value we don't understand leaves the GUC as unknown, rather than
+        // guessing: escaping with the wrong assumption is a correctness problem.
+        if (msg.name == "standard_conforming_strings")
+        {
+            if (msg.value == "on")
+                standard_conforming_strings = true;
+            else if (msg.value == "off")
+                standard_conforming_strings = false;
+            else
+                standard_conforming_strings.reset();
+        }
+        else if (msg.name == "client_encoding")
+        {
+            client_encoding = parse_encoding(msg.value);
+        }
+    }
+
+    void reset_gucs()
+    {
+        standard_conforming_strings.reset();
+        client_encoding.reset();
     }
 
     void reset()
@@ -73,8 +94,7 @@ struct connection_state
         read_buffer.reset();
         backend_process_id = {};
         backend_secret_key = {};
-        standard_conforming_strings.reset();
-        client_encoding.reset();
+        reset_gucs();
         // shared_diag are transient by nature
     }
 };

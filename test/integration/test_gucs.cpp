@@ -67,12 +67,12 @@ capy::task<> test_client_encoding()
     co_connection conn{co_await capy::this_coro::executor};
 
     // Not connected yet, so we know nothing
-    BOOST_TEST(conn.client_encoding() == std::nullopt);
+    test_opt_eq(conn.client_encoding(), std::nullopt);
 
     // Connecting reports the server's default
     if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
         co_return;
-    BOOST_TEST(conn.client_encoding() == encoding::utf8);
+    test_opt_eq(conn.client_encoding(), encoding::utf8);
 
     // Changing the value is picked up.
     // LATIN1 is chosen because the server can convert to it from UTF8.
@@ -80,12 +80,12 @@ capy::task<> test_client_encoding()
     req.add_simple_query("SET client_encoding TO 'LATIN1'");
     if (!check_success(co_await conn.exec(req, check(), &diag), diag))
         co_return;
-    BOOST_TEST(conn.client_encoding() == encoding::latin1);
+    test_opt_eq(conn.client_encoding(), encoding::latin1);
 
     // Shutting down invalidates the value
     auto [shutdown_ec] = co_await conn.shutdown();
     BOOST_TEST_EQ(shutdown_ec, std::error_code());
-    BOOST_TEST(conn.client_encoding() == std::nullopt);
+    test_opt_eq(conn.client_encoding(), std::nullopt);
 }
 
 }  // namespace

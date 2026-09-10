@@ -49,6 +49,7 @@ exec_fsm::result exec_fsm::resume(connection_state& st, std::error_code ec, std:
             if (!msg_res.ec)
             {
                 // We have a message
+                st.update_tracked(msg_res.message);
                 res = read_fsm_.resume(msg_res.message);
                 st.read_buffer.consume(msg_res.size);
                 if (res != client_errc::needs_more)

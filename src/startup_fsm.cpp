@@ -178,10 +178,12 @@ startup_fsm_impl::result startup_fsm_impl::resume(
             NATIVEPG_YIELD(resume_point_, 8, result_type::read)
 
             // Act upon it
+            st.update_tracked(msg);
             switch (msg.type())
             {
                 case kind::backend_key_data:
                 {
+                    // TODO: coalesce this into update_tracked
                     const auto& key = msg.get_backend_key_data();
                     st.backend_process_id = key.process_id;
                     st.backend_secret_key = key.secret_key;

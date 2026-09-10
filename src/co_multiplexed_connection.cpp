@@ -123,6 +123,7 @@ struct nativepg::co_multiplexed_connection::impl
                 {
                     // We have a message, deliver it.
                     // An error here means an irrecoverable failure
+                    conn.state().update_tracked(res.message);
                     if (auto ec = mpx.on_message(res.message))
                         co_return {};
                 }

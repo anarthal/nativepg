@@ -180,16 +180,17 @@ startup_fsm_impl::result startup_fsm_impl::resume(
             NATIVEPG_YIELD(resume_point_, 8, result_type::read)
 
             // Act upon it
+            // TODO: we should really reset the state whenever any kind of error is encountered
             switch (msg.type())
             {
                 case kind::backend_key_data:
                 case kind::parameter_status: st.update_tracked(msg); break;
-                case kind::error_response: return process_error(msg.get_error_response(), diag);
+                case kind::error_response: st.reset(); return process_error(msg.get_error_response(), diag);
                 case kind::notice_response:
                     // TODO: record these somehow
                     break;
                 case kind::ready_for_query: return std::error_code();
-                default: return std::error_code(client_errc::unexpected_message);
+                default: st.reset(); return std::error_code(client_errc::unexpected_message);
             }
         }
     }

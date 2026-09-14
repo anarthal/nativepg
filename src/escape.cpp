@@ -24,7 +24,7 @@ constexpr std::string_view quote_str{&quote_char, 1u};
 
 }  // namespace
 
-std::error_code nativepg::escape_identifier(
+std::error_code nativepg::escape_identifier_body(
     std::string_view value,
     encoding enc,
     boost::compat::function_ref<void(std::string_view)> fn

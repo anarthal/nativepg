@@ -37,7 +37,7 @@ escape_result do_escape_identifier(
 )
 {
     escape_result res;
-    res.ec = escape_identifier(input, enc, [&res, loc](std::string_view piece) {
+    res.ec = escape_identifier_body(input, enc, [&res, loc](std::string_view piece) {
         // Pieces should never be empty
         if (!BOOST_TEST_NOT(piece.empty()))
             std::cerr << "  Called from " << loc << std::endl;
@@ -106,7 +106,7 @@ void test_unsupported_encoding()
 void test_string_overload()
 {
     std::string dest = "SELECT * FROM \"";  // we append to it
-    auto ec = escape_identifier("a\"b", encoding::utf8, dest);
+    auto ec = escape_identifier_body("a\"b", encoding::utf8, dest);
     dest += '"';
     BOOST_TEST_EQ(ec, error_code());
     BOOST_TEST_EQ(dest, R"(SELECT * FROM "a""b")");
@@ -127,7 +127,7 @@ void test_string_overload_allocator_traits()
 {
     std::basic_string<char, custom_traits<char>, custom_allocator<char>>
         dest = "SELECT * FROM \"";  // we append to it
-    auto ec = escape_identifier("a\"b", encoding::utf8, dest);
+    auto ec = escape_identifier_body("a\"b", encoding::utf8, dest);
     dest += '"';
     std::string_view result{dest.data(), dest.size()};  // the string is not printable
     BOOST_TEST_EQ(ec, error_code());

@@ -41,7 +41,7 @@ std::error_code nativepg::escape_identifier(
     const char* end = value.data() + value.size();
     for (const char* it = value.data(); it != end; ++it)
     {
-        if (*it == '"')
+        if (*it == quote_char)
         {
             // Emit everything up to and including the quote, then the quote that escapes it
             fn({chunk_start, it + 1});

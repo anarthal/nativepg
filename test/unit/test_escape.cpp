@@ -58,14 +58,16 @@ void test_success()
         {"spaces", "my table", "my table"},
         {"uppercase", "MyTable", "MyTable"},
         {"single_quote", "it's", "it's"},
-        {"backslash", "a\\b", "a\\b"},
+        {"backslash", "a\\b", "a\\b"}, // not escaped
+        {"tab", "a\tb", "a\tb"}, // not escaped
+        {"newline", "a\nb", "a\nb"}, // not escaped
+        {"nul", std::string_view("a\0b", 3), std::string_view("a\0b", 3)}, // not escaped
         {"quote", "a\"b", "a\"\"b"},
         {"only_quote", "\"", "\"\""},
         {"two_quotes", "\"\"", "\"\"\"\""},
         {"leading_quote", "\"abc", "\"\"abc"},
         {"trailing_quote", "abc\"", "abc\"\""},
         {"several_quotes", "a\"b\"c", "a\"\"b\"\"c"},
-        {"nul", std::string_view("a\0b", 3), std::string_view("a\0b", 3)},
         {"non_ascii", "caf\xc3\xa9", "caf\xc3\xa9"},
         {"4byte_sequence", "\xf0\x9f\x98\x80", "\xf0\x9f\x98\x80"},
         {"max_code_point", "\xf4\x8f\xbf\xbf", "\xf4\x8f\xbf\xbf"},

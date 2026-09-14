@@ -42,6 +42,8 @@ std::error_code escape_identifier(
     });
 }
 
+// TODO: escape literal
+
 }  // namespace nativepg
 
 #endif

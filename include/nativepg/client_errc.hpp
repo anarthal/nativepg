@@ -124,6 +124,10 @@ enum class client_errc : int
     // but the value is NULL. Mostly used as a sentinel by serialization
     // functions to signal that a NULL should be serialized.
     serialize_null,
+
+    // An operation (e.g. escaping) was attempted on a connection using a character
+    // encoding that we don't support yet.
+    unsupported_encoding,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

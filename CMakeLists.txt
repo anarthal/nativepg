@@ -36,6 +36,7 @@ add_library(nativepg
     src/request.cpp
     src/responses.cpp
     src/sqlstate.cpp
+    src/escape.cpp
 )
 target_link_libraries(nativepg PUBLIC Boost::headers OpenSSL::SSL OpenSSL::Crypto)
 target_include_directories(nativepg PUBLIC include)

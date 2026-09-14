@@ -30,7 +30,7 @@ struct escape_result
     std::string value;
 };
 
-escape_result escape(
+escape_result do_escape_identifier(
     std::string_view input,
     encoding enc = encoding::utf8,
     boost::source_location loc = BOOST_CURRENT_LOCATION
@@ -85,7 +85,7 @@ void test_success()
 
     for (const auto& tc : test_cases)
     {
-        auto res = escape(tc.input);
+        auto res = do_escape_identifier(tc.input);
         if (!BOOST_TEST_EQ(res.ec, error_code()) || !BOOST_TEST_EQ(res.value, tc.expected))
             std::cerr << "  In test case: " << tc.name << std::endl;
     }
@@ -96,7 +96,7 @@ void test_unsupported_encoding()
 {
     for (auto enc : {encoding::latin1, encoding::sql_ascii, encoding::sjis})
     {
-        auto res = escape("abc", enc);
+        auto res = do_escape_identifier("abc", enc);
         BOOST_TEST_EQ(res.ec, error_code(client_errc::unsupported_encoding));
         BOOST_TEST_EQ(res.value, std::string_view());
     }

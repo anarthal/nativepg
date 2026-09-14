@@ -112,6 +112,49 @@ void test_string_overload()
 }
 
 // Strings with other traits/allocators work
+template <class T>
+struct custom_allocator
+{
+    using value_type = T;
+
+    custom_allocator() noexcept {}
+
+    template <class U>
+    custom_allocator(const custom_allocator<U>&) noexcept
+    {
+    }
+
+    T* allocate(std::size_t n) { return std::allocator<T>().allocate(n); }
+    void deallocate(T* p, std::size_t n) { return std::allocator<T>().deallocate(p, n); }
+
+    template <class U>
+    friend constexpr bool operator==(const custom_allocator<T>&, const custom_allocator<U>&) noexcept
+    {
+        return true;
+    }
+
+    template <class U>
+    friend constexpr bool operator!=(const custom_allocator<T>&, const custom_allocator<U>&) noexcept
+    {
+        return false;
+    }
+};
+
+template <class T>
+struct custom_traits : std::char_traits<T>
+{
+};
+
+void test_string_overload_allocator_traits()
+{
+    std::basic_string<char, custom_traits<char>, custom_allocator<char>>
+        dest = "SELECT * FROM \"";  // we append to it
+    auto ec = escape_identifier("a\"b", encoding::utf8, dest);
+    dest += '"';
+    std::string_view result{dest.data(), dest.size()};  // the string is not printable
+    BOOST_TEST_EQ(ec, error_code());
+    BOOST_TEST_EQ(result, R"(SELECT * FROM "a""b")");
+}
 
 }  // namespace
 
@@ -119,7 +162,9 @@ int main()
 {
     test_success();
     test_unsupported_encoding();
+
     test_string_overload();
+    test_string_overload_allocator_traits();
 
     return boost::report_errors();
 }

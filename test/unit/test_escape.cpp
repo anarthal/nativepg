@@ -72,6 +72,14 @@ void test_success()
         {"4byte_sequence", "\xf0\x9f\x98\x80", "\xf0\x9f\x98\x80"},
         {"max_code_point", "\xf4\x8f\xbf\xbf", "\xf4\x8f\xbf\xbf"},
         {"non_ascii_quote", "\xc3\xa9\"\xc3\xa9", "\xc3\xa9\"\"\xc3\xa9"},
+
+        // Invalid UTF-8 is passed through
+        {"lone_continuation", "\x80", "\x80"},
+        {"incomplete_2byte", "\xc3", "\xc3"},
+        {"overlong", "\xc0\xaf", "\xc0\xaf"},
+        {"surrogate", "\xed\xa0\x80", "\xed\xa0\x80"},
+        {"invalid_byte_ff", "\xff", "\xff"},
+        {"truncated_then_quote", "\xc3\"", "\xc3\"\""},
     };
 
     for (const auto& tc : test_cases)
@@ -103,33 +111,6 @@ void test_unsupported_encoding()
     }
 }
 
-// We don't validate UTF-8: malformed sequences are passed through unchanged.
-// Since no byte in a multi-byte sequence can be mistaken for a quote,
-// this doesn't compromise the escaping
-void test_malformed_utf8_passthrough()
-{
-    struct
-    {
-        std::string_view name;
-        std::string_view input;
-        std::string_view expected;
-    } test_cases[] = {
-        {"lone_continuation",    "\x80",         "\x80"        },
-        {"incomplete_2byte",     "\xc3",         "\xc3"        },
-        {"overlong",             "\xc0\xaf",     "\xc0\xaf"    },
-        {"surrogate",            "\xed\xa0\x80", "\xed\xa0\x80"},
-        {"invalid_byte_ff",      "\xff",         "\xff"        },
-        {"truncated_then_quote", "\xc3\"",       "\xc3\"\""    },
-    };
-
-    for (const auto& tc : test_cases)
-    {
-        auto res = escape(tc.input);
-        if (!BOOST_TEST_EQ(res.ec, error_code()) || !BOOST_TEST_EQ(res.value, tc.expected))
-            std::cerr << "  In test case: " << tc.name << std::endl;
-    }
-}
-
 }  // namespace
 
 int main()
@@ -137,7 +118,6 @@ int main()
     test_success();
     test_string_overload();
     test_unsupported_encoding();
-    test_malformed_utf8_passthrough();
 
     return boost::report_errors();
 }

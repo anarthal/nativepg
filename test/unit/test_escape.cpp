@@ -54,33 +54,32 @@ void test_success()
         std::string_view input;
         std::string_view expected;
     } test_cases[] = {
-        {"regular", "my_table", "my_table"},
-        {"empty", "", ""},
-        {"spaces", "my table", "my table"},
-        {"uppercase", "MyTable", "MyTable"},
-        {"single_quote", "it's", "it's"},
-        {"backslash", "a\\b", "a\\b"}, // not escaped
-        {"tab", "a\tb", "a\tb"}, // not escaped
-        {"newline", "a\nb", "a\nb"}, // not escaped
-        {"nul", std::string_view("a\0b", 3), std::string_view("a\0b", 3)}, // not escaped
-        {"quote", "a\"b", "a\"\"b"},
-        {"only_quote", "\"", "\"\""},
-        {"two_quotes", "\"\"", "\"\"\"\""},
-        {"leading_quote", "\"abc", "\"\"abc"},
-        {"trailing_quote", "abc\"", "abc\"\""},
-        {"several_quotes", "a\"b\"c", "a\"\"b\"\"c"},
-        {"non_ascii", "caf\xc3\xa9", "caf\xc3\xa9"},
-        {"4byte_sequence", "\xf0\x9f\x98\x80", "\xf0\x9f\x98\x80"},
-        {"max_code_point", "\xf4\x8f\xbf\xbf", "\xf4\x8f\xbf\xbf"},
-        {"non_ascii_quote", "\xc3\xa9\"\xc3\xa9", "\xc3\xa9\"\"\xc3\xa9"},
+        {"regular",              "my_table",           "my_table"            },
+        {"empty",                "",                   ""                    },
+        {"spaces",               "my table",           "my table"            },
+        {"uppercase",            "MyTable",            "MyTable"             },
+        {"single_quote",         "it's",               "it's"                },
+        {"backslash",            "a\\b",               "a\\b"                }, // not escaped
+        {"tab",                  "a\tb",               "a\tb"                }, // not escaped
+        {"newline",              "a\nb",               "a\nb"                }, // not escaped
+        {"quote",                "a\"b",               "a\"\"b"              },
+        {"only_quote",           "\"",                 "\"\""                },
+        {"two_quotes",           "\"\"",               "\"\"\"\""            },
+        {"leading_quote",        "\"abc",              "\"\"abc"             },
+        {"trailing_quote",       "abc\"",              "abc\"\""             },
+        {"several_quotes",       "a\"b\"c",            "a\"\"b\"\"c"         },
+        {"non_ascii",            "caf\xc3\xa9",        "caf\xc3\xa9"         },
+        {"4byte_sequence",       "\xf0\x9f\x98\x80",   "\xf0\x9f\x98\x80"    },
+        {"max_code_point",       "\xf4\x8f\xbf\xbf",   "\xf4\x8f\xbf\xbf"    },
+        {"non_ascii_quote",      "\xc3\xa9\"\xc3\xa9", "\xc3\xa9\"\"\xc3\xa9"},
 
         // Invalid UTF-8 is passed through
-        {"lone_continuation", "\x80", "\x80"},
-        {"incomplete_2byte", "\xc3", "\xc3"},
-        {"overlong", "\xc0\xaf", "\xc0\xaf"},
-        {"surrogate", "\xed\xa0\x80", "\xed\xa0\x80"},
-        {"invalid_byte_ff", "\xff", "\xff"},
-        {"truncated_then_quote", "\xc3\"", "\xc3\"\""},
+        {"lone_continuation",    "\x80",               "\x80"                },
+        {"incomplete_2byte",     "\xc3",               "\xc3"                },
+        {"overlong",             "\xc0\xaf",           "\xc0\xaf"            },
+        {"surrogate",            "\xed\xa0\x80",       "\xed\xa0\x80"        },
+        {"invalid_byte_ff",      "\xff",               "\xff"                },
+        {"truncated_then_quote", "\xc3\"",             "\xc3\"\""            },
     };
 
     for (const auto& tc : test_cases)
@@ -99,6 +98,32 @@ void test_unsupported_encoding()
         auto res = do_escape_identifier("abc", enc);
         BOOST_TEST_EQ(res.ec, error_code(client_errc::unsupported_encoding));
         BOOST_TEST_EQ(res.value, std::string_view());
+    }
+}
+
+// NULL bytes can't be escaped, and are rejected
+void test_null_bytes()
+{
+    struct
+    {
+        std::string_view name;
+        std::string_view input;
+    } test_cases[] = {
+        {"only_nul",        std::string_view("\0",            1)},
+        {"leading_nul",     std::string_view("\0abc",         4)},
+        {"middle_nul",      std::string_view("a\0b",          3)},
+        {"trailing_nul",    std::string_view("abc\0",         4)},
+        {"several_nuls",    std::string_view("a\0b\0c",       5)},
+        {"after_quote",     std::string_view("a\"\0b",        4)},
+        {"before_quote",    std::string_view("a\0\"b",        4)},
+        {"after_non_ascii", std::string_view("caf\xc3\xa9\0", 6)},
+    };
+
+    for (const auto& tc : test_cases)
+    {
+        auto res = do_escape_identifier(tc.input);
+        if (!BOOST_TEST_EQ(res.ec, error_code(client_errc::null_byte)))
+            std::cerr << "  In test case: " << tc.name << std::endl;
     }
 }
 
@@ -134,15 +159,25 @@ void test_string_overload_allocator_traits()
     BOOST_TEST_EQ(result, R"(SELECT * FROM "a""b")");
 }
 
+// The string overload propagates errors
+void test_string_overload_error()
+{
+    std::string dest = "SELECT * FROM \"";
+    auto ec = escape_identifier_body(std::string_view("a\0b", 3), encoding::utf8, dest);
+    BOOST_TEST_EQ(ec, error_code(client_errc::null_byte));
+}
+
 }  // namespace
 
 int main()
 {
     test_success();
     test_unsupported_encoding();
+    test_null_bytes();
 
     test_string_overload();
     test_string_overload_allocator_traits();
+    test_string_overload_error();
 
     return boost::report_errors();
 }

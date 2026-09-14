@@ -48,6 +48,11 @@ std::error_code nativepg::escape_identifier_body(
             fn(quote_str);
             chunk_start = it + 1;
         }
+        else if (*it == '\0')
+        {
+            // There is no way to escape a NULL byte
+            return client_errc::null_byte;
+        }
     }
 
     // Whatever is left after the last quote

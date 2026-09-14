@@ -90,16 +90,6 @@ void test_success()
     }
 }
 
-// The escaped value can also be appended to a string. The caller adds the quotes
-void test_string_overload()
-{
-    std::string dest = "SELECT * FROM \"";
-    auto ec = escape_identifier("a\"b", encoding::utf8, dest);
-    dest += '"';
-    BOOST_TEST_EQ(ec, error_code());
-    BOOST_TEST_EQ(dest, R"(SELECT * FROM "a""b")");
-}
-
 // Encodings other than UTF-8 are not supported, yet
 void test_unsupported_encoding()
 {
@@ -111,13 +101,25 @@ void test_unsupported_encoding()
     }
 }
 
+// The string overload works
+void test_string_overload()
+{
+    std::string dest = "SELECT * FROM \"";  // we append to it
+    auto ec = escape_identifier("a\"b", encoding::utf8, dest);
+    dest += '"';
+    BOOST_TEST_EQ(ec, error_code());
+    BOOST_TEST_EQ(dest, R"(SELECT * FROM "a""b")");
+}
+
+// Strings with other traits/allocators work
+
 }  // namespace
 
 int main()
 {
     test_success();
-    test_string_overload();
     test_unsupported_encoding();
+    test_string_overload();
 
     return boost::report_errors();
 }

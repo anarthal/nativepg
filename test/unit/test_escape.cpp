@@ -19,6 +19,7 @@
 #include "nativepg/escape.hpp"
 
 using std::error_code;
+using namespace std::string_view_literals;
 using namespace nativepg;
 
 namespace {
@@ -109,14 +110,14 @@ void test_null_bytes()
         std::string_view name;
         std::string_view input;
     } test_cases[] = {
-        {"only_nul",        std::string_view("\0",            1)},
-        {"leading_nul",     std::string_view("\0abc",         4)},
-        {"middle_nul",      std::string_view("a\0b",          3)},
-        {"trailing_nul",    std::string_view("abc\0",         4)},
-        {"several_nuls",    std::string_view("a\0b\0c",       5)},
-        {"after_quote",     std::string_view("a\"\0b",        4)},
-        {"before_quote",    std::string_view("a\0\"b",        4)},
-        {"after_non_ascii", std::string_view("caf\xc3\xa9\0", 6)},
+        {"only_nul",        "\0"sv           },
+        {"leading_nul",     "\0abc"sv        },
+        {"middle_nul",      "a\0b"sv         },
+        {"trailing_nul",    "abc\0"sv        },
+        {"several_nuls",    "a\0b\0c"sv      },
+        {"after_quote",     "a\"\0b"sv       },
+        {"before_quote",    "a\0\"b"sv       },
+        {"after_non_ascii", "caf\xc3\xa9\0"sv},
     };
 
     for (const auto& tc : test_cases)
@@ -163,7 +164,7 @@ void test_string_overload_allocator_traits()
 void test_string_overload_error()
 {
     std::string dest = "SELECT * FROM \"";
-    auto ec = escape_identifier_body(std::string_view("a\0b", 3), encoding::utf8, dest);
+    auto ec = escape_identifier_body("a\0b"sv, encoding::utf8, dest);
     BOOST_TEST_EQ(ec, error_code(client_errc::null_byte));
 }
 

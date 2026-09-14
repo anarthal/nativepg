@@ -31,6 +31,7 @@ std::error_code escape_identifier_body(
     boost::compat::function_ref<void(std::string_view)> fn
 );
 
+// Appends the escaped identifier body to the passed string
 template <class Traits, class Alloc>
 [[nodiscard]]
 std::error_code escape_identifier_body(

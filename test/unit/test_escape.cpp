@@ -9,6 +9,7 @@
 #include <boost/core/lightweight_test.hpp>
 
 #include <iostream>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -113,31 +114,8 @@ void test_string_overload()
 
 // Strings with other traits/allocators work
 template <class T>
-struct custom_allocator
+struct custom_allocator : std::allocator<char>
 {
-    using value_type = T;
-
-    custom_allocator() noexcept {}
-
-    template <class U>
-    custom_allocator(const custom_allocator<U>&) noexcept
-    {
-    }
-
-    T* allocate(std::size_t n) { return std::allocator<T>().allocate(n); }
-    void deallocate(T* p, std::size_t n) { return std::allocator<T>().deallocate(p, n); }
-
-    template <class U>
-    friend constexpr bool operator==(const custom_allocator<T>&, const custom_allocator<U>&) noexcept
-    {
-        return true;
-    }
-
-    template <class U>
-    friend constexpr bool operator!=(const custom_allocator<T>&, const custom_allocator<U>&) noexcept
-    {
-        return false;
-    }
 };
 
 template <class T>

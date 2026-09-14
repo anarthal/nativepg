@@ -5,13 +5,13 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#include <boost/assert/source_location.hpp>
 #include <boost/core/lightweight_test.hpp>
 
 #include <iostream>
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <vector>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/encoding.hpp"
@@ -26,15 +26,20 @@ namespace {
 struct escape_result
 {
     error_code ec;
-    std::vector<std::string> pieces;
     std::string value;
 };
 
-escape_result escape(std::string_view input, encoding enc = encoding::utf8)
+escape_result escape(
+    std::string_view input,
+    encoding enc = encoding::utf8,
+    boost::source_location loc = BOOST_CURRENT_LOCATION
+)
 {
     escape_result res;
-    res.ec = escape_identifier(input, enc, [&res](std::string_view piece) {
-        res.pieces.emplace_back(piece);
+    res.ec = escape_identifier(input, enc, [&res, loc](std::string_view piece) {
+        // Pieces should never be empty
+        if (!BOOST_TEST_NOT(piece.empty()))
+            std::cerr << "  Called from " << loc << std::endl;
         res.value += piece;
     });
     return res;
@@ -92,7 +97,7 @@ void test_unsupported_encoding()
     {
         auto res = escape("abc", enc);
         BOOST_TEST_EQ(res.ec, error_code(client_errc::unsupported_encoding));
-        BOOST_TEST_EQ(res.pieces.size(), 0u);
+        BOOST_TEST_EQ(res.value, std::string_view());
     }
 }
 
@@ -123,21 +128,6 @@ void test_malformed_utf8_passthrough()
     }
 }
 
-// The algorithm never emits empty pieces
-void test_pieces_never_empty()
-{
-    for (std::string_view input : {"abc", "", "\"", "\"\"", "a\"b", "\"abc", "abc\""})
-    {
-        auto res = escape(input);
-        BOOST_TEST_EQ(res.ec, error_code());
-        for (const auto& piece : res.pieces)
-        {
-            if (!BOOST_TEST_NE(piece.size(), 0u))
-                std::cerr << "  In test case: " << input << std::endl;
-        }
-    }
-}
-
 }  // namespace
 
 int main()
@@ -146,7 +136,6 @@ int main()
     test_string_overload();
     test_unsupported_encoding();
     test_malformed_utf8_passthrough();
-    test_pieces_never_empty();
 
     return boost::report_errors();
 }

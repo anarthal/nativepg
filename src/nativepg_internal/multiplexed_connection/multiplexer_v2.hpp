@@ -137,7 +137,6 @@ struct multiplexer_state
     // This is the writer side of exec, and should be called with the mutex acquired
     boost::capy::io_task<writer_result> write_request(
         boost::capy::any_stream& stream,
-        std::error_code& final_ec,
         boost::capy::async_mutex::lock_guard guard,  // forcibly release the mutex when the fn exits
         const request& req
     )
@@ -154,8 +153,7 @@ struct multiplexer_state
                 pending_writes.erase(pending_writes.begin(), pending_writes.begin() + bytes);
 
                 // To all effects, nothing was written - we expect no response for this request
-                maybe_assign(final_ec, ec);
-                co_return {{}, writer_result::nothing_written};
+                co_return {ec, writer_result::nothing_written};
             }
 
             // We wrote what was remaining of the previous message
@@ -170,12 +168,11 @@ struct multiplexer_state
         if (bytes < req.payload().size())
         {
             pending_writes.assign(req.payload().begin() + bytes, req.payload().end());
-            maybe_assign(final_ec, ec);
-            co_return {{}, writer_result::partial_write};
+            co_return {ec, writer_result::partial_write};
         }
 
         // Everything written (notice that we could, in principle, get an error here)
-        co_return {{}, writer_result::full_write};
+        co_return {ec, writer_result::full_write};
     }
 
     struct reader_result
@@ -184,45 +181,26 @@ struct multiplexer_state
         std::size_t remaining_rfqs;
     };
 
-    // This seems to be the only way to implement the "first error wins"
-    // pattern in Capy
-    static void maybe_assign(std::error_code& to, std::error_code new_ec)
-    {
-        if (!to)
-            to = new_ec;
-    }
-
     // This is the reader side.
     // Returns the number of ReadyForQuery messages
     // that were left unread, so proper cleanup may happen
     boost::capy::io_task<reader_result> read_response(
         boost::capy::any_stream& stream,
         protocol::connection_state& st,
-        std::error_code& final_ec,
         pending_read& handle,
         bool is_first,
         const request& req,
         response_handler_ref handler
     )
     {
-        if (!is_first)
-        {
-            // We need to wait
-            if (auto [ec] = co_await handle.evt.wait(); ec)
-            {
-                // We were cancelled before having any chance to run
-                maybe_assign(final_ec, ec);
-                co_return {
-                    {},
-                    reader_result{
-                     .remaining_previous_rfqs = handle.previous_rfqs,
-                     .remaining_rfqs = count_rfqs(req)
-                    }
-                };
-            }
-        }
-
-        co_return co_await do_read_response(stream, st, final_ec, handle.previous_rfqs, req, handler);
+        return do_read_response(
+            stream,
+            st,
+            is_first ? &handle.evt : nullptr,
+            handle.previous_rfqs,
+            req,
+            handler
+        );
     }
 
     boost::capy::io_task<> read_some_messages(
@@ -233,12 +211,26 @@ struct multiplexer_state
     boost::capy::io_task<reader_result> do_read_response(
         boost::capy::any_stream& stream,
         protocol::connection_state& st,
-        std::error_code& final_ec,
+        boost::capy::async_event* wait_evt,
         std::size_t previous_rfqs,
         const request& req,
         response_handler_ref handler
     )
     {
+        // Wait if required
+        if (wait_evt)
+        {
+            // We need to wait
+            if (auto [ec] = co_await wait_evt->wait(); ec)
+            {
+                // We were cancelled before having any chance to run
+                co_return {
+                    ec,
+                    reader_result{.remaining_previous_rfqs = previous_rfqs, .remaining_rfqs = count_rfqs(req)}
+                };
+            }
+        }
+
         // Read any remaining ReadyForQuery messages
         std::size_t consumed = 0u;
         std::size_t remaining_prev_rfqs = previous_rfqs;
@@ -258,12 +250,11 @@ struct multiplexer_state
                 {
                     if (auto [ec] = co_await read_some_messages(stream, st); ec)
                     {
-                        maybe_assign(final_ec, ec);
                         co_return {
-                            {},
+                            ec,
                             reader_result{
-                             .remaining_previous_rfqs = remaining_prev_rfqs,
-                             .remaining_rfqs = count_rfqs(req)
+                                          .remaining_previous_rfqs = remaining_prev_rfqs,
+                                          .remaining_rfqs = count_rfqs(req)
                             }
                         };
                     }
@@ -271,12 +262,11 @@ struct multiplexer_state
                 }
                 else
                 {
-                    maybe_assign(final_ec, res.ec);
                     co_return {
-                        {},
+                        res.ec,
                         reader_result{
-                         .remaining_previous_rfqs = remaining_prev_rfqs,
-                         .remaining_rfqs = count_rfqs(req)
+                                      .remaining_previous_rfqs = remaining_prev_rfqs,
+                                      .remaining_rfqs = count_rfqs(req)
                         }
                     };
                 }
@@ -306,12 +296,11 @@ struct multiplexer_state
                 {
                     if (auto [ec] = co_await read_some_messages(stream, st); ec)
                     {
-                        maybe_assign(final_ec, ec);
                         co_return {
-                            {},
+                            ec,
                             reader_result{
-                             .remaining_previous_rfqs = 0u,
-                             .remaining_rfqs = count_rfqs(fsm.get_remaining_messages())
+                                          .remaining_previous_rfqs = 0u,
+                                          .remaining_rfqs = count_rfqs(fsm.get_remaining_messages())
                             }
                         };
                     }
@@ -319,12 +308,11 @@ struct multiplexer_state
                 }
                 else
                 {
-                    maybe_assign(final_ec, res.ec);
                     co_return {
-                        {},
+                        res.ec,
                         reader_result{
-                         .remaining_previous_rfqs = 0u,
-                         .remaining_rfqs = count_rfqs(fsm.get_remaining_messages())
+                                      .remaining_previous_rfqs = 0u,
+                                      .remaining_rfqs = count_rfqs(fsm.get_remaining_messages())
                         }
                     };
                 }
@@ -337,9 +325,8 @@ struct multiplexer_state
             {
                 // We've finished successfully
                 st.read_buffer.consume(consumed);
-                maybe_assign(final_ec, fsm.get_handler_error().code);  // TODO: diagnostics?
                 co_return {
-                    {},
+                    fsm.get_handler_error().code, // TODO: diagnostics?
                     reader_result{.remaining_previous_rfqs = 0u, .remaining_rfqs = 0u}
                 };
             }
@@ -347,12 +334,11 @@ struct multiplexer_state
             {
                 // There has been a severe protocol violation (unrecoverable)
                 st.read_buffer.consume(consumed);
-                maybe_assign(final_ec, fsm_ec);
                 co_return {
-                    {},
+                    fsm_ec,
                     reader_result{
-                     .remaining_previous_rfqs = 0u,
-                     .remaining_rfqs = count_rfqs(fsm.get_remaining_messages())
+                                  .remaining_previous_rfqs = 0u,
+                                  .remaining_rfqs = count_rfqs(fsm.get_remaining_messages())
                     }
                 };
             }
@@ -378,17 +364,10 @@ struct multiplexer_state
         pending_read handle;
         bool is_first = read_queue_.enter(handle);
 
-        // TODO: this should really be in parallel. Serial for now for simplicity
-        std::error_code final_ec;
-        auto [dummy1, writer_res] = co_await write_request(stream, final_ec, std::move(guard), req);
-        auto [dummy2, reader_res] = co_await read_response(
-            stream,
-            st,
-            final_ec,
-            handle,
-            is_first,
-            req,
-            handler
+        // Run the reader and writer tasks in parallel
+        auto [final_ec, writer_res, reader_res] = co_await boost::capy::when_all(
+            write_request(stream, std::move(guard), req),
+            read_response(stream, st, handle, is_first, req, handler)
         );
 
         // Do the cleanup

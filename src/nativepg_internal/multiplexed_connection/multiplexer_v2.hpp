@@ -270,6 +270,7 @@ struct multiplexer_state
             }
 
             // We have a message
+            consumed += res.size;
             st.update_tracked(res.message);
             if (res.message.type() == protocol::any_backend_message::kind::ready_for_query)
                 --remaining_prev_rfqs;
@@ -316,6 +317,7 @@ struct multiplexer_state
             }
 
             // We have a message
+            consumed += res.size;
             st.update_tracked(res.message);
             auto fsm_ec = fsm.resume(res.message);
             if (!fsm_ec)

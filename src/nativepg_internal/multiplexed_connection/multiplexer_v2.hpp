@@ -20,14 +20,18 @@
 #include <boost/intrusive/list_hook.hpp>
 
 #include <cstddef>
-#include <deque>
 #include <iterator>
+#include <span>
 #include <system_error>
 #include <tuple>
 #include <utility>
 #include <vector>
 
-#include "nativepg/protocol/views.hpp"
+#include "nativepg/client_errc.hpp"
+#include "nativepg/protocol/any_backend_message.hpp"
+#include "nativepg/protocol/connection_state.hpp"
+#include "nativepg/protocol/parse_message.hpp"
+#include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
 
@@ -120,9 +124,10 @@ struct multiplexer_state
     std::vector<unsigned char> pending_writes;
     read_queue_t read_queue_;
 
-    static std::size_t count_rfqs(const request&);
+    static std::size_t count_rfqs(const request& req) { return count_rfqs(req.messages()); }
+    static std::size_t count_rfqs(std::span<const request_message_type>);
 
-    enum class write_result
+    enum class writer_result
     {
         nothing_written,
         partial_write,
@@ -130,8 +135,9 @@ struct multiplexer_state
     };
 
     // This is the writer side of exec, and should be called with the mutex acquired
-    boost::capy::io_task<std::tuple<std::error_code, write_result>> write_request(
+    boost::capy::io_task<writer_result> write_request(
         boost::capy::any_stream& stream,
+        std::error_code& final_ec,
         boost::capy::async_mutex::lock_guard guard,  // forcibly release the mutex when the fn exits
         const request& req
     )
@@ -148,10 +154,8 @@ struct multiplexer_state
                 pending_writes.erase(pending_writes.begin(), pending_writes.begin() + bytes);
 
                 // To all effects, nothing was written - we expect no response for this request
-                co_return {
-                    {},
-                    {ec, write_result::nothing_written}
-                };
+                maybe_assign(final_ec, ec);
+                co_return {{}, writer_result::nothing_written};
             }
 
             // We wrote what was remaining of the previous message
@@ -166,31 +170,35 @@ struct multiplexer_state
         if (bytes < req.payload().size())
         {
             pending_writes.assign(req.payload().begin() + bytes, req.payload().end());
-            co_return {
-                {},
-                {ec, write_result::partial_write}
-            };
+            maybe_assign(final_ec, ec);
+            co_return {{}, writer_result::partial_write};
         }
 
         // Everything written (notice that we could, in principle, get an error here)
-        co_return {
-            {},
-            {ec, write_result::full_write}
-        };
+        co_return {{}, writer_result::full_write};
     }
 
     struct reader_result
     {
-        std::error_code ec;
         std::size_t remaining_previous_rfqs;
         std::size_t remaining_rfqs;
     };
+
+    // This seems to be the only way to implement the "first error wins"
+    // pattern in Capy
+    static void maybe_assign(std::error_code& to, std::error_code new_ec)
+    {
+        if (!to)
+            to = new_ec;
+    }
 
     // This is the reader side.
     // Returns the number of ReadyForQuery messages
     // that were left unread, so proper cleanup may happen
     boost::capy::io_task<reader_result> read_response(
         boost::capy::any_stream& stream,
+        protocol::connection_state& st,
+        std::error_code& final_ec,
         pending_read& handle,
         bool is_first,
         const request& req,
@@ -203,30 +211,157 @@ struct multiplexer_state
             if (auto [ec] = co_await handle.evt.wait(); ec)
             {
                 // We were cancelled before having any chance to run
+                maybe_assign(final_ec, ec);
                 co_return {
                     {},
-                    {
-                     .ec = ec,
+                    reader_result{
                      .remaining_previous_rfqs = handle.previous_rfqs,
-                     .remaining_rfqs = count_rfqs(req),
-                     }
+                     .remaining_rfqs = count_rfqs(req)
+                    }
                 };
             }
         }
 
-        co_return co_await do_read_response(stream, req, handler);
+        co_return co_await do_read_response(stream, st, final_ec, handle.previous_rfqs, req, handler);
     }
+
+    boost::capy::io_task<> read_some_messages(
+        boost::capy::any_stream& stream,
+        protocol::connection_state& st
+    );
 
     boost::capy::io_task<reader_result> do_read_response(
         boost::capy::any_stream& stream,
+        protocol::connection_state& st,
+        std::error_code& final_ec,
+        std::size_t previous_rfqs,
         const request& req,
         response_handler_ref handler
     )
     {
+        // Read any remaining ReadyForQuery messages
+        std::size_t consumed = 0u;
+        std::size_t remaining_prev_rfqs = previous_rfqs;
+        while (remaining_prev_rfqs > 0u)
+        {
+            // Try to parse a cached message
+            auto bytes = st.read_buffer.committed_area();
+            auto res = protocol::parse_message(bytes.subspan(consumed));
+
+            // Check for errors and end of input.
+            // Errors here are irrecoverable.
+            if (res.ec)
+            {
+                st.read_buffer.consume(consumed);
+                consumed = 0u;
+                if (res.ec == client_errc::needs_more)
+                {
+                    if (auto [ec] = co_await read_some_messages(stream, st); ec)
+                    {
+                        maybe_assign(final_ec, ec);
+                        co_return {
+                            {},
+                            reader_result{
+                             .remaining_previous_rfqs = remaining_prev_rfqs,
+                             .remaining_rfqs = count_rfqs(req)
+                            }
+                        };
+                    }
+                    continue;
+                }
+                else
+                {
+                    maybe_assign(final_ec, res.ec);
+                    co_return {
+                        {},
+                        reader_result{
+                         .remaining_previous_rfqs = remaining_prev_rfqs,
+                         .remaining_rfqs = count_rfqs(req)
+                        }
+                    };
+                }
+            }
+
+            // We have a message
+            st.update_tracked(res.message);
+            if (res.message.type() == protocol::any_backend_message::kind::ready_for_query)
+                --remaining_prev_rfqs;
+        }
+
+        // Now get to the messages concerning us
+        protocol::read_response_fsm fsm{&req, handler, false};  // disallow COPY
+        while (true)
+        {
+            // Try to parse a cached message
+            auto bytes = st.read_buffer.committed_area();
+            auto res = protocol::parse_message(bytes.subspan(consumed));
+
+            // Check for errors and end of input.
+            // Errors here are irrecoverable.
+            if (res.ec)
+            {
+                st.read_buffer.consume(consumed);
+                consumed = 0u;
+                if (res.ec == client_errc::needs_more)
+                {
+                    if (auto [ec] = co_await read_some_messages(stream, st); ec)
+                    {
+                        maybe_assign(final_ec, ec);
+                        co_return {
+                            {},
+                            reader_result{
+                             .remaining_previous_rfqs = 0u,
+                             .remaining_rfqs = count_rfqs(fsm.get_remaining_messages())
+                            }
+                        };
+                    }
+                    continue;
+                }
+                else
+                {
+                    maybe_assign(final_ec, res.ec);
+                    co_return {
+                        {},
+                        reader_result{
+                         .remaining_previous_rfqs = 0u,
+                         .remaining_rfqs = count_rfqs(fsm.get_remaining_messages())
+                        }
+                    };
+                }
+            }
+
+            // We have a message
+            st.update_tracked(res.message);
+            auto fsm_ec = fsm.resume(res.message);
+            if (!fsm_ec)
+            {
+                // We've finished successfully
+                st.read_buffer.consume(consumed);
+                maybe_assign(final_ec, fsm.get_handler_error().code);  // TODO: diagnostics?
+                co_return {
+                    {},
+                    reader_result{.remaining_previous_rfqs = 0u, .remaining_rfqs = 0u}
+                };
+            }
+            else if (fsm_ec != client_errc::needs_more)
+            {
+                // There has been a severe protocol violation (unrecoverable)
+                st.read_buffer.consume(consumed);
+                maybe_assign(final_ec, fsm_ec);
+                co_return {
+                    {},
+                    reader_result{
+                     .remaining_previous_rfqs = 0u,
+                     .remaining_rfqs = count_rfqs(fsm.get_remaining_messages())
+                    }
+                };
+            }
+        }
     }
 
     boost::capy::io_task<> exec(
         boost::capy::any_stream& stream,
+        protocol::connection_state& st,
         const request& req,
         response_handler_ref handler
     )
@@ -244,11 +379,20 @@ struct multiplexer_state
         bool is_first = read_queue_.enter(handle);
 
         // TODO: this should really be in parallel. Serial for now for simplicity
-        auto [dummy1, writer_res] = co_await write_request(stream, std::move(guard), req);
-        auto [dummy2, reader_res] = co_await read_response(stream, handle, is_first, req, handler);
+        std::error_code final_ec;
+        auto [dummy1, writer_res] = co_await write_request(stream, final_ec, std::move(guard), req);
+        auto [dummy2, reader_res] = co_await read_response(
+            stream,
+            st,
+            final_ec,
+            handle,
+            is_first,
+            req,
+            handler
+        );
 
         // Do the cleanup
-        const std::size_t remaining_rfqs = std::get<1>(writer_res) == write_result::nothing_written
+        const std::size_t remaining_rfqs = writer_res == writer_result::nothing_written
                                                ? reader_res.remaining_previous_rfqs
                                                : reader_res.remaining_previous_rfqs +
                                                      reader_res.remaining_rfqs;

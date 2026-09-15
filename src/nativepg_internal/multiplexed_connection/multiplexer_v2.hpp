@@ -376,8 +376,7 @@ struct multiplexer_state
                                                      reader_res.remaining_rfqs;
         read_queue_.exit(handle, remaining_rfqs);
 
-        // TODO: retval
-        co_return {};
+        co_return {final_ec};
     }
 };
 

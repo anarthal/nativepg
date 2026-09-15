@@ -130,8 +130,7 @@ struct multiplexer_state
     enum class writer_result
     {
         nothing_written,
-        partial_write,
-        full_write,
+        something_written,
     };
 
     // This is the writer side of exec, and should be called with the mutex acquired
@@ -166,13 +165,11 @@ struct multiplexer_state
         // There was a short write, probably due to an error or cancellation.
         // We need to store what we didn't write so the connection doesn't break
         if (bytes < req.payload().size())
-        {
             pending_writes.assign(req.payload().begin() + bytes, req.payload().end());
-            co_return {ec, writer_result::partial_write};
-        }
 
-        // Everything written (notice that we could, in principle, get an error here)
-        co_return {ec, writer_result::full_write};
+        // Done. We have sent at least one byte and thus committed to running the request
+        // if we want to keep the connection healthy
+        co_return {ec, writer_result::something_written};
     }
 
     struct reader_result

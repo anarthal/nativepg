@@ -15,9 +15,13 @@
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/capy/write.hpp>
+#include <boost/intrusive/list.hpp>
+#include <boost/intrusive/list_hook.hpp>
 
 #include <cstddef>
 #include <deque>
+#include <iterator>
+#include <utility>
 #include <vector>
 
 #include "nativepg/protocol/views.hpp"
@@ -28,29 +32,90 @@ namespace nativepg::detail {
 
 struct multiplexer_state
 {
-    struct pending_read
+    struct pending_read : boost::intrusive::list_base_hook<>
     {
-        // This is a linked list
-        pending_read* next{};
-        pending_read* prev{};
+        // Number of ReadyForQuery messages that we expect from
+        // previously cancelled items
+        std::size_t previous_rfqs{};
 
-        // If the item is a live request waiting for server output,
-        // this is non-null and should be set once it's our turn
-        boost::capy::async_event* evt{};
-
-        // If the item is not live, the number of ready_for_query
-        // messages that we should skip before jumping to the next item
-        std::size_t remaining_rfqs{};
+        // Setting it notifies the task to read next
+        boost::capy::async_event evt{};
     };
 
-    void list_push_back(pending_read& elm);  // TODO
+    class read_queue_t
+    {
+        bool reading_{};
+        boost::intrusive::list<pending_read> pending_;
+        std::size_t trailing_rfqs_{};
+
+    public:
+        read_queue_t() = default;
+
+        bool enter(pending_read& handle)
+        {
+            // Instruct the reader to read these many ReadyForQuery's
+            // to keep the connection going
+            handle.previous_rfqs = std::exchange(trailing_rfqs_, 0u);
+
+            if (reading_)
+            {
+                // Someone's reading already. Add ourselves to the
+                // end of the pending list and tell the reader to wait
+                pending_.push_back(handle);
+                return false;
+            }
+            else
+            {
+                // Ready to read
+                reading_ = true;
+                return true;
+            }
+        }
+
+        void exit(pending_read& handle, std::size_t remaining_rfqs)
+        {
+            if (handle.is_linked())
+            {
+                // This is a pending reader. Update the next reader's pending RFQ count and exit
+                auto it = pending_.iterator_to(handle);
+                if (auto next = std::next(it); next == pending_.end())
+                {
+                    // We're the last reader
+                    trailing_rfqs_ += remaining_rfqs;
+                }
+                else
+                {
+                    next->previous_rfqs += remaining_rfqs;
+                }
+
+                // Remove ourselves from the list
+                pending_.erase(it);
+            }
+            else
+            {
+                // This is the reader currently running. No need to unlink
+                if (pending_.empty())
+                {
+                    // No more pending reads. Add any remaining ReadyForQuery to the general state
+                    trailing_rfqs_ += remaining_rfqs;
+                    reading_ = false;
+                }
+                else
+                {
+                    // There are pending reads. Add the remaining ReadyForQuery's to the first
+                    // reader's state and notify it
+                    auto& item = pending_.front();
+                    pending_.pop_front();
+                    item.previous_rfqs += remaining_rfqs;
+                    item.evt.set();
+                }
+            }
+        }
+    };
 
     boost::capy::async_mutex write_mtx;
     std::vector<unsigned char> pending_writes;
-    bool is_reading{};
-    std::deque<pending_read> dead_pending_reads;  // storage
-    pending_read* head{};
-    pending_read* tail{};
+    read_queue_t read_queue_;
 
     // This is the writer side of exec, and should be called with the mutex acquired
     boost::capy::io_task<> write_request(boost::capy::any_stream& stream, const request& req)
@@ -126,7 +191,7 @@ struct multiplexer_state
         bool should_read = !is_reading;
         if (is_reading)
         {
-            list_push_back(entry);
+            pending_reads.push_back(entry);
         }
         else
         {

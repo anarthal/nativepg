@@ -27,12 +27,12 @@
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
-#include "nativepg/protocol/detail/exec_fsm.hpp"
 #include "nativepg/protocol/detail/exec_some_fsm.hpp"
 #include "nativepg/protocol/parse_message.hpp"
 #include "nativepg/protocol/terminate.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
+#include "nativepg_internal/multiplexed_connection/multiplexer_v2.hpp"
 
 namespace capy = boost::capy;
 namespace corosio = boost::corosio;
@@ -47,6 +47,7 @@ struct co_connection::impl
     capy::any_stream stream{&sock};
     std::vector<capy::const_buffer> copy_out_buffers;
     std::optional<protocol::detail::exec_some_fsm> exec_some_fsm;
+    detail::multiplexer_v2 mpx_;  // TODO: clean up this?
 
     explicit impl(capy::execution_context& ctx) : resolv(ctx), sock(ctx) {}
 
@@ -94,6 +95,119 @@ struct co_connection::impl
         sock.close();
 
         co_return {write_ec};
+    }
+
+    // This is the writer side of exec
+    boost::capy::io_task<> write_request(detail::multiplexer_v2::write_guard guard, const request& req)
+    {
+        // Write any potential leftover from previous requests, plus our own request.
+        // The former is required to keep the connection healthy.
+        // Most of the time, the 1st buffer is empty, and Corosio coalesces this to a
+        // non-vectored write, for all backends.
+        auto [ec, bytes_written] = co_await boost::capy::write(
+            stream,
+            std::array<boost::capy::const_buffer, 2u>{
+                boost::capy::make_buffer(guard.previous_write_bytes()),
+                boost::capy::make_buffer(req.payload())
+            }
+        );
+
+        // Report the result, so subsequent execs know how to keep the connection healthy
+        std::move(guard).report_result(bytes_written);
+
+        // Done
+        co_return {ec};
+    }
+
+    boost::capy::io_task<> read_response(
+        detail::multiplexer_v2::read_guard guard,
+        const request& req,
+        response_handler_ref handler
+    )
+    {
+        // Wait for our turn
+        if (auto [ec] = co_await guard.wait(); ec)
+            co_return {ec};
+
+        // Setup
+        protocol::read_response_fsm fsm{&req, handler, false};  // disallow COPY
+        std::size_t consumed = 0u;
+        std::size_t remaining_prev_rfqs = guard.previous_rfqs();
+
+        while (true)
+        {
+            // Try to parse a cached message
+            auto bytes = st.read_buffer.committed_area();
+            auto res = protocol::parse_message(bytes.subspan(consumed));
+
+            // Check for errors and end of input.
+            // Errors here are irrecoverable.
+            if (res.ec)
+            {
+                st.read_buffer.consume(consumed);
+                consumed = 0u;
+                if (res.ec == client_errc::needs_more)
+                {
+                    if (auto [ec] = co_await read_some_messages(); ec)
+                        co_return {ec};
+                    continue;
+                }
+                else
+                {
+                    co_return {res.ec};
+                }
+            }
+
+            // We have a message
+            consumed += res.size;
+            st.update_tracked(res.message);
+            bool is_rfq = res.message.type() == protocol::any_backend_message::kind::ready_for_query;
+            if (is_rfq)
+                guard.report_rfq();
+
+            // Act on the message
+            if (remaining_prev_rfqs > 0u)
+            {
+                // A leftover message from previous execs
+                if (is_rfq)
+                    --remaining_prev_rfqs;
+            }
+            else
+            {
+                // One of our messages
+                auto fsm_ec = fsm.resume(res.message);
+                if (!fsm_ec)
+                {
+                    // We've finished successfully
+                    st.read_buffer.consume(consumed);
+                    std::move(guard).report_success();
+                    co_return {fsm.get_handler_error().code};  // TODO: diagnostics?
+                }
+                else if (fsm_ec != client_errc::needs_more)
+                {
+                    // There has been a severe protocol violation (unrecoverable)
+                    st.read_buffer.consume(consumed);
+                    co_return {fsm_ec};
+                }
+            }
+        }
+    }
+
+    boost::capy::io_task<> exec(const request& req, response_handler_ref handler)
+    {
+        // Wait for our turn to write and register what we are doing in the queue
+        detail::multiplexer_v2::task_node node;
+        auto [enter_ec, write_guard, read_guard] = co_await mpx_.enter(node, &req);
+        if (enter_ec)
+            co_return {enter_ec};
+
+        // Run the reader and writer tasks in parallel
+        auto [final_ec, writer_dummy, reader_dummy] = co_await boost::capy::when_all(
+            write_request(std::move(write_guard), req),
+            read_response(std::move(read_guard), req, handler)
+        );
+
+        co_return {final_ec};
     }
 
     void setup_request(const request& req, response_handler_ref handler)
@@ -242,38 +356,7 @@ capy::io_task<> co_connection::shutdown() { return impl_->shutdown(); }
 
 capy::io_task<> co_connection::exec(const request& req, response_handler_ref handler, diagnostics* diag)
 {
-    using protocol::detail::exec_fsm;
-
-    // Initialize
-    exec_fsm fsm_(&req, handler);
-    auto res = fsm_.resume(impl_->st, {}, 0u);
-
-    while (true)
-    {
-        switch (res.type())
-        {
-            case protocol::startup_fsm::result_type::write:
-            {
-                auto [ec, bytes] = co_await capy::write(impl_->sock, capy::make_buffer(res.write_data()));
-                res = fsm_.resume(impl_->st, ec, bytes);
-                break;
-            }
-            case protocol::startup_fsm::result_type::read:
-            {
-                auto [ec, bytes] = co_await impl_->sock.read_some(capy::make_buffer(res.read_buffer()));
-                res = fsm_.resume(impl_->st, ec, bytes);
-                break;
-            }
-            case protocol::startup_fsm::result_type::done:
-            {
-                auto result = fsm_.get_result(res.error());
-                if (diag)
-                    *diag = std::move(result.diag);
-                co_return {result.code};
-            }
-            default: BOOST_ASSERT(false); co_return {};
-        }
-    }
+    return impl_->exec(req, handler);
 }
 
 void co_connection::setup_request(const request& req, response_handler_ref handler)

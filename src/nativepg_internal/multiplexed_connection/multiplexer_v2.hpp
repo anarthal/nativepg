@@ -107,8 +107,7 @@ struct multiplexer_state
             const std::size_t remaining_rfqs =
                 (handle.read_rfqs == static_cast<std::size_t>(-1)
                      ? 0u
-                     : handle.previous_rfqs +
-                           (handle.request_committed ? count_rfqs(handle.req->messages()) : 0u) -
+                     : handle.previous_rfqs + (handle.request_committed ? count_rfqs(*handle.req) : 0u) -
                            handle.read_rfqs);
 
             // Remove ourselves from the list

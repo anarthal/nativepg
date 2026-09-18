@@ -62,9 +62,10 @@ struct multiplexer_state
         // This includes RFQs from leftover requests before us
         std::size_t read_rfqs{};
 
-        // TODO: we could condense these
-        bool writer_exited{}, reader_exited{};
+        // How many tasks (reader, writer) remain active?
+        int remaining_tasks_{2};
 
+        // The request that we're trying to execute
         const request* req;
     };
 
@@ -81,15 +82,13 @@ struct multiplexer_state
         {
             BOOST_ASSERT(write_mtx_.is_locked());
             write_mtx_.unlock();
-            handle.writer_exited = true;
-            if (handle.reader_exited)
+            if (--handle.remaining_tasks_ == 0)
                 on_both_exited(handle);
         }
 
         void on_reader_exit(pending_read& handle)
         {
-            handle.reader_exited = true;
-            if (handle.writer_exited)
+            if (--handle.remaining_tasks_ == 0)
                 on_both_exited(handle);
         }
 

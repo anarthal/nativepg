@@ -39,20 +39,27 @@
 #include "nativepg/responses/response_handler.hpp"
 #include "nativepg_internal/multiplexed_connection/multiplexer.hpp"
 
+// TODO: impl notes
+//   why the write mutex
+//   why an intrusive list
+//   why pending write bytes
+//   why RAII guards
+
 namespace nativepg::detail {
 
 struct multiplexer_state
 {
     static std::size_t count_rfqs(const request& req);
 
-    struct pending_read : boost::intrusive::list_base_hook<>
+    // Should be used as an opaque type
+    struct task_node : boost::intrusive::list_base_hook<>
     {
         // The request that we're trying to execute
         const request* req;
 
         // Number of ReadyForQuery messages that we expect from
         // previously cancelled items
-        std::size_t previous_rfqs{};
+        std::size_t pending_rfqs{};
 
         // Setting it notifies the task to read next
         boost::capy::async_event evt{};
@@ -68,53 +75,60 @@ struct multiplexer_state
         // How many tasks (reader, writer) remain active?
         // We run both tasks in parallel, so under cancellation, the reader
         // might finish before the writer
-        int remaining_tasks_{2};
+        int remaining_tasks{2};
     };
 
     // TODO: name wrapping here is bad
     class multiplexer_v2
     {
+        // Grants exclusive access to the write side
         boost::capy::async_mutex write_mtx_;
-        boost::intrusive::list<pending_read> pending_;
+
+        // The list of active tasks that need access to the connection
+        boost::intrusive::list<task_node> active_tasks_;
+
+        // RFQs left over by the last task that run
         std::size_t trailing_rfqs_{};
+
+        // Bytes left over by an incomplete write by a previous task
         std::vector<unsigned char> pending_write_;
 
-        void on_writer_exit(pending_read& handle)
+        void on_writer_exit(task_node& node)
         {
             BOOST_ASSERT(write_mtx_.is_locked());
             write_mtx_.unlock();
-            if (--handle.remaining_tasks_ == 0)
-                on_both_exited(handle);
+            if (--node.remaining_tasks == 0)
+                on_both_exited(node);
         }
 
-        void on_reader_exit(pending_read& handle)
+        void on_reader_exit(task_node& node)
         {
-            if (--handle.remaining_tasks_ == 0)
-                on_both_exited(handle);
+            if (--node.remaining_tasks == 0)
+                on_both_exited(node);
         }
 
-        void on_both_exited(pending_read& handle)
+        void on_both_exited(task_node& node)
         {
             // Setup
-            auto it = pending_.iterator_to(handle);
+            auto it = active_tasks_.iterator_to(node);
             auto next = std::next(it);
-            bool is_current_reader = it == pending_.begin();
-            bool has_next = next != pending_.end();
+            bool is_current_reader = it == active_tasks_.begin();
+            bool has_next = next != active_tasks_.end();
 
             // Compute the remaining RFQs. The reader might set read_rfqs to -1
             // to indicate that everything was read so we can skip this calculation
             // (common case fast)
             const std::size_t remaining_rfqs =
-                (handle.read_rfqs == static_cast<std::size_t>(-1)
+                (node.read_rfqs == static_cast<std::size_t>(-1)
                      ? 0u
-                     : handle.previous_rfqs + (handle.request_committed ? count_rfqs(*handle.req) : 0u) -
-                           handle.read_rfqs);
+                     : node.pending_rfqs + (node.request_committed ? count_rfqs(*node.req) : 0u) -
+                           node.read_rfqs);
 
             // Remove ourselves from the list
-            pending_.erase(it);
+            active_tasks_.erase(it);
 
             // Update the leftover RFQ count
-            (has_next ? next->previous_rfqs : trailing_rfqs_) += remaining_rfqs;
+            (has_next ? next->pending_rfqs : trailing_rfqs_) += remaining_rfqs;
 
             // If this is the current reader and there is a next reader, notify it
             if (is_current_reader && has_next)
@@ -127,17 +141,13 @@ struct multiplexer_state
         class write_guard
         {
             multiplexer_v2* obj_{};
-            pending_read* handle_{};
+            task_node* node_{};
 
         public:
             write_guard() = default;
-            explicit write_guard(multiplexer_v2& obj, pending_read& handle) noexcept
-                : obj_(&obj), handle_(&handle)
-            {
-            }
+            explicit write_guard(multiplexer_v2& obj, task_node& node) noexcept : obj_(&obj), node_(&node) {}
 
-            write_guard(write_guard&& rhs) noexcept
-                : obj_(std::exchange(rhs.obj_, nullptr)), handle_(rhs.handle_)
+            write_guard(write_guard&& rhs) noexcept : obj_(std::exchange(rhs.obj_, nullptr)), node_(rhs.node_)
             {
             }
             write_guard(const write_guard& rhs) = delete;
@@ -146,13 +156,14 @@ struct multiplexer_state
             ~write_guard()
             {
                 if (obj_)
-                    obj_->on_writer_exit(*handle_);
+                    obj_->on_writer_exit(*node_);
             }
 
             // Gets a buffer containing leftover bytes from previous execs
             // that should be written before our request
             std::span<const unsigned char> previous_write_bytes() const { return obj_->pending_write_; }
 
+            // Reports the result of the writer and releases the guard
             void report_result(std::size_t bytes_written) &&
             {
                 // Did we manage to write any leftover bytes from previous execs?
@@ -170,21 +181,21 @@ struct multiplexer_state
                 if (bytes_written > 0u)
                 {
                     // Part of the request has been sent to the server, at least
-                    handle_->request_committed = true;
+                    node_->request_committed = true;
 
                     // If it was only a part, subsequent execs need to send it fully
                     // if they want to keep the connection healthy
-                    if (bytes_written < handle_->req->payload().size())
+                    if (bytes_written < node_->req->payload().size())
                     {
                         obj_->pending_write_.assign(
-                            handle_->req->payload().begin() + bytes_written,
-                            handle_->req->payload().end()
+                            node_->req->payload().begin() + bytes_written,
+                            node_->req->payload().end()
                         );
                     }
                 }
 
                 // The writer should be done
-                obj_->on_writer_exit(*handle_);
+                obj_->on_writer_exit(*node_);
                 obj_ = nullptr;
             }
         };
@@ -192,17 +203,13 @@ struct multiplexer_state
         class read_guard
         {
             multiplexer_v2* obj_{};
-            pending_read* handle_{};
+            task_node* node_{};
 
         public:
             read_guard() = default;
-            explicit read_guard(multiplexer_v2& obj, pending_read& handle) noexcept
-                : obj_(&obj), handle_(&handle)
-            {
-            }
+            explicit read_guard(multiplexer_v2& obj, task_node& node) noexcept : obj_(&obj), node_(&node) {}
 
-            read_guard(read_guard&& rhs) noexcept
-                : obj_(std::exchange(rhs.obj_, nullptr)), handle_(rhs.handle_)
+            read_guard(read_guard&& rhs) noexcept : obj_(std::exchange(rhs.obj_, nullptr)), node_(rhs.node_)
             {
             }
             read_guard(const read_guard& rhs) = delete;
@@ -211,28 +218,33 @@ struct multiplexer_state
             ~read_guard()
             {
                 if (obj_)
-                    obj_->on_reader_exit(*handle_);
+                    obj_->on_reader_exit(*node_);
             }
 
             // Waits for our turn.
-            auto wait() { return handle_->evt.wait(); }
+            auto wait() { return node_->evt.wait(); }
 
             // Returns the number of ReadyForQuery messages that
             // should be read from previous abandoned requests.
             // Only meaningful after wait() completes.
-            std::size_t previous_rfqs() const { return handle_->previous_rfqs; }
+            std::size_t previous_rfqs() const { return node_->pending_rfqs; }
 
-            void report_rfq() { ++handle_->read_rfqs; }
+            // Reports that we have read a RFQ.
+            // If the reader exits by an exception, we can still know what state the connection is in.
+            void report_rfq() { ++node_->read_rfqs; }
 
+            // Reports that we have read everything we had to and releases the guard
             void report_success() &&
             {
-                handle_->read_rfqs = static_cast<std::size_t>(-1);
-                obj_->on_reader_exit(*handle_);
+                node_->read_rfqs = static_cast<std::size_t>(-1);
+                obj_->on_reader_exit(*node_);
                 obj_ = nullptr;
             }
         };
 
-        boost::capy::io_task<write_guard, read_guard> enter(pending_read& handle, const request* req)
+        // Registers a task within the multiplexer and waits for the writer's turn
+        // The task node and the request should be kept alive until both guards are destroyed
+        boost::capy::io_task<write_guard, read_guard> enter(task_node& node, const request* req)
         {
             // Wait for our turn to write
             // TODO: use a guard, as set() may technically throw.
@@ -242,16 +254,16 @@ struct multiplexer_state
                 co_return {ec, {}, {}};
 
             // If there is no-one reading, set the event so the reader doesn't deadlock
-            if (pending_.empty())
-                handle.evt.set();
+            if (active_tasks_.empty())
+                node.evt.set();
 
             // Register what we are doing, so no other reader takes our turn
-            handle.req = req;
-            handle.previous_rfqs = std::exchange(trailing_rfqs_, 0u);
-            pending_.push_back(handle);
+            node.req = req;
+            node.pending_rfqs = std::exchange(trailing_rfqs_, 0u);
+            active_tasks_.push_back(node);
 
             // Done
-            co_return {{}, write_guard(*this, handle), read_guard(*this, handle)};
+            co_return {{}, write_guard(*this, node), read_guard(*this, node)};
         }
     };
 
@@ -372,8 +384,8 @@ struct multiplexer_state
     )
     {
         // Wait for our turn to write and register what we are doing in the queue
-        pending_read handle;
-        auto [enter_ec, write_guard, read_guard] = co_await mpx_.enter(handle, &req);
+        task_node node;
+        auto [enter_ec, write_guard, read_guard] = co_await mpx_.enter(node, &req);
         if (enter_ec)
             co_return {enter_ec};
 

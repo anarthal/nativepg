@@ -110,7 +110,7 @@ Follow-ups:
 ## co_connection::exec() supports multiplexing - is having a dedicated exec() worth it?
 
 This benchmark has no source: it was run during development to obtain information
-and later removed.
+and later removed. Data available [here](exclusive_vs_multiplexed.csv).
 
 The benchmark compared two implementations of `co_connection::exec()`:
 
@@ -128,9 +128,7 @@ If the overhead is small enough, removing the API requiring exclusive access mak
 The benchmark was only run in the localhost setup. Overhead is caused by memory allocations,
 orders of magnitude faster than a network round-trip to AWS.
 
-Both latency and throughput were found to be almost identical in both cases,
-with variations attributable to noise rather than actual signal.
-Call graph inspection with vtune reveals that most of the time
-is spent in read/write system calls.
+Latency is ~2% worse in the multiplexed case. This is significant, but
+does not justify an extra API at this stage of development.
 
-**Conclusions**: exclusive `exec()` is not worth it.
+**Conclusions**: we may consider `exec()` in the future, but the cost is small enough for now.

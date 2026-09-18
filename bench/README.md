@@ -107,7 +107,7 @@ Follow-ups:
   and distribute their work among them. The optimal number depends on the server,
   but is likely much inferior than the default 100 connection limit.
 
-## co_connection::exec() supports multiplexing - is having a dedicated exec() worth it?
+## co_connection::exec() supports multiplexing - how much overhead does this add?
 
 This benchmark has no source: it was run during development to obtain information
 and later removed. Data available [here](exclusive_vs_multiplexed.csv).

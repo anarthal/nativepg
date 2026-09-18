@@ -122,7 +122,8 @@ struct co_connection::impl
     boost::capy::io_task<> read_response(
         detail::multiplexer_v2::read_guard guard,
         const request& req,
-        response_handler_ref handler
+        response_handler_ref handler,
+        diagnostics* diag
     )
     {
         // Wait for our turn
@@ -181,7 +182,9 @@ struct co_connection::impl
                     // We've finished successfully
                     st.read_buffer.consume(consumed);
                     std::move(guard).report_success();
-                    co_return {fsm.get_handler_error().code};  // TODO: diagnostics?
+                    if (diag)
+                        *diag = fsm.get_handler_error().diag;  // TODO: could we move assign?
+                    co_return {fsm.get_handler_error().code};
                 }
                 else if (fsm_ec != client_errc::needs_more)
                 {
@@ -193,7 +196,7 @@ struct co_connection::impl
         }
     }
 
-    boost::capy::io_task<> exec(const request& req, response_handler_ref handler)
+    boost::capy::io_task<> exec(const request& req, response_handler_ref handler, diagnostics* diag = nullptr)
     {
         // Wait for our turn to write and register what we are doing in the queue
         detail::multiplexer_v2::task_node node;
@@ -204,7 +207,7 @@ struct co_connection::impl
         // Run the reader and writer tasks in parallel
         auto [final_ec, writer_dummy, reader_dummy] = co_await boost::capy::when_all(
             write_request(std::move(write_guard), req),
-            read_response(std::move(read_guard), req, handler)
+            read_response(std::move(read_guard), req, handler, diag)
         );
 
         co_return {final_ec};
@@ -356,7 +359,7 @@ capy::io_task<> co_connection::shutdown() { return impl_->shutdown(); }
 
 capy::io_task<> co_connection::exec(const request& req, response_handler_ref handler, diagnostics* diag)
 {
-    return impl_->exec(req, handler);
+    return impl_->exec(req, handler, diag);
 }
 
 void co_connection::setup_request(const request& req, response_handler_ref handler)

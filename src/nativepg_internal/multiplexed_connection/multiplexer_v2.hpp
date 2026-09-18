@@ -360,45 +360,11 @@ struct multiplexer_state
         if (auto [ec] = co_await guard.wait(); ec)
             co_return {ec};
 
-        // Read any remaining ReadyForQuery messages
+        // Setup
+        protocol::read_response_fsm fsm{&req, handler, false};  // disallow COPY
         std::size_t consumed = 0u;
         std::size_t remaining_prev_rfqs = guard.previous_rfqs();
-        while (remaining_prev_rfqs > 0u)
-        {
-            // Try to parse a cached message
-            auto bytes = st.read_buffer.committed_area();
-            auto res = protocol::parse_message(bytes.subspan(consumed));
 
-            // Check for errors and end of input.
-            // Errors here are irrecoverable.
-            if (res.ec)
-            {
-                st.read_buffer.consume(consumed);
-                consumed = 0u;
-                if (res.ec == client_errc::needs_more)
-                {
-                    if (auto [ec] = co_await read_some_messages(stream, st); ec)
-                        co_return {ec};
-                    continue;
-                }
-                else
-                {
-                    co_return {res.ec};
-                }
-            }
-
-            // We have a message
-            consumed += res.size;
-            st.update_tracked(res.message);
-            if (res.message.type() == protocol::any_backend_message::kind::ready_for_query)
-            {
-                guard.report_rfq();
-                --remaining_prev_rfqs;
-            }
-        }
-
-        // Now get to the messages concerning us
-        protocol::read_response_fsm fsm{&req, handler, false};  // disallow COPY
         while (true)
         {
             // Try to parse a cached message
@@ -426,20 +392,33 @@ struct multiplexer_state
             // We have a message
             consumed += res.size;
             st.update_tracked(res.message);
-            if (res.message.type() == protocol::any_backend_message::kind::ready_for_query)
+            bool is_rfq = res.message.type() == protocol::any_backend_message::kind::ready_for_query;
+            if (is_rfq)
                 guard.report_rfq();
-            auto fsm_ec = fsm.resume(res.message);
-            if (!fsm_ec)
+
+            // Act on the message
+            if (remaining_prev_rfqs > 0u)
             {
-                // We've finished successfully
-                st.read_buffer.consume(consumed);
-                co_return {fsm.get_handler_error().code};  // TODO: diagnostics?
+                // A leftover message from previous execs
+                if (is_rfq)
+                    --remaining_prev_rfqs;
             }
-            else if (fsm_ec != client_errc::needs_more)
+            else
             {
-                // There has been a severe protocol violation (unrecoverable)
-                st.read_buffer.consume(consumed);
-                co_return {fsm_ec};
+                // One of our messages
+                auto fsm_ec = fsm.resume(res.message);
+                if (!fsm_ec)
+                {
+                    // We've finished successfully
+                    st.read_buffer.consume(consumed);
+                    co_return {fsm.get_handler_error().code};  // TODO: diagnostics?
+                }
+                else if (fsm_ec != client_errc::needs_more)
+                {
+                    // There has been a severe protocol violation (unrecoverable)
+                    st.read_buffer.consume(consumed);
+                    co_return {fsm_ec};
+                }
             }
         }
     }

@@ -48,6 +48,9 @@ struct multiplexer_state
 
     struct pending_read : boost::intrusive::list_base_hook<>
     {
+        // The request that we're trying to execute
+        const request* req;
+
         // Number of ReadyForQuery messages that we expect from
         // previously cancelled items
         std::size_t previous_rfqs{};
@@ -63,17 +66,15 @@ struct multiplexer_state
         std::size_t read_rfqs{};
 
         // How many tasks (reader, writer) remain active?
+        // We run both tasks in parallel, so under cancellation, the reader
+        // might finish before the writer
         int remaining_tasks_{2};
-
-        // The request that we're trying to execute
-        const request* req;
     };
 
     // TODO: name wrapping here is bad
     class multiplexer_v2
     {
         boost::capy::async_mutex write_mtx_;
-        bool reading_{};
         boost::intrusive::list<pending_read> pending_;
         std::size_t trailing_rfqs_{};
         std::vector<unsigned char> pending_write_;
@@ -96,48 +97,25 @@ struct multiplexer_state
         {
             // Compute the remaining RFQs. TODO: we could make this more efficient
             // by not always requiring to compute the number of RFQs
-            // TODO: this would require forcing a node in the list even without waiting
             const std::size_t remaining_rfqs = handle.previous_rfqs +
                                                (handle.request_committed ? count_rfqs(handle.req->messages())
                                                                          : 0u) -
                                                handle.read_rfqs;
 
-            if (handle.is_linked())
-            {
-                // This is a pending reader. Update the next reader's pending RFQ count and exit
-                auto it = pending_.iterator_to(handle);
-                if (auto next = std::next(it); next == pending_.end())
-                {
-                    // We're the last reader
-                    trailing_rfqs_ += remaining_rfqs;
-                }
-                else
-                {
-                    next->previous_rfqs += remaining_rfqs;
-                }
+            auto it = pending_.iterator_to(handle);
+            auto next = std::next(it);
+            bool is_current_reader = it == pending_.begin();
+            bool has_next = next != pending_.end();
 
-                // Remove ourselves from the list
-                pending_.erase(it);
-            }
-            else
-            {
-                // This is the reader currently running. No need to unlink
-                if (pending_.empty())
-                {
-                    // No more pending reads. Add any remaining ReadyForQuery to the general state
-                    trailing_rfqs_ += remaining_rfqs;
-                    reading_ = false;
-                }
-                else
-                {
-                    // There are pending reads. Add the remaining ReadyForQuery's to the first
-                    // reader's state and notify it
-                    auto& item = pending_.front();
-                    pending_.pop_front();
-                    item.previous_rfqs += remaining_rfqs;
-                    item.evt.set();
-                }
-            }
+            // Remove ourselves from the list
+            pending_.erase(it);
+
+            // Update the leftover RFQ count
+            (has_next ? next->previous_rfqs : trailing_rfqs_) += remaining_rfqs;
+
+            // If this is the current reader and there is a next reader, notify it
+            if (is_current_reader && has_next)
+                next->evt.set();
         }
 
     public:
@@ -256,9 +234,9 @@ struct multiplexer_state
                 handle.evt.set();
 
             // Register what we are doing, so no other reader takes our turn
+            handle.req = req;
             handle.previous_rfqs = std::exchange(trailing_rfqs_, 0u);
             pending_.push_back(handle);
-            handle.req = req;
 
             // Done
             co_return {{}, write_guard(*this, handle), read_guard(*this, handle)};

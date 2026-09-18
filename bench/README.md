@@ -132,7 +132,8 @@ so the AWS setup could not resolve it.
 Latency is ~2% worse in the multiplexed case. This is measurable, but
 does not justify maintaining an extra API at this stage of development.
 
-**Conclusions**: we may consider `exec()` in the future, but the cost is small enough for now.
+**Conclusions**: we may consider exclusive `exec()` in the future,
+but the cost is small enough for now.
 
 ## Is write coalescing worth it?
 
@@ -140,7 +141,7 @@ This benchmark has no source: it was run during development to obtain informatio
 and later removed. Data available for the [localhost](write_coalescing_localhost.csv)
 and [AWS](write_coalescing_aws.csv) setups.
 
-The benchmark compares two implementations of multiplexed `exec()`:
+The benchmark compares two connection implementations that allow multiplexing with `exec()`:
 
 - One that coalesces write operations into one big write, like Boost.Redis does,
   at the expense of copying the request payload ([old `co_multiplexed_connection::exec()`](https://github.com/anarthal/nativepg/blob/a68d3481bb0853ee2a55c579bc4ce1ff803f1167/src/co_multiplexed_connection.cpp)).
@@ -154,4 +155,4 @@ Numbers are very similar. The data shows a slight advantage for coalescing under
 (around 1%), but the result is not reproducible: other runs came out inconclusive.
 
 **Conclusions**: write coalescing is not worth it. It complicates the implementation
-and forces copies with no obvious benefit.
+with very little benefit.

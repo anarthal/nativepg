@@ -82,7 +82,18 @@ public:
 
         write_guard(write_guard&& rhs) noexcept : obj_(std::exchange(rhs.obj_, nullptr)), node_(rhs.node_) {}
         write_guard(const write_guard& rhs) = delete;
-        write_guard& operator=(write_guard&& rhs) noexcept;  // TODO
+        write_guard& operator=(write_guard&& rhs) noexcept
+        {
+            if (this != &rhs)
+            {
+                // Release whatever we were holding before taking over rhs's node
+                if (obj_)
+                    obj_->on_writer_exit(*node_);
+                obj_ = std::exchange(rhs.obj_, nullptr);
+                node_ = rhs.node_;
+            }
+            return *this;
+        }
         write_guard& operator=(const write_guard& rhs) = delete;
         ~write_guard()
         {
@@ -142,7 +153,18 @@ public:
 
         read_guard(read_guard&& rhs) noexcept : obj_(std::exchange(rhs.obj_, nullptr)), node_(rhs.node_) {}
         read_guard(const read_guard& rhs) = delete;
-        read_guard& operator=(read_guard&& rhs) noexcept;  // TODO
+        read_guard& operator=(read_guard&& rhs) noexcept
+        {
+            if (this != &rhs)
+            {
+                // Release whatever we were holding before taking over rhs's node
+                if (obj_)
+                    obj_->on_reader_exit(*node_);
+                obj_ = std::exchange(rhs.obj_, nullptr);
+                node_ = rhs.node_;
+            }
+            return *this;
+        }
         read_guard& operator=(const read_guard& rhs) = delete;
         ~read_guard()
         {

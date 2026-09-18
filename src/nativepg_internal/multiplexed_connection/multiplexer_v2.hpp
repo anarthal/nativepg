@@ -184,7 +184,7 @@ struct multiplexer_state
                 }
 
                 // The writer should be done
-                obj_->on_reader_exit(*handle_);
+                obj_->on_writer_exit(*handle_);
                 obj_ = nullptr;
             }
         };
@@ -224,14 +224,21 @@ struct multiplexer_state
 
             void report_rfq() { ++handle_->read_rfqs; }
 
-            void report_success() { handle_->read_rfqs = static_cast<std::size_t>(-1); }
+            void report_success() &&
+            {
+                handle_->read_rfqs = static_cast<std::size_t>(-1);
+                obj_->on_reader_exit(*handle_);
+                obj_ = nullptr;
+            }
         };
 
         boost::capy::io_task<write_guard, read_guard> enter(pending_read& handle, const request* req)
         {
             // Wait for our turn to write
-            // TODO: use lock_guard here
-            if (auto [ec] = co_await write_mtx_.lock(); ec)
+            // TODO: use a guard, as set() may technically throw.
+            // scoped_lock() doesn't work because the guard doesn't have a release() method
+            auto [ec] = co_await write_mtx_.lock();
+            if (ec)
                 co_return {ec, {}, {}};
 
             // If there is no-one reading, set the event so the reader doesn't deadlock
@@ -344,7 +351,7 @@ struct multiplexer_state
                 {
                     // We've finished successfully
                     st.read_buffer.consume(consumed);
-                    guard.report_success();
+                    std::move(guard).report_success();
                     co_return {fsm.get_handler_error().code};  // TODO: diagnostics?
                 }
                 else if (fsm_ec != client_errc::needs_more)

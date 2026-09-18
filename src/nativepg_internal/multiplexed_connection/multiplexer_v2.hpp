@@ -8,6 +8,7 @@
 #ifndef NATIVEPG_MULTIPLEXER_V2_HPP
 #define NATIVEPG_MULTIPLEXER_V2_HPP
 
+#include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/async_mutex.hpp>
@@ -20,11 +21,11 @@
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive/list_hook.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <iterator>
 #include <span>
 #include <system_error>
-#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -74,6 +75,7 @@ struct multiplexer_state
         bool reading_{};
         boost::intrusive::list<pending_read> pending_;
         std::size_t trailing_rfqs_{};
+        std::vector<unsigned char> pending_write_;
 
         void on_writer_exit(pending_read& handle)
         {
@@ -167,7 +169,44 @@ struct multiplexer_state
                     obj_->on_writer_exit(*handle_);
             }
 
-            void report_request_commited() { handle_->request_committed = true; }
+            // Gets a buffer containing leftover bytes from previous execs
+            // that should be written before our request
+            std::span<const unsigned char> previous_write_bytes() const { return obj_->pending_write_; }
+
+            void report_result(std::size_t bytes_written) &&
+            {
+                // Did we manage to write any leftover bytes from previous execs?
+                if (!obj_->pending_write_.empty())
+                {
+                    const std::size_t consumed_bytes = (std::min)(bytes_written, obj_->pending_write_.size());
+                    obj_->pending_write_.erase(
+                        obj_->pending_write_.begin(),
+                        obj_->pending_write_.begin() + consumed_bytes
+                    );
+                    bytes_written -= consumed_bytes;
+                }
+
+                // Did we manage to write any bytes from our request?
+                if (bytes_written > 0u)
+                {
+                    // Part of the request has been sent to the server, at least
+                    handle_->request_committed = true;
+
+                    // If it was only a part, subsequent execs need to send it fully
+                    // if they want to keep the connection healthy
+                    if (bytes_written < handle_->req->payload().size())
+                    {
+                        obj_->pending_write_.assign(
+                            handle_->req->payload().begin() + bytes_written,
+                            handle_->req->payload().end()
+                        );
+                    }
+                }
+
+                // The writer should be done
+                obj_->on_reader_exit(*handle_);
+                obj_ = nullptr;
+            }
         };
 
         class read_guard
@@ -228,45 +267,28 @@ struct multiplexer_state
     };
 
     multiplexer_v2 mpx_;
-    std::vector<unsigned char> pending_writes;  // TODO
 
-    // This is the writer side of exec, and should be called with the mutex acquired
+    // This is the writer side of exec
     boost::capy::io_task<> write_request(
         boost::capy::any_stream& stream,
         multiplexer_v2::write_guard guard,
         const request& req
     )
     {
-        // If there are any half-written previous requests, write these first.
-        // We could use vectored I/O here, but this is a very rare case and optimizing
-        // for it is not worth it.
-        if (!pending_writes.empty())
-        {
-            auto [ec, bytes] = co_await boost::capy::write(stream, boost::capy::make_buffer(pending_writes));
-            if (ec)
-            {
-                // There was an error or cancellation
-                pending_writes.erase(pending_writes.begin(), pending_writes.begin() + bytes);
-                co_return {ec};
+        // Write any potential leftover from previous requests, plus our own request.
+        // The former is required to keep the connection healthy.
+        // Most of the time, the 1st buffer is empty, and Corosio coalesces this to a
+        // non-vectored write, for all backends.
+        auto [ec, bytes_written] = co_await boost::capy::write(
+            stream,
+            std::array<boost::capy::const_buffer, 2u>{
+                boost::capy::make_buffer(guard.previous_write_bytes()),
+                boost::capy::make_buffer(req.payload())
             }
+        );
 
-            // We wrote what was remaining of the previous message
-            pending_writes.clear();
-        }
-
-        // Now, our own message
-        auto [ec, bytes] = co_await boost::capy::write(stream, boost::capy::make_buffer(req.payload()));
-
-        // We have sent at least one byte and thus committed to running the request
-        // if we want to keep the connection healthy
-        if (bytes > 0u)
-            guard.report_request_commited();
-
-        // There was a short write, probably due to an error or cancellation.
-        // We need to store what we didn't write so the connection doesn't break
-        // TODO: this cleanup should likely be in the guard
-        if (bytes < req.payload().size())
-            pending_writes.assign(req.payload().begin() + bytes, req.payload().end());
+        // Report the result, so subsequent execs know how to keep the connection healthy
+        std::move(guard).report_result(bytes_written);
 
         // Done
         co_return {ec};

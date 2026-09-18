@@ -107,7 +107,7 @@ Follow-ups:
   and distribute their work among them. The optimal number depends on the server,
   but is likely much inferior than the default 100 connection limit.
 
-## co_connection::exec() supports multiplexing - how much overhead does this add?
+## co_connection::exec() supports multiplexing: how much overhead does this add?
 
 This benchmark has no source: it was run during development to obtain information
 and later removed. Data available [here](exclusive_vs_multiplexed.csv).
@@ -125,15 +125,16 @@ The benchmark compared two implementations of `co_connection::exec()`:
 Multiplexing has some overhead, as it needs to track in-flight requests.
 If the overhead is small enough, removing the API requiring exclusive access makes sense.
 
-The benchmark was only run in the localhost setup. Overhead is caused by memory allocations,
-orders of magnitude faster than a network round-trip to AWS.
+The benchmark was only run in the localhost setup: the overhead comes from memory
+allocations, which are orders of magnitude cheaper than a network round-trip to AWS,
+so the AWS setup could not resolve it.
 
-Latency is ~2% worse in the multiplexed case. This is significant, but
-does not justify an extra API at this stage of development.
+Latency is ~2% worse in the multiplexed case. This is measurable, but
+does not justify maintaining an extra API at this stage of development.
 
 **Conclusions**: we may consider `exec()` in the future, but the cost is small enough for now.
 
-## Is write multiplexing worth it?
+## Is write coalescing worth it?
 
 This benchmark has no source: it was run during development to obtain information
 and later removed. Data available for the [localhost](write_coalescing_localhost.csv)
@@ -146,11 +147,11 @@ The benchmark compares two implementations of multiplexed `exec()`:
 - One that does not perform this coalescing and performs no copy
   (TBC: link).
 
-Coalescing may help reduce write system calls, but forces to either make
-copies of the payload, or to give up on timely cancellation when `exec()` is cancelled.
+Coalescing may help reduce write system calls, but it forces us either to copy
+the request payload, or to give up on timely cancellation when `exec()` is cancelled.
 
-Numbers are pretty similar. Data shows a slight advantage to coalescing under localhost
-(around ~1%), but results are not repeatable - other runs have obtained inconclusive results.
+Numbers are very similar. The data shows a slight advantage for coalescing under localhost
+(around 1%), but the result is not reproducible: other runs came out inconclusive.
 
 **Conclusions**: write coalescing is not worth it. It complicates the implementation
 and forces copies with no obvious benefit.

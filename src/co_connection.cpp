@@ -198,6 +198,10 @@ struct co_connection::impl
 
     boost::capy::io_task<> exec(const request& req, response_handler_ref handler, diagnostics* diag = nullptr)
     {
+        // Perform request setup
+        if (auto ec = protocol::detail::setup_request(req, handler))
+            co_return {ec};
+
         // Wait for our turn to write and register what we are doing in the queue
         detail::multiplexer_v2::task_node node;
         auto [enter_ec, write_guard, read_guard] = co_await mpx_.enter(node, &req);

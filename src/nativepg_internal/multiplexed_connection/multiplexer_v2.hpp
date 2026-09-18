@@ -43,8 +43,7 @@ namespace nativepg::detail {
 
 struct multiplexer_state
 {
-    static std::size_t count_rfqs(const request& req) { return count_rfqs(req.messages()); }
-    static std::size_t count_rfqs(std::span<const request_message_type>);
+    static std::size_t count_rfqs(const request& req);
 
     struct pending_read : boost::intrusive::list_base_hook<>
     {
@@ -62,7 +61,8 @@ struct multiplexer_state
         bool request_committed{};
 
         // How many ReadyForQuery messages did the reader read?
-        // This includes RFQs from leftover requests before us
+        // This includes RFQs from leftover requests before us.
+        // -1 means "I've read everything I was supposed to and have no leftover"
         std::size_t read_rfqs{};
 
         // How many tasks (reader, writer) remain active?
@@ -95,17 +95,21 @@ struct multiplexer_state
 
         void on_both_exited(pending_read& handle)
         {
-            // Compute the remaining RFQs. TODO: we could make this more efficient
-            // by not always requiring to compute the number of RFQs
-            const std::size_t remaining_rfqs = handle.previous_rfqs +
-                                               (handle.request_committed ? count_rfqs(handle.req->messages())
-                                                                         : 0u) -
-                                               handle.read_rfqs;
-
+            // Setup
             auto it = pending_.iterator_to(handle);
             auto next = std::next(it);
             bool is_current_reader = it == pending_.begin();
             bool has_next = next != pending_.end();
+
+            // Compute the remaining RFQs. The reader might set read_rfqs to -1
+            // to indicate that everything was read so we can skip this calculation
+            // (common case fast)
+            const std::size_t remaining_rfqs =
+                (handle.read_rfqs == static_cast<std::size_t>(-1)
+                     ? 0u
+                     : handle.previous_rfqs +
+                           (handle.request_committed ? count_rfqs(handle.req->messages()) : 0u) -
+                           handle.read_rfqs);
 
             // Remove ourselves from the list
             pending_.erase(it);
@@ -220,6 +224,8 @@ struct multiplexer_state
             std::size_t previous_rfqs() const { return handle_->previous_rfqs; }
 
             void report_rfq() { ++handle_->read_rfqs; }
+
+            void report_success() { handle_->read_rfqs = static_cast<std::size_t>(-1); }
         };
 
         boost::capy::io_task<write_guard, read_guard> enter(pending_read& handle, const request* req)
@@ -339,6 +345,7 @@ struct multiplexer_state
                 {
                     // We've finished successfully
                     st.read_buffer.consume(consumed);
+                    guard.report_success();
                     co_return {fsm.get_handler_error().code};  // TODO: diagnostics?
                 }
                 else if (fsm_ec != client_errc::needs_more)

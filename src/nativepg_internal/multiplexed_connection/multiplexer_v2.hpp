@@ -49,7 +49,12 @@ namespace nativepg::detail {
 
 struct multiplexer_state
 {
-    static std::size_t count_rfqs(const request& req);
+    static inline std::size_t count_rfqs(const request& req)
+    {
+        return std::ranges::count_if(req.messages(), [](request_message_type type) {
+            return type == request_message_type::query || type == request_message_type::sync;
+        });
+    }
 
     // Should be used as an opaque type
     struct task_node : boost::intrusive::list_base_hook<>

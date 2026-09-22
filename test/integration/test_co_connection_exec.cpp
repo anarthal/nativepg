@@ -311,7 +311,7 @@ capy::task<> test_cancel_partial_response()
                 req,
                 response{resultset_callback<row_int>(cb), check_execute(), check_execute()}
             );
-            BOOST_TEST(ec == capy::cond::canceled);
+            test_cond_eq(ec, capy::cond::canceled);
             BOOST_TEST_EQ(row, row_int{.value = 42});
             co_return {};
         }(),
@@ -355,7 +355,7 @@ capy::task<> test_cancel_single_with_queued()
         capy::run(stop_src.get_token())([&]() -> capy::io_task<> {
             // Run req1, which will get cancelled
             auto [ec] = co_await conn.exec(req1, check());
-            BOOST_TEST(ec == capy::cond::canceled);
+            test_cond_eq(ec, capy::cond::canceled);
             co_return {};
         }()),
 
@@ -421,7 +421,7 @@ capy::task<> test_cancel_partial_response_with_queued()
                 select_finished.set();
             };
             auto [ec] = co_await conn.exec(req1, response{resultset_callback<row_int>(cb), check_execute()});
-            BOOST_TEST(ec == capy::cond::canceled);
+            test_cond_eq(ec, capy::cond::canceled);
             BOOST_TEST_EQ(row, row_int{.value = 42});
 
             // Notify downstream tasks
@@ -506,7 +506,7 @@ capy::task<> test_cancel_while_waiting()
             // Never gets its turn to read, and should be cancelled there
             std::vector<row_string> strings2;
             auto [ec] = co_await conn.exec(req2, into(strings2));
-            BOOST_TEST(ec == capy::cond::canceled);
+            test_cond_eq(ec, capy::cond::canceled);
 
             // Notify downstream tasks
             req2_finished.set();
@@ -588,7 +588,7 @@ capy::task<> test_cancel_while_waiting_middle()
             // Never gets its turn to read, and should be cancelled there
             std::vector<row_string> strings2;
             auto [ec] = co_await conn.exec(req2, into(strings2));
-            BOOST_TEST(ec == capy::cond::canceled);
+            test_cond_eq(ec, capy::cond::canceled);
 
             // Notify downstream tasks
             req2_finished.set();

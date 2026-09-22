@@ -5,10 +5,15 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#include <boost/assert/source_location.hpp>
+#include <boost/core/lightweight_test.hpp>
+
 #include <cstdlib>
+#include <iostream>
 #include <ostream>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 #include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
@@ -18,6 +23,7 @@
 #include "test_utils/ci_server.hpp"
 #include "test_utils/printing.hpp"
 #include "test_utils/response_handler_utils.hpp"
+#include "test_utils/test_cond_eq.hpp"
 
 // --- Printing ---
 std::ostream& nativepg::operator<<(std::ostream& os, const extended_error& err)
@@ -139,3 +145,17 @@ static std::string safe_getenv(const char* name, const char* default_value)
 }
 
 std::string nativepg::test::get_host() { return safe_getenv("NATIVEPG_SERVER_HOST", "localhost"); }
+
+// --- Checks ---
+bool nativepg::test::test_cond_eq(std::error_code ec, std::error_condition cond, boost::source_location loc)
+{
+    bool ok = BOOST_TEST(ec == cond);
+    if (!ok)
+    {
+        std::cerr << "  With ec=" << ec << ": " << ec.message() << "\n";
+        std::cerr << "  With cond=" << cond.category().name() << ":" << cond.value() << ": " << cond.message()
+                  << '\n';
+        std::cerr << "  Called from " << loc << std::endl;
+    }
+    return ok;
+}

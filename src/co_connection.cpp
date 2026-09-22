@@ -25,6 +25,7 @@
 #include "nativepg/connect_params.hpp"
 #include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/notification_event.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
 #include "nativepg/protocol/detail/exec_some_fsm.hpp"
@@ -167,6 +168,10 @@ struct co_connection::impl
             if (is_rfq)
                 guard.report_rfq();
 
+            // Store notifications so the receive loop can return them
+            if (res.message.type() == protocol::any_backend_message::kind::notification_response)
+                mpx_.store_notification(res.message.get_notification_response());
+
             // Act on the message
             if (remaining_prev_rfqs > 0u)
             {
@@ -218,6 +223,86 @@ struct co_connection::impl
         );
 
         co_return {final_ec};
+    }
+
+    boost::capy::io_task<> receive(std::vector<notification_event_v2>& out)
+    {
+        out.clear();
+
+        // If there are cached notifications, return these
+        mpx_.pop_notifications(out);
+        if (!out.empty())
+            co_return {};
+
+        // No luck. Register ourselves as the listener and wait for our turn.
+        // TODO: we would detect calling receive() in parallel twice only through this path
+        auto [ec, guard] = co_await mpx_.enter_receive();
+        if (ec)
+            co_return {ec};
+
+        // Other tasks might have generated cached notifications
+        mpx_.pop_notifications(out);
+        if (!out.empty())
+            co_return {};
+
+        // Again, no luck. Now actually attempt to read
+        std::size_t consumed = 0u;
+
+        while (true)
+        {
+            // Try to parse a cached message
+            auto bytes = st.read_buffer.committed_area();
+            auto res = protocol::parse_message(bytes.subspan(consumed));
+
+            // Check for errors and end of input.
+            // Errors here are irrecoverable.
+            if (res.ec)
+            {
+                st.read_buffer.consume(consumed);
+                consumed = 0u;
+                if (res.ec == client_errc::needs_more)
+                {
+                    // We need to read. If we have notifications here,
+                    // return them to the user, and we'll read in the next iteration
+                    mpx_.pop_notifications(out);
+                    if (!out.empty())
+                        co_return {};
+
+                    // No notifications. Do read
+                    if (auto [ec] = co_await read_some_messages(); ec)
+                        co_return {ec};
+                    continue;
+                }
+                else
+                {
+                    co_return {res.ec};
+                }
+            }
+
+            // We've got a message. If it's one of the async messages,
+            // handle it directly
+            switch (res.message.type())
+            {
+                case protocol::any_backend_message::kind::notification_response:
+                    mpx_.store_notification(res.message.get_notification_response());
+                    consumed += res.size;
+                    continue;
+                case protocol::any_backend_message::kind::parameter_status:
+                    st.update_tracked(res.message);  // TODO: I don't like going through the variant here
+                    consumed += res.size;
+                    continue;
+                case protocol::any_backend_message::kind::notice_response:
+                    consumed += res.size;
+                    continue;  // TODO: implement notices
+                // TODO: handle leftover RFQs
+                default:
+                    // This is a request message that belongs to a reader. Bail out
+                    // TODO: we're parsing the message twice here
+                    {
+                        st.read_buffer.consume(consumed);
+                    }
+            }
+        }
     }
 
     void setup_request(const request& req, response_handler_ref handler)

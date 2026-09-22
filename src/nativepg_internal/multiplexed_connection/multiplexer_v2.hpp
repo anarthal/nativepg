@@ -28,6 +28,9 @@
 #include <utility>
 #include <vector>
 
+#include "nativepg/client_errc.hpp"
+#include "nativepg/notification_event.hpp"
+#include "nativepg/protocol/async.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg_internal/multiplexed_connection/multiplexer.hpp"
 
@@ -109,6 +112,9 @@ public:
         std::span<const unsigned char> previous_write_bytes() const { return obj_->pending_write_; }
 
         // Reports the result of the writer and releases the guard
+        // TODO: this calls potentially-throwing functions and is called from a destructor.
+        // An exception here leaves the connection in an unrecoverable state.
+        // Exceptions here are rare, so we'll handle this later.
         void report_result(std::size_t bytes_written) &&
         {
             // Did we manage to write any leftover bytes from previous execs?
@@ -196,6 +202,37 @@ public:
         }
     };
 
+    class receive_guard
+    {
+        multiplexer_v2* obj_{};
+
+    public:
+        receive_guard() = default;
+        explicit receive_guard(multiplexer_v2& obj) noexcept : obj_(&obj) {}
+
+        receive_guard(receive_guard&& rhs) noexcept : obj_(std::exchange(rhs.obj_, nullptr)) {}
+        receive_guard(const receive_guard& rhs) = delete;
+        receive_guard& operator=(receive_guard&& rhs) noexcept;  // TODO
+        receive_guard& operator=(const receive_guard& rhs) = delete;
+        ~receive_guard()
+        {
+            if (obj_)
+                obj_->on_receiver_exit();
+        }
+
+        // Returns the number of ReadyForQuery messages that
+        // should be read from previous abandoned requests.
+        std::size_t previous_rfqs() const { return obj_->trailing_rfqs_; }
+
+        // Reports that we have read a RFQ.
+        // If the receiver exits by an exception, we can still know what state the connection is in.
+        void report_rfq()
+        {
+            BOOST_ASSERT(obj_->trailing_rfqs_ > 0u);
+            --obj_->trailing_rfqs_;
+        }
+    };
+
     // Registers a task within the multiplexer and waits for the writer's turn
     // The task node and the request should be kept alive until both guards are destroyed
     boost::capy::io_task<write_guard, read_guard> enter(task_node& node, const request* req)
@@ -208,7 +245,7 @@ public:
             co_return {ec, {}, {}};
 
         // If there is no-one reading, set the event so the reader doesn't deadlock
-        if (active_tasks_.empty())
+        if (active_tasks_.empty() && !receive_running_)
             node.evt.set();
 
         // Register what we are doing, so no other reader takes our turn
@@ -219,6 +256,25 @@ public:
         // Done
         co_return {{}, write_guard(*this, node), read_guard(*this, node)};
     }
+
+    // TODO: do we want this as an awaitable instead?
+    boost::capy::io_task<receive_guard> enter_receive()
+    {
+        // If a receive operation is running, this is an error
+        if (receive_running_)
+            co_return {client_errc::unknown_openssl_error, {}};  // TODO: proper error
+
+        // Wait for our turn
+        if (auto [ec] = co_await receive_evt_.wait(); ec)
+            co_return {ec, {}};
+
+        // We're now running
+        receive_running_ = true;
+        co_return {{}, receive_guard{*this}};
+    }
+
+    void store_notification(const protocol::notification_response& msg);  // TODO
+    void pop_notifications(std::vector<notification_event_v2>& to);
 
 private:
     // Grants exclusive access to the write side
@@ -232,6 +288,10 @@ private:
 
     // Bytes left over by an incomplete write by a previous task
     std::vector<unsigned char> pending_write_;
+
+    std::vector<notification_event_v2> notifications_;
+    bool receive_running_{};
+    boost::capy::async_event receive_evt_;
 
     static inline std::size_t count_rfqs(const request& req)
     {
@@ -279,9 +339,23 @@ private:
         // Update the leftover RFQ count
         (has_next ? next->pending_rfqs : trailing_rfqs_) += remaining_rfqs;
 
-        // If this is the current reader and there is a next reader, notify it
-        if (is_current_reader && has_next)
-            next->evt.set();
+        // If this is the current reader and there is a next reader, notify it.
+        // Otherwise, let the receiver read loop run.
+        if (is_current_reader)
+        {
+            if (has_next)
+                next->evt.set();
+            else
+                receive_evt_.set();
+        }
+    }
+
+    void on_receiver_exit()
+    {
+        receive_running_ = false;
+        receive_evt_.clear();
+        if (!active_tasks_.empty())
+            active_tasks_.front().evt.set();
     }
 };
 

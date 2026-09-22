@@ -300,35 +300,36 @@ capy::task<> test_cancel_partial_response()
     if (!check_success(co_await conn_lock.exec(req_lock, check(), &diag), diag))
         co_return;
 
-    // The cancellation should arrive while we wait for the lock
     request req;
     req.add_query("SELECT $1 AS value", 42);
     req.add_query("SELECT pg_advisory_lock($1)", 1);
     req.add_query("SELECT $1 AS value", 50);
 
-    // Response
     capy::async_event select_finished;
-    row_int row{};
-    auto cb = [&](row_int r) {
-        row = r;
-        select_finished.set();
-    };
 
-    auto [dummy, res, dummy2] = co_await capy::when_all(
-        // Run the request that will block indefinitely
-        do_exec(conn, req, response{resultset_callback<row_int>(cb), check_execute(), check_execute()}),
-
-        // Trigger a cancellation once the first SELECT receives its data
+    static_cast<void>(co_await capy::when_all(
         [&]() -> capy::io_task<> {
+            // Run the request. It will get cancelled after the SELECT finishes
+            row_int row{};
+            auto cb = [&](row_int r) {
+                row = r;
+                select_finished.set();
+            };
+            auto [ec] = co_await conn.exec(
+                req,
+                response{resultset_callback<row_int>(cb), check_execute(), check_execute()}
+            );
+            BOOST_TEST(ec == capy::cond::canceled);
+            BOOST_TEST_EQ(row, row_int{.value = 42});
+            co_return {};
+        }(),
+        [&]() -> capy::io_task<> {
+            // Trigger a cancellation once the first SELECT receives its data
             auto [ec] = co_await select_finished.wait();
             BOOST_TEST_EQ(ec, std::error_code());
             co_return std::make_error_code(std::errc::address_in_use);
         }()
-    );
-
-    // Check. We should have received the SELECT's data
-    BOOST_TEST(res.code == capy::cond::canceled);
-    BOOST_TEST_EQ(row, row_int{.value = 42});
+    ));
 
     // Release the lock so the request completes server-side
     if (!check_success(co_await conn_lock.shutdown(), {}))
@@ -351,28 +352,36 @@ capy::task<> test_cancel_single_with_queued()
 
     request req1;
     req1.add_query("SELECT $1 AS value", 42);
-    std::vector<row_int> ints1;
 
     request req2;
     req2.add_query("SELECT $1 AS value", "abcd");
-    std::vector<row_string> strings2;
+
+    std::stop_source stop_src;
 
     // Recall that when_all launches things in order
-    auto [dummy, res1, res2, dummy2] = co_await capy::when_all(
-        // The first query will be cancelled
-        do_exec(conn, req1, into(ints1)),
+    static_cast<void>(co_await capy::when_all(
+        capy::run(stop_src.get_token())([&]() -> capy::io_task<> {
+            // Run req1, which will get cancelled
+            auto [ec] = co_await conn.exec(req1, check());
+            BOOST_TEST(ec == capy::cond::canceled);
+            co_return {};
+        }()),
 
-        // The second one won't because we're binding it to an empty stop token
-        capy::run(std::stop_token())(do_exec(conn, req2, into(strings2))),
+        [&]() -> capy::io_task<> {
+            // Run req2, which should complete normally
+            std::vector<row_string> strings2;
+            auto [dummy, res] = co_await do_exec(conn, req2, into(strings2));
+            check_success(res);
+            test_range_eq(strings2, std::vector<row_string>{{.value = "abcd"}});
+            co_return {};
+        }(),
 
-        // Cancel things immediately
-        capy::ready(std::make_error_code(std::errc::io_error))
-    );
-
-    // Check
-    BOOST_TEST(res1.code == capy::cond::canceled);
-    check_success(res2);
-    test_range_eq(strings2, std::vector<row_string>{{.value = "abcd"}});
+        // Cancel req1 immediately
+        [&]() -> capy::io_task<> {
+            stop_src.request_stop();
+            co_return {};
+        }()
+    ));
 
     co_await check_connection_usable(conn);
 }
@@ -408,19 +417,20 @@ capy::task<> test_cancel_partial_response_with_queued()
 
     // Response
     capy::async_event select_finished;
-    row_int row{};
-    auto cb = [&](row_int r) {
-        row = r;
-        select_finished.set();
-    };
     capy::async_event req1_finished;
     std::stop_source stop_src;
 
     static_cast<void>(co_await capy::when_all(
         capy::run(stop_src.get_token())([&]() -> capy::io_task<> {
             // Blocks on the lock and should be cancelled
+            row_int row{};
+            auto cb = [&](row_int r) {
+                row = r;
+                select_finished.set();
+            };
             auto [ec] = co_await conn.exec(req1, response{resultset_callback<row_int>(cb), check_execute()});
             BOOST_TEST(ec == capy::cond::canceled);
+            BOOST_TEST_EQ(row, row_int{.value = 42});
 
             // Notify downstream tasks
             req1_finished.set();

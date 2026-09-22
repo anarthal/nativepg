@@ -36,6 +36,7 @@
 #include "test_utils/ci_server.hpp"
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
+#include "test_utils/test_cond_eq.hpp"
 #include "test_utils/test_opt_eq.hpp"
 #include "test_utils/test_range_eq.hpp"
 
@@ -261,7 +262,7 @@ capy::task<> test_cancel_single()
         [&]() -> capy::io_task<> {
             // This request will be cancelled
             auto [ec] = co_await conn.exec(req, check());
-            BOOST_TEST(ec == capy::cond::canceled);
+            test_cond_eq(ec, capy::cond::canceled);
             co_return {};
         }(),
         capy::ready(std::make_error_code(std::errc::io_error))

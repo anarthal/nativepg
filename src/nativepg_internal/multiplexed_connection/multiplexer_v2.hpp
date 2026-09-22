@@ -44,6 +44,9 @@ class multiplexer_v2
 public:
     multiplexer_v2() = default;
 
+    // TODO: this should have a proper reset to call on connection establishment.
+    // If leftovers happen after a connection is severed, they are never cleaned up.
+
     // Should be used as an opaque type
     struct task_node : boost::intrusive::list_base_hook<>
     {
@@ -262,6 +265,8 @@ private:
         // Compute the remaining RFQs. The reader might set read_rfqs to -1
         // to indicate that everything was read so we can skip this calculation
         // (common case fast)
+        // TODO: I think this could technically overflow
+        // if many requests are cancelled one after the other
         const std::size_t remaining_rfqs =
             (node.read_rfqs == static_cast<std::size_t>(-1)
                  ? 0u

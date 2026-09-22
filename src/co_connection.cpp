@@ -75,6 +75,7 @@ struct co_connection::impl
         // TODO: we could really serialize to a fixed storage block, this is known size
         // TODO: an error here shouldn't prevent the function from closing the transport
         //       (the error should not happen, to begin with)
+        // TODO: this is bypassing the multiplexer and it should't
         // Serialize the terminate request
         st.write_buffer.clear();
         if (auto ec = protocol::serialize(protocol::terminate{}, st.write_buffer))
@@ -209,6 +210,8 @@ struct co_connection::impl
             co_return {enter_ec};
 
         // Run the reader and writer tasks in parallel
+        // TODO: protocol violations should mark the connection as failed
+        // once we have state checks
         auto [final_ec, writer_dummy, reader_dummy] = co_await boost::capy::when_all(
             write_request(std::move(write_guard), req),
             read_response(std::move(read_guard), req, handler, diag)
@@ -368,6 +371,7 @@ capy::io_task<> co_connection::exec(const request& req, response_handler_ref han
 
 void co_connection::setup_request(const request& req, response_handler_ref handler)
 {
+    // TODO: exec_some() currently plays badly with multiplexing
     return impl_->setup_request(req, handler);
 }
 

@@ -38,6 +38,11 @@ inline bool check_success(
     return check_success(res.ec, diag, loc);
 }
 
+inline bool check_success(const extended_error& err, boost::source_location loc = BOOST_CURRENT_LOCATION)
+{
+    return check_success(err.code, err.diag, loc);
+}
+
 }  // namespace nativepg::test
 
 #endif

@@ -3,3 +3,4 @@ __build/
 private/
 /.claude/
 /CLAUDE.md
+.venv/

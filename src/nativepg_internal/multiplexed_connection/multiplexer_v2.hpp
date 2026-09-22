@@ -273,9 +273,6 @@ public:
         co_return {{}, receive_guard{*this}};
     }
 
-    void store_notification(const protocol::notification_response& msg);  // TODO
-    void pop_notifications(std::vector<notification_event_v2>& to);
-
 private:
     // Grants exclusive access to the write side
     boost::capy::async_mutex write_mtx_;
@@ -289,7 +286,6 @@ private:
     // Bytes left over by an incomplete write by a previous task
     std::vector<unsigned char> pending_write_;
 
-    std::vector<notification_event_v2> notifications_;
     bool receive_running_{};
     boost::capy::async_event receive_evt_;
 

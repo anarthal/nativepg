@@ -19,6 +19,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "nativepg/co_connection.hpp"
@@ -34,6 +35,7 @@
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
 #include "nativepg_internal/multiplexed_connection/multiplexer_v2.hpp"
+#include "nativepg_internal/multiplexed_connection/notification_store.hpp"
 
 namespace capy = boost::capy;
 namespace corosio = boost::corosio;
@@ -48,7 +50,15 @@ struct co_connection::impl
     capy::any_stream stream{&sock};
     std::vector<capy::const_buffer> copy_out_buffers;
     std::optional<protocol::detail::exec_some_fsm> exec_some_fsm;
-    detail::multiplexer_v2 mpx_;  // TODO: clean up this?
+    detail::multiplexer_v2 mpx_;                // TODO: clean up this?
+    detail::notification_store notifications_;  // TODO: put this in state?
+    bool notifications_consumed_{};
+
+    void maybe_clear_notifications()
+    {
+        if (std::exchange(notifications_consumed_, false))
+            notifications_.clear();
+    }
 
     explicit impl(capy::execution_context& ctx) : resolv(ctx), sock(ctx) {}
 
@@ -170,7 +180,7 @@ struct co_connection::impl
 
             // Store notifications so the receive loop can return them
             if (res.message.type() == protocol::any_backend_message::kind::notification_response)
-                mpx_.store_notification(res.message.get_notification_response());
+                notifications_.push_deep(res.message.get_notification_response());
 
             // Act on the message
             if (remaining_prev_rfqs > 0u)
@@ -214,6 +224,9 @@ struct co_connection::impl
         if (enter_ec)
             co_return {enter_ec};
 
+        // Clean up any leftover notifications, from previous iterations
+        maybe_clear_notifications();
+
         // Run the reader and writer tasks in parallel
         // TODO: protocol violations should mark the connection as failed
         // once we have state checks
@@ -225,13 +238,13 @@ struct co_connection::impl
         co_return {final_ec};
     }
 
-    boost::capy::io_task<> receive(std::vector<notification_event_v2>& out)
+    boost::capy::io_task<> receive()
     {
-        out.clear();
+        // Clean up notifications if required
+        maybe_clear_notifications();
 
         // If there are cached notifications, return these
-        mpx_.pop_notifications(out);
-        if (!out.empty())
+        if (!notifications_.get().empty())
             co_return {};
 
         while (true)
@@ -243,13 +256,12 @@ struct co_connection::impl
                 co_return {ec};
 
             // Other tasks might have generated cached notifications
-            mpx_.pop_notifications(out);
-            if (!out.empty())
+            if (!notifications_.get().empty())
                 co_return {};
 
             // Again, no luck. Now actually attempt to read
-            auto [loop_ec] = co_await receive_impl(out, guard);
-            if (loop_ec || !out.empty())
+            auto [loop_ec] = co_await receive_impl(guard);
+            if (loop_ec || !notifications_.get().empty())
                 co_return {loop_ec};
 
             // We yielded because we received a message that wasn't for us,
@@ -258,10 +270,7 @@ struct co_connection::impl
         }
     }
 
-    boost::capy::io_task<> receive_impl(
-        std::vector<notification_event_v2>& out,
-        detail::multiplexer_v2::receive_guard& guard
-    )
+    boost::capy::io_task<> receive_impl(detail::multiplexer_v2::receive_guard& guard)
     {
         std::size_t consumed = 0u;
 
@@ -281,8 +290,7 @@ struct co_connection::impl
                 {
                     // We need to read. If we have notifications here,
                     // return them to the user, and we'll read in the next iteration
-                    mpx_.pop_notifications(out);
-                    if (!out.empty())
+                    if (!notifications_.get().empty())
                         co_return {};
 
                     // No notifications. Do read
@@ -301,7 +309,7 @@ struct co_connection::impl
             switch (res.message.type())
             {
                 case protocol::any_backend_message::kind::notification_response:
-                    mpx_.store_notification(res.message.get_notification_response());
+                    notifications_.push_shallow(res.message.get_notification_response());
                     consumed += res.size;
                     break;
                 case protocol::any_backend_message::kind::parameter_status:
@@ -315,7 +323,8 @@ struct co_connection::impl
                 default:
                     if (guard.previous_rfqs() > 0u)
                     {
-                        // We're reading leftovers. Only RFQs relevant here
+                        // We're reading leftovers
+                        consumed += res.size;
                         if (res.message.type() == protocol::any_backend_message::kind::ready_for_query)
                             guard.report_rfq();
                     }
@@ -324,7 +333,6 @@ struct co_connection::impl
                         // This is a request message that belongs to a reader. Bail out
                         // TODO: we're parsing the message twice here
                         st.read_buffer.consume(consumed);
-                        mpx_.pop_notifications(out);
                         co_return {};
                     }
             }
@@ -429,6 +437,10 @@ co_connection::~co_connection() = default;
 capy::io_task<> co_connection::connect(connect_params params, diagnostics* diag)
 {
     using protocol::detail::connect_fsm;
+
+    // TODO: this is probably not the place to do this
+    impl_->notifications_.clear();
+    impl_->notifications_consumed_ = false;
 
     // Initialize
     connect_fsm fsm_(params);

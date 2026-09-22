@@ -7,30 +7,21 @@
 
 #include <boost/assert/source_location.hpp>
 #include <boost/capy/cond.hpp>
-#include <boost/capy/delay.hpp>
 #include <boost/capy/error.hpp>
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/immediate.hpp>
 #include <boost/capy/ex/run.hpp>
-#include <boost/capy/ex/run_async.hpp>
 #include <boost/capy/ex/this_coro.hpp>
-#include <boost/capy/io_result.hpp>
 #include <boost/capy/io_task.hpp>
-#include <boost/capy/task.hpp>
-#include <boost/capy/timeout.hpp>
 #include <boost/capy/when_all.hpp>
-#include <boost/capy/when_any.hpp>
 #include <boost/core/lightweight_test.hpp>
-#include <boost/corosio/io_context.hpp>
 #include <boost/describe/class.hpp>
 #include <boost/describe/operators.hpp>
 
-#include <chrono>
 #include <stop_token>
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <utility>
 #include <vector>
 
 #include "nativepg/co_connection.hpp"

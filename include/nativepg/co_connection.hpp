@@ -123,6 +123,11 @@ public:
         co_return co_await exec(req, response_handler_ref(&handler), diag);
     }
 
+    // Waits until either a notification arrives, or an error occurs.
+    // The connection must be in established state.
+    // Can be called in parallel with other exec() operations.
+    // The returned view is valid until another operation involving I/O is called
+    //   (including exec() and another receive()).
     boost::capy::io_task<notifications_view> receive();
 
     // The request and the handler must live until the entire response has been read

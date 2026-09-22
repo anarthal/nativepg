@@ -8,8 +8,7 @@
 #ifndef NATIVEPG_NOTIFICATION_STORE_HPP
 #define NATIVEPG_NOTIFICATION_STORE_HPP
 
-#include <span>
-
+#include "nativepg/notifications_view.hpp"
 #include "nativepg/protocol/async.hpp"
 
 namespace nativepg::detail {
@@ -23,8 +22,7 @@ public:
     void push_deep(const protocol::notification_response&);
     void clear();
 
-    // TODO: this won't be span, but similar
-    std::span<const protocol::notification_response> get() const;
+    notifications_view get() const;
 };
 
 }  // namespace nativepg::detail

@@ -41,6 +41,8 @@ class notifications_view
 
 public:
     // value_type is protocol::notification_message
+
+    bool empty() const;
 };
 
 }  // namespace nativepg

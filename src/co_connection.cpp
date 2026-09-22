@@ -26,7 +26,7 @@
 #include "nativepg/connect_params.hpp"
 #include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
-#include "nativepg/notification_event.hpp"
+#include "nativepg/notifications_view.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
 #include "nativepg/protocol/detail/exec_some_fsm.hpp"
@@ -243,12 +243,12 @@ struct co_connection::impl
         // Clean up notifications if required
         maybe_clear_notifications();
 
-        // If there are cached notifications, return these
-        if (!notifications_.get().empty())
-            co_return {};
-
         while (true)
         {
+            // If there are cached notifications, return these
+            if (!notifications_.get().empty())
+                co_return {};
+
             // No luck. Register ourselves as the listener and wait for our turn.
             // TODO: we would detect calling receive() in parallel twice only through this path
             auto [ec, guard] = co_await mpx_.enter_receive();
@@ -261,12 +261,11 @@ struct co_connection::impl
 
             // Again, no luck. Now actually attempt to read
             auto [loop_ec] = co_await receive_impl(guard);
-            if (loop_ec || !notifications_.get().empty())
+            if (loop_ec)
                 co_return {loop_ec};
 
-            // We yielded because we received a message that wasn't for us,
-            // but we don't have anything to report. Wait until it's our turn
-            // again and repeat
+            // We may have yielded because we received a message that wasn't for us,
+            // but we don't have anything to report
         }
     }
 
@@ -490,6 +489,12 @@ capy::io_task<> co_connection::shutdown() { return impl_->shutdown(); }
 capy::io_task<> co_connection::exec(const request& req, response_handler_ref handler, diagnostics* diag)
 {
     return impl_->exec(req, handler, diag);
+}
+
+capy::io_task<notifications_view> co_connection::receive()
+{
+    auto [ec] = co_await impl_->receive();
+    co_return {ec, impl_->notifications_.get()};
 }
 
 void co_connection::setup_request(const request& req, response_handler_ref handler)

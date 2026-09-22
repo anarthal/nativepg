@@ -22,6 +22,7 @@
 #include "nativepg/connect_params.hpp"
 #include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/notifications_view.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/copy.hpp"
 #include "nativepg/request.hpp"
@@ -121,6 +122,8 @@ public:
         // Keep the handler alive
         co_return co_await exec(req, response_handler_ref(&handler), diag);
     }
+
+    boost::capy::io_task<notifications_view> receive();
 
     // The request and the handler must live until the entire response has been read
     // with exec_some

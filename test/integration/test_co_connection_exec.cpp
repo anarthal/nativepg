@@ -380,40 +380,44 @@ capy::task<> test_cancel_partial_response()
     co_await check_connection_usable(conn);
 }
 
-// // A request cancelled while its write or read is pending, with a second
-// // request queued behind it. The second one may have to finish writing the
-// // first one's payload, and to skip whatever response it produced.
-// capy::task<> test_cancel_single_with_queued()
-// {
-//     // Setup
-//     diagnostics diag;
-//     co_connection conn{co_await capy::this_coro::executor};
-//     if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
-//         co_return;
+// A request cancelled while its write or read is pending, with a second
+// request queued behind it. The second one may have to finish writing the
+// first one's payload, and to skip whatever response it produced.
+capy::task<> test_cancel_single_with_queued()
+{
+    // Setup
+    diagnostics diag;
+    co_connection conn{co_await capy::this_coro::executor};
+    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
+        co_return;
 
-//     request req1;
-//     req1.add_query("SELECT $1 AS value", 42);
-//     std::vector<row_int> ints1;
+    request req1;
+    req1.add_query("SELECT $1 AS value", 42);
+    std::vector<row_int> ints1;
 
-//     request req2;
-//     req2.add_query("SELECT $1 AS value", "abcd");
-//     std::vector<row_string> strings2;
+    request req2;
+    req2.add_query("SELECT $1 AS value", "abcd");
+    std::vector<row_string> strings2;
 
-//     std::stop_source src;
+    // Recall that when_all launches things in order
+    auto [dummy, res1, res2, dummy2] = co_await capy::when_all(
+        // The first query will be cancelled
+        do_exec(conn, req1, into(ints1)),
 
-//     auto [dummy, res1, res2, dummy2] = co_await capy::when_all(
-//         do_exec_cancellable(conn, req1, into(ints1), src.get_token()),
-//         do_exec(conn, req2, into(strings2)),
-//         cancel_now(src)
-//     );
+        // The second one won't because we're binding it to an empty stop token
+        capy::run(std::stop_token())(do_exec(conn, req2, into(strings2))),
 
-//     // Check
-//     BOOST_TEST(res1.code == capy::cond::canceled);
-//     if (check_success(res2))
-//         test_range_eq(strings2, std::vector<row_string>{{.value = "abcd"}});
+        // Cancel things immediately
+        capy::ready(std::make_error_code(std::errc::io_error))
+    );
 
-//     co_await check_connection_usable(conn);
-// }
+    // Check
+    BOOST_TEST(res1.code == capy::cond::canceled);
+    check_success(res2);
+    test_range_eq(strings2, std::vector<row_string>{{.value = "abcd"}});
+
+    co_await check_connection_usable(conn);
+}
 
 // // Same, but the cancelled request has already read part of its response, so
 // // the queued one has to skip the ReadyForQuery still owed for it
@@ -537,9 +541,9 @@ int main(int argc, char**)
         run_coroutine_test(test_multiplexing_3());
         run_coroutine_test(test_handler_error());
         run_coroutine_test(test_cancel_single());
+        run_coroutine_test(test_cancel_partial_response());
     }
-    run_coroutine_test(test_cancel_partial_response());
-    // run_coroutine_test(test_cancel_single_with_queued());
+    run_coroutine_test(test_cancel_single_with_queued());
     // run_coroutine_test(test_cancel_partial_response_with_queued());
     // run_coroutine_test(test_cancel_while_waiting());
     // run_coroutine_test(test_cancel_while_waiting_middle());

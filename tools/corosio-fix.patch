@@ -1,0 +1,13 @@
+diff --git a/include/boost/corosio/detail/op_base.hpp b/include/boost/corosio/detail/op_base.hpp
+index 5a8317ca..438ab147 100644
+--- a/include/boost/corosio/detail/op_base.hpp
++++ b/include/boost/corosio/detail/op_base.hpp
+@@ -51,7 +51,7 @@ public:
+     capy::io_result<std::size_t> await_resume() const noexcept
+     {
+         if (token_.stop_requested())
+-            return {make_error_code(std::errc::operation_canceled), 0};
++            return {make_error_code(std::errc::operation_canceled), bytes_};
+         return {ec_, bytes_};
+     }
+ 

@@ -104,6 +104,8 @@ jobs:
           git remote add origin https://github.com/cppalliance/corosio.git
           git fetch --depth 1 origin $BOOST_COROSIO_COMMIT
           git checkout FETCH_HEAD
+          # TODO: remove this when https://github.com/cppalliance/corosio/issues/358 is fixed
+          git apply ${GITHUB_WORKSPACE}/tools/corosio-fix.patch
           cd ../..
 
           ./bootstrap.sh

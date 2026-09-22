@@ -258,46 +258,6 @@ capy::task<> test_handler_error()
 // abandoned request and skipping them.
 //
 
-// // Long enough for a cancellation to land while the query is still running,
-// // short enough to stay well inside the test timeout
-// constexpr std::string_view sleep_query = "SELECT pg_sleep(1)";
-// constexpr std::chrono::milliseconds cancel_delay{200};
-
-// // Same as do_exec, but runs the exec under its own stop token, so it can be
-// // cancelled without affecting its siblings
-// template <response_handler Handler>
-// capy::io_task<extended_error> do_exec_cancellable(
-//     co_connection& conn,
-//     const request& req,
-//     Handler handler,
-//     std::stop_token token
-// )
-// {
-//     extended_error out;
-//     auto [ec] = co_await capy::run(std::move(token))(conn.exec(req, &handler, &out.diag));
-//     out.code = ec;
-//     co_return {{}, out};
-// }
-
-// // Requests a stop as soon as it runs. when_all posts its children in argument
-// // order, so listing this after the requests it should affect means they have
-// // all been issued, and have suspended on I/O, by the time it runs. None of them
-// // can have completed: that would require a round trip.
-// capy::io_task<> cancel_now(std::stop_source& src)
-// {
-//     src.request_stop();
-//     co_return {};
-// }
-
-// // Requests a stop after a delay, so that the cancellation lands on a request
-// // that has already consumed part of its response
-// capy::io_task<> cancel_after(std::stop_source& src, std::chrono::milliseconds dur)
-// {
-//     static_cast<void>(co_await capy::delay(dur));
-//     src.request_stop();
-//     co_return {};
-// }
-
 // A request cancelled while its write or its read is still pending
 capy::task<> test_cancel_single()
 {
@@ -419,121 +379,250 @@ capy::task<> test_cancel_single_with_queued()
     co_await check_connection_usable(conn);
 }
 
-// // Same, but the cancelled request has already read part of its response, so
-// // the queued one has to skip the ReadyForQuery still owed for it
-// capy::task<> test_cancel_partial_response_with_queued()
-// {
-//     // Setup
-//     diagnostics diag;
-//     co_connection conn{co_await capy::this_coro::executor};
-//     if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
-//         co_return;
+// Same, but with a second request queued behind the cancelled one. The queued
+// request has to skip the ReadyForQuery messages still owed for its abandoned
+// predecessor before it can read its own response.
+capy::task<> test_cancel_partial_response_with_queued()
+{
+    // Setup
+    diagnostics diag;
+    co_connection conn{co_await capy::this_coro::executor}, conn_lock{co_await capy::this_coro::executor};
+    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag) ||
+        !check_success(co_await conn_lock.connect(default_connect_params(), &diag), diag))
+        co_return;
 
-//     request req1;
-//     req1.add_query("SELECT $1 AS value", 42);
-//     req1.add_query(sleep_query);
-//     std::vector<row_int> ints1;
+    // Acquire the lock. Note: different tests should use different IDs
+    request req_lock;
+    req_lock.add_query("SELECT pg_advisory_lock($1)", 2);
+    if (!check_success(co_await conn_lock.exec(req_lock, check(), &diag), diag))
+        co_return;
 
-//     request req2;
-//     req2.add_query("SELECT $1 AS value", "abcd");
-//     std::vector<row_string> strings2;
+    // The cancellation arrives while this one waits for the lock, with the
+    // first query's response already read
+    request req1;
+    req1.add_query("SELECT $1 AS value", 42);
+    req1.add_query("SELECT pg_advisory_lock($1)", 2);
 
-//     std::stop_source src;
+    // Queued behind req1, and should succeed
+    request req2;
+    req2.add_query("SELECT $1 AS value", "abcd");
+    std::vector<row_string> strings2;
 
-//     auto [dummy, res1, res2, dummy2] = co_await capy::when_all(
-//         do_exec_cancellable(conn, req1, response{into(ints1), check_execute()}, src.get_token()),
-//         do_exec(conn, req2, into(strings2)),
-//         cancel_after(src, cancel_delay)
-//     );
+    // Response
+    capy::async_event select_finished;
+    row_int row{};
+    auto cb = [&](row_int r) {
+        row = r;
+        select_finished.set();
+    };
+    capy::async_event req1_finished;
+    std::stop_source stop_src;
 
-//     // Check
-//     BOOST_TEST(res1.code == capy::cond::canceled);
-//     test_range_eq(ints1, std::vector<row_int>{{.value = 42}});
-//     if (check_success(res2))
-//         test_range_eq(strings2, std::vector<row_string>{{.value = "abcd"}});
+    static_cast<void>(co_await capy::when_all(
+        capy::run(stop_src.get_token())([&]() -> capy::io_task<> {
+            // Blocks on the lock and should be cancelled
+            auto [ec] = co_await conn.exec(req1, response{resultset_callback<row_int>(cb), check_execute()});
+            BOOST_TEST(ec == capy::cond::canceled);
 
-//     co_await check_connection_usable(conn);
-// }
+            // Notify downstream tasks
+            req1_finished.set();
+            co_return {};
+        }()),
+        [&]() -> capy::io_task<> {
+            // Just runs req2, which should succeed
+            auto [dummy, err] = co_await do_exec(conn, req2, into(strings2));
+            check_success(err);
+            test_range_eq(strings2, std::vector<row_string>{{.value = "abcd"}});
+            co_return {};
+        }(),
+        [&]() -> capy::io_task<> {
+            // Wait for the SELECT to finish, then cancels req1
+            auto [ec] = co_await select_finished.wait();
+            BOOST_TEST_EQ(ec, std::error_code());
+            stop_src.request_stop();
+            co_return {};
+        }(),
+        [&]() -> capy::io_task<> {
+            // Waits for req1 to finish, then releases the lock so req2 can make progress
+            auto [ec] = co_await req1_finished.wait();
+            BOOST_TEST_EQ(ec, std::error_code());
+            check_success(co_await conn_lock.shutdown(), {});
+            co_return {};
+        }()
+    ));
 
-// // A request cancelled while waiting for its turn to read. The first request
-// // sleeps, so the second one gets its payload written but then sits in the
-// // multiplexer's queue, which is where the cancellation finds it.
-// capy::task<> test_cancel_while_waiting()
-// {
-//     // Setup
-//     diagnostics diag;
-//     co_connection conn{co_await capy::this_coro::executor};
-//     if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
-//         co_return;
+    co_await check_connection_usable(conn);
+}
 
-//     request req1;
-//     req1.add_query(sleep_query);
+// A request cancelled while waiting for its turn to read. The first request
+// blocks on the lock, so the second one gets its payload written but then sits
+// in the multiplexer's queue, which is where the cancellation finds it.
+capy::task<> test_cancel_while_waiting()
+{
+    // Setup
+    diagnostics diag;
+    co_connection conn{co_await capy::this_coro::executor}, conn_lock{co_await capy::this_coro::executor};
+    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag) ||
+        !check_success(co_await conn_lock.connect(default_connect_params(), &diag), diag))
+        co_return;
 
-//     request req2;
-//     req2.add_query("SELECT $1 AS value", "abcd");
-//     std::vector<row_string> strings2;
+    // Acquire the lock. Note: different tests should use different IDs
+    request req_lock;
+    req_lock.add_query("SELECT pg_advisory_lock($1)", 3);
+    if (!check_success(co_await conn_lock.exec(req_lock, check(), &diag), diag))
+        co_return;
 
-//     std::stop_source src;
+    // Holds the reader while blocked on the lock. Its first query answering is
+    // what tells us that req2 has entered the multiplexer and is waiting.
+    request req1;
+    req1.add_query("SELECT $1 AS value", 42);
+    req1.add_query("SELECT pg_advisory_lock($1)", 3);
 
-//     auto [dummy, res1, res2, dummy2] = co_await capy::when_all(
-//         do_exec(conn, req1, check_execute()),
-//         do_exec_cancellable(conn, req2, into(strings2), src.get_token()),
-//         cancel_after(src, cancel_delay)
-//     );
+    // Written, then queued waiting for its turn to read. This is the one we cancel.
+    request req2;
+    req2.add_query("SELECT $1 AS value", "abcd");
+    std::vector<row_string> strings2;
 
-//     // Check. The first request is unaffected; the second never gets to read,
-//     // so its response is left for whoever comes next to skip.
-//     check_success(res1);
-//     BOOST_TEST(res2.code == capy::cond::canceled);
+    // Response
+    capy::async_event select_finished;
+    row_int row{};
+    auto cb = [&](row_int r) {
+        row = r;
+        select_finished.set();
+    };
 
-//     co_await check_connection_usable(conn);
-// }
+    // Recall that when_all launches things in order
+    auto [dummy, res1, res2, dummy2, dummy3] = co_await capy::when_all(
+        // Immune to the cancellation: this one must complete
+        capy::run(std::stop_token())(
+            do_exec(conn, req1, response{resultset_callback<row_int>(cb), check_execute()})
+        ),
 
-// // Same, with three requests, cancelling the middle one. The third request has
-// // to skip the response of the cancelled one, which is handed over to it rather
-// // than left to the connection's trailing count.
-// capy::task<> test_cancel_while_waiting_middle()
-// {
-//     // Setup
-//     diagnostics diag;
-//     co_connection conn{co_await capy::this_coro::executor};
-//     if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
-//         co_return;
+        // Cancelled while waiting for its turn to read
+        do_exec(conn, req2, into(strings2)),
 
-//     request req1;
-//     req1.add_query(sleep_query);
+        // Trigger the cancellation once the first SELECT receives its data
+        [&]() -> capy::io_task<> {
+            auto [ec] = co_await select_finished.wait();
+            BOOST_TEST_EQ(ec, std::error_code());
+            co_return std::make_error_code(std::errc::address_in_use);
+        }(),
 
-//     request req2;
-//     req2.add_query("SELECT $1 AS value", "middle");
-//     std::vector<row_string> strings2;
+        // Release the lock once the cancellation has been raised, so req1 can
+        // finish. This waits on the same event as the canceller: set() wakes
+        // waiters in registration order and when_all launches in argument order,
+        // so the canceller resumes first, and the error it returns makes the stop
+        // request before this task is resumed. Releasing the lock any earlier
+        // could let req1 complete instead of being cancelled.
+        // Immune to cancellation, or the shutdown would be cancelled too.
+        capy::run(std::stop_token())([&]() -> capy::io_task<> {
+            static_cast<void>(co_await select_finished.wait());
+            static_cast<void>(co_await conn_lock.shutdown());
+            co_return {};
+        }())
+    );
 
-//     request req3;
-//     req3.add_query("SELECT $1 AS value", "third");
-//     std::vector<row_string> strings3;
+    // Check. req1 is unaffected; req2 never gets to read, so its response is
+    // left for whoever comes next to skip.
+    check_success(res1);
+    BOOST_TEST_EQ(row, row_int{.value = 42});
+    BOOST_TEST(res2.code == capy::cond::canceled);
 
-//     std::stop_source src;
+    co_await check_connection_usable(conn);
+}
 
-//     auto [dummy, res1, res2, res3, dummy2] = co_await capy::when_all(
-//         do_exec(conn, req1, check_execute()),
-//         do_exec_cancellable(conn, req2, into(strings2), src.get_token()),
-//         do_exec(conn, req3, into(strings3)),
-//         cancel_after(src, cancel_delay)
-//     );
+// Same, with three requests, cancelling the middle one. The third request has
+// to skip the response of the cancelled one, which is handed over to it rather
+// than left to the connection's trailing count.
+capy::task<> test_cancel_while_waiting_middle()
+{
+    // Setup
+    diagnostics diag;
+    co_connection conn{co_await capy::this_coro::executor}, conn_lock{co_await capy::this_coro::executor};
+    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag) ||
+        !check_success(co_await conn_lock.connect(default_connect_params(), &diag), diag))
+        co_return;
 
-//     // Check
-//     check_success(res1);
-//     BOOST_TEST(res2.code == capy::cond::canceled);
-//     if (check_success(res3))
-//         test_range_eq(strings3, std::vector<row_string>{{.value = "third"}});
+    // Acquire the lock. Note: different tests should use different IDs
+    request req_lock;
+    req_lock.add_query("SELECT pg_advisory_lock($1)", 4);
+    if (!check_success(co_await conn_lock.exec(req_lock, check(), &diag), diag))
+        co_return;
 
-//     co_await check_connection_usable(conn);
-// }
+    // Holds the reader while blocked on the lock
+    request req1;
+    req1.add_query("SELECT $1 AS value", 42);
+    req1.add_query("SELECT pg_advisory_lock($1)", 4);
+
+    // The middle one, cancelled while waiting for its turn to read
+    request req2;
+    req2.add_query("SELECT $1 AS value", "middle");
+    std::vector<row_string> strings2;
+
+    // Queued behind the cancelled one, so it inherits its leftovers
+    request req3;
+    req3.add_query("SELECT $1 AS value", "third");
+    std::vector<row_string> strings3;
+
+    // Response
+    capy::async_event select_finished;
+    row_int row{};
+    auto cb = [&](row_int r) {
+        row = r;
+        select_finished.set();
+    };
+
+    // Recall that when_all launches things in order
+    auto [dummy, res1, res2, res3, dummy2, dummy3] = co_await capy::when_all(
+        // Immune to the cancellation: this one must complete
+        capy::run(std::stop_token())(
+            do_exec(conn, req1, response{resultset_callback<row_int>(cb), check_execute()})
+        ),
+
+        // Cancelled while waiting for its turn to read
+        do_exec(conn, req2, into(strings2)),
+
+        // Immune, too: it must read past req2's leftovers and find its own response
+        capy::run(std::stop_token())(do_exec(conn, req3, into(strings3))),
+
+        // Trigger the cancellation once the first SELECT receives its data
+        [&]() -> capy::io_task<> {
+            auto [ec] = co_await select_finished.wait();
+            BOOST_TEST_EQ(ec, std::error_code());
+            co_return std::make_error_code(std::errc::address_in_use);
+        }(),
+
+        // Release the lock once the cancellation has been raised, so req1 and req3 can
+        // finish. This waits on the same event as the canceller: set() wakes
+        // waiters in registration order and when_all launches in argument order,
+        // so the canceller resumes first, and the error it returns makes the stop
+        // request before this task is resumed. Releasing the lock any earlier
+        // could let req1 complete instead of being cancelled.
+        // Immune to cancellation, or the shutdown would be cancelled too.
+        capy::run(std::stop_token())([&]() -> capy::io_task<> {
+            static_cast<void>(co_await select_finished.wait());
+            static_cast<void>(co_await conn_lock.shutdown());
+            co_return {};
+        }())
+    );
+
+    // Check
+    check_success(res1);
+    BOOST_TEST_EQ(row, row_int{.value = 42});
+    BOOST_TEST(res2.code == capy::cond::canceled);
+    if (check_success(res3))
+        test_range_eq(strings3, std::vector<row_string>{{.value = "third"}});
+
+    co_await check_connection_usable(conn);
+}
 
 }  // namespace
 
-int main(int argc, char**)
+volatile int myint = 120;
+
+int main()
 {
-    if (argc > 20)
+    if (myint < 10)
     {
         run_coroutine_test(test_success());
         run_coroutine_test(test_gucs());
@@ -542,11 +631,15 @@ int main(int argc, char**)
         run_coroutine_test(test_handler_error());
         run_coroutine_test(test_cancel_single());
         run_coroutine_test(test_cancel_partial_response());
+        run_coroutine_test(test_cancel_single_with_queued());
     }
-    run_coroutine_test(test_cancel_single_with_queued());
-    // run_coroutine_test(test_cancel_partial_response_with_queued());
-    // run_coroutine_test(test_cancel_while_waiting());
-    // run_coroutine_test(test_cancel_while_waiting_middle());
+    run_coroutine_test(test_cancel_partial_response_with_queued());
+
+    if (myint < 10)
+    {
+        run_coroutine_test(test_cancel_while_waiting());
+        run_coroutine_test(test_cancel_while_waiting_middle());
+    }
 
     return boost::report_errors();
 }

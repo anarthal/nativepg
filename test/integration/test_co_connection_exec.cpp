@@ -249,13 +249,8 @@ capy::task<> test_handler_error()
 }
 
 //
-// Cancellation
-//
-// All of these check the same underlying property: whatever the cancelled
-// request had already put on the wire, the connection is left in sync, so the
-// requests that follow it still read their own responses. The multiplexer does
-// this by counting the ReadyForQuery messages the server still owes for the
-// abandoned request and skipping them.
+// Cancellation. The key point here is verifying that we leave the connection
+// in a usable state, whatever we do.
 //
 
 // A request cancelled while its write or its read is still pending
@@ -271,13 +266,16 @@ capy::task<> test_cancel_single()
     req.add_query("SELECT $1 AS value", 42);
 
     // Run a request that gets cancelled immediately
-    auto [dummy, res, dummy2] = co_await capy::when_all(
-        do_exec(conn, req, check()),
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::io_task<> {
+            // This request will be cancelled
+            auto [ec] = co_await conn.exec(req, check());
+            BOOST_TEST(ec == capy::cond::canceled);
+            co_return {};
+        }(),
         capy::ready(std::make_error_code(std::errc::io_error))
-    );
+    ));
 
-    // Check
-    BOOST_TEST(res.code == capy::cond::canceled);
     co_await check_connection_usable(conn);
 }
 

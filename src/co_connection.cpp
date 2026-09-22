@@ -234,18 +234,35 @@ struct co_connection::impl
         if (!out.empty())
             co_return {};
 
-        // No luck. Register ourselves as the listener and wait for our turn.
-        // TODO: we would detect calling receive() in parallel twice only through this path
-        auto [ec, guard] = co_await mpx_.enter_receive();
-        if (ec)
-            co_return {ec};
+        while (true)
+        {
+            // No luck. Register ourselves as the listener and wait for our turn.
+            // TODO: we would detect calling receive() in parallel twice only through this path
+            auto [ec, guard] = co_await mpx_.enter_receive();
+            if (ec)
+                co_return {ec};
 
-        // Other tasks might have generated cached notifications
-        mpx_.pop_notifications(out);
-        if (!out.empty())
-            co_return {};
+            // Other tasks might have generated cached notifications
+            mpx_.pop_notifications(out);
+            if (!out.empty())
+                co_return {};
 
-        // Again, no luck. Now actually attempt to read
+            // Again, no luck. Now actually attempt to read
+            auto [loop_ec] = co_await receive_impl(out, guard);
+            if (loop_ec || !out.empty())
+                co_return {loop_ec};
+
+            // We yielded because we received a message that wasn't for us,
+            // but we don't have anything to report. Wait until it's our turn
+            // again and repeat
+        }
+    }
+
+    boost::capy::io_task<> receive_impl(
+        std::vector<notification_event_v2>& out,
+        detail::multiplexer_v2::receive_guard& guard
+    )
+    {
         std::size_t consumed = 0u;
 
         while (true)
@@ -286,20 +303,29 @@ struct co_connection::impl
                 case protocol::any_backend_message::kind::notification_response:
                     mpx_.store_notification(res.message.get_notification_response());
                     consumed += res.size;
-                    continue;
+                    break;
                 case protocol::any_backend_message::kind::parameter_status:
                     st.update_tracked(res.message);  // TODO: I don't like going through the variant here
                     consumed += res.size;
-                    continue;
+                    break;
                 case protocol::any_backend_message::kind::notice_response:
                     consumed += res.size;
-                    continue;  // TODO: implement notices
+                    break;  // TODO: implement notices
                 // TODO: handle leftover RFQs
                 default:
-                    // This is a request message that belongs to a reader. Bail out
-                    // TODO: we're parsing the message twice here
+                    if (guard.previous_rfqs() > 0u)
                     {
+                        // We're reading leftovers. Only RFQs relevant here
+                        if (res.message.type() == protocol::any_backend_message::kind::ready_for_query)
+                            guard.report_rfq();
+                    }
+                    else
+                    {
+                        // This is a request message that belongs to a reader. Bail out
+                        // TODO: we're parsing the message twice here
                         st.read_buffer.consume(consumed);
+                        mpx_.pop_notifications(out);
+                        co_return {};
                     }
             }
         }

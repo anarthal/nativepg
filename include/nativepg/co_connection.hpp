@@ -126,8 +126,8 @@ public:
     // Waits until either a notification arrives, or an error occurs.
     // The connection must be in established state.
     // Can be called in parallel with other exec() operations.
-    // The returned view is valid until another operation involving I/O is called
-    //   (including exec() and another receive()).
+    // The returned view is valid until the next receive() operation is started.
+    // Only one receive() operation is allowed to be in-flight at any given time
     boost::capy::io_task<notifications_view> receive();
 
     // The request and the handler must live until the entire response has been read

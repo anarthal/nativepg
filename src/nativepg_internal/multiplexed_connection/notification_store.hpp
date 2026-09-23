@@ -16,13 +16,18 @@
 
 namespace nativepg::detail {
 
+// Two modes, deep (full copy) and shallow (shallow copies)
 class notification_store
 {
 public:
+    // Constructed as deep by default
     notification_store() = default;
 
-    void push_shallow(const protocol::notification_response& notif);
-    void push_deep(const protocol::notification_response& notif);
+    bool is_deep() const;
+
+    // Precondition: container empty
+    void set_deep(bool deep);
+    void push_back(const protocol::notification_response& notif);
     void clear();
 
     std::span<const protocol::notification_response> get() const;

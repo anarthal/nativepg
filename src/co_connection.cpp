@@ -174,7 +174,7 @@ struct co_connection::impl
 
             // Store notifications so the receive loop can return them
             if (res.message.type() == protocol::any_backend_message::kind::notification_response)
-                exec_notifications_.push_deep(res.message.get_notification_response());
+                exec_notifications_.push_back(res.message.get_notification_response());
 
             // Act on the message
             if (remaining_prev_rfqs > 0u)
@@ -231,13 +231,12 @@ struct co_connection::impl
 
     boost::capy::io_task<> receive()
     {
-        // Clean up previous notifications
-        receive_notifications_.clear();
-
         // If there are cached notifications, return these
         if (!exec_notifications_.get().empty())
         {
             std::swap(exec_notifications_, receive_notifications_);
+            exec_notifications_.clear();
+            exec_notifications_.set_deep(true);
             co_return {};
         }
 
@@ -254,10 +253,14 @@ struct co_connection::impl
             if (!exec_notifications_.get().empty())
             {
                 std::swap(exec_notifications_, receive_notifications_);
+                exec_notifications_.clear();
+                exec_notifications_.set_deep(true);
                 co_return {};
             }
 
             // Again, no luck. Now actually attempt to read
+            receive_notifications_.clear();
+            receive_notifications_.set_deep(false);
             auto [loop_ec] = co_await receive_impl(guard);
             if (loop_ec || !receive_notifications_.get().empty())
                 co_return {loop_ec};
@@ -306,7 +309,7 @@ struct co_connection::impl
             switch (res.message.type())
             {
                 case protocol::any_backend_message::kind::notification_response:
-                    receive_notifications_.push_shallow(res.message.get_notification_response());
+                    receive_notifications_.push_back(res.message.get_notification_response());
                     consumed += res.size;
                     break;
                 case protocol::any_backend_message::kind::parameter_status:

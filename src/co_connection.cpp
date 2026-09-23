@@ -23,6 +23,7 @@
 #include <utility>
 #include <vector>
 
+#include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
 #include "nativepg/encoding.hpp"
@@ -53,6 +54,7 @@ struct co_connection::impl
     std::optional<protocol::detail::exec_some_fsm> exec_some_fsm;
     detail::multiplexer_v2 mpx_;  // TODO: clean up this?
     detail::notification_store exec_notifications_, receive_notifications_;
+    bool receiver_running_{};
 
     void reset()
     {
@@ -184,7 +186,10 @@ struct co_connection::impl
 
             // Store notifications so the receive loop can return them
             if (res.message.type() == protocol::any_backend_message::kind::notification_response)
+            {
                 exec_notifications_.push_back(res.message.get_notification_response());
+                mpx_.notify_receiver();
+            }
 
             // Act on the message
             if (remaining_prev_rfqs > 0u)
@@ -241,25 +246,25 @@ struct co_connection::impl
 
     boost::capy::io_task<> receive()
     {
-        // If there are cached notifications, return these
-        if (!exec_notifications_.get().empty())
+        struct receiver_running_deleter
         {
-            std::swap(exec_notifications_, receive_notifications_);
-            exec_notifications_.clear();
-            exec_notifications_.set_deep(true);
-            co_return {};
-        }
+            void operator()(co_connection::impl* p) const { p->receiver_running_ = false; }
+        };
 
-        // No luck - attempt to read
+        // Verify that no two receivers run in parallel
+        if (receiver_running_)
+            co_return {client_errc::already_running};
+        receiver_running_ = true;
+        std::unique_ptr<co_connection::impl, receiver_running_deleter> receiver_running_guard{this};
+
         while (true)
         {
-            // Register ourselves as the listener and wait for our turn.
-            // TODO: we would detect calling receive() in parallel twice only through this path
+            // Wait for either notifications to arrive, or for our turn to read
             auto [ec, guard] = co_await mpx_.enter_receive();
             if (ec)
                 co_return {ec};
 
-            // Other exec tasks might have generated cached notifications
+            // Look for cached notifications first
             if (!exec_notifications_.get().empty())
             {
                 std::swap(exec_notifications_, receive_notifications_);
@@ -268,19 +273,23 @@ struct co_connection::impl
                 co_return {};
             }
 
-            // Again, no luck. Now actually attempt to read
-            receive_notifications_.clear();
-            receive_notifications_.set_deep(false);
-            auto [loop_ec] = co_await receive_impl(guard);
-            if (loop_ec || !receive_notifications_.get().empty())
-                co_return {loop_ec};
+            // Is it our turn to read? At this point, it probably is,
+            // but race conditions with other exec()s could make it not the case
+            if (guard.is_reading())
+            {
+                receive_notifications_.clear();
+                receive_notifications_.set_deep(false);
+                auto [loop_ec] = co_await receive_read(guard);
+                if (loop_ec || !receive_notifications_.get().empty())
+                    co_return {loop_ec};
+            }
 
             // We yielded because we received a message that wasn't for us,
             // but we don't have anything to report
         }
     }
 
-    boost::capy::io_task<> receive_impl(detail::multiplexer_v2::receive_guard& guard)
+    boost::capy::io_task<> receive_read(detail::multiplexer_v2::receive_guard& guard)
     {
         std::size_t consumed = 0u;
 
@@ -330,7 +339,6 @@ struct co_connection::impl
                 case protocol::any_backend_message::kind::notice_response:
                     consumed += res.size;
                     break;  // TODO: implement notices
-                // TODO: handle leftover RFQs
                 default:
                     if (guard.previous_rfqs() > 0u)
                     {

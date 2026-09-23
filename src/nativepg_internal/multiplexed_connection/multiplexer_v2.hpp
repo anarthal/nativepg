@@ -220,6 +220,10 @@ public:
                 obj_->on_receiver_exit();
         }
 
+        // Is it our turn to read? Or did we get notified because
+        // there are new cached notifications?
+        bool is_reading() const { return obj_->receiver_reading_; }
+
         // Returns the number of ReadyForQuery messages that
         // should be read from previous abandoned requests.
         std::size_t previous_rfqs() const { return obj_->trailing_rfqs_; }
@@ -245,7 +249,7 @@ public:
             co_return {ec, {}, {}};
 
         // If there is no-one reading, set the event so the reader doesn't deadlock
-        if (active_tasks_.empty() && !receive_running_)
+        if (active_tasks_.empty() && !receiver_reading_)
             node.evt.set();
 
         // Register what we are doing, so no other reader takes our turn
@@ -260,18 +264,22 @@ public:
     // TODO: do we want this as an awaitable instead?
     boost::capy::io_task<receive_guard> enter_receive()
     {
-        // If a receive operation is running, this is an error
-        if (receive_running_)
-            co_return {client_errc::unknown_openssl_error, {}};  // TODO: proper error
-
         // Wait for our turn
         if (auto [ec] = co_await receive_evt_.wait(); ec)
             co_return {ec, {}};
 
-        // We're now running
-        receive_running_ = true;
+        // Reset the event, so further notifications aren't lost
+        receive_evt_.clear();
+
+        // This event may be set because there are new cached notifications,
+        // or because it's our time to read. Try to distinguish it
+        receiver_reading_ = active_tasks_.empty();
+
+        // Done
         co_return {{}, receive_guard{*this}};
     }
+
+    void notify_receiver() { receive_evt_.set(); }
 
 private:
     // Grants exclusive access to the write side
@@ -286,7 +294,7 @@ private:
     // Bytes left over by an incomplete write by a previous task
     std::vector<unsigned char> pending_write_;
 
-    bool receive_running_{};
+    bool receiver_reading_{};
     boost::capy::async_event receive_evt_;
 
     static inline std::size_t count_rfqs(const request& req)
@@ -348,15 +356,14 @@ private:
 
     void on_receiver_exit()
     {
-        receive_running_ = false;
-        receive_evt_.clear();
-        if (!active_tasks_.empty())
+        // If we were reading, we're no longer doing it, so notify any pending readers
+        if (receiver_reading_ && !active_tasks_.empty())
             active_tasks_.front().evt.set();
+        receiver_reading_ = false;
     }
 };
 
-// TODO: I think the reader and writer really belong here.
-// But let's implement receive() first and see
+// TODO: I think the reader and writer really belong here
 
 }  // namespace nativepg::detail
 

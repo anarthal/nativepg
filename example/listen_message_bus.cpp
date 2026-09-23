@@ -21,6 +21,10 @@
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
 
+// Shows how to implement the receiver side of a message bus
+// based on LISTEN/NOTIFY. It has at-most-once delivery semantics:
+// if your listener is disconnected, notifications are lost
+
 using namespace nativepg;
 namespace capy = boost::capy;
 namespace corosio = boost::corosio;

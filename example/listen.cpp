@@ -92,6 +92,7 @@ static capy::task<> co_main()
         }
 
         // Read notifications
+        std::cout << "Listening for notifications\n";
         if (auto [notif_ec] = co_await read_notifications(conn); notif_ec)
         {
             print_err("Error receiving notifications", notif_ec, {});

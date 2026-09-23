@@ -334,7 +334,6 @@ private:
         auto it = active_tasks_.iterator_to(node);
         auto next = std::next(it);
         bool is_current_reader = it == active_tasks_.begin();
-        bool has_next = next != active_tasks_.end();
 
         // Compute the remaining RFQs. The reader might set read_rfqs to -1
         // to indicate that everything was read so we can skip this calculation
@@ -351,25 +350,28 @@ private:
         active_tasks_.erase(it);
 
         // Update the leftover RFQ count
-        (has_next ? next->pending_rfqs : trailing_rfqs_) += remaining_rfqs;
+        (next == active_tasks_.end() ? trailing_rfqs_ : next->pending_rfqs) += remaining_rfqs;
 
         // If this is the current reader and there is a next reader, notify it.
         // Otherwise, let the receiver read loop run.
         if (is_current_reader)
-        {
-            if (has_next)
-                next->evt.set();
-            else
-                receive_evt_.set();
-        }
+            notify_next_reader();
     }
 
     void on_receiver_exit()
     {
         // If we were reading, we're no longer doing it, so notify any pending readers
-        if (receiver_reading_ && !active_tasks_.empty())
-            active_tasks_.front().evt.set();
+        if (receiver_reading_)
+            notify_next_reader();
         receiver_reading_ = false;
+    }
+
+    void notify_next_reader()
+    {
+        if (!active_tasks_.empty())
+            active_tasks_.front().evt.set();
+        else
+            receive_evt_.set();
     }
 };
 

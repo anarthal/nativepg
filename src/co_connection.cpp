@@ -190,6 +190,7 @@ struct co_connection::impl
             // Store notifications so the receive loop can return them
             if (res.message.type() == protocol::any_backend_message::kind::notification_response)
             {
+                BOOST_ASSERT(exec_notifications_.is_deep());
                 exec_notifications_.push_back(res.message.get_notification_response());
                 mpx_.notify_receiver();
             }
@@ -352,7 +353,6 @@ struct co_connection::impl
             switch (res.message.type())
             {
                 case protocol::any_backend_message::kind::notification_response:
-                    BOOST_ASSERT(receive_notifications_.is_deep());
                     receive_notifications_.push_back(res.message.get_notification_response());
                     consumed += res.size;
                     break;

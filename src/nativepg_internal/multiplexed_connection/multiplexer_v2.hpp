@@ -212,7 +212,17 @@ public:
 
         receive_guard(receive_guard&& rhs) noexcept : obj_(std::exchange(rhs.obj_, nullptr)) {}
         receive_guard(const receive_guard& rhs) = delete;
-        receive_guard& operator=(receive_guard&& rhs) noexcept;  // TODO
+        receive_guard& operator=(receive_guard&& rhs) noexcept
+        {
+            if (this != &rhs)
+            {
+                // Release whatever we were holding before taking over rhs's slot
+                if (obj_)
+                    obj_->on_receiver_exit();
+                obj_ = std::exchange(rhs.obj_, nullptr);
+            }
+            return *this;
+        }
         receive_guard& operator=(const receive_guard& rhs) = delete;
         ~receive_guard()
         {

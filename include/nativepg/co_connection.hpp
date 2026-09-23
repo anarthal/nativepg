@@ -127,7 +127,8 @@ public:
     // The connection must be in established state.
     // Can be called in parallel with other exec() operations.
     // The returned view is valid until the next receive() operation is started.
-    // Only one receive() operation is allowed to be in-flight at any given time
+    // Only one receive() operation is allowed to be in-flight at any given time.
+    // Await-postcondition: either an error or a non-empty set of notifications are returned.
     boost::capy::io_task<std::span<const protocol::notification_response>> receive();
 
     // The request and the handler must live until the entire response has been read

@@ -20,6 +20,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -55,6 +56,7 @@ struct co_connection::impl
     detail::multiplexer_v2 mpx_;  // TODO: clean up this?
     detail::notification_store exec_notifications_, receive_notifications_;
     bool receiver_running_{};
+    std::error_code receiver_pending_ec_{};
 
     void reset()
     {
@@ -64,6 +66,7 @@ struct co_connection::impl
         exec_notifications_.clear();
         exec_notifications_.set_deep(true);
         receive_notifications_.clear();
+        receiver_pending_ec_ = {};
     }
 
     explicit impl(capy::execution_context& ctx) : resolv(ctx), sock(ctx) {}
@@ -244,7 +247,7 @@ struct co_connection::impl
         co_return {final_ec};
     }
 
-    boost::capy::io_task<> receive()
+    boost::capy::io_task<std::span<const protocol::notification_response>> receive()
     {
         struct receiver_running_deleter
         {
@@ -253,10 +256,31 @@ struct co_connection::impl
 
         // Verify that no two receivers run in parallel
         if (receiver_running_)
-            co_return {client_errc::already_running};
+            co_return {client_errc::already_running, {}};
         receiver_running_ = true;
         std::unique_ptr<co_connection::impl, receiver_running_deleter> receiver_running_guard{this};
 
+        // If there is a pending error, return it
+        if (auto pending_ec = std::exchange(receiver_pending_ec_, std::error_code()))
+            co_return {pending_ec, {}};
+
+        // Wait for notifications to arrive/be read
+        auto [ec] = co_await wait_for_notifications();
+
+        // If we managed to read any, return them and queue the error
+        if (!receive_notifications_.get().empty())
+        {
+            receiver_pending_ec_ = ec;
+            co_return {{}, receive_notifications_.get()};
+        }
+
+        // This should be an error
+        BOOST_ASSERT(ec);
+        co_return {ec, {}};
+    }
+
+    boost::capy::io_task<> wait_for_notifications()
+    {
         while (true)
         {
             // Wait for either notifications to arrive, or for our turn to read
@@ -510,8 +534,7 @@ capy::io_task<> co_connection::exec(const request& req, response_handler_ref han
 
 capy::io_task<std::span<const protocol::notification_response>> co_connection::receive()
 {
-    auto [ec] = co_await impl_->receive();
-    co_return {ec, impl_->receive_notifications_.get()};
+    return impl_->receive();
 }
 
 void co_connection::setup_request(const request& req, response_handler_ref handler)

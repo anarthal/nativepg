@@ -54,6 +54,16 @@ struct co_connection::impl
     detail::multiplexer_v2 mpx_;  // TODO: clean up this?
     detail::notification_store exec_notifications_, receive_notifications_;
 
+    void reset()
+    {
+        // TODO: this somehow conflicts with connection_state::reset()
+        // For now we keep both, as this is specific to co_connection, but the ideal
+        // is having just one
+        exec_notifications_.clear();
+        exec_notifications_.set_deep(true);
+        receive_notifications_.clear();
+    }
+
     explicit impl(capy::execution_context& ctx) : resolv(ctx), sock(ctx) {}
 
     capy::io_task<> physical_connect(const connect_params& params)
@@ -309,6 +319,7 @@ struct co_connection::impl
             switch (res.message.type())
             {
                 case protocol::any_backend_message::kind::notification_response:
+                    BOOST_ASSERT(receive_notifications_.is_deep());
                     receive_notifications_.push_back(res.message.get_notification_response());
                     consumed += res.size;
                     break;
@@ -438,11 +449,8 @@ capy::io_task<> co_connection::connect(connect_params params, diagnostics* diag)
 {
     using protocol::detail::connect_fsm;
 
-    // TODO: this is probably not the place to do this
-    impl_->receive_notifications_.clear();
-    impl_->exec_notifications_.clear();
-
     // Initialize
+    impl_->reset();
     connect_fsm fsm_(params);
     auto res = fsm_.resume(impl_->st, {}, 0u);
 

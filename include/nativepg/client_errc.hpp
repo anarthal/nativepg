@@ -135,7 +135,6 @@ enum class client_errc : int
 
     // Another instance of the invoked async operation is already running.
     // Both instances can't run in parallel (e.g. no two receive() operations in parallel)
-    // TODO: add to source
     already_running,
 };
 

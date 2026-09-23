@@ -5,79 +5,49 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#include <boost/capy/cond.hpp>
+#include <boost/capy/delay.hpp>
 #include <boost/capy/ex/run_async.hpp>
+#include <boost/capy/ex/this_coro.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_any.hpp>
 #include <boost/corosio/io_context.hpp>
-#include <boost/describe/class.hpp>
 
-#include <algorithm>
 #include <iostream>
-#include <span>
-#include <vector>
 
-#include "nativepg/co_multiplexed_connection.hpp"
-#include "nativepg/notification_event.hpp"
+#include "nativepg/co_connection.hpp"
+#include "nativepg/connect_params.hpp"
+#include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
 
 using namespace nativepg;
 namespace capy = boost::capy;
 namespace corosio = boost::corosio;
+using namespace std::chrono_literals;
 
-// Should we attempt to issue another LISTEN?
-// Every time we connect we should renew our listens.
-// Issuing the same listen several times is OK, so finding connect events is enough
-// TODO: we should have an automatic re-subscription feature
-static bool should_issue_listen(std::span<const notification_event> events)
+static void print_err(const char* prefix, std::error_code err, const diagnostics& diag)
 {
-    return std::ranges::find_if(events, [](const notification_event& evt) {
-               return evt.type == notification_event_type::connect;
-           }) != events.end();
+    std::cout << prefix << ": " << err << ": " << err.message();
+    if (!diag.message().empty())
+        std::cout << ": " << diag.message();
+    std::cout << '\n';
 }
 
-static void print_event(const notification_event& event)
+static capy::io_task<> read_notifications(co_connection& conn)
 {
-    switch (event.type)
-    {
-        case nativepg::notification_event_type::connect: std::cout << "Connection established\n"; break;
-        case nativepg::notification_event_type::disconnect: std::cout << "Connection disconnected\n"; break;
-        case nativepg::notification_event_type::notify:
-            std::cout << "Received notification from process " << event.backend_pid << ", channel '"
-                      << event.channel << "', payload '" << event.payload << "'\n";
-            break;
-    }
-}
-
-static capy::io_task<> listener(co_multiplexed_connection& conn)
-{
-    std::vector<notification_event> events;
-
-    request req;
-    req.add_simple_query("LISTEN mychannel");
-
     while (true)
     {
-        // Wait for new events
-        if (auto [ec] = co_await conn.read_notifications(events); ec)
-        {
-            std::cerr << "Error reading events: " << ec << ": " << ec.message() << std::endl;
-            co_return {};
-        }
+        // Wait for notifications
+        auto [ec, notifications] = co_await conn.receive();
+        if (ec)
+            co_return {ec};
 
-        // Print notifications
-        for (const auto& event : events)
-            print_event(event);
-
-        // If there was a reconnection, listen again, since
-        // reconnections remove listeners
-        if (should_issue_listen(events))
+        // Act on the notifications
+        for (const auto& notif : notifications)
         {
-            if (auto [ec] = co_await conn.exec(req, check()); ec)
-            {
-                std::cerr << "Error issuing listening: " << ec << ": " << ec.message() << std::endl;
-                co_return {};
-            }
+            std::cout << "Received notification from channel = '" << notif.channel_name << "', payload = '"
+                      << notif.payload << "'\n";
         }
     }
 }
@@ -85,22 +55,54 @@ static capy::io_task<> listener(co_multiplexed_connection& conn)
 static capy::task<> co_main()
 {
     // Create a connection
-    co_multiplexed_connection conn{co_await capy::this_coro::executor};
+    co_connection conn{co_await capy::this_coro::executor};
 
-    // clang-format off
-    multiplexed_config cfg{
-        .transport = {
-            .hostname = "localhost",
-            .username = "postgres",
-            .password = "secret",
-            .database = "postgres",
-        }
+    request req;
+    req.add_simple_query("LISTEN \"mychannel\"");
+
+    connect_params conn_params{
+        .hostname = "localhost",
+        .username = "postgres",
+        .password = "secret",
+        .database = "postgres",
     };
-    // clang-format on
 
-    // Listen for notifications and run the connection so notifications are delivered
-    co_await capy::when_any(conn.run(std::move(cfg)), listener(conn));
+    diagnostics diag;
+
+    auto stop_tok = co_await capy::this_coro::stop_token;
+
+    while (true)
+    {
+        // Establish the connection
+        if (auto [connect_ec] = co_await conn.connect(conn_params, &diag); connect_ec)
+        {
+            print_err("Error establishing the connection", connect_ec, diag);
+            if (stop_tok.stop_requested())
+                co_return;
+            if (auto [wait_ec] = co_await capy::delay(1s); wait_ec)
+                co_return;
+            continue;
+        }
+
+        // Subscribe to the channels of interest
+        if (auto [exec_ec] = co_await conn.exec(req, check(), &diag); exec_ec)
+        {
+            print_err("Error issuing the LISTEN command", exec_ec, diag);
+            continue;
+        }
+
+        // Read notifications
+        if (auto [notif_ec] = co_await read_notifications(conn); notif_ec)
+        {
+            print_err("Error receiving notifications", notif_ec, {});
+            continue;
+        }
+    }
+
+    // TODO: can we manage to shutdown this?
 }
+
+// TODO: signals
 
 int main()
 {

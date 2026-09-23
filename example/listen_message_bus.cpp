@@ -7,13 +7,16 @@
 
 #include <boost/capy/cond.hpp>
 #include <boost/capy/delay.hpp>
+#include <boost/capy/ex/run.hpp>
 #include <boost/capy/ex/run_async.hpp>
 #include <boost/capy/ex/this_coro.hpp>
 #include <boost/capy/task.hpp>
+#include <boost/capy/timeout.hpp>
 #include <boost/capy/when_any.hpp>
 #include <boost/corosio/io_context.hpp>
 
 #include <iostream>
+#include <stop_token>
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
@@ -75,16 +78,18 @@ static capy::task<> co_main()
 
     auto stop_tok = co_await capy::this_coro::stop_token;
 
-    while (true)
+    while (!stop_tok.stop_requested())
     {
         // Establish the connection
         if (auto [connect_ec] = co_await conn.connect(conn_params, &diag); connect_ec)
         {
             print_err("Error establishing the connection", connect_ec, diag);
-            if (stop_tok.stop_requested())
-                co_return;
-            if (auto [wait_ec] = co_await capy::delay(1s); wait_ec)
-                co_return;
+
+            // Wait for some time before retrying.
+            // Note: this will be a no-op if stop has already been requested.
+            static_cast<void>(co_await capy::delay(1s));
+
+            // Try again
             continue;
         }
 
@@ -104,7 +109,11 @@ static capy::task<> co_main()
         }
     }
 
-    // TODO: can we manage to shutdown this?
+    // Try to close the connection gracefully.
+    // Closing the connection may require I/O, and we want it to happen even
+    // if we were requested cancel, so we use run with an empty stop_token.
+    // Set a timeout to avoid hanging indefinitely
+    static_cast<void>(co_await capy::run(std::stop_token())(capy::timeout(conn.shutdown(), 3s)));
 }
 
 // TODO: signals

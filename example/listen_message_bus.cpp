@@ -14,7 +14,9 @@
 #include <boost/capy/timeout.hpp>
 #include <boost/capy/when_any.hpp>
 #include <boost/corosio/io_context.hpp>
+#include <boost/corosio/signal_set.hpp>
 
+#include <csignal>
 #include <iostream>
 #include <stop_token>
 
@@ -35,6 +37,10 @@ using namespace std::chrono_literals;
 
 static void print_err(const char* prefix, std::error_code err, const diagnostics& diag)
 {
+    // Cancellation is how a clean shutdown reaches us, so it's not worth reporting
+    if (err == capy::cond::canceled)
+        return;
+
     std::cout << prefix << ": " << err << ": " << err.message();
     if (!diag.message().empty())
         std::cout << ": " << diag.message();
@@ -59,7 +65,7 @@ static capy::io_task<> read_notifications(co_connection& conn)
     }
 }
 
-static capy::task<> co_main()
+static capy::io_task<> run_listener()
 {
     // Create a connection
     co_connection conn{co_await capy::this_coro::executor};
@@ -114,9 +120,27 @@ static capy::task<> co_main()
     // if we were requested cancel, so we use run with an empty stop_token.
     // Set a timeout to avoid hanging indefinitely
     static_cast<void>(co_await capy::run(std::stop_token())(capy::timeout(conn.shutdown(), 3s)));
+
+    // Done
+    co_return {};
 }
 
-// TODO: signals
+// Waits for Ctrl+C (or SIGTERM)
+static capy::io_task<> wait_for_signals()
+{
+    corosio::signal_set signals{(co_await capy::this_coro::executor).context(), SIGINT, SIGTERM};
+    auto [ec, signum] = co_await signals.wait();
+    if (!ec)
+        std::cout << "\nReceived signal " << signum << "\n";
+    co_return {};
+}
+
+static capy::task<> co_main()
+{
+    // Run the listener and the signal handler in parallel.
+    // When a signal arrives, it cancels the listener.
+    static_cast<void>(co_await capy::when_any(run_listener(), wait_for_signals()));
+}
 
 int main()
 {

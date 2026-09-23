@@ -22,7 +22,7 @@
 #include "nativepg/connect_params.hpp"
 #include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
-#include "nativepg/notifications_view.hpp"
+#include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/copy.hpp"
 #include "nativepg/request.hpp"
@@ -128,7 +128,7 @@ public:
     // Can be called in parallel with other exec() operations.
     // The returned view is valid until the next receive() operation is started.
     // Only one receive() operation is allowed to be in-flight at any given time
-    boost::capy::io_task<notifications_view> receive();
+    boost::capy::io_task<std::span<const protocol::notification_response>> receive();
 
     // The request and the handler must live until the entire response has been read
     // with exec_some

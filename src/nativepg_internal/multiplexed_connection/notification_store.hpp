@@ -8,7 +8,10 @@
 #ifndef NATIVEPG_NOTIFICATION_STORE_HPP
 #define NATIVEPG_NOTIFICATION_STORE_HPP
 
-#include "nativepg/notifications_view.hpp"
+#include <boost/assert.hpp>
+
+#include <span>
+
 #include "nativepg/protocol/async.hpp"
 
 namespace nativepg::detail {
@@ -18,13 +21,13 @@ class notification_store
 public:
     notification_store() = default;
 
-    void push_shallow(const protocol::notification_response&);
-    void push_deep(const protocol::notification_response&);
+    void push_shallow(const protocol::notification_response& notif);
+    void push_deep(const protocol::notification_response& notif);
     void clear();
 
-    notifications_view get() const;
+    std::span<const protocol::notification_response> get() const;
 };
 
 }  // namespace nativepg::detail
 
-#endif  // BOOST_REDIS_MULTIPLEXER_HPP
+#endif

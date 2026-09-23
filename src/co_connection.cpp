@@ -18,6 +18,7 @@
 
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -26,7 +27,7 @@
 #include "nativepg/connect_params.hpp"
 #include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
-#include "nativepg/notifications_view.hpp"
+#include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
 #include "nativepg/protocol/detail/exec_some_fsm.hpp"
@@ -488,7 +489,7 @@ capy::io_task<> co_connection::exec(const request& req, response_handler_ref han
     return impl_->exec(req, handler, diag);
 }
 
-capy::io_task<notifications_view> co_connection::receive()
+capy::io_task<std::span<const protocol::notification_response>> co_connection::receive()
 {
     auto [ec] = co_await impl_->receive();
     co_return {ec, impl_->receive_notifications_.get()};

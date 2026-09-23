@@ -15,6 +15,7 @@
 #include <memory>
 #include <span>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "nativepg/protocol/async.hpp"
@@ -27,6 +28,38 @@ class notification_store
 public:
     // Constructed as deep by default
     notification_store() = default;
+
+    // The moved-from store is left empty, retaining its mode
+    notification_store(notification_store&& other) noexcept
+        : elms_(std::move(other.elms_)),
+          data_{
+              std::move(other.data_.data),
+              std::exchange(other.data_.size, 0u),
+              std::exchange(other.data_.capacity, 0u)
+          },
+          deep_(other.deep_)
+    {
+    }
+
+    notification_store& operator=(notification_store&& other) noexcept
+    {
+        if (this != &other)
+        {
+            elms_ = std::move(other.elms_);
+            data_.data = std::move(other.data_.data);
+            data_.size = std::exchange(other.data_.size, 0u);
+            data_.capacity = std::exchange(other.data_.capacity, 0u);
+            deep_ = other.deep_;
+
+            // Unlike the move constructor, move-assigning a vector
+            // doesn't guarantee that the source is left empty
+            other.elms_.clear();
+        }
+        return *this;
+    }
+
+    notification_store(const notification_store&) = delete;
+    notification_store& operator=(const notification_store&) = delete;
 
     bool is_deep() const { return deep_; }
 

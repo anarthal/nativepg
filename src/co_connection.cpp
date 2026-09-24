@@ -30,7 +30,6 @@
 #include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/notification_vector.hpp"
-#include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
 #include "nativepg/protocol/detail/exec_some_fsm.hpp"
@@ -56,7 +55,6 @@ struct co_connection::impl
     detail::multiplexer_v2 mpx_;  // TODO: clean up this?
     notification_vector exec_notifications_;
     bool receiver_running_{};
-    std::error_code receiver_pending_ec_{};
 
     void reset()
     {
@@ -64,7 +62,6 @@ struct co_connection::impl
         // For now we keep both, as this is specific to co_connection, but the ideal
         // is having just one
         exec_notifications_.clear();
-        receiver_pending_ec_ = {};
     }
 
     explicit impl(capy::execution_context& ctx) : resolv(ctx), sock(ctx) {}
@@ -261,22 +258,14 @@ struct co_connection::impl
         // We own the output from this point on
         output.clear();
 
-        // If there is a pending error, return it
-        if (auto pending_ec = std::exchange(receiver_pending_ec_, std::error_code()))
-            co_return {pending_ec};
-
         // Wait for notifications to arrive/be read
         auto [ec] = co_await wait_for_notifications(output);
 
-        // If we managed to read any, report success and queue the error
+        // If we managed to read any, report success.
+        // TODO: if this was a fatal error, we should mark the connection as failed
         if (!output.empty())
-        {
-            receiver_pending_ec_ = ec;
-            co_return {};
-        }
+            ec.clear();
 
-        // This should be an error
-        BOOST_ASSERT(ec);
         co_return {ec};
     }
 
@@ -535,10 +524,7 @@ capy::io_task<> co_connection::exec(const request& req, response_handler_ref han
     return impl_->exec(req, handler, diag);
 }
 
-capy::io_task<> co_connection::receive(notification_vector& output)
-{
-    return impl_->receive(output);
-}
+capy::io_task<> co_connection::receive(notification_vector& output) { return impl_->receive(output); }
 
 void co_connection::setup_request(const request& req, response_handler_ref handler)
 {

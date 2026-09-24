@@ -25,13 +25,13 @@ void run_coroutine_test(boost::capy::task<void> test, boost::source_location loc
 // Utilities to check the result of a Capy operation
 bool check_success(
     std::error_code ec,
-    const diagnostics& diag,
+    const diagnostics& diag = {},
     boost::source_location loc = BOOST_CURRENT_LOCATION
 );
 
 inline bool check_success(
     boost::capy::io_result<> res,
-    const diagnostics& diag,
+    const diagnostics& diag = {},
     boost::source_location loc = BOOST_CURRENT_LOCATION
 )
 {

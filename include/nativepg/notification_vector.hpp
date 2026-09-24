@@ -76,6 +76,7 @@ public:
         return *this;
     }
 
+    // TODO: these should really not be = delete
     notification_vector(const notification_vector&) = delete;
     notification_vector& operator=(const notification_vector&) = delete;
 

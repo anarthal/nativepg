@@ -29,10 +29,10 @@ struct connection_state
     detail::read_buffer read_buffer{4096};
 
     // The ID of the process that is managing our connection (aka connection ID)
-    std::uint32_t backend_process_id{};
+    std::int32_t backend_process_id{};
 
     // A key that can be used for cancellations
-    std::uint32_t backend_secret_key{};
+    std::int32_t backend_secret_key{};
 
     // GUCs reported via ParameterStatus
     std::optional<bool> standard_conforming_strings{};

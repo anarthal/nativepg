@@ -40,6 +40,7 @@
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
+#include "nativepg/responses/response.hpp"
 #include "nativepg/responses/resultset_callback.hpp"
 
 // Shows how to implement a listener that keeps a real-time
@@ -147,13 +148,21 @@ static capy::io_task<> read_notifications(co_connection& conn)
     diagnostics diag;
     auto update_map_handler = resultset_callback<game>([&games](game&& g) { games[g.id] = std::move(g); });
 
-    request full_table_req;
-    full_table_req.add_query("SELECT * FROM games");
+    // Order here is important. We listen first, then query our data.
+    // Doing the reverse introduces a race condition where notifications
+    // arriving while we are querying our data are lost, ending with stale data.
+    // Duplicate notifications are OK - we just re-query some extra rows.
+    // The server is the source of truth, not the notifications.
+    request initial_req;
+    initial_req.add_simple_query("LISTEN \"games_updated\"");
+    initial_req.add_simple_query("SELECT * FROM games");
 
-    std::vector<std::int64_t> ids_to_query;
+    std::vector<std::int64_t> ids_to_query;  // reuse memory
 
     // Query the full table first
-    if (auto [exec_ec] = co_await conn.exec(full_table_req, &update_map_handler, &diag); exec_ec)
+    if (auto [exec_ec] = co_await conn
+                             .exec(initial_req, response{check_execute(), update_map_handler}, &diag);
+        exec_ec)
     {
         print_err("Error running initial query", exec_ec, diag);
         co_return {exec_ec};  // TODO: this is really not the best thing, as we'd be retrying endlessly
@@ -249,25 +258,17 @@ static capy::io_task<> run_listener()
         if (auto [connect_ec] = co_await conn.connect(conn_params, &diag); connect_ec)
         {
             print_err("Error establishing the connection", connect_ec, diag);
-
-            // Wait for some time before retrying.
-            // Note: this will be a no-op if stop has already been requested.
-            static_cast<void>(co_await capy::delay(1s));
-
-            // Try again
-            continue;
         }
-
-        // Subscribe to the channels of interest
-        if (auto [exec_ec] = co_await conn.exec(req, check(), &diag); exec_ec)
+        else
         {
-            print_err("Error issuing the LISTEN command", exec_ec, diag);
-            continue;
+            // Run the main loop. Logging is performed within the function,
+            // so we don't need the result
+            static_cast<void>(co_await read_notifications(conn));
         }
 
-        // Read notifications. Logging is performed within the function,
-        // so we don't need the result
-        static_cast<void>(co_await read_notifications(conn));
+        // Wait for some time before trying to re-connect.
+        // Note: this will be a no-op if stop has already been requested.
+        static_cast<void>(co_await capy::delay(1s));
     }
 
     // Try to close the connection gracefully.

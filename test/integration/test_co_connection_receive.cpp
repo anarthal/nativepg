@@ -15,6 +15,7 @@
 #include <boost/describe/operators.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <ostream>
 #include <string_view>
 #include <system_error>
@@ -243,16 +244,17 @@ capy::task<> test_batch_notifications()
 // Synchronization between exec() and receive()
 //
 
-// A receive() issued while an exec() already owns the reader waits for its turn,
-// and still gets the notification that arrives in the meantime
-capy::task<> test_receive_starts_during_exec()
+// A receive() issued while an exec() already owns the reader waits for its turn.
+// exec() hands over to receive() correctly
+capy::task<> test_receive_during_exec_handover()
 {
     // Setup
     auto conn = co_await establish_connection(), notifier = co_await establish_connection(),
          locker = co_await establish_connection();
 
     // Acquire the lock
-    if (!co_await checked_exec(locker, request().add_query("SELECT pg_advisory_lock(10)")))
+    constexpr std::int64_t lock_id = 10;
+    if (!co_await checked_exec(locker, request().add_query("SELECT pg_advisory_lock($1)", lock_id)))
         co_return;
 
     // Listen
@@ -262,7 +264,7 @@ capy::task<> test_receive_starts_during_exec()
     // Blocks on the lock, keeping the reader busy
     request req_exec;
     req_exec.add_query("SELECT $1 AS value", 42);
-    req_exec.add_query("SELECT pg_advisory_lock($1)", 10);
+    req_exec.add_query("SELECT pg_advisory_lock($1)", lock_id);
 
     capy::async_event select_finished, exec_finished;
 
@@ -312,6 +314,58 @@ capy::task<> test_receive_starts_during_exec()
                 request().add_query("NOTIFY test_receive_during_exec, 'my payload'")
             );
 
+            co_return {};
+        }()
+    ));
+}
+
+// A receive() issued while an exec() already owns the reader waits for its turn,
+// but is woken if exec() receives a notification
+capy::task<> test_receive_during_exec_gets_notifications()
+{
+    // Setup
+    auto conn = co_await establish_connection(), locker = co_await establish_connection();
+
+    // Acquire the lock
+    constexpr std::int64_t lock_id = 11;
+    if (!co_await checked_exec(locker, request().add_query("SELECT pg_advisory_lock($1)", lock_id)))
+        co_return;
+
+    // Listen
+    if (!co_await checked_exec(conn, request().add_query("LISTEN test_receive_during_exec_notif")))
+        co_return;
+
+    // Issues a query to give time to receive() to start and wait,
+    // then notifies and blocks, to check that receive() completed before the exec().
+    // Receive may actually start before the exec() starts reading, but would
+    // eventually yield to exec and hit the case we want
+    request req_exec;
+    req_exec.add_query("SELECT 42");  // give time to
+    req_exec.add_query("NOTIFY test_receive_during_exec_notif, 'my payload'");
+    req_exec.add_query("SELECT pg_advisory_lock($1)", lock_id);
+
+    // Recall that when_all launches things in order
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::io_task<> {
+            co_await checked_exec(conn, req_exec);
+            co_return {};
+        }(),
+
+        [&]() -> capy::io_task<> {
+            // Retrieve the notifications
+            auto [ec, notifs] = co_await conn.receive();
+            if (check_success(ec))
+            {
+                const protocol::notification_response expected[] = {
+                    {.process_id = conn.state().backend_process_id,
+                     .channel_name = "test_receive_during_exec_notif",
+                     .payload = "my payload"}
+                };
+                test_range_eq(notifs, expected);
+            }
+
+            // Unblock exec
+            check_success(co_await locker.shutdown());
             co_return {};
         }()
     ));
@@ -492,7 +546,8 @@ int main()
     run_coroutine_test(test_exec_doesnt_invalidate_notifications());
     run_coroutine_test(test_batch_notifications());
 
-    run_coroutine_test(test_receive_starts_during_exec());
+    run_coroutine_test(test_receive_during_exec_handover());
+    run_coroutine_test(test_receive_during_exec_gets_notifications());
     // run_coroutine_test(test_receive_starts_during_exec_with_queued());
     // run_coroutine_test(test_exec_starts_during_receive());
 

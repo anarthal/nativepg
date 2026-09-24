@@ -376,7 +376,7 @@ capy::task<> test_receive_during_exec_handover()
             check_success(co_await locker.shutdown());
 
             // Once exec has finished, issue a notification to unblock the receiver
-            check_success(co_await select_finished.wait());
+            check_success(co_await exec_finished.wait());
             co_await checked_exec(
                 notifier,
                 request().add_query("NOTIFY test_receive_during_exec, 'my payload'")

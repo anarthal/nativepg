@@ -7,15 +7,20 @@
 
 #include <boost/assert/source_location.hpp>
 #include <boost/capy/ex/run_async.hpp>
+#include <boost/capy/ex/this_coro.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/core/lightweight_test.hpp>
 #include <boost/corosio/io_context.hpp>
 
 #include <chrono>
+#include <cstdlib>
+#include <exception>
 #include <iostream>
 #include <system_error>
 #include <utility>
 
+#include "nativepg/extended_error.hpp"
+#include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
 
@@ -46,4 +51,35 @@ bool nativepg::test::check_success(std::error_code ec, const diagnostics& diag, 
     if (!ok)
         std::cerr << "  Called from " << loc << std::endl;
     return ok;
+}
+
+boost::capy::task<nativepg::co_connection> nativepg::test::establish_connection(
+    const connect_params& params,
+    boost::source_location loc
+)
+{
+    co_connection conn{co_await boost::capy::this_coro::executor};
+
+    diagnostics diag;
+    if (!check_success(co_await conn.connect(params, &diag), diag, loc))
+    {
+        // Without a connection there is nothing left for the test to do, and handing
+        // back an unusable one would turn a single failure into a cascade of them
+        std::cerr << "Could not establish a connection to the server, aborting" << std::endl;
+        std::terminate();
+    }
+
+    co_return std::move(conn);
+}
+
+boost::capy::task<bool> nativepg::test::checked_exec(
+    co_connection& conn,
+    const request& req,
+    response_handler_ref handler,
+    boost::source_location loc
+)
+{
+    diagnostics diag;
+    auto [ec] = co_await conn.exec(req, handler, &diag);
+    co_return check_success(ec, diag, loc);
 }

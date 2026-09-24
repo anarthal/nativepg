@@ -16,8 +16,7 @@
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/async.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/responses/check.hpp"
-#include "test_utils/ci_server.hpp"
+#include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
 #include "test_utils/test_range_eq.hpp"
@@ -44,22 +43,14 @@ namespace {
 capy::task<> test_single_notification()
 {
     // Setup
-    diagnostics diag;
-    co_connection conn{co_await capy::this_coro::executor}, notifier{co_await capy::this_coro::executor};
-    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag) ||
-        !check_success(co_await notifier.connect(default_connect_params(), &diag), diag))
-        co_return;
+    auto conn = co_await establish_connection(), notifier = co_await establish_connection();
 
     // Listen
-    request req_listen;
-    req_listen.add_simple_query("LISTEN \"test_receive_single\"");
-    if (!check_success(co_await conn.exec(req_listen, check(), &diag), diag))
+    if (!co_await checked_exec(conn, request().add_query("LISTEN \"test_receive_single\"")))
         co_return;
 
     // Raise the notification
-    request req_notify;
-    req_notify.add_simple_query("NOTIFY test_receive_single, 'some payload'");
-    if (!check_success(co_await notifier.exec(req_notify, check(), &diag), diag))
+    if (!co_await checked_exec(notifier, request().add_query("NOTIFY test_receive_single, 'some payload'")))
         co_return;
 
     // Receive
@@ -80,22 +71,14 @@ capy::task<> test_single_notification()
 capy::task<> test_empty_payload()
 {
     // Setup
-    diagnostics diag;
-    co_connection conn{co_await capy::this_coro::executor}, notifier{co_await capy::this_coro::executor};
-    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag) ||
-        !check_success(co_await notifier.connect(default_connect_params(), &diag), diag))
-        co_return;
+    auto conn = co_await establish_connection(), notifier = co_await establish_connection();
 
     // Listen
-    request req_listen;
-    req_listen.add_simple_query("LISTEN \"test_empty_payload\"");
-    if (!check_success(co_await conn.exec(req_listen, check(), &diag), diag))
+    if (!co_await checked_exec(conn, request().add_query("LISTEN \"test_empty_payload\"")))
         co_return;
 
     // Raise the notification
-    request req_notify;
-    req_notify.add_simple_query("NOTIFY test_empty_payload");
-    if (!check_success(co_await notifier.exec(req_notify, check(), &diag), diag))
+    if (!co_await checked_exec(notifier, request().add_query("NOTIFY test_empty_payload")))
         co_return;
 
     // Receive

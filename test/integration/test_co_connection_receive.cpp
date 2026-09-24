@@ -267,6 +267,52 @@ capy::task<> test_batch_notifications()
 // Synchronization between exec() and receive()
 //
 
+// A receive() started before anything else has run on the connection, including
+// the LISTEN. There is no exec() in flight to hand the reader over to it
+capy::task<> test_receive_before_any_exec()
+{
+    // Setup
+    auto conn = co_await establish_connection(), notifier = co_await establish_connection();
+
+    // Recall that when_all launches things in order, so the receive() below starts
+    // on a connection where no request has run yet
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::io_task<> {
+            // Takes the reader on an idle connection, then has to hand it over to
+            // the LISTEN below and wait until the notification arrives
+            auto [ec, notifs] = co_await conn.receive();
+            if (check_success(ec))
+            {
+                const protocol::notification_response expected[] = {
+                    {.process_id = notifier.state().backend_process_id,
+                     .channel_name = "test_before_any_exec",
+                     .payload = "no previous exec"}
+                };
+                test_range_eq(notifs, expected);
+            }
+            co_return {};
+        }(),
+
+        [&]() -> capy::io_task<> {
+            // Give the receiver some time to start, just in case
+            check_success(co_await capy::delay(1ms));
+
+            // Subscribe only now, with the receive() already in flight
+            co_await checked_exec(conn, request().add_query("LISTEN \"test_before_any_exec\""));
+
+            // Unblock receive
+            co_await checked_exec(
+                notifier,
+                request().add_query("NOTIFY test_before_any_exec, 'no previous exec'")
+            );
+            co_return {};
+        }()
+    ));
+
+    // The connection is left in a usable state
+    co_await check_connection_usable(conn);
+}
+
 // A receive() issued while an exec() already owns the reader waits for its turn.
 // exec() hands over to receive() correctly
 capy::task<> test_receive_during_exec_handover()
@@ -638,6 +684,7 @@ int main()
     run_coroutine_test(test_exec_doesnt_invalidate_notifications());
     run_coroutine_test(test_batch_notifications());
 
+    run_coroutine_test(test_receive_before_any_exec());
     run_coroutine_test(test_receive_during_exec_handover());
     run_coroutine_test(test_receive_during_exec_gets_notifications());
     run_coroutine_test(test_exec_starts_during_receive());

@@ -106,7 +106,7 @@ capy::task<> test_empty_payload()
     // Check
     const protocol::notification_response expected[] = {
         {.process_id = notifier.state().backend_process_id,
-         .channel_name = "test_receive_single",
+         .channel_name = "test_empty_payload",
          .payload = ""}
     };
     test_range_eq(notifs, expected);

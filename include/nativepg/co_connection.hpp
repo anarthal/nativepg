@@ -97,7 +97,7 @@ public:
     {
     }
 
-    co_connection(co_connection&&) = default;
+    co_connection(co_connection&&) noexcept;
     co_connection(const co_connection&) = delete;
 
     co_connection& operator=(co_connection&&) noexcept;

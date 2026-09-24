@@ -470,6 +470,8 @@ struct co_connection::impl
 
 co_connection::co_connection(capy::execution_context& ctx) : impl_(std::make_unique<impl>(ctx)) {}
 
+co_connection::co_connection(co_connection&&) noexcept = default;
+
 co_connection& co_connection::operator=(co_connection&&) noexcept = default;
 
 co_connection::~co_connection() = default;

@@ -9,6 +9,7 @@
 #include <boost/capy/task.hpp>
 #include <boost/core/lightweight_test.hpp>
 
+#include <cstddef>
 #include <ostream>
 #include <string_view>
 
@@ -65,6 +66,22 @@ capy::task<> test_single_notification()
          .payload = "some payload"}
     };
     test_range_eq(notifs, expected);
+
+    // Raise a second notification
+    if (!co_await checked_exec(notifier, request().add_query("NOTIFY test_receive_single, 'second payload'")))
+        co_return;
+
+    // The next receive() delivers only the new one: the previous batch was consumed
+    auto [ec2, notifs2] = co_await conn.receive();
+    if (!check_success(ec2, {}))
+        co_return;
+
+    const protocol::notification_response expected2[] = {
+        {.process_id = notifier.state().backend_process_id,
+         .channel_name = "test_receive_single",
+         .payload = "second payload"}
+    };
+    test_range_eq(notifs2, expected2);
 }
 
 // Empty payloads don't cause trouble
@@ -95,12 +112,122 @@ capy::task<> test_empty_payload()
     test_range_eq(notifs, expected);
 }
 
+// A notification that arrives while an exec() owns the reader is stored,
+// rather than discarded, and delivered by the next receive()
+capy::task<> test_notification_during_exec()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    // Listen
+    if (!co_await checked_exec(conn, request().add_query("LISTEN \"test_during_exec\"")))
+        co_return;
+
+    // Raise the notification. Make sure it arrives during exec
+    request req_notify;
+    req_notify.add_query("NOTIFY test_during_exec, 'during exec'");
+    req_notify.add_query("SELECT 1");
+    if (!co_await checked_exec(conn, req_notify))
+        co_return;
+
+    // Receive
+    auto [ec, notifs] = co_await conn.receive();
+    if (!check_success(ec, {}))
+        co_return;
+
+    // Check
+    const protocol::notification_response expected[] = {
+        {.process_id = conn.state().backend_process_id,
+         .channel_name = "test_during_exec",
+         .payload = "during exec"}
+    };
+    test_range_eq(notifs, expected);
+}
+
+// The view returned by receive() stays valid when an exec() runs afterwards,
+// even if that exec() reads further notifications
+capy::task<> test_exec_doesnt_invalidate_notifications()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    // Listen
+    if (!co_await checked_exec(conn, request().add_query("LISTEN \"test_no_invalidate\"")))
+        co_return;
+
+    // Raise the notification. Make sure it arrives during exec
+    request req_notify;
+    req_notify.add_query("NOTIFY test_no_invalidate, 'first notification payload'");
+    req_notify.add_query("SELECT 1");
+    if (!co_await checked_exec(conn, req_notify))
+        co_return;
+
+    // Retrieve it
+    auto [ec, notifs] = co_await conn.receive();
+    if (!check_success(ec, {}))
+        co_return;
+    const protocol::notification_response expected[] = {
+        {.process_id = conn.state().backend_process_id,
+         .channel_name = "test_no_invalidate",
+         .payload = "first notification payload"}
+    };
+    test_range_eq(notifs, expected);
+    if (!BOOST_TEST_EQ(notifs.size(), static_cast<std::size_t>(1)))
+        co_return;
+
+    // A second notification arrives while an exec() is reading, so the connection
+    // has to buffer it without disturbing what we were handed above
+    req_notify = {};
+    req_notify.add_query("NOTIFY test_no_invalidate, 'second payload here'");
+    req_notify.add_query("SELECT 2");
+    if (!co_await checked_exec(conn, req_notify))
+        co_return;
+
+    // Check that the view we got before the exec() still reads correctly
+    test_range_eq(notifs, expected);
+}
+
+// Notifications raised by a single transaction are delivered as a single batch
+capy::task<> test_batch_notifications()
+{
+    // Setup
+    auto conn = co_await establish_connection(), notifier = co_await establish_connection();
+
+    // Listen
+    if (!co_await checked_exec(conn, request().add_query("LISTEN \"test_batch\"")))
+        co_return;
+
+    // Raise the notifications. Payloads must differ because Postgres deduplicates
+    request req_notify{false};
+    req_notify.add_query("NOTIFY test_batch, 'first'");
+    req_notify.add_query("NOTIFY test_batch, 'second'");
+    req_notify.add_sync();
+    if (!co_await checked_exec(notifier, req_notify))
+        co_return;
+
+    // Receive
+    auto [ec, notifs] = co_await conn.receive();
+    if (!check_success(ec, {}))
+        co_return;
+
+    // Check
+    const auto notifier_pid = notifier.state().backend_process_id;
+    const protocol::notification_response expected[] = {
+        {.process_id = notifier_pid, .channel_name = "test_batch", .payload = "first" },
+        {.process_id = notifier_pid, .channel_name = "test_batch", .payload = "second"},
+    };
+    test_range_eq(notifs, expected);
+}
+
 }  // namespace
 
 int main()
 {
     run_coroutine_test(test_single_notification());
     run_coroutine_test(test_empty_payload());
+    run_coroutine_test(test_notification_during_exec());
+    run_coroutine_test(test_exec_doesnt_invalidate_notifications());
+    run_coroutine_test(test_batch_notifications());
 
     return boost::report_errors();
 }

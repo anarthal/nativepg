@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_NOTIFICATION_STORE_HPP
-#define NATIVEPG_NOTIFICATION_STORE_HPP
+#ifndef NATIVEPG_NOTIFICATION_VECTOR_HPP
+#define NATIVEPG_NOTIFICATION_VECTOR_HPP
 
 #include <boost/assert.hpp>
 
@@ -25,14 +25,14 @@ namespace nativepg {
 // Two modes, deep (full copy) and shallow (shallow copies)
 // TODO: unit test
 // TODO: move to cpp
-class notification_store
+class notification_vector
 {
 public:
     // Constructed as deep by default
-    notification_store() = default;
+    notification_vector() = default;
 
     // The moved-from store is left empty, retaining its mode
-    notification_store(notification_store&& other) noexcept
+    notification_vector(notification_vector&& other) noexcept
         : elms_(std::move(other.elms_)),
           data_{
               std::move(other.data_.data),
@@ -43,7 +43,7 @@ public:
     {
     }
 
-    notification_store& operator=(notification_store&& other) noexcept
+    notification_vector& operator=(notification_vector&& other) noexcept
     {
         if (this != &other)
         {
@@ -60,8 +60,8 @@ public:
         return *this;
     }
 
-    notification_store(const notification_store&) = delete;
-    notification_store& operator=(const notification_store&) = delete;
+    notification_vector(const notification_vector&) = delete;
+    notification_vector& operator=(const notification_vector&) = delete;
 
     bool is_deep() const { return deep_; }
 

@@ -45,7 +45,10 @@ namespace nativepg::detail {
 class multiplexer_v2
 {
 public:
-    multiplexer_v2() = default;
+    multiplexer_v2()
+    {
+        receive_evt_.set();  // tasks start empty
+    }
 
     // TODO: this should have a proper reset to call on connection establishment.
     // If leftovers happen after a connection is severed, they are never cleaned up.
@@ -289,6 +292,7 @@ public:
         co_return {{}, receive_guard{*this}};
     }
 
+    // TODO: this lacks encapsulation
     void notify_receiver() { receive_evt_.set(); }
 
     // Are there any exec readers waiting?

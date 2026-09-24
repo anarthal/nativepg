@@ -366,7 +366,13 @@ struct co_connection::impl
                         // This is a request message that belongs to a reader. Bail out
                         // TODO: we're parsing the message twice here
                         st.read_buffer.consume(consumed);
-                        co_return {};
+
+                        // For safety, check that there is an actual reader.
+                        // The multiplexer structure makes sure this should be the case.
+                        // This prevents busy spinning in case of de-synchronization
+                        auto final_ec = mpx_.has_exec_readers() ? std::error_code()
+                                                                : client_errc::unexpected_message;
+                        co_return {final_ec};
                     }
             }
         }

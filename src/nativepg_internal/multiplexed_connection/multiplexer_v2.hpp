@@ -291,6 +291,9 @@ public:
 
     void notify_receiver() { receive_evt_.set(); }
 
+    // Are there any exec readers waiting?
+    bool has_exec_readers() const { return !active_tasks_.empty(); }
+
 private:
     // Grants exclusive access to the write side
     boost::capy::async_mutex write_mtx_;
@@ -304,7 +307,11 @@ private:
     // Bytes left over by an incomplete write by a previous task
     std::vector<unsigned char> pending_write_;
 
+    // Has the receiver acquired ownership of the reader?
     bool receiver_reading_{};
+
+    // Should be set when there are new notifications
+    // or the receiver can attempt to read
     boost::capy::async_event receive_evt_;
 
     static inline std::size_t count_rfqs(const request& req)

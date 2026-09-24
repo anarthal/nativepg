@@ -20,10 +20,11 @@
 
 #include "nativepg/protocol/async.hpp"
 
-namespace nativepg::detail {
+namespace nativepg {
 
 // Two modes, deep (full copy) and shallow (shallow copies)
 // TODO: unit test
+// TODO: move to cpp
 class notification_store
 {
 public:
@@ -186,6 +187,6 @@ private:
     }
 };
 
-}  // namespace nativepg::detail
+}  // namespace nativepg
 
 #endif

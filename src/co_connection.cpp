@@ -29,6 +29,7 @@
 #include "nativepg/connect_params.hpp"
 #include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/notification_store.hpp"
 #include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
@@ -38,7 +39,6 @@
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
 #include "nativepg_internal/multiplexed_connection/multiplexer_v2.hpp"
-#include "nativepg_internal/multiplexed_connection/notification_store.hpp"
 
 namespace capy = boost::capy;
 namespace corosio = boost::corosio;
@@ -54,7 +54,7 @@ struct co_connection::impl
     std::vector<capy::const_buffer> copy_out_buffers;
     std::optional<protocol::detail::exec_some_fsm> exec_some_fsm;
     detail::multiplexer_v2 mpx_;  // TODO: clean up this?
-    detail::notification_store exec_notifications_, receive_notifications_;
+    notification_store exec_notifications_, receive_notifications_;
     bool receiver_running_{};
     std::error_code receiver_pending_ec_{};
 

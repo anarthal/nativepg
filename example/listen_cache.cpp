@@ -152,14 +152,17 @@ static capy::io_task<> read_notifications(co_connection& conn)
 
     std::vector<std::int64_t> ids_to_query;
 
+    // Query the full table first
+    if (auto [exec_ec] = co_await conn.exec(full_table_req, &update_map_handler, &diag); exec_ec)
+    {
+        print_err("Error running initial query", exec_ec, diag);
+        co_return {exec_ec};  // TODO: this is really not the best thing, as we'd be retrying endlessly
+    }
+
     while (true)
     {
-        // Query the full table first
-        if (auto [exec_ec] = co_await conn.exec(full_table_req, &update_map_handler, &diag); exec_ec)
-        {
-            print_err("Error running initial query", exec_ec, diag);
-            co_return {exec_ec};  // TODO: this is really not the best thing, as we'd be retrying endlessly
-        }
+        // Print what we have
+        print_games(games | std::ranges::views::values);
 
         // Wait for notifications
         auto [receive_ec, notifications] = co_await conn.receive();
@@ -180,7 +183,10 @@ static capy::io_task<> read_notifications(co_connection& conn)
             // Parse the payload
             auto parsed_payload = parse_payload(notif.payload);
             if (parsed_payload.has_error())
-                continue;  // TODO: log
+            {
+                print_err("Received payload with invalid format", parsed_payload.error(), {});
+                continue;
+            }
 
             // Compute the action
             switch (parsed_payload->type)
@@ -261,7 +267,6 @@ static capy::io_task<> run_listener()
 
         // Read notifications. Logging is performed within the function,
         // so we don't need the result
-        std::cout << "Listening for notifications\n";
         static_cast<void>(co_await read_notifications(conn));
     }
 

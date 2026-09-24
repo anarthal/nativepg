@@ -5,8 +5,11 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#include <boost/capy/cond.hpp>
 #include <boost/capy/delay.hpp>
 #include <boost/capy/ex/async_event.hpp>
+#include <boost/capy/ex/immediate.hpp>
+#include <boost/capy/ex/run.hpp>
 #include <boost/capy/ex/this_coro.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/task.hpp>
@@ -18,10 +21,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <ostream>
+#include <stop_token>
 #include <string_view>
 #include <system_error>
 #include <utility>
 
+#include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/async.hpp"
@@ -33,6 +38,7 @@
 #include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
+#include "test_utils/test_cond_eq.hpp"
 #include "test_utils/test_range_eq.hpp"
 
 namespace capy = boost::capy;
@@ -449,6 +455,179 @@ capy::task<> test_exec_starts_during_receive()
     co_await check_connection_usable(conn);
 }
 
+//
+// Cancellation
+//
+
+// A receive() cancelled as soon as it starts doesn't leave the cancellation
+// behind as a pending error for the next one
+capy::task<> test_cancel_immediately()
+{
+    // Setup
+    auto conn = co_await establish_connection(), notifier = co_await establish_connection();
+
+    // Listen
+    if (!co_await checked_exec(conn, request().add_query("LISTEN \"test_cancel_immediate\"")))
+        co_return;
+
+    // Run a receive() that gets cancelled immediately
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::io_task<> {
+            auto [ec, notifs] = co_await conn.receive();
+            test_cond_eq(ec, capy::cond::canceled);
+            co_return {};
+        }(),
+        capy::ready(std::make_error_code(std::errc::io_error))
+    ));
+
+    // Raise a notification
+    if (!co_await checked_exec(notifier, request().add_query("NOTIFY test_cancel_immediate, 'after cancel'")))
+        co_return;
+
+    // The next receive() succeeds: the cancellation wasn't stored
+    auto [ec, notifs] = co_await conn.receive();
+    if (check_success(ec))
+    {
+        const protocol::notification_response expected[] = {
+            {.process_id = notifier.state().backend_process_id,
+             .channel_name = "test_cancel_immediate",
+             .payload = "after cancel"}
+        };
+        test_range_eq(notifs, expected);
+    }
+
+    // The connection is left in a usable state
+    co_await check_connection_usable(conn);
+}
+
+// A receive() skips the messages that the server still owes for a cancelled
+// exec() before reporting notifications
+capy::task<> test_receive_reads_exec_leftovers()
+{
+    // Setup
+    auto conn = co_await establish_connection(), notifier = co_await establish_connection(),
+         locker = co_await establish_connection();
+
+    // Acquire the lock
+    constexpr std::int64_t lock_id = 13;
+    if (!co_await checked_exec(locker, request().add_query("SELECT pg_advisory_lock($1)", lock_id)))
+        co_return;
+
+    // Listen
+    if (!co_await checked_exec(conn, request().add_query("LISTEN test_receive_exec_leftovers")))
+        co_return;
+
+    // Blocks on the lock. Cancelling it with part of its response already read
+    // leaves the rest owed by the server
+    request req_exec;
+    req_exec.add_query("SELECT $1 AS value", 42);
+    req_exec.add_query("SELECT pg_advisory_lock($1)", lock_id);
+
+    capy::async_event select_finished, exec_finished;
+    std::stop_source stop_src;
+
+    // Recall that when_all launches things in order
+    static_cast<void>(co_await capy::when_all(
+        capy::run(stop_src.get_token())([&]() -> capy::io_task<> {
+            // Cancelled while blocked on the lock
+            row_int row{};
+            auto cb = [&](row_int r) {
+                row = r;
+                select_finished.set();
+            };
+            response resp{resultset_callback<row_int>(cb), check_execute()};
+            auto [ec] = co_await conn.exec(req_exec, &resp);
+            test_cond_eq(ec, capy::cond::canceled);
+            BOOST_TEST_EQ(row, row_int{.value = 42});
+            exec_finished.set();
+            co_return {};
+        }()),
+
+        [&]() -> capy::io_task<> {
+            // Becomes the reader once the exec is gone, and has to consume what
+            // the server still owes for it before it can see the notification
+            auto [ec, notifs] = co_await conn.receive();
+            if (check_success(ec))
+            {
+                const protocol::notification_response expected[] = {
+                    {.process_id = notifier.state().backend_process_id,
+                     .channel_name = "test_receive_exec_leftovers",
+                     .payload = "after leftovers"}
+                };
+                test_range_eq(notifs, expected);
+            }
+            co_return {};
+        }(),
+
+        [&]() -> capy::io_task<> {
+            // Cancel the exec once part of its response has been read
+            check_success(co_await select_finished.wait());
+            stop_src.request_stop();
+
+            // Release the lock once exec() finished
+            check_success(co_await exec_finished.wait());
+            check_success(co_await locker.shutdown());
+
+            // Raise a notification, so the receive() has something to report
+            co_await checked_exec(
+                notifier,
+                request().add_query("NOTIFY test_receive_exec_leftovers, 'after leftovers'")
+            );
+            co_return {};
+        }()
+    ));
+
+    // The connection is left in a usable state
+    co_await check_connection_usable(conn);
+}
+
+// Starting a receive() while another one is in progress is rejected,
+// without disturbing the one that is running
+capy::task<> test_receive_already_running()
+{
+    // Setup
+    auto conn = co_await establish_connection(), notifier = co_await establish_connection();
+
+    // Listen
+    if (!co_await checked_exec(conn, request().add_query("LISTEN \"test_already_running\"")))
+        co_return;
+
+    // Recall that when_all launches things in order
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::io_task<> {
+            // Takes the receiver slot and waits for notifications
+            auto [ec, notifs] = co_await conn.receive();
+            if (check_success(ec))
+            {
+                const protocol::notification_response expected[] = {
+                    {.process_id = notifier.state().backend_process_id,
+                     .channel_name = "test_already_running",
+                     .payload = "only receiver"}
+                };
+                test_range_eq(notifs, expected);
+            }
+            co_return {};
+        }(),
+
+        [&]() -> capy::io_task<> {
+            // The slot is taken, so this one fails without touching the connection
+            auto [ec, notifs] = co_await conn.receive();
+            BOOST_TEST_EQ(ec, make_error_code(client_errc::already_running));
+
+            // Unblock the receiver that is running
+            co_await checked_exec(
+                notifier,
+                request().add_query("NOTIFY test_already_running, 'only receiver'")
+            );
+
+            co_return {};
+        }()
+    ));
+
+    // The connection is left in a usable state
+    co_await check_connection_usable(conn);
+}
+
 }  // namespace
 
 int main()
@@ -462,6 +641,10 @@ int main()
     run_coroutine_test(test_receive_during_exec_handover());
     run_coroutine_test(test_receive_during_exec_gets_notifications());
     run_coroutine_test(test_exec_starts_during_receive());
+
+    run_coroutine_test(test_cancel_immediately());
+    run_coroutine_test(test_receive_reads_exec_leftovers());
+    run_coroutine_test(test_receive_already_running());
 
     return boost::report_errors();
 }

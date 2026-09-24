@@ -10,10 +10,9 @@
 
 // Messages that may be received at any point (excluding notices, which share header with errors)
 
-#include <system_error>
-
 #include <cstdint>
 #include <span>
+#include <system_error>
 
 namespace nativepg {
 namespace protocol {
@@ -38,6 +37,8 @@ struct notification_response
 
     // The “payload” string passed from the notifying process.
     std::string_view payload;
+
+    friend bool operator==(const notification_response&, const notification_response&) = default;
 };
 std::error_code parse(std::span<const unsigned char> data, notification_response& to);
 

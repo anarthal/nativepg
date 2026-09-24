@@ -7,6 +7,8 @@
 
 # TODO: we should link against the optional Boost libraries in these examples
 
+find_package(boost_json REQUIRED)
+
 add_executable(nativepg_example nativepg.cpp)
 target_link_libraries(nativepg_example PRIVATE nativepg)
 
@@ -45,7 +47,7 @@ if (NATIVEPG_COROSIO_API)
     target_link_libraries(nativepg_listen_message_bus PRIVATE nativepg_corosio)
 
     add_executable(nativepg_listen_cache listen_cache.cpp)
-    target_link_libraries(nativepg_listen_cache PRIVATE nativepg_corosio)
+    target_link_libraries(nativepg_listen_cache PRIVATE nativepg_corosio Boost::json)
 
     add_executable(nativepg_copy_out copy_out.cpp)
     target_link_libraries(nativepg_copy_out PRIVATE nativepg_corosio)

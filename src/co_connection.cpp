@@ -244,16 +244,17 @@ struct co_connection::impl
 
     boost::capy::io_task<> receive(notification_vector& output)
     {
-        struct receiver_running_deleter
-        {
-            void operator()(co_connection::impl* p) const { p->receiver_running_ = false; }
-        };
-
         // Verify that no two receivers run in parallel
         if (receiver_running_)
             co_return {client_errc::already_running};
         receiver_running_ = true;
-        std::unique_ptr<co_connection::impl, receiver_running_deleter> receiver_running_guard{this};
+
+        // Release the slot however we leave this function
+        struct receiver_guard
+        {
+            impl* self;
+            ~receiver_guard() { self->receiver_running_ = false; }
+        } receiver_running_guard{this};
 
         // We own the output from this point on
         output.clear();

@@ -156,12 +156,18 @@ static capy::io_task<> read_notifications(co_connection& conn)
     {
         // Query the full table first
         if (auto [exec_ec] = co_await conn.exec(full_table_req, &update_map_handler, &diag); exec_ec)
+        {
+            print_err("Error running initial query", exec_ec, diag);
             co_return {exec_ec};  // TODO: this is really not the best thing, as we'd be retrying endlessly
+        }
 
         // Wait for notifications
         auto [receive_ec, notifications] = co_await conn.receive();
         if (receive_ec)
+        {
+            print_err("Error running receive", receive_ec, {});
             co_return {receive_ec};
+        }
 
         // Act on the notifications
         ids_to_query.clear();
@@ -204,7 +210,10 @@ static capy::io_task<> read_notifications(co_connection& conn)
 
             // Execute it
             if (auto [exec_ec] = co_await conn.exec(select_req, &update_map_handler, &diag); exec_ec)
+            {
+                print_err("Error running refresh query", exec_ec, diag);
                 co_return {exec_ec};
+            }
         }
     }
 }
@@ -250,13 +259,10 @@ static capy::io_task<> run_listener()
             continue;
         }
 
-        // Read notifications
+        // Read notifications. Logging is performed within the function,
+        // so we don't need the result
         std::cout << "Listening for notifications\n";
-        if (auto [notif_ec] = co_await read_notifications(conn); notif_ec)
-        {
-            print_err("Error receiving notifications", notif_ec, {});
-            continue;
-        }
+        static_cast<void>(co_await read_notifications(conn));
     }
 
     // Try to close the connection gracefully.

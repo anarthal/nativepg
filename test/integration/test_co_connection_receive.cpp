@@ -6,7 +6,6 @@
 //
 
 #include <boost/capy/cond.hpp>
-#include <boost/capy/delay.hpp>
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/immediate.hpp>
 #include <boost/capy/ex/run.hpp>
@@ -293,9 +292,6 @@ capy::task<> test_receive_before_any_exec()
         }(),
 
         [&]() -> capy::io_task<> {
-            // Give the receiver some time to start, just in case
-            check_success(co_await capy::delay(1ms));
-
             // Subscribe only now, with the receive() already in flight
             co_await checked_exec(conn, request().add_query("LISTEN \"test_before_any_exec\""));
 
@@ -481,9 +477,6 @@ capy::task<> test_exec_starts_during_receive()
         }(),
 
         [&]() -> capy::io_task<> {
-            // Give some time to the receiver, just in case
-            check_success(co_await capy::delay(1ms));
-
             // exec() should't be blocked by the ongoing receive().
             // If it is, we don't raise the notification in the following
             // line, and the test fails by timeout.

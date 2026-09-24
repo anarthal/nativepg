@@ -54,7 +54,7 @@ struct co_connection::impl
     std::vector<capy::const_buffer> copy_out_buffers;
     std::optional<protocol::detail::exec_some_fsm> exec_some_fsm;
     detail::multiplexer_v2 mpx_;  // TODO: clean up this?
-    notification_vector exec_notifications_, receive_notifications_;
+    notification_vector exec_notifications_;
     bool receiver_running_{};
     std::error_code receiver_pending_ec_{};
 
@@ -64,8 +64,6 @@ struct co_connection::impl
         // For now we keep both, as this is specific to co_connection, but the ideal
         // is having just one
         exec_notifications_.clear();
-        exec_notifications_.set_deep(true);
-        receive_notifications_.clear();
         receiver_pending_ec_ = {};
     }
 
@@ -190,7 +188,6 @@ struct co_connection::impl
             // Store notifications so the receive loop can return them
             if (res.message.type() == protocol::any_backend_message::kind::notification_response)
             {
-                BOOST_ASSERT(exec_notifications_.is_deep());
                 exec_notifications_.push_back(res.message.get_notification_response());
                 mpx_.notify_receiver();
             }
@@ -248,7 +245,7 @@ struct co_connection::impl
         co_return {final_ec};
     }
 
-    boost::capy::io_task<std::span<const protocol::notification_response>> receive()
+    boost::capy::io_task<> receive(notification_vector& output)
     {
         struct receiver_running_deleter
         {
@@ -257,30 +254,33 @@ struct co_connection::impl
 
         // Verify that no two receivers run in parallel
         if (receiver_running_)
-            co_return {client_errc::already_running, {}};
+            co_return {client_errc::already_running};
         receiver_running_ = true;
         std::unique_ptr<co_connection::impl, receiver_running_deleter> receiver_running_guard{this};
 
+        // We own the output from this point on
+        output.clear();
+
         // If there is a pending error, return it
         if (auto pending_ec = std::exchange(receiver_pending_ec_, std::error_code()))
-            co_return {pending_ec, {}};
+            co_return {pending_ec};
 
         // Wait for notifications to arrive/be read
-        auto [ec] = co_await wait_for_notifications();
+        auto [ec] = co_await wait_for_notifications(output);
 
-        // If we managed to read any, return them and queue the error
-        if (!receive_notifications_.get().empty())
+        // If we managed to read any, report success and queue the error
+        if (!output.empty())
         {
             receiver_pending_ec_ = ec;
-            co_return {{}, receive_notifications_.get()};
+            co_return {};
         }
 
         // This should be an error
         BOOST_ASSERT(ec);
-        co_return {ec, {}};
+        co_return {ec};
     }
 
-    boost::capy::io_task<> wait_for_notifications()
+    boost::capy::io_task<> wait_for_notifications(notification_vector& output)
     {
         while (true)
         {
@@ -289,12 +289,12 @@ struct co_connection::impl
             if (ec)
                 co_return {ec};
 
-            // Look for cached notifications first
-            if (!exec_notifications_.get().empty())
+            // Look for cached notifications first. Swapping hands the caller the
+            // buffer that exec() filled, and gives exec() our (empty) one back
+            if (!exec_notifications_.empty())
             {
-                std::swap(exec_notifications_, receive_notifications_);
+                std::swap(exec_notifications_, output);
                 exec_notifications_.clear();
-                exec_notifications_.set_deep(true);
                 co_return {};
             }
 
@@ -302,10 +302,8 @@ struct co_connection::impl
             // but race conditions with other exec()s could make it not the case
             if (guard.is_reading())
             {
-                receive_notifications_.clear();
-                receive_notifications_.set_deep(false);
-                auto [loop_ec] = co_await receive_read(guard);
-                if (loop_ec || !receive_notifications_.get().empty())
+                auto [loop_ec] = co_await receive_read(guard, output);
+                if (loop_ec || !output.empty())
                     co_return {loop_ec};
             }
 
@@ -314,7 +312,10 @@ struct co_connection::impl
         }
     }
 
-    boost::capy::io_task<> receive_read(detail::multiplexer_v2::receive_guard& guard)
+    boost::capy::io_task<> receive_read(
+        detail::multiplexer_v2::receive_guard& guard,
+        notification_vector& output
+    )
     {
         std::size_t consumed = 0u;
 
@@ -334,7 +335,7 @@ struct co_connection::impl
                 {
                     // We need to read. If we have notifications here,
                     // return them to the user, and we'll read in the next iteration
-                    if (!receive_notifications_.get().empty())
+                    if (!output.empty())
                         co_return {};
 
                     // No notifications. Do read
@@ -353,7 +354,7 @@ struct co_connection::impl
             switch (res.message.type())
             {
                 case protocol::any_backend_message::kind::notification_response:
-                    receive_notifications_.push_back(res.message.get_notification_response());
+                    output.push_back(res.message.get_notification_response());
                     consumed += res.size;
                     break;
                 case protocol::any_backend_message::kind::parameter_status:
@@ -534,9 +535,9 @@ capy::io_task<> co_connection::exec(const request& req, response_handler_ref han
     return impl_->exec(req, handler, diag);
 }
 
-capy::io_task<std::span<const protocol::notification_response>> co_connection::receive()
+capy::io_task<> co_connection::receive(notification_vector& output)
 {
-    return impl_->receive();
+    return impl_->receive(output);
 }
 
 void co_connection::setup_request(const request& req, response_handler_ref handler)

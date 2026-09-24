@@ -38,6 +38,7 @@
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/notification_vector.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
 #include "nativepg/responses/response.hpp"
@@ -157,7 +158,9 @@ static capy::io_task<> read_notifications(co_connection& conn)
     initial_req.add_simple_query("LISTEN \"games_updated\"");
     initial_req.add_simple_query("SELECT * FROM games");
 
-    std::vector<std::int64_t> ids_to_query;  // reuse memory
+    // Re-used across iterations, to reduce allocations
+    std::vector<std::int64_t> ids_to_query;
+    notification_vector notifications;
 
     // Query the full table first
     if (auto [exec_ec] = co_await conn
@@ -174,8 +177,7 @@ static capy::io_task<> read_notifications(co_connection& conn)
         print_games(games | std::ranges::views::values);
 
         // Wait for notifications
-        auto [receive_ec, notifications] = co_await conn.receive();
-        if (receive_ec)
+        if (auto [receive_ec] = co_await conn.receive(notifications); receive_ec)
         {
             print_err("Error running receive", receive_ec, {});
             co_return {receive_ec};

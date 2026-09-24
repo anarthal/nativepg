@@ -9,11 +9,13 @@
 #define NATIVEPG_NOTIFICATION_VECTOR_HPP
 
 #include <boost/assert.hpp>
+#include <boost/throw_exception.hpp>
 
 #include <algorithm>
 #include <cstddef>
+#include <iterator>
 #include <memory>
-#include <span>
+#include <stdexcept>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -22,24 +24,39 @@
 
 namespace nativepg {
 
-// Two modes, deep (full copy) and shallow (shallow copies)
+// A container of notifications that owns the strings they point to.
+// Strings live in a single block, so re-using a vector amortizes to no allocations
 // TODO: unit test
 // TODO: move to cpp
 class notification_vector
 {
 public:
-    // Constructed as deep by default
+    using value_type = protocol::notification_response;
+    using size_type = std::size_t;
+    using difference_type = std::ptrdiff_t;
+    using reference = const value_type&;
+    using const_reference = const value_type&;
+    using pointer = const value_type*;
+    using const_pointer = const value_type*;
+
+    // Elements are never modified in place, so both iterator flavours are const.
+    // Guaranteed to be contiguous iterators; don't rely on them being pointers
+    using iterator = const value_type*;
+    using const_iterator = const value_type*;
+    using reverse_iterator = std::reverse_iterator<const_iterator>;
+    using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+
     notification_vector() = default;
 
-    // The moved-from store is left empty, retaining its mode
+    // Moving is cheap: the strings keep their address, so the views don't need rebasing.
+    // The moved-from vector is left empty
     notification_vector(notification_vector&& other) noexcept
         : elms_(std::move(other.elms_)),
           data_{
               std::move(other.data_.data),
               std::exchange(other.data_.size, 0u),
               std::exchange(other.data_.capacity, 0u)
-          },
-          deep_(other.deep_)
+          }
     {
     }
 
@@ -51,7 +68,6 @@ public:
             data_.data = std::move(other.data_.data);
             data_.size = std::exchange(other.data_.size, 0u);
             data_.capacity = std::exchange(other.data_.capacity, 0u);
-            deep_ = other.deep_;
 
             // Unlike the move constructor, move-assigning a vector
             // doesn't guarantee that the source is left empty
@@ -63,25 +79,8 @@ public:
     notification_vector(const notification_vector&) = delete;
     notification_vector& operator=(const notification_vector&) = delete;
 
-    bool is_deep() const { return deep_; }
-
-    // Precondition: container empty
-    void set_deep(bool deep)
-    {
-        BOOST_ASSERT(elms_.empty());
-        deep_ = deep;
-        data_.size = 0u;
-    }
-
     void push_back(const protocol::notification_response& notif)
     {
-        // In shallow mode, the caller owns the strings and we just retain the views
-        if (!deep_)
-        {
-            elms_.push_back(notif);
-            return;
-        }
-
         // Make room for both strings in one go, so that appending the second one
         // can't reallocate and leave the first one dangling
         grow(data_.size + notif.channel_name.size() + notif.payload.size());
@@ -93,16 +92,55 @@ public:
 
     void clear()
     {
-        // Capacity is retained, so re-using the store doesn't allocate
+        // Capacity is retained, so re-using the vector doesn't allocate
         elms_.clear();
         data_.size = 0u;
     }
 
-    std::span<const protocol::notification_response> get() const { return elms_; }
+    // Iterators
+    const_iterator begin() const noexcept { return elms_.data(); }
+    const_iterator end() const noexcept { return elms_.data() + elms_.size(); }
+    const_iterator cbegin() const noexcept { return begin(); }
+    const_iterator cend() const noexcept { return end(); }
+    const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator{end()}; }
+    const_reverse_iterator rend() const noexcept { return const_reverse_iterator{begin()}; }
+    const_reverse_iterator crbegin() const noexcept { return rbegin(); }
+    const_reverse_iterator crend() const noexcept { return rend(); }
+
+    // Capacity
+    size_type size() const noexcept { return elms_.size(); }
+    bool empty() const noexcept { return elms_.empty(); }
+
+    // Element access
+    const_reference operator[](size_type i) const noexcept
+    {
+        BOOST_ASSERT(i < size());
+        return elms_[i];
+    }
+
+    const_reference at(size_type i) const
+    {
+        if (i >= size())
+            BOOST_THROW_EXCEPTION(std::out_of_range("notification_vector::at"));
+        return elms_[i];
+    }
+
+    const_reference front() const noexcept
+    {
+        BOOST_ASSERT(!empty());
+        return elms_.front();
+    }
+
+    const_reference back() const noexcept
+    {
+        BOOST_ASSERT(!empty());
+        return elms_.back();
+    }
+
+    const_pointer data() const noexcept { return elms_.data(); }
 
 private:
-    // Owns the strings that the views in elms_ point to, when in deep mode.
-    // A single block, so re-using a store amortizes to no allocations
+    // Owns the strings that the views in elms_ point to
     struct flat_buffer
     {
         std::unique_ptr<char[]> data;
@@ -112,7 +150,6 @@ private:
 
     std::vector<protocol::notification_response> elms_;
     flat_buffer data_;
-    bool deep_{true};
 
     // Powers of 2, starting at 512, to prevent many small allocations
     // TODO: this could use C++20 bit ops, and can overflow

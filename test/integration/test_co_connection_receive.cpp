@@ -24,11 +24,11 @@
 #include <stop_token>
 #include <string_view>
 #include <system_error>
-#include <utility>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/notification_vector.hpp"
 #include "nativepg/protocol/async.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
@@ -84,8 +84,8 @@ capy::task<> test_single_notification()
         co_return;
 
     // Receive
-    auto [ec, notifs] = co_await conn.receive();
-    if (!check_success(ec, {}))
+    notification_vector notifs;
+    if (!check_success(co_await conn.receive(notifs)))
         co_return;
 
     // Check
@@ -101,8 +101,7 @@ capy::task<> test_single_notification()
         co_return;
 
     // The next receive() delivers only the new one: the previous batch was consumed
-    auto [ec2, notifs2] = co_await conn.receive();
-    if (!check_success(ec2, {}))
+    if (!check_success(co_await conn.receive(notifs), {}))
         co_return;
 
     const protocol::notification_response expected2[] = {
@@ -110,7 +109,7 @@ capy::task<> test_single_notification()
          .channel_name = "test_receive_single",
          .payload = "second payload"}
     };
-    test_range_eq(notifs2, expected2);
+    test_range_eq(notifs, expected2);
 
     // The connection is left in a usable state
     co_await check_connection_usable(conn);
@@ -131,8 +130,8 @@ capy::task<> test_empty_payload()
         co_return;
 
     // Receive
-    auto [ec, notifs] = co_await conn.receive();
-    if (!check_success(ec, {}))
+    notification_vector notifs;
+    if (!check_success(co_await conn.receive(notifs)))
         co_return;
 
     // Check
@@ -166,8 +165,8 @@ capy::task<> test_notification_during_exec()
         co_return;
 
     // Receive
-    auto [ec, notifs] = co_await conn.receive();
-    if (!check_success(ec, {}))
+    notification_vector notifs;
+    if (!check_success(co_await conn.receive(notifs)))
         co_return;
 
     // Check
@@ -201,8 +200,8 @@ capy::task<> test_exec_doesnt_invalidate_notifications()
         co_return;
 
     // Retrieve it
-    auto [ec, notifs] = co_await conn.receive();
-    if (!check_success(ec, {}))
+    notification_vector notifs;
+    if (!check_success(co_await conn.receive(notifs)))
         co_return;
     const protocol::notification_response expected[] = {
         {.process_id = conn.state().backend_process_id,
@@ -247,8 +246,8 @@ capy::task<> test_batch_notifications()
         co_return;
 
     // Receive
-    auto [ec, notifs] = co_await conn.receive();
-    if (!check_success(ec, {}))
+    notification_vector notifs;
+    if (!check_success(co_await conn.receive(notifs)))
         co_return;
 
     // Check
@@ -280,8 +279,8 @@ capy::task<> test_receive_before_any_exec()
         [&]() -> capy::io_task<> {
             // Takes the reader on an idle connection, then has to hand it over to
             // the LISTEN below and wait until the notification arrives
-            auto [ec, notifs] = co_await conn.receive();
-            if (check_success(ec))
+            notification_vector notifs;
+            if (check_success(co_await conn.receive(notifs)))
             {
                 const protocol::notification_response expected[] = {
                     {.process_id = notifier.state().backend_process_id,
@@ -358,8 +357,8 @@ capy::task<> test_receive_during_exec_handover()
             check_success(co_await select_finished.wait());
 
             // Retrieve the notifications
-            auto [ec, notifs] = co_await conn.receive();
-            if (check_success(ec))
+            notification_vector notifs;
+            if (check_success(co_await conn.receive(notifs)))
             {
                 const protocol::notification_response expected[] = {
                     {.process_id = notifier.state().backend_process_id,
@@ -425,8 +424,8 @@ capy::task<> test_receive_during_exec_gets_notifications()
 
         [&]() -> capy::io_task<> {
             // Retrieve the notifications
-            auto [ec, notifs] = co_await conn.receive();
-            if (check_success(ec))
+            notification_vector notifs;
+            if (check_success(co_await conn.receive(notifs)))
             {
                 const protocol::notification_response expected[] = {
                     {.process_id = conn.state().backend_process_id,
@@ -468,8 +467,8 @@ capy::task<> test_exec_starts_during_receive()
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::io_task<> {
             // Owns the reader until the exec's first response message arrives
-            auto [ec, notifs] = co_await conn.receive();
-            if (check_success(ec, {}))
+            notification_vector notifs;
+            if (check_success(co_await conn.receive(notifs)))
             {
                 const protocol::notification_response expected[] = {
                     {.process_id = conn.state().backend_process_id,
@@ -519,7 +518,8 @@ capy::task<> test_cancel_immediately()
     // Run a receive() that gets cancelled immediately
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::io_task<> {
-            auto [ec, notifs] = co_await conn.receive();
+            notification_vector notifs;
+            auto [ec] = co_await conn.receive(notifs);
             test_cond_eq(ec, capy::cond::canceled);
             co_return {};
         }(),
@@ -531,8 +531,8 @@ capy::task<> test_cancel_immediately()
         co_return;
 
     // The next receive() succeeds: the cancellation wasn't stored
-    auto [ec, notifs] = co_await conn.receive();
-    if (check_success(ec))
+    notification_vector notifs;
+    if (check_success(co_await conn.receive(notifs)))
     {
         const protocol::notification_response expected[] = {
             {.process_id = notifier.state().backend_process_id,
@@ -592,8 +592,8 @@ capy::task<> test_receive_reads_exec_leftovers()
         [&]() -> capy::io_task<> {
             // Becomes the reader once the exec is gone, and has to consume what
             // the server still owes for it before it can see the notification
-            auto [ec, notifs] = co_await conn.receive();
-            if (check_success(ec))
+            notification_vector notifs;
+            if (check_success(co_await conn.receive(notifs)))
             {
                 const protocol::notification_response expected[] = {
                     {.process_id = notifier.state().backend_process_id,
@@ -642,8 +642,8 @@ capy::task<> test_receive_already_running()
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::io_task<> {
             // Takes the receiver slot and waits for notifications
-            auto [ec, notifs] = co_await conn.receive();
-            if (check_success(ec))
+            notification_vector notifs;
+            if (check_success(co_await conn.receive(notifs)))
             {
                 const protocol::notification_response expected[] = {
                     {.process_id = notifier.state().backend_process_id,
@@ -657,7 +657,8 @@ capy::task<> test_receive_already_running()
 
         [&]() -> capy::io_task<> {
             // The slot is taken, so this one fails without touching the connection
-            auto [ec, notifs] = co_await conn.receive();
+            notification_vector notifs;
+            auto [ec] = co_await conn.receive(notifs);
             BOOST_TEST_EQ(ec, make_error_code(client_errc::already_running));
 
             // Unblock the receiver that is running

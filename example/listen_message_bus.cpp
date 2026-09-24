@@ -23,6 +23,7 @@
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/notification_vector.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
 
@@ -49,11 +50,13 @@ static void print_err(const char* prefix, std::error_code err, const diagnostics
 
 static capy::io_task<> read_notifications(co_connection& conn)
 {
+    // Re-used across iterations, so reading notifications doesn't allocate
+    notification_vector notifications;
+
     while (true)
     {
         // Wait for notifications
-        auto [ec, notifications] = co_await conn.receive();
-        if (ec)
+        if (auto [ec] = co_await conn.receive(notifications); ec)
             co_return {ec};
 
         // Act on the notifications

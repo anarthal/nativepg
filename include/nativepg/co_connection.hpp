@@ -22,6 +22,7 @@
 #include "nativepg/connect_params.hpp"
 #include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/notification_vector.hpp"
 #include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/copy.hpp"
@@ -125,11 +126,10 @@ public:
 
     // Waits until either a notification arrives, or an error occurs.
     // The connection must be in established state.
+    // Received notifications are stored in output, which is cleared first.
     // Can be called in parallel with other exec() operations.
-    // The returned view is valid until the next receive() operation is started.
     // Only one receive() operation is allowed to be in-flight at any given time.
-    // Await-postcondition: either an error or a non-empty set of notifications are returned.
-    boost::capy::io_task<std::span<const protocol::notification_response>> receive();
+    boost::capy::io_task<> receive(notification_vector& output);
 
     // The request and the handler must live until the entire response has been read
     // with exec_some

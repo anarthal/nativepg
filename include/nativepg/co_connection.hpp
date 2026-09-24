@@ -129,6 +129,7 @@ public:
     // Received notifications are stored in output, which is cleared first.
     // Can be called in parallel with other exec() operations.
     // Only one receive() operation is allowed to be in-flight at any given time.
+    //   Issuing another fails with client_errc::already_running.
     boost::capy::io_task<> receive(notification_vector& output);
 
     // The request and the handler must live until the entire response has been read

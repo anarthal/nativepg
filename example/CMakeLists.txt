@@ -44,6 +44,9 @@ if (NATIVEPG_COROSIO_API)
     add_executable(nativepg_listen_message_bus listen_message_bus.cpp)
     target_link_libraries(nativepg_listen_message_bus PRIVATE nativepg_corosio)
 
+    add_executable(nativepg_listen_cache listen_cache.cpp)
+    target_link_libraries(nativepg_listen_cache PRIVATE nativepg_corosio)
+
     add_executable(nativepg_copy_out copy_out.cpp)
     target_link_libraries(nativepg_copy_out PRIVATE nativepg_corosio)
 

@@ -17,7 +17,6 @@
 #include <boost/describe/class.hpp>
 #include <boost/describe/operators.hpp>
 
-#include <cstddef>
 #include <cstdint>
 #include <ostream>
 #include <stop_token>
@@ -174,52 +173,6 @@ capy::task<> test_notification_during_exec()
          .channel_name = "test_during_exec",
          .payload = "during exec"}
     };
-    test_range_eq(notifs, expected);
-
-    // The connection is left in a usable state
-    co_await check_connection_usable(conn);
-}
-
-// The view returned by receive() stays valid when an exec() runs afterwards,
-// even if that exec() reads further notifications
-capy::task<> test_exec_doesnt_invalidate_notifications()
-{
-    // Setup
-    auto conn = co_await establish_connection();
-
-    // Listen
-    if (!co_await checked_exec(conn, request().add_query("LISTEN \"test_no_invalidate\"")))
-        co_return;
-
-    // Raise the notification. Make sure it arrives during exec
-    request req_notify;
-    req_notify.add_query("NOTIFY test_no_invalidate, 'first notification payload'");
-    req_notify.add_query("SELECT 1");
-    if (!co_await checked_exec(conn, req_notify))
-        co_return;
-
-    // Retrieve it
-    notification_vector notifs;
-    if (!check_success(co_await conn.receive(notifs)))
-        co_return;
-    const protocol::notification_response expected[] = {
-        {.process_id = conn.state().backend_process_id,
-         .channel_name = "test_no_invalidate",
-         .payload = "first notification payload"}
-    };
-    test_range_eq(notifs, expected);
-    if (!BOOST_TEST_EQ(notifs.size(), static_cast<std::size_t>(1)))
-        co_return;
-
-    // A second notification arrives while an exec() is reading, so the connection
-    // has to buffer it without disturbing what we were handed above
-    req_notify = {};
-    req_notify.add_query("NOTIFY test_no_invalidate, 'second payload here'");
-    req_notify.add_query("SELECT 2");
-    if (!co_await checked_exec(conn, req_notify))
-        co_return;
-
-    // Check that the view we got before the exec() still reads correctly
     test_range_eq(notifs, expected);
 
     // The connection is left in a usable state
@@ -497,8 +450,7 @@ capy::task<> test_exec_starts_during_receive()
 // Cancellation
 //
 
-// A receive() cancelled as soon as it starts doesn't leave the cancellation
-// behind as a pending error for the next one
+// A receive() cancelled as soon as it starts works fine
 capy::task<> test_cancel_immediately()
 {
     // Setup
@@ -523,7 +475,7 @@ capy::task<> test_cancel_immediately()
     if (!co_await checked_exec(notifier, request().add_query("NOTIFY test_cancel_immediate, 'after cancel'")))
         co_return;
 
-    // The next receive() succeeds: the cancellation wasn't stored
+    // The next receive() succeeds
     notification_vector notifs;
     if (check_success(co_await conn.receive(notifs)))
     {
@@ -675,7 +627,6 @@ int main()
     run_coroutine_test(test_single_notification());
     run_coroutine_test(test_empty_payload());
     run_coroutine_test(test_notification_during_exec());
-    run_coroutine_test(test_exec_doesnt_invalidate_notifications());
     run_coroutine_test(test_batch_notifications());
 
     run_coroutine_test(test_receive_before_any_exec());

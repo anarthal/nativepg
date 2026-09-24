@@ -11,7 +11,6 @@
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/immediate.hpp>
 #include <boost/capy/ex/run.hpp>
-#include <boost/capy/ex/this_coro.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/core/lightweight_test.hpp>
@@ -33,7 +32,7 @@
 #include "nativepg/responses/response.hpp"
 #include "nativepg/responses/response_handler.hpp"
 #include "nativepg/responses/resultset_callback.hpp"
-#include "test_utils/ci_server.hpp"
+#include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
 #include "test_utils/test_cond_eq.hpp"
@@ -69,8 +68,7 @@ capy::task<> check_connection_usable(co_connection& conn, boost::source_location
     request req;
     req.add_query("SELECT $1 AS value", 1234);
     std::vector<row_int> ints;
-    diagnostics diag;
-    if (check_success(co_await conn.exec(req, into(ints), &diag), diag, loc))
+    if (co_await checked_exec(conn, req, into(ints), loc))
         test_range_eq(ints, std::vector<row_int>{{.value = 1234}}, loc);
 }
 
@@ -78,10 +76,7 @@ capy::task<> check_connection_usable(co_connection& conn, boost::source_location
 capy::task<> test_success()
 {
     // Setup
-    diagnostics diag;
-    co_connection conn{co_await capy::this_coro::executor};
-    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
-        co_return;
+    auto conn = co_await establish_connection();
 
     // Request and response
     request req;
@@ -91,29 +86,25 @@ capy::task<> test_success()
     std::vector<row_string> strings;
 
     // Execute
-    if (!check_success(co_await conn.exec(req, response{into(ints), into(strings)}, &diag), diag))
+    if (!co_await checked_exec(conn, req, response{into(ints), into(strings)}))
         co_return;
 
     // Check
-    std::vector<row_int> ints_expected{{.value = 52}};
-    std::vector<row_string> strings_expected{{.value = "abcd"}};
-    BOOST_TEST_ALL_EQ(ints.begin(), ints.end(), ints_expected.begin(), ints_expected.end());
-    BOOST_TEST_ALL_EQ(strings.begin(), strings.end(), strings_expected.begin(), strings_expected.end());
+    ;
+    test_range_eq(ints, std::vector<row_int>{{.value = 52}});
+    test_range_eq(strings, std::vector<row_string>{{.value = "abcd"}});
 }
 
 // exec processes any GUC reported while reading the response
 capy::task<> test_gucs()
 {
     // Setup
-    diagnostics diag;
-    co_connection conn{co_await capy::this_coro::executor};
-    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
-        co_return;
+    auto conn = co_await establish_connection();
 
     // Change a GUC
     request req;
     req.add_simple_query("SET client_encoding TO 'LATIN1'");
-    if (!check_success(co_await conn.exec(req, check(), &diag), diag))
+    if (!co_await checked_exec(conn, req))
         co_return;
 
     // Check
@@ -136,10 +127,7 @@ capy::io_task<extended_error> do_exec(co_connection& conn, const request& req, H
 capy::task<> test_multiplexing_2()
 {
     // Setup
-    diagnostics diag;
-    co_connection conn{co_await capy::this_coro::executor};
-    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
-        co_return;
+    auto conn = co_await establish_connection();
 
     // Two requests with distinct result types, so a misrouted message can't
     // pass unnoticed
@@ -168,10 +156,7 @@ capy::task<> test_multiplexing_2()
 capy::task<> test_multiplexing_3()
 {
     // Setup
-    diagnostics diag;
-    co_connection conn{co_await capy::this_coro::executor};
-    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
-        co_return;
+    auto conn = co_await establish_connection();
 
     request req1;
     req1.add_query("SELECT $1 + $2 AS value", 42, 10);
@@ -221,10 +206,7 @@ capy::task<> test_handler_error()
     };
 
     // Setup
-    diagnostics diag;
-    co_connection conn{co_await capy::this_coro::executor};
-    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
-        co_return;
+    auto conn = co_await establish_connection();
 
     // The query itself is valid: the error comes from the handler
     request req;
@@ -249,10 +231,7 @@ capy::task<> test_handler_error()
 capy::task<> test_cancel_single()
 {
     // Setup
-    diagnostics diag;
-    co_connection conn{co_await capy::this_coro::executor};
-    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
-        co_return;
+    auto conn = co_await establish_connection();
 
     request req;
     req.add_query("SELECT $1 AS value", 42);
@@ -280,16 +259,12 @@ capy::task<> test_cancel_partial_response()
     // We avoid pg_sleep because it causes brittle tests and increases runtime.
 
     // Setup
-    diagnostics diag;
-    co_connection conn{co_await capy::this_coro::executor}, conn_lock{co_await capy::this_coro::executor};
-    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag) ||
-        !check_success(co_await conn_lock.connect(default_connect_params(), &diag), diag))
-        co_return;
+    auto conn = co_await establish_connection(), conn_lock = co_await establish_connection();
 
     // Acquire the lock. Note: different tests should use different IDs
     request req_lock;
     req_lock.add_query("SELECT pg_advisory_lock($1)", 1);
-    if (!check_success(co_await conn_lock.exec(req_lock, check(), &diag), diag))
+    if (!co_await checked_exec(conn_lock, req_lock))
         co_return;
 
     request req;
@@ -337,10 +312,7 @@ capy::task<> test_cancel_partial_response()
 capy::task<> test_cancel_single_with_queued()
 {
     // Setup
-    diagnostics diag;
-    co_connection conn{co_await capy::this_coro::executor};
-    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
-        co_return;
+    auto conn = co_await establish_connection();
 
     request req1;
     req1.add_query("SELECT $1 AS value", 42);
@@ -362,9 +334,8 @@ capy::task<> test_cancel_single_with_queued()
         [&]() -> capy::io_task<> {
             // Run req2, which should complete normally
             std::vector<row_string> strings2;
-            auto [dummy, res] = co_await do_exec(conn, req2, into(strings2));
-            check_success(res);
-            test_range_eq(strings2, std::vector<row_string>{{.value = "abcd"}});
+            if (co_await checked_exec(conn, req2, into(strings2)))
+                test_range_eq(strings2, std::vector<row_string>{{.value = "abcd"}});
             co_return {};
         }(),
 
@@ -384,16 +355,12 @@ capy::task<> test_cancel_single_with_queued()
 capy::task<> test_cancel_partial_response_with_queued()
 {
     // Setup
-    diagnostics diag;
-    co_connection conn{co_await capy::this_coro::executor}, conn_lock{co_await capy::this_coro::executor};
-    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag) ||
-        !check_success(co_await conn_lock.connect(default_connect_params(), &diag), diag))
-        co_return;
+    auto conn = co_await establish_connection(), conn_lock = co_await establish_connection();
 
     // Acquire the lock. Note: different tests should use different IDs
     request req_lock;
     req_lock.add_query("SELECT pg_advisory_lock($1)", 2);
-    if (!check_success(co_await conn_lock.exec(req_lock, check(), &diag), diag))
+    if (!co_await checked_exec(conn_lock, req_lock))
         co_return;
 
     // The cancellation arrives while this one waits for the lock, with the
@@ -430,9 +397,8 @@ capy::task<> test_cancel_partial_response_with_queued()
         }()),
         [&]() -> capy::io_task<> {
             // Just runs req2, which should succeed
-            auto [dummy, err] = co_await do_exec(conn, req2, into(strings2));
-            check_success(err);
-            test_range_eq(strings2, std::vector<row_string>{{.value = "abcd"}});
+            if (co_await checked_exec(conn, req2, into(strings2)))
+                test_range_eq(strings2, std::vector<row_string>{{.value = "abcd"}});
             co_return {};
         }(),
         [&]() -> capy::io_task<> {
@@ -461,16 +427,12 @@ capy::task<> test_cancel_while_waiting()
     // writes but is cancelled while waiting for its turn to read.
 
     // Setup
-    diagnostics diag;
-    co_connection conn{co_await capy::this_coro::executor}, conn_lock{co_await capy::this_coro::executor};
-    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag) ||
-        !check_success(co_await conn_lock.connect(default_connect_params(), &diag), diag))
-        co_return;
+    auto conn = co_await establish_connection(), conn_lock = co_await establish_connection();
 
     // Acquire the lock. Note: different tests should use different IDs
     request req_lock;
     req_lock.add_query("SELECT pg_advisory_lock($1)", 3);
-    if (!check_success(co_await conn_lock.exec(req_lock, check(), &diag), diag))
+    if (!co_await checked_exec(conn_lock, req_lock))
         co_return;
 
     request req1;
@@ -493,13 +455,13 @@ capy::task<> test_cancel_while_waiting()
                 row = r;
                 select_finished.set();
             };
-            auto [dummy, err] = co_await do_exec(
+            const bool ok = co_await checked_exec(
                 conn,
                 req1,
                 response{resultset_callback<row_int>(cb), check_execute()}
             );
-            check_success(err);
-            BOOST_TEST_EQ(row, row_int{.value = 42});
+            if (ok)
+                BOOST_TEST_EQ(row, row_int{.value = 42});
             co_return {};
         }(),
         capy::run(stop_src.get_token())([&]() -> capy::io_task<> {
@@ -536,16 +498,12 @@ capy::task<> test_cancel_while_waiting()
 capy::task<> test_cancel_while_waiting_middle()
 {
     // Setup
-    diagnostics diag;
-    co_connection conn{co_await capy::this_coro::executor}, conn_lock{co_await capy::this_coro::executor};
-    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag) ||
-        !check_success(co_await conn_lock.connect(default_connect_params(), &diag), diag))
-        co_return;
+    auto conn = co_await establish_connection(), conn_lock = co_await establish_connection();
 
     // Acquire the lock. Note: different tests should use different IDs
     request req_lock;
     req_lock.add_query("SELECT pg_advisory_lock($1)", 4);
-    if (!check_success(co_await conn_lock.exec(req_lock, check(), &diag), diag))
+    if (!co_await checked_exec(conn_lock, req_lock))
         co_return;
 
     // Holds the reader while blocked on the lock, and should succeed
@@ -575,13 +533,13 @@ capy::task<> test_cancel_while_waiting_middle()
                 row = r;
                 select_finished.set();
             };
-            auto [dummy, err] = co_await do_exec(
+            const bool ok = co_await checked_exec(
                 conn,
                 req1,
                 response{resultset_callback<row_int>(cb), check_execute()}
             );
-            check_success(err);
-            BOOST_TEST_EQ(row, row_int{.value = 42});
+            if (ok)
+                BOOST_TEST_EQ(row, row_int{.value = 42});
             co_return {};
         }(),
         capy::run(stop_src.get_token())([&]() -> capy::io_task<> {
@@ -597,9 +555,8 @@ capy::task<> test_cancel_while_waiting_middle()
         [&]() -> capy::io_task<> {
             // Reads past the cancelled request's leftovers, and should succeed
             std::vector<row_string> strings3;
-            auto [dummy, err] = co_await do_exec(conn, req3, into(strings3));
-            check_success(err);
-            test_range_eq(strings3, std::vector<row_string>{{.value = "third"}});
+            if (co_await checked_exec(conn, req3, into(strings3)))
+                test_range_eq(strings3, std::vector<row_string>{{.value = "third"}});
             co_return {};
         }(),
         [&]() -> capy::io_task<> {

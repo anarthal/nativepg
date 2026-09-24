@@ -138,3 +138,94 @@ neglecting any possible benefit that Nagle's algorithm may bring.
 
 Note that both libpq and the Postgres server disable Nagle's algorithm
 unconditionally, too.
+
+## Why not a connection with managed reconnection, like in Boost.Redis?
+
+Managed reconnection can be built on top of an unmanaged primitive, and the
+reverse is not true.
+
+Having control over reconnection is vital for `LISTEN`/`NOTIFY`
+patterns. Postgres notifications have at-most-once delivery semantics,
+meaning that a reconnection implies loosing notifications.
+For instance, when implementing a cache, a reconnection needs
+to invalidate the cache.
+
+Managed reconnection complicates connection pooling implementation.
+As benchmarks (TODO: link) show, a single multiplexed connection doesn't scale
+well for Postgres - you need several. If you're dealing with a cluster,
+some of these connections may be alive and some may not.
+When the user submits a request, we need to assign it to a live connection,
+which implies knowing the connection's state.
+
+For us, the most valuable feature of Boost.Redis is automatic
+request pipelining. I chose to support this as a built-in in
+`co_connection::exec()`.
+
+## Why does `exec()` support automatic pipelining? Why not an exclusive `exec()`?
+
+Benchmarks (TODO: link) show that pipelining can improve performance a lot.
+Automatic pipelining in `exec()` has a cost, but it is small enough to not implement
+a dedicated function.
+
+Having built-in pipelining in `exec()` also removes a pitfall for the user:
+`exec()` twice in parallel now executes these requests, and faster than
+serially. I've seen many users shoot their feet with exclusive semantics
+in Boost.MySQL.
+
+## Why does `exec()` perform its own reads and writes, instead of a `run()` task?
+
+It allows saner semantics in the presence of cancellation.
+With this approach, when `exec()` is cancelled, its corresponding
+read or write is cancelled too. Leftovers are cleaned up,
+and `exec()` completes.
+
+This simple scheme allows zero-copy implementations:
+the request needs to be kept alive only after `exec()` completes.
+If write operations are owned by `run()`, this is no longer true:
+you need to either copy the request, or block cancellations in `exec()`
+until the writer completes.
+
+This design gives away the write-coalescing that Boost.Redis does.
+In Boost.Redis, pending writes are coalesced into a single, big
+write, to save syscalls. Benchmarks (TODO: link) don't show
+much of a difference, attributing most of the performance gain
+to pipelining rather than to coalescing.
+
+## What happens if `exec()` is cancelled while a request is being executed?
+
+Nothing. The connection is left usable, and other requests aren't affected.
+`exec()` stores internally anything it left over, including partially-written
+requests and partially-written responses. Subsequent `exec()`/`receive()` tasks
+access this information and discard these leftovers before proceeding.
+
+The bookkeeping information required to keep the connection running is minimal
+because we require that all requests end in either a `Sync` or a `Query`.
+This way, we can count `ReadyForQuery` messages to perform error recovery.
+
+## Why is `receive()` a member of `co_connection` rather than a dedicated listener type?
+
+A dedicated listener type was designed in some detail before being abandoned. It had
+`add_channels()`/`remove_channels()` mutating a desired set, reconciled by the receive
+loop, with `channel_subscribed`/`channel_error` events reporting progress.
+
+There are problems with this:
+
+1. It is a managed reconnection pattern. As discussed (TODO: link),
+   we're trying to avoid these as primitives.
+2. Most patterns involving `LISTEN`/`NOTIFY` also require issuing arbitrary
+   `exec()`s.
+3. Error handling is problematic. There is no clean way to communicate the user
+   the fact that subscribing to a channel failed.
+
+To elaborate on the second point, there are two features of Postgres'
+notification system that force listeners issue `exec()`s:
+
+1. Notifications have at-most-once delivery semantics.
+   A disconnection means lost notifications. For example, when maintaining
+   a cache, the client needs to query the rows of interest _before_
+   issuing the `LISTEN` (TODO: link to Postgres fkin listen docs).
+2. Notifications can have a payload, but it is small (8KB max by default).
+   When dealing with bigger sizes, you need to use notifications as signals
+   to re-query the data of interest.
+
+Back-pressure is also easier to implement, see (TODO: link).

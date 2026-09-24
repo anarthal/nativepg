@@ -80,7 +80,6 @@ capy::task<> test_success()
         co_return;
 
     // Check
-    ;
     test_range_eq(ints, std::vector<row_int>{{.value = 52}});
     test_range_eq(strings, std::vector<row_string>{{.value = "abcd"}});
 }

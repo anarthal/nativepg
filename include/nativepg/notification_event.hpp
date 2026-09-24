@@ -36,19 +36,6 @@ struct notification_event
     std::string payload{};
 };
 
-// TODO: this should use views
-struct notification_event_v2
-{
-    // The process ID of the notifying backend
-    std::int32_t backend_pid{};
-
-    // The channel that was notified
-    std::string channel{};
-
-    // The payload passed to NOTIFY
-    std::string payload{};
-};
-
 }  // namespace nativepg
 
 #endif

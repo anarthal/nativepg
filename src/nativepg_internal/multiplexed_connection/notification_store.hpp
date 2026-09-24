@@ -23,6 +23,7 @@
 namespace nativepg::detail {
 
 // Two modes, deep (full copy) and shallow (shallow copies)
+// TODO: unit test
 class notification_store
 {
 public:

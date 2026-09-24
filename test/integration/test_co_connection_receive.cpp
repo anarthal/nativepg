@@ -5,6 +5,7 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#include <boost/capy/delay.hpp>
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/this_coro.hpp>
 #include <boost/capy/io_task.hpp>
@@ -38,6 +39,7 @@ namespace capy = boost::capy;
 using namespace nativepg;
 using namespace nativepg::test;
 using namespace std::string_view_literals;
+using namespace std::chrono_literals;
 
 namespace nativepg::protocol {
 
@@ -371,170 +373,57 @@ capy::task<> test_receive_during_exec_gets_notifications()
     ));
 }
 
-// // Same, with a second exec queued behind the one holding the reader. The receive()
-// // must not be starved by it, and the queued exec must still get its own response
-// capy::task<> test_receive_starts_during_exec_with_queued()
-// {
-//     // Setup
-//     auto conn = co_await establish_connection(), notifier = co_await establish_connection();
-//     auto conn_lock = co_await acquire_advisory_lock(11);
+// An exec() started while a receive() owns the reader. The exec's response
+// messages reach the receiver, which has to hand the reader over rather than
+// consume them
+capy::task<> test_exec_starts_during_receive()
+{
+    // Setup
+    auto conn = co_await establish_connection();
 
-//     // Listen
-//     if (!co_await checked_exec(conn, request().add_query("LISTEN \"test_receive_queued\"")))
-//         co_return;
+    // Listen
+    if (!co_await checked_exec(conn, request().add_query("LISTEN \"test_exec_during_receive\"")))
+        co_return;
 
-//     // Blocks on the lock, keeping the reader busy
-//     request req_exec1;
-//     req_exec1.add_query("SELECT $1 AS value", 42);
-//     req_exec1.add_query("SELECT pg_advisory_lock($1)", 11);
+    // Blocks on the lock, so the exec stays in flight while we set things up
+    request req_exec;
+    req_exec.add_query("SELECT $1 AS value", 42);
+    req_exec.add_query("SELECT pg_advisory_lock($1)", 12);
 
-//     // Queued behind req_exec1
-//     request req_exec2;
-//     req_exec2.add_query("SELECT $1 AS value", 50);
+    // when_all launches things in order, so the receive() runs first and takes
+    // the reader before the exec below registers itself
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::io_task<> {
+            // Owns the reader until the exec's first response message arrives
+            auto [ec, notifs] = co_await conn.receive();
+            if (check_success(ec, {}))
+            {
+                const protocol::notification_response expected[] = {
+                    {.process_id = conn.state().backend_process_id,
+                     .channel_name = "test_exec_during_receive",
+                     .payload = "my payload"}
+                };
+                test_range_eq(notifs, expected);
+            }
+            co_return {};
+        }(),
 
-//     capy::async_event select_finished, notify_sent;
+        [&]() -> capy::io_task<> {
+            // Give some time to the receiver, just in case
+            check_success(co_await capy::delay(1ms));
 
-//     // Recall that when_all launches things in order
-//     static_cast<void>(co_await capy::when_all(
-//         [&]() -> capy::io_task<> {
-//             // Owns the reader until the lock is released
-//             row_int row{};
-//             auto cb = [&](row_int r) {
-//                 row = r;
-//                 select_finished.set();
-//             };
-//             auto [dummy, err] = co_await do_exec(
-//                 conn,
-//                 req_exec1,
-//                 response{resultset_callback<row_int>(cb), check_execute()}
-//             );
-//             check_success(err);
-//             BOOST_TEST_EQ(row, row_int{.value = 42});
-//             co_return {};
-//         }(),
+            // exec() should't be blocked by the ongoing receive().
+            // If it is, we don't raise the notification in the following
+            // line, and the test fails by timeout.
+            co_await checked_exec(conn, request().add_query("SELECT 42"));
 
-//         [&]() -> capy::io_task<> {
-//             // Starts with the exec above already holding the reader, so it has to wait
-//             auto [ec, notifs] = co_await conn.receive();
-//             if (check_success(ec, {}))
-//             {
-//                 const protocol::notification_response expected[] = {
-//                     {.process_id = notifier.state().backend_process_id,
-//                      .channel_name = "test_receive_queued",
-//                      .payload = "with a queued exec"}
-//                 };
-//                 test_range_eq(notifs, expected);
-//             }
-//             co_return {};
-//         }(),
+            // Unblock the receiver to finish the test
+            co_await checked_exec(conn, request().add_query("NOTIFY test_exec_during_receive, 'my payload'"));
 
-//         [&]() -> capy::io_task<> {
-//             // Enters the queue after the receive(), and should get its own response
-//             std::vector<row_int> rows;
-//             auto [dummy, err] = co_await do_exec(conn, req_exec2, into(rows));
-//             check_success(err);
-//             test_range_eq(rows, std::vector<row_int>{{.value = 50}});
-//             co_return {};
-//         }(),
-
-//         [&]() -> capy::io_task<> {
-//             // Once the first exec is blocked on the lock, raise the notification
-//             auto [ec] = co_await select_finished.wait();
-//             BOOST_TEST_EQ(ec, std::error_code());
-//             static_cast<void>(co_await checked_exec(
-//                 notifier,
-//                 request().add_query("NOTIFY test_receive_queued, 'with a queued exec'")
-//             ));
-//             notify_sent.set();
-//             co_return {};
-//         }(),
-
-//         [&]() -> capy::io_task<> {
-//             // Release the lock so both execs can complete
-//             auto [ec] = co_await notify_sent.wait();
-//             BOOST_TEST_EQ(ec, std::error_code());
-//             check_success(co_await conn_lock.shutdown(), {});
-//             co_return {};
-//         }()
-//     ));
-// }
-
-// // An exec() started while a receive() owns the reader. The exec's response
-// // messages reach the receiver, which has to hand the reader over rather than
-// // consume them
-// capy::task<> test_exec_starts_during_receive()
-// {
-//     // Setup
-//     auto conn = co_await establish_connection(), notifier = co_await establish_connection();
-//     auto conn_lock = co_await acquire_advisory_lock(12);
-
-//     // Listen
-//     if (!co_await checked_exec(conn, request().add_query("LISTEN \"test_exec_during_receive\"")))
-//         co_return;
-
-//     // Blocks on the lock, so the exec stays in flight while we set things up
-//     request req_exec;
-//     req_exec.add_query("SELECT $1 AS value", 42);
-//     req_exec.add_query("SELECT pg_advisory_lock($1)", 12);
-
-//     capy::async_event select_finished, notify_sent;
-
-//     // when_all launches things in order, so the receive() runs first and takes
-//     // the reader before the exec below registers itself
-//     static_cast<void>(co_await capy::when_all(
-//         [&]() -> capy::io_task<> {
-//             // Owns the reader until the exec's first response message arrives
-//             auto [ec, notifs] = co_await conn.receive();
-//             if (check_success(ec, {}))
-//             {
-//                 const protocol::notification_response expected[] = {
-//                     {.process_id = notifier.state().backend_process_id,
-//                      .channel_name = "test_exec_during_receive",
-//                      .payload = "exec started later"}
-//                 };
-//                 test_range_eq(notifs, expected);
-//             }
-//             co_return {};
-//         }(),
-
-//         [&]() -> capy::io_task<> {
-//             // Its response messages are the ones that force the receiver to yield
-//             row_int row{};
-//             auto cb = [&](row_int r) {
-//                 row = r;
-//                 select_finished.set();
-//             };
-//             auto [dummy, err] = co_await do_exec(
-//                 conn,
-//                 req_exec,
-//                 response{resultset_callback<row_int>(cb), check_execute()}
-//             );
-//             check_success(err);
-//             BOOST_TEST_EQ(row, row_int{.value = 42});
-//             co_return {};
-//         }(),
-
-//         [&]() -> capy::io_task<> {
-//             // Once the exec is blocked on the lock, raise the notification
-//             auto [ec] = co_await select_finished.wait();
-//             BOOST_TEST_EQ(ec, std::error_code());
-//             static_cast<void>(co_await checked_exec(
-//                 notifier,
-//                 request().add_query("NOTIFY test_exec_during_receive, 'exec started later'")
-//             ));
-//             notify_sent.set();
-//             co_return {};
-//         }(),
-
-//         [&]() -> capy::io_task<> {
-//             // Release the lock so the exec can complete
-//             auto [ec] = co_await notify_sent.wait();
-//             BOOST_TEST_EQ(ec, std::error_code());
-//             check_success(co_await conn_lock.shutdown(), {});
-//             co_return {};
-//         }()
-//     ));
-// }
+            co_return {};
+        }()
+    ));
+}
 
 }  // namespace
 
@@ -548,8 +437,7 @@ int main()
 
     run_coroutine_test(test_receive_during_exec_handover());
     run_coroutine_test(test_receive_during_exec_gets_notifications());
-    // run_coroutine_test(test_receive_starts_during_exec_with_queued());
-    // run_coroutine_test(test_exec_starts_during_receive());
+    run_coroutine_test(test_exec_starts_during_receive());
 
     return boost::report_errors();
 }

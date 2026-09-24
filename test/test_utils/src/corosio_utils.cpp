@@ -11,6 +11,8 @@
 #include <boost/capy/task.hpp>
 #include <boost/core/lightweight_test.hpp>
 #include <boost/corosio/io_context.hpp>
+#include <boost/describe/class.hpp>
+#include <boost/describe/operators.hpp>
 
 #include <chrono>
 #include <cstdlib>
@@ -20,9 +22,25 @@
 #include <utility>
 
 #include "nativepg/extended_error.hpp"
+#include "nativepg/request.hpp"
+#include "nativepg/responses/into.hpp"
 #include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
+#include "test_utils/test_range_eq.hpp"
+
+namespace {
+
+struct row_int
+{
+    int value;
+};
+BOOST_DESCRIBE_STRUCT(row_int, (), (value))
+
+using boost::describe::operators::operator==;
+using boost::describe::operators::operator<<;
+
+}  // namespace
 
 void nativepg::test::run_coroutine_test(boost::capy::task<void> test, boost::source_location loc)
 {
@@ -82,4 +100,16 @@ boost::capy::task<bool> nativepg::test::checked_exec(
     diagnostics diag;
     auto [ec] = co_await conn.exec(req, handler, &diag);
     co_return check_success(ec, diag, loc);
+}
+
+boost::capy::task<void> nativepg::test::check_connection_usable(
+    co_connection& conn,
+    boost::source_location loc
+)
+{
+    request req;
+    req.add_query("SELECT $1 AS value", 1234);
+    std::vector<row_int> ints;
+    if (co_await checked_exec(conn, req, into(ints), loc))
+        test_range_eq(ints, std::vector<row_int>{{.value = 1234}}, loc);
 }

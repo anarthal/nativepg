@@ -105,6 +105,9 @@ capy::task<> test_single_notification()
          .payload = "second payload"}
     };
     test_range_eq(notifs2, expected2);
+
+    // The connection is left in a usable state
+    co_await check_connection_usable(conn);
 }
 
 // Empty payloads don't cause trouble
@@ -133,6 +136,9 @@ capy::task<> test_empty_payload()
          .payload = ""}
     };
     test_range_eq(notifs, expected);
+
+    // The connection is left in a usable state
+    co_await check_connection_usable(conn);
 }
 
 // A notification that arrives while an exec() owns the reader is stored,
@@ -165,6 +171,9 @@ capy::task<> test_notification_during_exec()
          .payload = "during exec"}
     };
     test_range_eq(notifs, expected);
+
+    // The connection is left in a usable state
+    co_await check_connection_usable(conn);
 }
 
 // The view returned by receive() stays valid when an exec() runs afterwards,
@@ -208,6 +217,9 @@ capy::task<> test_exec_doesnt_invalidate_notifications()
 
     // Check that the view we got before the exec() still reads correctly
     test_range_eq(notifs, expected);
+
+    // The connection is left in a usable state
+    co_await check_connection_usable(conn);
 }
 
 // Notifications raised by a single transaction are delivered as a single batch
@@ -240,6 +252,9 @@ capy::task<> test_batch_notifications()
         {.process_id = notifier_pid, .channel_name = "test_batch", .payload = "second"},
     };
     test_range_eq(notifs, expected);
+
+    // The connection is left in a usable state
+    co_await check_connection_usable(conn);
 }
 
 //
@@ -319,6 +334,9 @@ capy::task<> test_receive_during_exec_handover()
             co_return {};
         }()
     ));
+
+    // The connection is left in a usable state
+    co_await check_connection_usable(conn);
 }
 
 // A receive() issued while an exec() already owns the reader waits for its turn,
@@ -371,6 +389,9 @@ capy::task<> test_receive_during_exec_gets_notifications()
             co_return {};
         }()
     ));
+
+    // The connection is left in a usable state
+    co_await check_connection_usable(conn);
 }
 
 // An exec() started while a receive() owns the reader. The exec's response
@@ -423,6 +444,9 @@ capy::task<> test_exec_starts_during_receive()
             co_return {};
         }()
     ));
+
+    // The connection is left in a usable state
+    co_await check_connection_usable(conn);
 }
 
 }  // namespace

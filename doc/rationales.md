@@ -131,10 +131,193 @@ algorithm and TCP delayed ACK (as explained
 
 This library attempts to minimize latency. With Nagle enabled, in a pipelining
 scenario where several concurrent requests are issued (e.g. concurrent
-`co_multiplexed_connection::exec()` calls), only the first one will be sent to
+`co_connection::exec()` calls), only the first one will be sent to
 the server. The rest may be held until the first one is acknowledged.
-The library tries to batch writes as much as possible,
-neglecting any possible benefit that Nagle's algorithm may bring.
 
 Note that both libpq and the Postgres server disable Nagle's algorithm
 unconditionally, too.
+
+## Why not a connection with managed reconnection, like in Boost.Redis?
+
+Managed reconnection can be built on top of an unmanaged primitive, and the
+reverse is not true.
+
+Having control over reconnection is vital for `LISTEN`/`NOTIFY`
+patterns. Postgres notifications have at-most-once delivery semantics,
+meaning that a reconnection implies losing notifications.
+For instance, when implementing a cache, a reconnection needs
+to invalidate the cache.
+
+Managed reconnection complicates connection pool implementations.
+As [benchmarks](../bench/README.md#does-opening-more-than-one-multiplexed-connection-help-scale) show,
+a single multiplexed connection doesn't scale well for Postgres - you need several. If you're dealing with a cluster,
+some of these connections may be alive and some may not.
+When the user submits a request, we need to assign it to a live connection,
+which implies knowing the connection's state.
+
+For us, the most valuable feature of Boost.Redis is automatic
+request pipelining. I chose to support this as a built-in in
+`co_connection::exec()`.
+
+## Why does `exec()` support automatic pipelining? Why not an exclusive `exec()`?
+
+[Benchmarks](../bench/README.md#are-multiplexed-connections-worth-it) show that pipelining
+can improve performance a lot. Automatic pipelining in `exec()` has
+[a cost](../bench/README.md#co_connectionexec-supports-multiplexing-how-much-overhead-does-this-add),
+but it is small enough to not implement a dedicated function.
+
+Having built-in pipelining in `exec()` also removes a pitfall for the user:
+calling `exec()` twice in parallel now just works, and is faster than doing it
+serially. I've seen many users shoot themselves in the foot with exclusive
+semantics in Boost.MySQL.
+
+## Why does `exec()` perform its own reads and writes, instead of a `run()` task?
+
+It allows saner semantics in the presence of cancellation.
+With this approach, when `exec()` is cancelled, its corresponding
+read or write is cancelled too. Leftovers are cleaned up,
+and `exec()` completes.
+
+This simple scheme allows zero-copy implementations:
+the request needs to be kept alive only until `exec()` completes.
+If write operations are owned by `run()`, this is no longer true:
+you need to either copy the request, or block cancellations in `exec()`
+until the writer completes.
+
+This design gives up the write coalescing that Boost.Redis does.
+In Boost.Redis, pending writes are coalesced into a single, big
+write, to save syscalls. [Benchmarks](../bench/README.md#is-write-coalescing-worth-it) don't
+show much of a difference, attributing most of the performance gain
+to pipelining rather than to coalescing.
+
+## What happens if `exec()` is cancelled while a request is being executed?
+
+Nothing. The connection is left usable, and other requests aren't affected.
+`exec()` stores internally any leftovers, including partially-written
+requests and partially-read responses. Subsequent `exec()`/`receive()` tasks
+access this information and discard these leftovers before proceeding.
+
+The bookkeeping information required to keep the connection running is minimal
+because we require that all requests end in either a `Sync` or a `Query`.
+This way, we can count `ReadyForQuery` messages to perform error recovery.
+
+## Why is `receive()` a member of `co_connection` rather than a dedicated listener type?
+
+A dedicated listener type was designed in some detail before being abandoned. It had
+`add_channels()`/`remove_channels()` mutating a desired set, reconciled by the receive
+loop, with `channel_subscribed`/`channel_error` events reporting progress.
+
+There are problems with this:
+
+1. Re-subscribing to channels is only one part of what needs to happen after a reconnection.
+   Applications usually need to refresh stale data.
+   Managed re-subscription makes more sense if you're also managing the entire
+   reconnection process. But, as discussed
+   [above](#why-not-a-connection-with-managed-reconnection-like-in-boostredis),
+   we're trying to avoid these patterns.
+2. Most patterns involving `LISTEN`/`NOTIFY` also require issuing arbitrary
+   `exec()`s.
+3. Error handling is problematic. There is no clean way to communicate to the user
+   that subscribing to a channel failed. On the other hand, if `LISTEN` is issued
+   with `exec()`, as a regular SQL command, error handling is no longer a problem.
+
+To elaborate on the second point, there are two features of Postgres'
+notification system that force listeners to issue `exec()`s:
+
+1. Notifications have at-most-once delivery semantics.
+   A disconnection means lost notifications. For example, when maintaining
+   a cache, the client needs to query the rows of interest after
+   issuing the `LISTEN` (recommended by [the Postgres docs](https://www.postgresql.org/docs/current/sql-listen.html)).
+2. Notifications can have a payload, but it is small (8000 bytes max).
+   When dealing with bigger sizes, you need to use notifications as signals
+   to re-query the data of interest.
+
+Back-pressure is also easier to implement, see
+[the next section](#why-does-receive-drive-the-io-itself-instead-of-a-background-run-task-filling-a-queue).
+
+In cluster deployments, allowing `exec()` on the same connection that calls `receive()`
+also buys node affinity. Imagine that you are trying to maintain
+an in-memory cache of some data (as in [this example](../example/listen_cache.cpp)).
+A notification arrives, and you need to re-query some rows.
+You could potentially use a separate connection (e.g. one from a connection pool)
+to do this. But in a cluster setup, the pooled connection might target
+a different node than the receiver. If that node hasn't received
+the refreshed data yet, our query will return stale data.
+This race condition is impossible when using `exec()` on the same connection
+that got the notification.
+
+## Why does `receive()` drive the I/O itself, instead of a background `run()` task filling a queue?
+
+If `receive()` is implemented in terms of an internal queue, we've created
+a producer/consumer pair (`run()` being the producer, and `receive()` the consumer).
+To make this production-grade, we need to consider what happens when the
+producer is faster than the consumer, and implement a back-pressure strategy.
+
+This is a problem we face in Boost.Redis. We mitigate it by placing an upper bound
+on the queue size, and stalling all connection reads when the queue fills.
+This works but creates non-obvious traps: calling `exec()` and `receive()`
+sequentially (a common pattern here) can deadlock, because the responses to `exec()`
+may be queued after many notifications. I didn't want this limitation here.
+
+When `receive()` is the one reading the socket, there is no queue and no explicit back-pressure policy.
+If nobody calls either `receive()` or `exec()`, nobody reads, the kernel window closes, and the server
+blocks. Back-pressure happens at the TCP level.
+
+Notifications read by `exec()` are queued until someone reads
+them with `receive()`. There is no upper limit to the queue size here.
+This matches what `libpq` does.
+
+This is not as bad as with a background `run()`, though,
+because users can choose whether to call `exec()` or not.
+Our recommendation is to create a dedicated connection for each listener
+pattern that your application needs to implement. This connection
+should use `exec()` only when needed by the listener pattern,
+and not for unrelated queries. See the [cache example](../example/listen_cache.cpp).
+
+## Why does `receive()` copy notifications to an output buffer, instead of returning a view?
+
+Because notification payloads are always small (8000 bytes max).
+Zero-copy strategies pay off when dealing with larger sizes.
+
+Zero-copy would mean that `receive()` would return a view pointing
+into the connection's read buffer. It would only remain valid until
+the next `exec()` or `receive()` is called, since both need to read.
+Additionally, notifications read by `exec()` need to be copied anyway.
+I believe that zero-copy semantics for this use case would
+be more trouble than they are worth.
+
+`notification_vector` is a specialized container to make copying as cheap
+as possible. It has a flat memory layout, and achieves amortized zero allocations
+in steady state.
+
+## Why does `receive()` return notifications in batch?
+
+For efficiency. The server might send many notifications in a single
+TCP segment, which can then be obtained in a single read syscall.
+This is usually the case when a transaction generates several notifications.
+
+Batching implies fewer coroutine suspensions, which usually helps performance.
+It also encourages pipelining patterns in user code. For example, if a
+notification batch reports 10 rows as updated, the user can compose a single
+query to refresh them, rather than 10 individual queries.
+
+## Why only allow a single `receive()` in-flight at a time?
+
+For simplicity of the implementation. Allowing parallel `exec()`s buys performance,
+but parallel `receive()`s don't, since `receive()` is batched.
+Supporting several concurrent `receive()`s would add complexity without benefit.
+
+## Why does `receive()` not report partial success?
+
+I believe that partial success complicates user code,
+and needs a strong justification to exist.
+
+Partial success happens if `receive()`
+reads some notifications successfully and then
+encounters an error (e.g. network failure).
+In this case, the notifications are handed to the user,
+and the error is not reported. Because `receive()` is a member
+of `co_connection`, it can mark the connection as failed.
+`receive()` already fulfilled its contract of reading at least
+one notification. Subsequent operations will encounter the
+error.

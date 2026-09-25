@@ -18,13 +18,18 @@
 
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
+#include <system_error>
+#include <utility>
 #include <vector>
 
+#include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
 #include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/notification_vector.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
 #include "nativepg/protocol/detail/exec_some_fsm.hpp"
@@ -48,6 +53,16 @@ struct co_connection::impl
     std::vector<capy::const_buffer> copy_out_buffers;
     std::optional<protocol::detail::exec_some_fsm> exec_some_fsm;
     detail::multiplexer_v2 mpx_;  // TODO: clean up this?
+    notification_vector exec_notifications_;
+    bool receiver_running_{};
+
+    void reset()
+    {
+        // TODO: this somehow conflicts with connection_state::reset()
+        // For now we keep both, as this is specific to co_connection, but the ideal
+        // is having just one
+        exec_notifications_.clear();
+    }
 
     explicit impl(capy::execution_context& ctx) : resolv(ctx), sock(ctx) {}
 
@@ -167,6 +182,13 @@ struct co_connection::impl
             if (is_rfq)
                 guard.report_rfq();
 
+            // Store notifications so the receive loop can return them
+            if (res.message.type() == protocol::any_backend_message::kind::notification_response)
+            {
+                exec_notifications_.push_back(res.message.get_notification_response());
+                mpx_.notify_receiver();
+            }
+
             // Act on the message
             if (remaining_prev_rfqs > 0u)
             {
@@ -218,6 +240,143 @@ struct co_connection::impl
         );
 
         co_return {final_ec};
+    }
+
+    boost::capy::io_task<> receive(notification_vector& output)
+    {
+        // Verify that no two receivers run in parallel
+        if (receiver_running_)
+            co_return {client_errc::already_running};
+        receiver_running_ = true;
+
+        // Release the slot however we leave this function
+        struct receiver_guard
+        {
+            impl* self;
+            ~receiver_guard() { self->receiver_running_ = false; }
+        } receiver_running_guard{this};
+
+        // We own the output from this point on
+        output.clear();
+
+        // Wait for notifications to arrive/be read
+        auto [ec] = co_await wait_for_notifications(output);
+
+        // If we managed to read any, report success.
+        // TODO: if this was a fatal error, we should mark the connection as failed
+        if (!output.empty())
+            ec.clear();
+
+        co_return {ec};
+    }
+
+    boost::capy::io_task<> wait_for_notifications(notification_vector& output)
+    {
+        while (true)
+        {
+            // Wait for either notifications to arrive, or for our turn to read
+            auto [ec, guard] = co_await mpx_.enter_receive();
+            if (ec)
+                co_return {ec};
+
+            // Look for cached notifications first. Swapping hands the caller the
+            // buffer that exec() filled, and gives exec() our (empty) one back
+            if (!exec_notifications_.empty())
+            {
+                std::swap(exec_notifications_, output);
+                exec_notifications_.clear();
+                co_return {};
+            }
+
+            // Is it our turn to read? At this point, it probably is,
+            // but race conditions with other exec()s could make it not the case
+            if (guard.is_reading())
+            {
+                auto [loop_ec] = co_await receive_read(guard, output);
+                if (loop_ec || !output.empty())
+                    co_return {loop_ec};
+            }
+
+            // We yielded because we received a message that wasn't for us,
+            // but we don't have anything to report
+        }
+    }
+
+    boost::capy::io_task<> receive_read(
+        detail::multiplexer_v2::receive_guard& guard,
+        notification_vector& output
+    )
+    {
+        std::size_t consumed = 0u;
+
+        while (true)
+        {
+            // Try to parse a cached message
+            auto bytes = st.read_buffer.committed_area();
+            auto res = protocol::parse_message(bytes.subspan(consumed));
+
+            // Check for errors and end of input.
+            // Errors here are irrecoverable.
+            if (res.ec)
+            {
+                st.read_buffer.consume(consumed);
+                consumed = 0u;
+                if (res.ec == client_errc::needs_more)
+                {
+                    // We need to read. If we have notifications here,
+                    // return them to the user, and we'll read in the next iteration
+                    if (!output.empty())
+                        co_return {};
+
+                    // No notifications. Do read
+                    if (auto [ec] = co_await read_some_messages(); ec)
+                        co_return {ec};
+                    continue;
+                }
+                else
+                {
+                    co_return {res.ec};
+                }
+            }
+
+            // We've got a message. If it's one of the async messages,
+            // handle it directly
+            switch (res.message.type())
+            {
+                case protocol::any_backend_message::kind::notification_response:
+                    output.push_back(res.message.get_notification_response());
+                    consumed += res.size;
+                    break;
+                case protocol::any_backend_message::kind::parameter_status:
+                    st.update_tracked(res.message);  // TODO: I don't like going through the variant here
+                    consumed += res.size;
+                    break;
+                case protocol::any_backend_message::kind::notice_response:
+                    consumed += res.size;
+                    break;  // TODO: implement notices
+                default:
+                    if (guard.previous_rfqs() > 0u)
+                    {
+                        // We're reading leftovers
+                        consumed += res.size;
+                        if (res.message.type() == protocol::any_backend_message::kind::ready_for_query)
+                            guard.report_rfq();
+                    }
+                    else
+                    {
+                        // This is a request message that belongs to a reader. Bail out
+                        // TODO: we're parsing the message twice here
+                        st.read_buffer.consume(consumed);
+
+                        // For safety, check that there is an actual reader.
+                        // The multiplexer structure makes sure this should be the case.
+                        // This prevents busy spinning in case of de-synchronization
+                        auto final_ec = mpx_.has_exec_readers() ? std::error_code()
+                                                                : client_errc::unexpected_message;
+                        co_return {final_ec};
+                    }
+            }
+        }
     }
 
     void setup_request(const request& req, response_handler_ref handler)
@@ -308,6 +467,8 @@ struct co_connection::impl
 
 co_connection::co_connection(capy::execution_context& ctx) : impl_(std::make_unique<impl>(ctx)) {}
 
+co_connection::co_connection(co_connection&&) noexcept = default;
+
 co_connection& co_connection::operator=(co_connection&&) noexcept = default;
 
 co_connection::~co_connection() = default;
@@ -320,6 +481,7 @@ capy::io_task<> co_connection::connect(connect_params params, diagnostics* diag)
     using protocol::detail::connect_fsm;
 
     // Initialize
+    impl_->reset();
     connect_fsm fsm_(params);
     auto res = fsm_.resume(impl_->st, {}, 0u);
 
@@ -368,6 +530,8 @@ capy::io_task<> co_connection::exec(const request& req, response_handler_ref han
 {
     return impl_->exec(req, handler, diag);
 }
+
+capy::io_task<> co_connection::receive(notification_vector& output) { return impl_->receive(output); }
 
 void co_connection::setup_request(const request& req, response_handler_ref handler)
 {

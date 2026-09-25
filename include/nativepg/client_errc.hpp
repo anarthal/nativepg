@@ -132,6 +132,10 @@ enum class client_errc : int
     // A string to be escaped contains a NULL byte (0x00). Strings containing NULL bytes
     // are not supported by the wire protocol because they cause string truncation.
     null_byte,
+
+    // Another instance of the invoked async operation is already running.
+    // Both instances can't run in parallel (e.g. no two receive() operations in parallel)
+    already_running,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

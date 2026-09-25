@@ -28,6 +28,9 @@
 #include <utility>
 #include <vector>
 
+#include "nativepg/client_errc.hpp"
+#include "nativepg/notification_event.hpp"
+#include "nativepg/protocol/async.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg_internal/multiplexed_connection/multiplexer.hpp"
 
@@ -42,7 +45,10 @@ namespace nativepg::detail {
 class multiplexer_v2
 {
 public:
-    multiplexer_v2() = default;
+    multiplexer_v2()
+    {
+        receive_evt_.set();  // tasks start empty
+    }
 
     // TODO: this should have a proper reset to call on connection establishment.
     // If leftovers happen after a connection is severed, they are never cleaned up.
@@ -109,6 +115,9 @@ public:
         std::span<const unsigned char> previous_write_bytes() const { return obj_->pending_write_; }
 
         // Reports the result of the writer and releases the guard
+        // TODO: this calls potentially-throwing functions and is called from a destructor.
+        // An exception here leaves the connection in an unrecoverable state.
+        // Exceptions here are rare, so we'll handle this later.
         void report_result(std::size_t bytes_written) &&
         {
             // Did we manage to write any leftover bytes from previous execs?
@@ -196,6 +205,51 @@ public:
         }
     };
 
+    class receive_guard
+    {
+        multiplexer_v2* obj_{};
+
+    public:
+        receive_guard() = default;
+        explicit receive_guard(multiplexer_v2& obj) noexcept : obj_(&obj) {}
+
+        receive_guard(receive_guard&& rhs) noexcept : obj_(std::exchange(rhs.obj_, nullptr)) {}
+        receive_guard(const receive_guard& rhs) = delete;
+        receive_guard& operator=(receive_guard&& rhs) noexcept
+        {
+            if (this != &rhs)
+            {
+                // Release whatever we were holding before taking over rhs's slot
+                if (obj_)
+                    obj_->on_receiver_exit();
+                obj_ = std::exchange(rhs.obj_, nullptr);
+            }
+            return *this;
+        }
+        receive_guard& operator=(const receive_guard& rhs) = delete;
+        ~receive_guard()
+        {
+            if (obj_)
+                obj_->on_receiver_exit();
+        }
+
+        // Is it our turn to read? Or did we get notified because
+        // there are new cached notifications?
+        bool is_reading() const { return obj_->receiver_reading_; }
+
+        // Returns the number of ReadyForQuery messages that
+        // should be read from previous abandoned requests.
+        std::size_t previous_rfqs() const { return obj_->trailing_rfqs_; }
+
+        // Reports that we have read a RFQ.
+        // If the receiver exits by an exception, we can still know what state the connection is in.
+        void report_rfq()
+        {
+            BOOST_ASSERT(obj_->trailing_rfqs_ > 0u);
+            --obj_->trailing_rfqs_;
+        }
+    };
+
     // Registers a task within the multiplexer and waits for the writer's turn
     // The task node and the request should be kept alive until both guards are destroyed
     boost::capy::io_task<write_guard, read_guard> enter(task_node& node, const request* req)
@@ -208,7 +262,7 @@ public:
             co_return {ec, {}, {}};
 
         // If there is no-one reading, set the event so the reader doesn't deadlock
-        if (active_tasks_.empty())
+        if (active_tasks_.empty() && !receiver_reading_)
             node.evt.set();
 
         // Register what we are doing, so no other reader takes our turn
@@ -219,6 +273,30 @@ public:
         // Done
         co_return {{}, write_guard(*this, node), read_guard(*this, node)};
     }
+
+    // TODO: do we want this as an awaitable instead?
+    boost::capy::io_task<receive_guard> enter_receive()
+    {
+        // Wait for our turn
+        if (auto [ec] = co_await receive_evt_.wait(); ec)
+            co_return {ec, {}};
+
+        // Reset the event, so further notifications aren't lost
+        receive_evt_.clear();
+
+        // This event may be set because there are new cached notifications,
+        // or because it's our time to read. Try to distinguish it
+        receiver_reading_ = active_tasks_.empty();
+
+        // Done
+        co_return {{}, receive_guard{*this}};
+    }
+
+    // TODO: this lacks encapsulation
+    void notify_receiver() { receive_evt_.set(); }
+
+    // Are there any exec readers waiting?
+    bool has_exec_readers() const { return !active_tasks_.empty(); }
 
 private:
     // Grants exclusive access to the write side
@@ -232,6 +310,13 @@ private:
 
     // Bytes left over by an incomplete write by a previous task
     std::vector<unsigned char> pending_write_;
+
+    // Has the receiver acquired ownership of the reader?
+    bool receiver_reading_{};
+
+    // Should be set when there are new notifications
+    // or the receiver can attempt to read
+    boost::capy::async_event receive_evt_;
 
     static inline std::size_t count_rfqs(const request& req)
     {
@@ -260,7 +345,6 @@ private:
         auto it = active_tasks_.iterator_to(node);
         auto next = std::next(it);
         bool is_current_reader = it == active_tasks_.begin();
-        bool has_next = next != active_tasks_.end();
 
         // Compute the remaining RFQs. The reader might set read_rfqs to -1
         // to indicate that everything was read so we can skip this calculation
@@ -277,16 +361,32 @@ private:
         active_tasks_.erase(it);
 
         // Update the leftover RFQ count
-        (has_next ? next->pending_rfqs : trailing_rfqs_) += remaining_rfqs;
+        (next == active_tasks_.end() ? trailing_rfqs_ : next->pending_rfqs) += remaining_rfqs;
 
-        // If this is the current reader and there is a next reader, notify it
-        if (is_current_reader && has_next)
-            next->evt.set();
+        // If this is the current reader and there is a next reader, notify it.
+        // Otherwise, let the receiver read loop run.
+        if (is_current_reader)
+            notify_next_reader();
+    }
+
+    void on_receiver_exit()
+    {
+        // If we were reading, we're no longer doing it, so notify any pending readers
+        if (receiver_reading_)
+            notify_next_reader();
+        receiver_reading_ = false;
+    }
+
+    void notify_next_reader()
+    {
+        if (!active_tasks_.empty())
+            active_tasks_.front().evt.set();
+        else
+            receive_evt_.set();
     }
 };
 
-// TODO: I think the reader and writer really belong here.
-// But let's implement receive() first and see
+// TODO: I think the reader and writer really belong here
 
 }  // namespace nativepg::detail
 

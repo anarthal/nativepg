@@ -17,8 +17,8 @@ For the server, I've got two setups:
 
 - One running in localhost, using Docker (`postgres:17.4` image).
   This setup represents use cases where the network latency is small
-  (e.g. where both client and server run in the same machine or
-  availability zone). Caveat: client and server run in the same
+  (e.g. where both client and server run on the same machine or
+  availability zone). Caveat: client and server run on the same
   machine and may influence each other.
 - One running in AWS, on a `t3.micro` EC2 instance with an Ubuntu 26.04 image.
   It uses the system's Postgres installation (v18.6).
@@ -47,7 +47,7 @@ important because Postgres is one process per connection, so the max
 number of connections is limited (usually `max_connections=100`).
 Intuitively, multiplexed connections should be faster because they
 pipeline concurrent requests, while dedicated connections keep
-only one connection in-flight at any given time.
+only one request in flight at any given time.
 
 We measure latency, as seen by an individual session, and throughput,
 as queries completed per unit of time.
@@ -69,7 +69,7 @@ Follow-ups:
   especially if the network latency is small. Boost.Redis' recommendation
   of one multiplexed connection per application does not transfer to us.
   This is because each Postgres connection is handled by one process
-  using sync network calls, where Redis uses a single thread for all connections
+  using sync network calls, whereas Redis uses a single thread for all connections
   and non-blocking calls.
 - We should measure whether coalescing writes is really worth the complexity.
 
@@ -105,7 +105,7 @@ Follow-ups:
 - Connection pools need to take multiplexed connections into account.
   There should be an easy way for users to create several multiplexed connections
   and distribute their work among them. The optimal number depends on the server,
-  but is likely much inferior than the default 100 connection limit.
+  but is likely much lower than the default 100 connection limit.
 
 ## co_connection::exec() supports multiplexing: how much overhead does this add?
 
@@ -114,16 +114,16 @@ and later removed. Data available [here](exclusive_vs_multiplexed.csv).
 
 The benchmark compared two implementations of `co_connection::exec()`:
 
-- The current one (TODO: pin commit when possible, after a68d3481bb0853ee2a55c579bc4ce1ff803f1167).
+- The [current one](https://github.com/anarthal/nativepg/blob/8442621352faad9f300b0072281b8bf9b60d77e1/src/co_connection.cpp#L102-L221).
   It has built-in support for multiplexing: calling `co_connection::exec()` concurrently
-  is well-defined, and results in pipelining subsequent requests.
+  is well-defined, and results in the concurrent requests being pipelined.
 - The [old one](https://github.com/anarthal/nativepg/blob/a68d3481bb0853ee2a55c579bc4ce1ff803f1167/src/co_connection.cpp#L243-L277).
   It required exclusive access to the connection: calling `co_connection::exec()`
   with other `exec`s in-flight was an error. It was more straightforward: a plain write followed by
   enough reads to get the entire response.
 
 Multiplexing has some overhead, as it needs to track in-flight requests.
-If the overhead is small enough, removing the API requiring exclusive access makes sense.
+If the overhead is small enough, dropping the exclusive-access API makes sense.
 
 The benchmark was only run in the localhost setup: the overhead comes from memory
 allocations, which are orders of magnitude cheaper than a network round-trip to AWS,
@@ -132,7 +132,7 @@ so the AWS setup could not resolve it.
 Latency is ~2% worse in the multiplexed case. This is measurable, but
 does not justify maintaining an extra API at this stage of development.
 
-**Conclusions**: we may consider exclusive `exec()` in the future,
+**Conclusions**: we may reconsider an exclusive `exec()` in the future,
 but the cost is small enough for now.
 
 ## Is write coalescing worth it?
@@ -145,14 +145,14 @@ The benchmark compares two connection implementations that allow multiplexing wi
 
 - One that coalesces write operations into one big write, like Boost.Redis does,
   at the expense of copying the request payload ([old `co_multiplexed_connection::exec()`](https://github.com/anarthal/nativepg/blob/a68d3481bb0853ee2a55c579bc4ce1ff803f1167/src/co_multiplexed_connection.cpp)).
-- One that does not perform this coalescing and performs no copy
-  (TBC: link).
+- One that does no coalescing and no copying
+  ([current `co_connection::exec()` writer](https://github.com/anarthal/nativepg/blob/8442621352faad9f300b0072281b8bf9b60d77e1/src/co_connection.cpp#L102-L121)).
 
 Coalescing may help reduce write system calls, but it forces us either to copy
-the request payload, or to give up on timely cancellation when `exec()` is cancelled.
+the request payload, or to give up on timely cancellation.
 
-Numbers are very similar. The data shows a slight advantage for coalescing under localhost
+Numbers are very similar. The data shows a slight advantage for coalescing in the localhost setup
 (around 1%), but the result is not reproducible: other runs came out inconclusive.
 
 **Conclusions**: write coalescing is not worth it. It complicates the implementation
-with very little benefit.
+for very little benefit.

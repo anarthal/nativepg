@@ -22,6 +22,8 @@
 #include "nativepg/connect_params.hpp"
 #include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/notification_vector.hpp"
+#include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/copy.hpp"
 #include "nativepg/request.hpp"
@@ -96,7 +98,7 @@ public:
     {
     }
 
-    co_connection(co_connection&&) = default;
+    co_connection(co_connection&&) noexcept;
     co_connection(const co_connection&) = delete;
 
     co_connection& operator=(co_connection&&) noexcept;
@@ -121,6 +123,17 @@ public:
         // Keep the handler alive
         co_return co_await exec(req, response_handler_ref(&handler), diag);
     }
+
+    // Waits until either a notification arrives, or an error occurs.
+    // The connection must be in established state.
+    // Received notifications are stored in output, which is cleared first.
+    // Can be called in parallel with other exec() operations.
+    // Only one receive() operation is allowed to be in-flight at any given time.
+    //   Issuing another fails with client_errc::already_running.
+    // If at least one notification is read, returns a non-empty error code.
+    //   If an error condition is detected after some notifications have been read,
+    //   they are returned, and no error is reported.
+    boost::capy::io_task<> receive(notification_vector& output);
 
     // The request and the handler must live until the entire response has been read
     // with exec_some

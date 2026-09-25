@@ -235,12 +235,7 @@ notification system that force listeners to issue `exec()`s:
 Back-pressure is also easier to implement, see
 [the next section](#why-does-receive-drive-the-io-itself-instead-of-a-background-run-task-filling-a-queue).
 
-## Why no `co_connection_pool::receive()`?
-
-In clusters, `LISTEN` is node-local. Subscribing to multiple nodes
-would yield repeated notifications.
-
-Allowing `exec()` on the same connection that calls `receive()`
+In cluster deployments, allowing `exec()` on the same connection that calls `receive()`
 also buys node affinity. Imagine that you are trying to maintain
 an in-memory cache of some data (as in [this example](../example/listen_cache.cpp)).
 A notification arrives, and you need to re-query some rows.
@@ -317,11 +312,11 @@ Supporting several concurrent `receive()`s would add complexity without benefit.
 I believe that partial success complicates user code,
 and needs a strong justification to exist.
 
-Partial success could happen if `receive()`
+Partial success happens if `receive()`
 reads some notifications successfully and then
 encounters an error (e.g. network failure).
 In this case, the notifications are handed to the user,
-and no error is returned. Because `receive()` is a member
+and the error is not reported. Because `receive()` is a member
 of `co_connection`, it can mark the connection as failed.
 `receive()` already fulfilled its contract of reading at least
 one notification. Subsequent operations will encounter the

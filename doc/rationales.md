@@ -229,3 +229,47 @@ notification system that force listeners issue `exec()`s:
    to re-query the data of interest.
 
 Back-pressure is also easier to implement, see (TODO: link).
+
+## Why does `receive()` drive the I/O itself, instead of a background `run()` task filling a queue?
+
+If `receive()` is implemented in terms of an internal queue, we've created
+a producer/consumer pair (`run()` being the producer, and `receiver()` the consumer).
+To make this production-grade, we need to consider what happens when the
+producer is faster than the consumer, and implement a back-pressure strategy.
+
+This is a problem we face in Boost.Redis. We mitigate it by placing an upper bound
+to the queue size, and stalling all connection reads when the queue fills.
+This works but creates non-obvious traps: calling `exec()` and `receive()`
+sequentially (a common pattern here) can deadlock, because the responses to `exec()`
+may be queued after many notifications. I didn't want this limitation here.
+
+When `receive()` is the thing reading the socket, there is no queue and no explicit back-pressure policy.
+If nobody calls neither `receive()` nor `exec()`, nobody reads, the kernel window closes, and the server
+blocks. Back-pressure happens at the TCP level.
+
+Notifications read by `exec()` are queued until someone reads
+them with `receive()`. There is no upper limit to the queue size here.
+This matches what `libpq` does.
+
+This is not as bad as with a background `run()`, though,
+because users can choose whether to call `exec()` or not.
+Our recommendation is to create a dedicated connection for each listener
+pattern that your application needs to implement. This connection
+should use `exec()` only when needed by the listener pattern,
+and not for unrelated queries. See (TBC: link to cache example) for an example.
+
+## Why does `receive()` copy notifications to an output buffer, instead of returning a view?
+
+Because notification payloads are always small (8KB max by default).
+Zero-copy strategies pay off when dealing with larger sizes.
+
+Zero-copy would mean that `receive()` would return a view pointing
+into the connection's read buffer. It would only remain valid until
+the next `exec()` or `receive()` are called, since both need to read.
+Additionally, notifications read by `exec()` need to be copied anyway.
+I believe that zero-copy semantics for this use-case would
+be more trouble than worth.
+
+`notification_vector` is a specialized container to make copying as cheap
+as possible. It has a flat memory layout, and achieves amortized zero allocations
+in steady state.

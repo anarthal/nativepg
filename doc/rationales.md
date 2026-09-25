@@ -133,8 +133,6 @@ This library attempts to minimize latency. With Nagle enabled, in a pipelining
 scenario where several concurrent requests are issued (e.g. concurrent
 `co_connection::exec()` calls), only the first one will be sent to
 the server. The rest may be held until the first one is acknowledged.
-The library tries to batch writes as much as possible,
-neglecting any possible benefit that Nagle's algorithm may bring.
 
 Note that both libpq and the Postgres server disable Nagle's algorithm
 unconditionally, too.
@@ -211,27 +209,47 @@ loop, with `channel_subscribed`/`channel_error` events reporting progress.
 
 There are problems with this:
 
-1. It is a managed reconnection pattern. As discussed
+1. Re-subscribing to channels is only one part of what needs to happen after a reconnection.
+   Applications usually need to refresh stale data.
+   Managed re-subscription makes more sense if you're also managing the entire
+   reconnection process. But, as discussed
    [above](#why-not-a-connection-with-managed-reconnection-like-in-boostredis),
-   we're trying to avoid these as primitives.
+   we're trying to avoid these patterns.
 2. Most patterns involving `LISTEN`/`NOTIFY` also require issuing arbitrary
    `exec()`s.
 3. Error handling is problematic. There is no clean way to communicate to the user
-   that subscribing to a channel failed.
+   that subscribing to a channel failed. On the other hand, if `LISTEN` is issued
+   with `exec()`, as a regular SQL command, error handling is no longer a problem.
 
 To elaborate on the second point, there are two features of Postgres'
 notification system that force listeners to issue `exec()`s:
 
 1. Notifications have at-most-once delivery semantics.
    A disconnection means lost notifications. For example, when maintaining
-   a cache, the client needs to query the rows of interest _before_
-   issuing the [`LISTEN`](https://www.postgresql.org/docs/current/sql-listen.html).
-2. Notifications can have a payload, but it is small (8KB max by default).
+   a cache, the client needs to query the rows of interest after
+   issuing the `LISTEN` (recommended by [the Postgres docs](https://www.postgresql.org/docs/current/sql-listen.html)).
+2. Notifications can have a payload, but it is small (8000B max).
    When dealing with bigger sizes, you need to use notifications as signals
    to re-query the data of interest.
 
 Back-pressure is also easier to implement, see
 [the next section](#why-does-receive-drive-the-io-itself-instead-of-a-background-run-task-filling-a-queue).
+
+## Why no `connection_pool::receive()`?
+
+In clusters, `LISTEN` is node-local. Subscribing to multiple nodes
+would yield repeated notifications.
+
+Allowing `co_connection::exec()` in connections that call `co_connection::receive()`
+also buys node-affinity. Imagine that you are trying to maintain
+an in-memory cache of some data (as in [this example](../example/listen_cache.cpp)).
+A notification arrives, and you need to re-query some rows.
+You could potentially use a separate connection (e.g. one from a connection pool)
+to do this. But in a cluster setup, the pooled connection might target
+a different node than the receiver. If that node hasn't received
+the refreshed data yet, our query will receive stale data.
+This race condition is impossible when using `exec()` on the same connection
+that got the notification.
 
 ## Why does `receive()` drive the I/O itself, instead of a background `run()` task filling a queue?
 
@@ -263,7 +281,7 @@ and not for unrelated queries. See the [cache example](../example/listen_cache.c
 
 ## Why does `receive()` copy notifications to an output buffer, instead of returning a view?
 
-Because notification payloads are always small (8KB max by default).
+Because notification payloads are always small (8000B max).
 Zero-copy strategies pay off when dealing with larger sizes.
 
 Zero-copy would mean that `receive()` would return a view pointing
@@ -276,3 +294,36 @@ be more trouble than they are worth.
 `notification_vector` is a specialized container to make copying as cheap
 as possible. It has a flat memory layout, and achieves amortized zero allocations
 in steady state.
+
+## Why does `receive()` return notifications in batch?
+
+For efficiency. The server might return many notifications in a single
+TCP segment, and might be obtained in a single read syscall.
+This is usually the case when a transaction generated several notifications.
+
+Batching implies less coroutine suspensions, which usually helps performance.
+It also encourages pipelining patterns in user code, which also help performance.
+For example, if a notification batch reports 10 rows as updated,
+the user can compose a single query to refresh them, rather than 10 individual queries.
+
+## Why only allow a single `receive()` in-flight at a time?
+
+For simplicity of the implementation. Allowing parallel `exec()`s buys performance.
+Parallel `receive()`s don't, since `receive()` is batched.
+The extra complexity of allowing several concurrent `receive()`s
+adds complexity without benefit.
+
+## Why does `receive()` not report partial success?
+
+I believe that partial success complicates user code,
+and needs a strong justification to exist.
+
+Partial success could happen if `receive()`
+reads some notifications successfully and then
+encounters an error (e.g. network failure).
+In this case, the notifications are handed to the user,
+and no error is returned. Because `receive()` is a member
+of `co_connection`, it can mark the connection as failed.
+`receive()` already fulfilled its contract of reading at least
+one notification. Subsequent operations will encounter the
+error.

@@ -148,7 +148,7 @@ meaning that a reconnection implies losing notifications.
 For instance, when implementing a cache, a reconnection needs
 to invalidate the cache.
 
-Managed reconnection complicates connection pooling implementation.
+Managed reconnection complicates connection pool implementations.
 As [benchmarks](../bench/README.md#does-opening-more-than-one-multiplexed-connection-help-scale) show,
 a single multiplexed connection doesn't scale well for Postgres - you need several. If you're dealing with a cluster,
 some of these connections may be alive and some may not.
@@ -184,7 +184,7 @@ If write operations are owned by `run()`, this is no longer true:
 you need to either copy the request, or block cancellations in `exec()`
 until the writer completes.
 
-This design gives away the write-coalescing that Boost.Redis does.
+This design gives up the write coalescing that Boost.Redis does.
 In Boost.Redis, pending writes are coalesced into a single, big
 write, to save syscalls. [Benchmarks](../bench/README.md#is-write-coalescing-worth-it) don't
 show much of a difference, attributing most of the performance gain
@@ -193,7 +193,7 @@ to pipelining rather than to coalescing.
 ## What happens if `exec()` is cancelled while a request is being executed?
 
 Nothing. The connection is left usable, and other requests aren't affected.
-`exec()` stores internally anything it left over, including partially-written
+`exec()` stores internally any leftovers, including partially-written
 requests and partially-read responses. Subsequent `exec()`/`receive()` tasks
 access this information and discard these leftovers before proceeding.
 
@@ -228,26 +228,26 @@ notification system that force listeners to issue `exec()`s:
    A disconnection means lost notifications. For example, when maintaining
    a cache, the client needs to query the rows of interest after
    issuing the `LISTEN` (recommended by [the Postgres docs](https://www.postgresql.org/docs/current/sql-listen.html)).
-2. Notifications can have a payload, but it is small (8000B max).
+2. Notifications can have a payload, but it is small (8000 bytes max).
    When dealing with bigger sizes, you need to use notifications as signals
    to re-query the data of interest.
 
 Back-pressure is also easier to implement, see
 [the next section](#why-does-receive-drive-the-io-itself-instead-of-a-background-run-task-filling-a-queue).
 
-## Why no `connection_pool::receive()`?
+## Why no `co_connection_pool::receive()`?
 
 In clusters, `LISTEN` is node-local. Subscribing to multiple nodes
 would yield repeated notifications.
 
-Allowing `co_connection::exec()` in connections that call `co_connection::receive()`
-also buys node-affinity. Imagine that you are trying to maintain
+Allowing `exec()` on the same connection that calls `receive()`
+also buys node affinity. Imagine that you are trying to maintain
 an in-memory cache of some data (as in [this example](../example/listen_cache.cpp)).
 A notification arrives, and you need to re-query some rows.
 You could potentially use a separate connection (e.g. one from a connection pool)
 to do this. But in a cluster setup, the pooled connection might target
 a different node than the receiver. If that node hasn't received
-the refreshed data yet, our query will receive stale data.
+the refreshed data yet, our query will return stale data.
 This race condition is impossible when using `exec()` on the same connection
 that got the notification.
 
@@ -281,7 +281,7 @@ and not for unrelated queries. See the [cache example](../example/listen_cache.c
 
 ## Why does `receive()` copy notifications to an output buffer, instead of returning a view?
 
-Because notification payloads are always small (8000B max).
+Because notification payloads are always small (8000 bytes max).
 Zero-copy strategies pay off when dealing with larger sizes.
 
 Zero-copy would mean that `receive()` would return a view pointing
@@ -297,21 +297,20 @@ in steady state.
 
 ## Why does `receive()` return notifications in batch?
 
-For efficiency. The server might return many notifications in a single
-TCP segment, and might be obtained in a single read syscall.
-This is usually the case when a transaction generated several notifications.
+For efficiency. The server might send many notifications in a single
+TCP segment, which can then be obtained in a single read syscall.
+This is usually the case when a transaction generates several notifications.
 
-Batching implies less coroutine suspensions, which usually helps performance.
-It also encourages pipelining patterns in user code, which also help performance.
-For example, if a notification batch reports 10 rows as updated,
-the user can compose a single query to refresh them, rather than 10 individual queries.
+Batching implies fewer coroutine suspensions, which usually helps performance.
+It also encourages pipelining patterns in user code. For example, if a
+notification batch reports 10 rows as updated, the user can compose a single
+query to refresh them, rather than 10 individual queries.
 
 ## Why only allow a single `receive()` in-flight at a time?
 
-For simplicity of the implementation. Allowing parallel `exec()`s buys performance.
-Parallel `receive()`s don't, since `receive()` is batched.
-The extra complexity of allowing several concurrent `receive()`s
-adds complexity without benefit.
+For simplicity of the implementation. Allowing parallel `exec()`s buys performance,
+but parallel `receive()`s don't, since `receive()` is batched.
+Supporting several concurrent `receive()`s would add complexity without benefit.
 
 ## Why does `receive()` not report partial success?
 

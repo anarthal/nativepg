@@ -127,7 +127,7 @@ struct co_connection::impl
 
         // Set up the state
         st.node.reset(&req);
-        st.fsm.emplace(&req, handler, false);  // TODO: this shouldn't be the case for COPY!
+        st.fsm.emplace(&req, handler, true);  // TODO: probably remove the copy_allowed flag
         st.diag = diag;
 
         // Wait for our turn to write and register what we are doing in the queue

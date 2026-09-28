@@ -39,6 +39,12 @@ class exec_state
 
 public:
     exec_state() = default;
+    exec_state(const exec_state&) = delete;
+    exec_state(exec_state&&) = delete;
+    exec_state& operator=(const exec_state&) = delete;
+    exec_state& operator=(exec_state&&) = delete;
+    ~exec_state() = default;
+
     bool is_registered() const { return impl_.fsm.has_value(); }
     bool write_done() const { return is_registered() && !impl_.write_guard.has_value(); }
     bool read_done() const { return is_registered() && !impl_.read_guard.has_value(); }

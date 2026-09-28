@@ -125,6 +125,10 @@ struct co_connection::impl
         if (auto ec = protocol::detail::setup_request(req, handler))
             co_return {ec};
 
+        // If there was any leftover, clean it up
+        st.write_guard = {};
+        st.read_guard = {};
+
         // Set up the state
         st.node.reset(&req);
         st.fsm.emplace(&req, handler, true);  // TODO: probably remove the copy_allowed flag

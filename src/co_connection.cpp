@@ -181,7 +181,6 @@ struct co_connection::impl
 
         // Setup
         std::size_t consumed = 0u;
-        std::size_t remaining_prev_rfqs = guard.previous_rfqs();
 
         while (true)
         {
@@ -224,11 +223,11 @@ struct co_connection::impl
             }
 
             // Act on the message
-            if (remaining_prev_rfqs > 0u)
+            if (guard.previous_rfqs() > 0u)
             {
                 // A leftover message from previous execs
                 if (is_rfq)
-                    --remaining_prev_rfqs;
+                    guard.report_rfq();
             }
             else
             {

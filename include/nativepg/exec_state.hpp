@@ -16,18 +16,42 @@
 
 namespace nativepg {
 
-// TODO: move visibility
-// TODO: hide this
-struct exec_state
+namespace detail {
+
+struct exec_state_impl
 {
     detail::multiplexer_v2::task_node node{};
     detail::multiplexer_v2::write_guard write_guard;
     detail::multiplexer_v2::read_guard read_guard;
     diagnostics* diag{};
     std::optional<protocol::read_response_fsm> fsm;  // TODO: optional not good
-
-    bool is_done() const { return fsm && fsm->is_done(); }
 };
+
+struct exec_state_access;
+
+}  // namespace detail
+
+class exec_state
+{
+    detail::exec_state_impl impl_;
+
+    friend struct detail::exec_state_access;
+
+public:
+    exec_state() = default;
+    bool is_registered() const { return impl_.fsm.has_value(); }
+    bool write_done() const { return is_registered() && !impl_.write_guard.has_value(); }
+    bool read_done() const { return is_registered() && !impl_.read_guard.has_value(); }
+};
+
+namespace detail {
+
+struct exec_state_access
+{
+    static exec_state_impl& get_impl(exec_state& st) { return st.impl_; }
+};
+
+}  // namespace detail
 
 }  // namespace nativepg
 

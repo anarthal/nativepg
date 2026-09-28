@@ -30,7 +30,7 @@
 
 namespace nativepg {
 
-struct exec_state;
+class exec_state;
 
 class exec_some_result
 {

@@ -16,6 +16,10 @@
 #include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/response_handler.hpp"
 
+// TODO: some ErrorResponse messages contain fatal errors
+// (e.g. when the server detected a desync). We should probably
+// detect these here and report them.
+
 using namespace nativepg;
 using protocol::any_backend_message;
 using kind = protocol::any_backend_message::kind;

@@ -77,7 +77,7 @@ static capy::task<> co_main()
     }
 
     // Read the response until we are done
-    while (!exec_st.is_done())
+    while (!exec_st.read_done())
     {
         if (auto [ec] = co_await conn.read_some_response(exec_st); ec)
         {

@@ -115,7 +115,7 @@ struct co_connection::impl
     }
 
     capy::io_task<> register_request(
-        exec_state& st,
+        detail::exec_state_impl& st,
         const request& req,
         response_handler_ref handler,
         diagnostics* diag
@@ -163,12 +163,12 @@ struct co_connection::impl
         co_return {ec};
     }
 
-    boost::capy::io_task<> write_request(exec_state& st)
+    boost::capy::io_task<> write_request(detail::exec_state_impl& st)
     {
         return write_request(st.write_guard, *st.node.req);
     }
 
-    boost::capy::io_task<> read_some_response(exec_state& exec_st)
+    boost::capy::io_task<> read_some_response(detail::exec_state_impl& exec_st)
     {
         auto& guard = exec_st.read_guard;
         auto& fsm = *exec_st.fsm;
@@ -254,7 +254,7 @@ struct co_connection::impl
         }
     }
 
-    boost::capy::io_task<> read_response(exec_state& exec_st)
+    boost::capy::io_task<> read_response(detail::exec_state_impl& exec_st)
     {
         while (!exec_st.fsm->is_done())
         {
@@ -270,7 +270,7 @@ struct co_connection::impl
     boost::capy::io_task<> exec(const request& req, response_handler_ref handler, diagnostics* diag = nullptr)
     {
         // Setup
-        exec_state exec_st;
+        detail::exec_state_impl exec_st;
 
         // Register ourselves within the multiplexer
         if (auto [ec] = co_await register_request(exec_st, req, handler, diag); ec)
@@ -585,14 +585,17 @@ boost::capy::io_task<> co_connection::register_request(
     diagnostics* diag
 )
 {
-    return impl_->register_request(st, req, handler, diag);
+    return impl_->register_request(detail::exec_state_access::get_impl(st), req, handler, diag);
 }
 
-boost::capy::io_task<> co_connection::write_request(exec_state& st) { return impl_->write_request(st); }
+boost::capy::io_task<> co_connection::write_request(exec_state& st)
+{
+    return impl_->write_request(detail::exec_state_access::get_impl(st));
+}
 
 boost::capy::io_task<> co_connection::read_some_response(exec_state& st)
 {
-    return impl_->read_some_response(st);
+    return impl_->read_some_response(detail::exec_state_access::get_impl(st));
 }
 
 void co_connection::setup_request(const request& req, response_handler_ref handler)

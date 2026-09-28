@@ -118,6 +118,8 @@ public:
                 obj_->on_writer_exit(*node_);
         }
 
+        bool has_value() const { return obj_ != nullptr; }
+
         // Gets a buffer containing leftover bytes from previous execs
         // that should be written before our request
         std::span<const unsigned char> previous_write_bytes() const { return obj_->pending_write_; }
@@ -191,6 +193,8 @@ public:
             if (obj_)
                 obj_->on_reader_exit(*node_);
         }
+
+        bool has_value() const { return obj_ != nullptr; }
 
         // Waits for our turn.
         auto wait() { return node_->evt.wait(); }

@@ -20,7 +20,7 @@ namespace detail {
 
 struct exec_state_impl
 {
-    detail::multiplexer_v2::task_node node{};
+    detail::multiplexer_v2::task_node node;
     detail::multiplexer_v2::write_guard write_guard;
     detail::multiplexer_v2::read_guard read_guard;
     diagnostics* diag{};

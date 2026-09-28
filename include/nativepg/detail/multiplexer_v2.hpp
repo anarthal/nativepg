@@ -58,25 +58,24 @@ public:
 
         // Number of ReadyForQuery messages that we expect from
         // previously cancelled items
-        std::size_t pending_rfqs{};
+        std::size_t pending_rfqs;
 
         // Setting it notifies the task to read next
         boost::capy::async_event evt{};
 
         // Did the writer write at least one byte of our request?
-        bool request_committed{};
+        bool request_committed;
 
         // How many ReadyForQuery messages did the reader read?
         // This includes RFQs from leftover requests before us.
         // -1 means "I've read everything I was supposed to and have no leftover"
-        std::size_t read_rfqs{};
+        std::size_t read_rfqs;
 
         // How many tasks (reader, writer) remain active?
         // We run both tasks in parallel, so under cancellation, the reader
         // might finish before the writer
-        int remaining_tasks{2};
+        int remaining_tasks;
 
-        // TODO: I'd prefer not repeating this
         void reset(const request* req_ptr)
         {
             req = req_ptr;

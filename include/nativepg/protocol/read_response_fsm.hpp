@@ -62,6 +62,8 @@ public:
     // complete, or any other error code on failure
     std::error_code resume(const any_backend_message& msg);
 
+    bool is_done() const { return get_remaining_messages().empty(); }
+
 private:
     detail::read_response_fsm_impl impl_;
 };

@@ -27,7 +27,9 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
+#include "nativepg/detail/multiplexer_v2.hpp"
 #include "nativepg/encoding.hpp"
+#include "nativepg/exec_state.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/notification_vector.hpp"
 #include "nativepg/protocol/connection_state.hpp"
@@ -37,7 +39,6 @@
 #include "nativepg/protocol/terminate.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
-#include "nativepg_internal/multiplexed_connection/multiplexer_v2.hpp"
 
 namespace capy = boost::capy;
 namespace corosio = boost::corosio;
@@ -113,8 +114,35 @@ struct co_connection::impl
         co_return {write_ec};
     }
 
+    capy::io_task<> register_request(
+        exec_state& st,
+        const request& req,
+        response_handler_ref handler,
+        diagnostics* diag
+    )
+    {
+        // TODO: clear st
+
+        // Perform request setup
+        if (auto ec = protocol::detail::setup_request(req, handler))
+            co_return {ec};
+
+        st.fsm.emplace(&req, handler, false);  // TODO: this shouldn't be the case for COPY!
+        st.diag = diag;
+
+        // Wait for our turn to write and register what we are doing in the queue
+        auto [enter_ec, write_guard, read_guard] = co_await mpx_.enter(st.node, &req);
+        if (enter_ec)
+            co_return {enter_ec};
+
+        st.write_guard = std::move(write_guard);
+        st.read_guard = std::move(read_guard);
+
+        co_return {};
+    }
+
     // This is the writer side of exec
-    boost::capy::io_task<> write_request(detail::multiplexer_v2::write_guard guard, const request& req)
+    boost::capy::io_task<> write_request(detail::multiplexer_v2::write_guard& guard, const request& req)
     {
         // Write any potential leftover from previous requests, plus our own request.
         // The former is required to keep the connection healthy.
@@ -135,19 +163,23 @@ struct co_connection::impl
         co_return {ec};
     }
 
-    boost::capy::io_task<> read_response(
-        detail::multiplexer_v2::read_guard guard,
-        const request& req,
-        response_handler_ref handler,
-        diagnostics* diag
-    )
+    boost::capy::io_task<> write_request(exec_state& st)
     {
-        // Wait for our turn
+        return write_request(st.write_guard, *st.node.req);
+    }
+
+    boost::capy::io_task<> read_some_response(exec_state& exec_st)
+    {
+        auto& guard = exec_st.read_guard;
+        auto& fsm = *exec_st.fsm;
+
+        bool message_delivered = false;
+
+        // Wait for our turn (this is a no-op if it's out turn already)
         if (auto [ec] = co_await guard.wait(); ec)
             co_return {ec};
 
         // Setup
-        protocol::read_response_fsm fsm{&req, handler, false};  // disallow COPY
         std::size_t consumed = 0u;
         std::size_t remaining_prev_rfqs = guard.previous_rfqs();
 
@@ -165,7 +197,9 @@ struct co_connection::impl
                 consumed = 0u;
                 if (res.ec == client_errc::needs_more)
                 {
-                    if (auto [ec] = co_await read_some_messages(); ec)
+                    if (message_delivered)
+                        co_return {};  // Yield until the next call
+                    else if (auto [ec] = co_await read_some_messages(); ec)
                         co_return {ec};
                     continue;
                 }
@@ -199,14 +233,16 @@ struct co_connection::impl
             else
             {
                 // One of our messages
+                message_delivered = true;  // TODO: I think this is not right, it should be handler called?
+                                           // define the contract of read_some
                 auto fsm_ec = fsm.resume(res.message);
                 if (!fsm_ec)
                 {
                     // We've finished successfully
                     st.read_buffer.consume(consumed);
                     std::move(guard).report_success();
-                    if (diag)
-                        *diag = fsm.get_handler_error().diag;  // TODO: could we move assign?
+                    if (exec_st.diag)
+                        *exec_st.diag = fsm.get_handler_error().diag;  // TODO: could we move assign?
                     co_return {fsm.get_handler_error().code};
                 }
                 else if (fsm_ec != client_errc::needs_more)
@@ -219,24 +255,34 @@ struct co_connection::impl
         }
     }
 
+    boost::capy::io_task<> read_response(exec_state& exec_st)
+    {
+        while (!exec_st.fsm->is_done())
+        {
+            if (auto [ec] = co_await read_some_response(exec_st); ec)
+                co_return {ec};
+        }
+
+        if (exec_st.diag)
+            *exec_st.diag = exec_st.fsm->get_handler_error().diag;  // TODO: could we move assign?
+        co_return {exec_st.fsm->get_handler_error().code};
+    }
+
     boost::capy::io_task<> exec(const request& req, response_handler_ref handler, diagnostics* diag = nullptr)
     {
-        // Perform request setup
-        if (auto ec = protocol::detail::setup_request(req, handler))
-            co_return {ec};
+        // Setup
+        exec_state exec_st;
 
-        // Wait for our turn to write and register what we are doing in the queue
-        detail::multiplexer_v2::task_node node;
-        auto [enter_ec, write_guard, read_guard] = co_await mpx_.enter(node, &req);
-        if (enter_ec)
-            co_return {enter_ec};
+        // Register ourselves within the multiplexer
+        if (auto [ec] = co_await register_request(exec_st, req, handler, diag); ec)
+            co_return {ec};
 
         // Run the reader and writer tasks in parallel
         // TODO: protocol violations should mark the connection as failed
         // once we have state checks
         auto [final_ec, writer_dummy, reader_dummy] = co_await boost::capy::when_all(
-            write_request(std::move(write_guard), req),
-            read_response(std::move(read_guard), req, handler, diag)
+            write_request(exec_st),
+            read_response(exec_st)
         );
 
         co_return {final_ec};
@@ -532,6 +578,23 @@ capy::io_task<> co_connection::exec(const request& req, response_handler_ref han
 }
 
 capy::io_task<> co_connection::receive(notification_vector& output) { return impl_->receive(output); }
+
+boost::capy::io_task<> co_connection::register_request(
+    exec_state& st,
+    const request& req,
+    response_handler_ref handler,
+    diagnostics* diag
+)
+{
+    return impl_->register_request(st, req, handler, diag);
+}
+
+boost::capy::io_task<> co_connection::write_request(exec_state& st) { return impl_->write_request(st); }
+
+boost::capy::io_task<> co_connection::read_some_response(exec_state& st)
+{
+    return impl_->read_some_response(st);
+}
 
 void co_connection::setup_request(const request& req, response_handler_ref handler)
 {

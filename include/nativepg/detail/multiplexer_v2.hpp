@@ -28,17 +28,14 @@
 #include <utility>
 #include <vector>
 
-#include "nativepg/client_errc.hpp"
-#include "nativepg/notification_event.hpp"
-#include "nativepg/protocol/async.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg_internal/multiplexed_connection/multiplexer.hpp"
 
 // TODO: impl notes
 //   why the write mutex
 //   why an intrusive list
 //   why pending write bytes
 //   why RAII guards
+// TODO: all-inline doesn't seem appropriate anymore
 
 namespace nativepg::detail {
 

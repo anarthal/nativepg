@@ -23,13 +23,14 @@
 #include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/notification_vector.hpp"
-#include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/copy.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
 
 namespace nativepg {
+
+struct exec_state;
 
 class exec_some_result
 {
@@ -134,6 +135,16 @@ public:
     //   If an error condition is detected after some notifications have been read,
     //   they are returned, and no error is reported.
     boost::capy::io_task<> receive(notification_vector& output);
+
+    // New API
+    boost::capy::io_task<> register_request(
+        exec_state& st,
+        const request& req,
+        response_handler_ref handler,
+        diagnostics* diag = nullptr
+    );
+    boost::capy::io_task<> write_request(exec_state& st);
+    boost::capy::io_task<> read_some_response(exec_state& st);
 
     // The request and the handler must live until the entire response has been read
     // with exec_some

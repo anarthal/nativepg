@@ -38,6 +38,7 @@
 #include "nativepg/protocol/terminate.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
+#include "nativepg_internal/check_request.hpp"
 
 namespace capy = boost::capy;
 namespace corosio = boost::corosio;

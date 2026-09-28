@@ -121,12 +121,12 @@ struct co_connection::impl
         diagnostics* diag
     )
     {
-        // TODO: clear st
-
         // Perform request setup
         if (auto ec = protocol::detail::setup_request(req, handler))
             co_return {ec};
 
+        // Set up the state
+        st.node.reset(&req);
         st.fsm.emplace(&req, handler, false);  // TODO: this shouldn't be the case for COPY!
         st.diag = diag;
 

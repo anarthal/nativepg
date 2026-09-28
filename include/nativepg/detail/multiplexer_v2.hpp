@@ -75,6 +75,17 @@ public:
         // We run both tasks in parallel, so under cancellation, the reader
         // might finish before the writer
         int remaining_tasks{2};
+
+        // TODO: I'd prefer not repeating this
+        void reset(const request* req_ptr)
+        {
+            req = req_ptr;
+            pending_rfqs = 0u;
+            evt.clear();
+            request_committed = false;
+            read_rfqs = 0u;
+            remaining_tasks = 2;
+        }
     };
 
     class write_guard

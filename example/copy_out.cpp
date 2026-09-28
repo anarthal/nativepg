@@ -11,11 +11,15 @@
 #include <boost/describe/class.hpp>
 
 #include <iostream>
+#include <span>
+#include <vector>
 
 #include "nativepg/co_connection.hpp"
+#include "nativepg/exec_state.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/protocol/copy.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/responses/check.hpp"
+#include "nativepg/responses/copy_out_handler.hpp"
 
 using namespace nativepg;
 namespace capy = boost::capy;
@@ -36,11 +40,11 @@ static capy::task<> co_main()
     diagnostics diag;
 
     // Connect
-    auto [ec] = co_await conn.connect(
-        {.hostname = "localhost", .username = "postgres", .password = "secret", .database = "postgres"},
-        &diag
-    );
-    if (ec)
+    if (auto [ec] = co_await conn.connect(
+            {.hostname = "localhost", .username = "postgres", .password = "secret", .database = "postgres"},
+            &diag
+        );
+        ec)
     {
         print_err("Error connecting", ec, diag);
         co_return;
@@ -49,48 +53,44 @@ static capy::task<> co_main()
 
     // Compose our request
     request req;
-    req.add_simple_query("COPY myt TO STDOUT");
+    req.add_query("COPY myt TO STDOUT");
 
-    // A response type that verifies that the server sends no error
-    check check_response;
+    // Response
+    std::vector<std::span<const unsigned char>> buffers;
+    auto handler = copy_out_handler([&buffers](std::span<const unsigned char> buff) {
+        buffers.push_back(buff);
+    });
 
-    // Setup the request for exec_some
-    // Important: req and the handler must be kept alive until we finish executing
-    conn.setup_request(req, &check_response);
-
-    bool done = false;
-    while (!done)
+    // Register the request
+    exec_state exec_st;
+    if (auto [ec] = co_await conn.register_request(exec_st, req, &handler, &diag); ec)
     {
-        auto [ec2, res] = co_await conn.exec_some();
-        if (ec2)
+        print_err("Error registering the response", ec, diag);
+        co_return;
+    }
+
+    // Write the request
+    if (auto [ec] = co_await conn.write_request(exec_st); ec)
+    {
+        print_err("Error writing the request", ec, diag);
+        co_return;
+    }
+
+    // Read the response until we are done
+    while (!exec_st.is_done())
+    {
+        if (auto [ec] = co_await conn.read_some_response(exec_st); ec)
         {
-            print_err("Error reading response", ec2, {});
+            print_err("Error reading the response", ec, diag);
             co_return;
         }
 
-        switch (res.type())
+        for (auto buff : buffers)
         {
-            case exec_some_result::kind::done:
-            {
-                done = true;
-                break;
-            };
-            case exec_some_result::kind::copy_out:
-            {
-                std::cout << "Initiating COPY of " << res.get_copy_out().fmt_codes.size() << " fields\n";
-                break;
-            }
-            case exec_some_result::kind::copy_out_data:
-            {
-                for (auto buff : res.get_copy_out_data())
-                    std::cout.write(static_cast<const char*>(buff.data()), buff.size());
-                if (res.get_copy_out_eof())
-                {
-                    std::cout << "Copy done\n";
-                }
-                break;
-            }
+            std::cout << "<COPY data> ";
+            std::cout.write(reinterpret_cast<const char*>(buff.data()), buff.size());
         }
+        buffers.clear();
     }
 
     // Orderly close the connection.

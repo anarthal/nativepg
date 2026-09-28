@@ -144,8 +144,12 @@ struct co_connection::impl
     }
 
     // This is the writer side of exec
-    boost::capy::io_task<> write_request(detail::multiplexer_v2::write_guard& guard, const request& req)
+    boost::capy::io_task<> write_request(detail::exec_state_impl& exec_st)
     {
+        // State checks. If we're not writing, we can't proceed
+        if (!exec_st.write_guard.has_value())
+            co_return {client_errc::invalid_state};
+
         // Write any potential leftover from previous requests, plus our own request.
         // The former is required to keep the connection healthy.
         // Most of the time, the 1st buffer is empty, and Corosio coalesces this to a
@@ -153,25 +157,24 @@ struct co_connection::impl
         auto [ec, bytes_written] = co_await boost::capy::write(
             stream,
             std::array<boost::capy::const_buffer, 2u>{
-                boost::capy::make_buffer(guard.previous_write_bytes()),
-                boost::capy::make_buffer(req.payload())
+                boost::capy::make_buffer(exec_st.write_guard.previous_write_bytes()),
+                boost::capy::make_buffer(exec_st.node.req->payload())
             }
         );
 
         // Report the result, so subsequent execs know how to keep the connection healthy
-        std::move(guard).report_result(bytes_written);
+        std::move(exec_st.write_guard).report_result(bytes_written);
 
         // Done
         co_return {ec};
     }
 
-    boost::capy::io_task<> write_request(detail::exec_state_impl& st)
-    {
-        return write_request(st.write_guard, *st.node.req);
-    }
-
     boost::capy::io_task<> read_some_response(detail::exec_state_impl& exec_st)
     {
+        // State check
+        if (!exec_st.read_guard.has_value())
+            co_return {client_errc::invalid_state};
+
         auto& guard = exec_st.read_guard;
         auto& fsm = *exec_st.fsm;
 

@@ -34,7 +34,6 @@
 #include "nativepg/notification_vector.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
-#include "nativepg/protocol/detail/exec_some_fsm.hpp"
 #include "nativepg/protocol/parse_message.hpp"
 #include "nativepg/protocol/terminate.hpp"
 #include "nativepg/request.hpp"
@@ -51,8 +50,6 @@ struct co_connection::impl
     corosio::tcp_socket sock;
     protocol::connection_state st{};
     capy::any_stream stream{&sock};
-    std::vector<capy::const_buffer> copy_out_buffers;
-    std::optional<protocol::detail::exec_some_fsm> exec_some_fsm;
     detail::multiplexer_v2 mpx_;  // TODO: clean up this?
     notification_vector exec_notifications_;
     bool receiver_running_{};
@@ -428,12 +425,6 @@ struct co_connection::impl
         }
     }
 
-    void setup_request(const request& req, response_handler_ref handler)
-    {
-        BOOST_ASSERT(!exec_some_fsm.has_value());
-        exec_some_fsm.emplace(&req, handler);
-    }
-
     capy::io_task<> read_some_messages()
     {
         while (true)
@@ -455,61 +446,6 @@ struct co_connection::impl
 
             // Commit the data we were handed in
             st.read_buffer.commit(bytes);
-        }
-    }
-
-    capy::io_task<exec_some_result> exec_some()
-    {
-        BOOST_ASSERT(exec_some_fsm.has_value());
-        auto& fsm = *exec_some_fsm;
-
-        while (true)
-        {
-            auto act = fsm.resume(st, copy_out_buffers);
-
-            switch (act.type())
-            {
-                case protocol::detail::exec_some_fsm::result_type::write:
-                {
-                    auto [ec, bytes] = co_await capy::write(
-                        stream,
-                        capy::make_buffer(fsm.get_request().payload())
-                    );
-                    if (ec)
-                        co_return {ec, {}};
-                    break;
-                }
-                case protocol::detail::exec_some_fsm::result_type::read:
-                {
-                    auto [ec] = co_await read_some_messages();
-                    if (ec)
-                        co_return {ec, {}};
-                    break;
-                }
-                case protocol::detail::exec_some_fsm::result_type::copy_out:
-                {
-                    co_return {{}, exec_some_result{act.get_copy_out()}};
-                }
-                case protocol::detail::exec_some_fsm::result_type::copy_data:
-                {
-                    co_return {
-                        {},
-                        exec_some_result{copy_out_buffers, false}
-                    };
-                }
-                case protocol::detail::exec_some_fsm::result_type::copy_data_with_eof:
-                {
-                    co_return {
-                        {},
-                        exec_some_result{copy_out_buffers, true}
-                    };
-                }
-                case protocol::detail::exec_some_fsm::result_type::done:
-                {
-                    exec_some_fsm.reset();
-                    co_return {act.error(), {}};
-                }
-            }
         }
     }
 };
@@ -601,14 +537,6 @@ boost::capy::io_task<> co_connection::read_some_response(exec_state& st)
 {
     return impl_->read_some_response(detail::exec_state_access::get_impl(st));
 }
-
-void co_connection::setup_request(const request& req, response_handler_ref handler)
-{
-    // TODO: exec_some() currently plays badly with multiplexing
-    return impl_->setup_request(req, handler);
-}
-
-capy::io_task<exec_some_result> co_connection::exec_some() { return impl_->exec_some(); }
 
 capy::io_task<> co_connection::read_some_messages() { return impl_->read_some_messages(); }
 

@@ -17,73 +17,18 @@
 #include <concepts>
 #include <memory>
 #include <optional>
-#include <span>
 
 #include "nativepg/connect_params.hpp"
 #include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/notification_vector.hpp"
 #include "nativepg/protocol/connection_state.hpp"
-#include "nativepg/protocol/copy.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
 
 namespace nativepg {
 
 class exec_state;
-
-class exec_some_result
-{
-public:
-    enum class kind
-    {
-        copy_out,
-        copy_out_data,
-        done,
-    };
-
-    exec_some_result() = default;
-    exec_some_result(protocol::copy_out_response value) noexcept : type_(kind::copy_out), data_(value) {}
-    exec_some_result(std::span<const boost::capy::const_buffer> value, bool eof) noexcept
-        : type_(kind::copy_out_data), data_({value, eof})
-    {
-    }
-
-    kind type() const { return type_; }
-    protocol::copy_out_response get_copy_out() const
-    {
-        BOOST_ASSERT(type_ == kind::copy_out);
-        return data_.copy_out;
-    }
-    std::span<const boost::capy::const_buffer> get_copy_out_data() const
-    {
-        BOOST_ASSERT(type_ == kind::copy_out_data);
-        return data_.copy_out_data.buffers;
-    }
-    bool get_copy_out_eof() const
-    {
-        BOOST_ASSERT(type_ == kind::copy_out_data);
-        return data_.copy_out_data.is_eof;
-    }
-
-private:
-    kind type_{kind::done};
-    struct copy_out_data_t
-    {
-        std::span<const boost::capy::const_buffer> buffers;
-        bool is_eof;
-    };
-
-    union data_t
-    {
-        protocol::copy_out_response copy_out;
-        copy_out_data_t copy_out_data;
-
-        data_t() : copy_out_data() {}
-        data_t(protocol::copy_out_response value) noexcept : copy_out(value) {}
-        data_t(copy_out_data_t value) noexcept : copy_out_data(value) {}
-    } data_;
-};
 
 class co_connection
 {
@@ -136,7 +81,7 @@ public:
     //   they are returned, and no error is reported.
     boost::capy::io_task<> receive(notification_vector& output);
 
-    // New API
+    // Low-level exec API
     boost::capy::io_task<> register_request(
         exec_state& st,
         const request& req,
@@ -145,11 +90,6 @@ public:
     );
     boost::capy::io_task<> write_request(exec_state& st);
     boost::capy::io_task<> read_some_response(exec_state& st);
-
-    // The request and the handler must live until the entire response has been read
-    // with exec_some
-    void setup_request(const request& req, response_handler_ref handler);
-    boost::capy::io_task<exec_some_result> exec_some();
 
     // Reads until there is at least one message in the read buffer.
     // Access messages with state().read_buffer

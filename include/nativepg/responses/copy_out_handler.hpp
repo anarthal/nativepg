@@ -8,12 +8,17 @@
 #ifndef NATIVEPG_COPY_OUT_HANDLER_HPP
 #define NATIVEPG_COPY_OUT_HANDLER_HPP
 
+#include <boost/assert.hpp>
+
 #include <cstddef>
 #include <span>
 #include <utility>
 
+#include "nativepg/client_errc.hpp"
+#include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/copy.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/command_info.hpp"
 #include "nativepg/responses/detail/response_utils.hpp"
 #include "nativepg/responses/response_handler.hpp"
@@ -33,12 +38,37 @@ concept copy_out_visitor = requires(
 template <class T>
 concept copy_out_callback = requires(T& obj, std::span<const unsigned char> copy_data) { obj(copy_data); };
 
-// TODO: impl
+// Handles a single COPY OUT operation by invoking a user-supplied visitor
+// TODO: erase this
 template <copy_out_visitor Visitor>
 class copy_out_handler_t
 {
+    enum class state_t
+    {
+        // We haven't seen the copy_out_response yet
+        initial,
+
+        // We got the copy_out_response and are receiving data
+        copying,
+
+        // We got the command_complete that terminates the copy
+        done,
+
+        // Something went wrong. Ignore any further messages
+        failed,
+    };
+
+    state_t state_{state_t::initial};
     Visitor cb_;
     command_info* info_{};
+
+    // Records an error and stops processing further messages.
+    // The FSM makes the first error win, so this never overwrites a previous one
+    void fail(std::error_code ec, extended_error& out_err)
+    {
+        out_err.code = ec;
+        state_ = state_t::failed;
+    }
 
 public:
     template <copy_out_visitor Cb>
@@ -49,46 +79,75 @@ public:
 
     handler_setup_result setup(const request& req, std::size_t offset)
     {
+        state_ = state_t::initial;
         if (info_)
             detail::reset_info(*info_);
         return detail::resultset_setup(req, offset);
     }
 
-    void on_message(const any_request_message& msg, std::size_t, extended_error& err);
+    void on_message(const any_request_message& msg, std::size_t, extended_error& err)
+    {
+        using kind = any_request_message::kind;
 
-    Visitor& get() { return cb_; }
-    const Visitor& get() const { return cb_; }
+        // Once we've failed, we don't care about anything else
+        if (state_ == state_t::failed)
+            return;
 
-    // {
-    // using kind = any_request_message::kind;
+        switch (msg.type())
+        {
+            // If the server sends an error, store it.
+            // We know this is the last message in the sequence.
+            case kind::error_response:
+                detail::store_error(msg.get_error_response(), err);
+                state_ = state_t::failed;
+                break;
 
-    // switch (msg.type())
-    // {
-    //     // If the server sends an error, store it.
-    //     // We know this is the last message in the sequence.
-    //     case kind::error_response: detail::store_error(msg.get_error_response(), err); break;
+            // Ignore messages that may or may not appear.
+            // COPY statements produce no rows, so the describe step yields an empty row_description
+            case kind::parse_complete:
+            case kind::bind_complete:
+            case kind::row_description: break;
 
-    //     // Ignore messages that may or may not appear
-    //     case kind::parse_complete:
-    //     case kind::bind_complete: break;
+            // Starts the copy. Exactly one of these is expected
+            case kind::copy_out_response:
+                if (state_ != state_t::initial)
+                    fail(client_errc::incompatible_response_type, err);
+                else
+                {
+                    state_ = state_t::copying;
+                    cb_.on_copy_start(msg.get_copy_out_response());
+                }
+                break;
 
-    //     // Messages that we always expect
-    //     case kind::row_description: on_row_description(msg.get_row_description(), err); break;
-    //     case kind::data_row: on_data_row(msg.get_data_row(), err); break;
-    //     case kind::command_complete: on_command_complete(msg.get_command_complete()); break;
-    //     case kind::portal_suspended: on_portal_suspended(); break;
+            // Data for the copy we started. The FSM only emits these while copying
+            case kind::copy_data:
+                BOOST_ASSERT(state_ == state_t::copying);
+                cb_.on_copy_data(msg.get_copy_data());
+                break;
 
-    //     // If any of the messages we expect was skipped due to a previous error,
-    //     // that's an error
-    //     case kind::message_skipped: err.code = client_errc::step_skipped; break;
+            // Terminates the copy. If we never saw a copy_out_response,
+            // the request wasn't a COPY ... TO STDOUT
+            case kind::command_complete:
+                if (state_ != state_t::copying)
+                    fail(client_errc::incompatible_response_type, err);
+                else
+                {
+                    if (info_)
+                        detail::from_command_complete(*info_, msg.get_command_complete());
+                    state_ = state_t::done;
+                }
+                break;
 
-    //     // We shouldn't get any unexpected messages
-    //     default:
-    //         err.code = client_errc::incompatible_response_type;  // just in case
-    //         BOOST_ASSERT(false);
-    //         break;
-    // }
-    // }
+            // If any of the messages we expect was skipped due to a previous error,
+            // that's an error
+            case kind::message_skipped: fail(client_errc::step_skipped, err); break;
+
+            // Anything else means the request didn't contain a single COPY ... TO STDOUT.
+            // This is reachable by pairing this handler with the wrong statement,
+            // so it's a user error rather than a protocol violation
+            default: fail(client_errc::incompatible_response_type, err); break;
+        }
+    }
 };
 
 namespace detail {
@@ -105,6 +164,7 @@ struct copy_out_visitor_adapter
 }  // namespace detail
 
 // TODO: do we need this?
+// TODO: decaying
 template <copy_out_visitor Visitor>
 copy_out_handler_t<Visitor> copy_out_handler(Visitor&& cb, command_info* info = nullptr)
 {

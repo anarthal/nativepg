@@ -25,6 +25,8 @@ struct exec_state
     detail::multiplexer_v2::read_guard read_guard;
     diagnostics* diag{};
     std::optional<protocol::read_response_fsm> fsm;  // TODO: optional not good
+
+    bool is_done() const { return fsm && fsm->is_done(); }
 };
 
 }  // namespace nativepg

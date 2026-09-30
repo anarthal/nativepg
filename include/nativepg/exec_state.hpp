@@ -20,11 +20,22 @@ namespace detail {
 
 struct exec_state_impl
 {
+    enum class writer_status
+    {
+        initial,
+        locked,
+        done,
+    };
+
+    detail::multiplexer_v2* mpx{};
+    writer_status writer_st{writer_status::initial};
+    bool request_registered{};
+    bool reader_done{};
     detail::multiplexer_v2::task_node node;
-    detail::multiplexer_v2::write_guard write_guard;
-    detail::multiplexer_v2::read_guard read_guard;
     diagnostics* diag{};
     std::optional<protocol::read_response_fsm> fsm;  // TODO: optional not good
+
+    void reset();
 };
 
 struct exec_state_access;
@@ -43,11 +54,13 @@ public:
     exec_state(exec_state&&) = delete;
     exec_state& operator=(const exec_state&) = delete;
     exec_state& operator=(exec_state&&) = delete;
-    ~exec_state() = default;
+    ~exec_state() { impl_.reset(); }
 
-    bool is_registered() const { return impl_.fsm.has_value(); }
-    bool write_done() const { return is_registered() && !impl_.write_guard.has_value(); }
-    bool read_done() const { return is_registered() && !impl_.read_guard.has_value(); }
+    bool is_registered() const { return impl_.mpx != nullptr; }
+    bool write_done() const { return impl_.writer_st == detail::exec_state_impl::writer_status::done; }
+    bool read_done() const { return impl_.reader_done; }
+
+    void reset() { impl_.reset(); }
 };
 
 namespace detail {

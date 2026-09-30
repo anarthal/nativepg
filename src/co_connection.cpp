@@ -113,7 +113,7 @@ struct co_connection::impl
     }
 
     capy::io_task<> register_request(
-        detail::exec_state_impl& st,
+        detail::exec_state_impl& exec_st,
         const request& req,
         response_handler_ref handler,
         diagnostics* diag
@@ -123,22 +123,20 @@ struct co_connection::impl
         if (auto ec = protocol::detail::setup_request(req, handler))
             co_return {ec};
 
-        // If there was any leftover, clean it up
-        st.write_guard = {};
-        st.read_guard = {};
-
-        // Set up the state
-        st.node.reset(&req);
-        st.fsm.emplace(&req, handler, true);  // TODO: probably remove the copy_allowed flag
-        st.diag = diag;
+        // Set the state up
+        exec_st.reset();  // cleans up any leftover from previous operations
+        exec_st.mpx = &mpx_;
+        exec_st.node.reset(&req);
+        exec_st.fsm.emplace(&req, handler, true);  // TODO: probably remove the copy_allowed flag
+        exec_st.diag = diag;
 
         // Wait for our turn to write and register what we are doing in the queue
-        auto [enter_ec, write_guard, read_guard] = co_await mpx_.enter(st.node, &req);
-        if (enter_ec)
-            co_return {enter_ec};
+        if (auto [ec] = co_await mpx_.enter(exec_st.node, &req); ec)
+            co_return {ec};
 
-        st.write_guard = std::move(write_guard);
-        st.read_guard = std::move(read_guard);
+        // The request is now registered and will need cleanup
+        exec_st.request_registered = true;
+        exec_st.writer_st = detail::exec_state_impl::writer_status::locked;
 
         co_return {};
     }
@@ -147,7 +145,7 @@ struct co_connection::impl
     boost::capy::io_task<> write_request(detail::exec_state_impl& exec_st)
     {
         // State checks. If we're not writing, we can't proceed
-        if (!exec_st.write_guard.has_value())
+        if (exec_st.writer_st != detail::exec_state_impl::writer_status::locked)
             co_return {client_errc::invalid_state};
 
         // Write any potential leftover from previous requests, plus our own request.
@@ -157,13 +155,14 @@ struct co_connection::impl
         auto [ec, bytes_written] = co_await boost::capy::write(
             stream,
             std::array<boost::capy::const_buffer, 2u>{
-                boost::capy::make_buffer(exec_st.write_guard.previous_write_bytes()),
+                boost::capy::make_buffer(mpx_.previous_write_bytes()),
                 boost::capy::make_buffer(exec_st.node.req->payload())
             }
         );
 
         // Report the result, so subsequent execs know how to keep the connection healthy
-        std::move(exec_st.write_guard).report_result(bytes_written);
+        mpx_.report_writer_exit(exec_st.node, bytes_written);
+        exec_st.writer_st = detail::exec_state_impl::writer_status::done;
 
         // Done
         co_return {ec};
@@ -172,16 +171,14 @@ struct co_connection::impl
     boost::capy::io_task<> read_some_response(detail::exec_state_impl& exec_st)
     {
         // State check
-        if (!exec_st.read_guard.has_value())
+        if (!exec_st.request_registered || exec_st.reader_done)
             co_return {client_errc::invalid_state};
 
-        auto& guard = exec_st.read_guard;
         auto& fsm = *exec_st.fsm;
-
         bool message_delivered = false;
 
         // Wait for our turn (this is a no-op if it's out turn already)
-        if (auto [ec] = co_await guard.wait(); ec)
+        if (auto [ec] = co_await mpx_.wait_for_read(exec_st.node); ec)
             co_return {ec};
 
         // Setup
@@ -206,7 +203,8 @@ struct co_connection::impl
                     else if (auto [ec] = co_await read_some_messages(); ec)
                     {
                         // This is a fatal error
-                        std::move(exec_st).read_guard.report_failure();
+                        mpx_.report_reader_exit(exec_st.node);
+                        exec_st.reader_done = true;
                         co_return {ec};
                     }
                     continue;
@@ -214,7 +212,8 @@ struct co_connection::impl
                 else
                 {
                     // This is a fatal error
-                    std::move(exec_st).read_guard.report_failure();
+                    mpx_.report_reader_exit(exec_st.node);
+                    exec_st.reader_done = true;
                     co_return {res.ec};
                 }
             }
@@ -224,7 +223,7 @@ struct co_connection::impl
             st.update_tracked(res.message);
             bool is_rfq = res.message.type() == protocol::any_backend_message::kind::ready_for_query;
             if (is_rfq)
-                guard.report_rfq();
+                mpx_.report_rfq(exec_st.node);
 
             // Store notifications so the receive loop can return them
             if (res.message.type() == protocol::any_backend_message::kind::notification_response)
@@ -234,11 +233,11 @@ struct co_connection::impl
             }
 
             // Act on the message
-            if (guard.previous_rfqs() > 0u)
+            if (mpx_.has_previous_rfqs(exec_st.node))
             {
                 // A leftover message from previous execs
                 if (is_rfq)
-                    guard.report_rfq();
+                    mpx_.report_rfq(exec_st.node);
             }
             else
             {
@@ -250,7 +249,8 @@ struct co_connection::impl
                 {
                     // We've finished successfully
                     st.read_buffer.consume(consumed);
-                    std::move(guard).report_success();
+                    mpx_.report_reader_success(exec_st.node);
+                    exec_st.reader_done = true;
                     if (exec_st.diag)
                         *exec_st.diag = fsm.get_handler_error().diag;  // TODO: could we move assign?
                     co_return {fsm.get_handler_error().code};
@@ -259,7 +259,8 @@ struct co_connection::impl
                 {
                     // There has been a severe protocol violation (unrecoverable)
                     st.read_buffer.consume(consumed);
-                    std::move(exec_st).read_guard.report_failure();
+                    mpx_.report_reader_exit(exec_st.node);
+                    exec_st.reader_done = true;
                     co_return {fsm_ec};
                 }
             }
@@ -280,18 +281,19 @@ struct co_connection::impl
     boost::capy::io_task<> exec(const request& req, response_handler_ref handler, diagnostics* diag = nullptr)
     {
         // Setup
-        detail::exec_state_impl exec_st;
+        exec_state exec_st;
+        auto& st_impl = detail::exec_state_access::get_impl(exec_st);
 
         // Register ourselves within the multiplexer
-        if (auto [ec] = co_await register_request(exec_st, req, handler, diag); ec)
+        if (auto [ec] = co_await register_request(st_impl, req, handler, diag); ec)
             co_return {ec};
 
         // Run the reader and writer tasks in parallel
         // TODO: protocol violations should mark the connection as failed
         // once we have state checks
         auto [final_ec, writer_dummy, reader_dummy] = co_await boost::capy::when_all(
-            write_request(exec_st),
-            read_response(exec_st)
+            write_request(st_impl),
+            read_response(st_impl)
         );
 
         co_return {final_ec};
@@ -559,5 +561,38 @@ std::optional<bool> co_connection::standard_conforming_strings() const
 }
 
 std::optional<encoding> co_connection::client_encoding() const { return impl_->st.client_encoding; }
+
+void detail::exec_state_impl::reset()
+{
+    // Has the object has been set up?
+    if (mpx)
+    {
+        // Cleanup the writer
+        switch (writer_st)
+        {
+            case writer_status::locked:
+                // The writer hasn't exited cleanly. TODO: this doesn't sound right
+                mpx->report_writer_exit(node, 0u);
+                break;
+            case writer_status::initial:  // Nothing registered in the multiplexer yet
+            case writer_status::done:     // The writer already exited and was cleaned up, nothing to do
+            default: break;
+        }
+
+        // Cleanup the reader
+        if (request_registered && !reader_done)
+        {
+            mpx->report_reader_exit(node);
+        }
+    }
+
+    mpx = nullptr;
+    writer_st = writer_status::initial;
+    request_registered = false;
+    reader_done = false;
+    // TODO: can't I reset a node?
+    diag = nullptr;
+    fsm.reset();
+}
 
 }  // namespace nativepg

@@ -127,7 +127,7 @@ public:
     //   as required to track progress.
     // Only one instance of read_some_response for a given exec_state is allowed
     //   to be in-flight at a time. Attempting to launch another fails with client_errc::already_running.
-    // Requires st.phase() == exec_phase::prepared && !st.read_done().
+    // Requires st.is_prepared() && !st.read_done().
     //   Otherwise, finishes with client_errc::invalid_state.
     // This function is fully independent from write_request(). You are responsible
     //   for calling write_request() until st.write_done() return true.

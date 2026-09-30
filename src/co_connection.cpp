@@ -188,9 +188,19 @@ struct co_connection::impl
 
     boost::capy::io_task<> read_some_response(detail::exec_state_impl& exec_st)
     {
-        // State check
+        // We must have been prepared, and must still have something to read
         if (!exec_st.is_prepared() || exec_st.read_done())
             co_return {client_errc::invalid_state};
+
+        // Only one reader per state may be in flight
+        if (exec_st.reading)
+            co_return {client_errc::already_running};
+        exec_st.reading = true;
+        struct reading_guard
+        {
+            detail::exec_state_impl* st;
+            ~reading_guard() { st->reading = false; }
+        } guard{&exec_st};
 
         auto& fsm = *exec_st.fsm;
         bool message_delivered = false;
@@ -220,16 +230,15 @@ struct co_connection::impl
                         co_return {};  // Yield until the next call
                     else if (auto [ec] = co_await read_some_messages(); ec)
                     {
-                        // This is a fatal error
-                        mpx_.report_reader_exit(exec_st);
+                        // Report the error to the user, up to them to decide what to do.
+                        // Whatever we read so far is recorded in exec_st
                         co_return {ec};
                     }
                     continue;
                 }
                 else
                 {
-                    // This is a fatal error
-                    mpx_.report_reader_exit(exec_st);
+                    // TODO: this is a fatal error and should be recorded as such
                     co_return {res.ec};
                 }
             }
@@ -276,8 +285,8 @@ struct co_connection::impl
                 else if (fsm_ec != client_errc::needs_more)
                 {
                     // There has been a severe protocol violation (unrecoverable)
+                    // TODO: flag this internally
                     st.read_buffer.consume(consumed);
-                    mpx_.report_reader_exit(exec_st);
                     co_return {fsm_ec};
                 }
             }
@@ -601,6 +610,7 @@ void detail::exec_state_impl::reset()
     request_committed = false;
     bytes_written = 0u;
     writing = false;
+    reading = false;
     pending_rfqs = 0u;
     read_rfqs = 0u;
     evt.clear();

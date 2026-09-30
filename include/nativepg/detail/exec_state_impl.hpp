@@ -65,6 +65,9 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
     // Is there a write_request operation in flight for this state?
     bool writing{};
 
+    // Is there a read_some_response operation in flight for this state?
+    bool reading{};
+
     // Number of ReadyForQuery messages that we expect from
     // previously cancelled items
     std::size_t pending_rfqs{};

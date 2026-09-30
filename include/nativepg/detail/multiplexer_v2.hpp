@@ -207,6 +207,13 @@ public:
         // If the reader exits by an exception, we can still know what state the connection is in.
         void report_rfq() { ++node_->read_rfqs; }
 
+        // Reports that the reader has exited with a fatal failure
+        void report_failure() &&
+        {
+            obj_->on_reader_exit(*node_);
+            obj_ = nullptr;
+        }
+
         // Reports that we have read everything we had to and releases the guard
         void report_success() &&
         {

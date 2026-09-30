@@ -204,11 +204,17 @@ struct co_connection::impl
                     if (message_delivered)
                         co_return {};  // Yield until the next call
                     else if (auto [ec] = co_await read_some_messages(); ec)
+                    {
+                        // This is a fatal error
+                        std::move(exec_st).read_guard.report_failure();
                         co_return {ec};
+                    }
                     continue;
                 }
                 else
                 {
+                    // This is a fatal error
+                    std::move(exec_st).read_guard.report_failure();
                     co_return {res.ec};
                 }
             }
@@ -253,6 +259,7 @@ struct co_connection::impl
                 {
                     // There has been a severe protocol violation (unrecoverable)
                     st.read_buffer.consume(consumed);
+                    std::move(exec_st).read_guard.report_failure();
                     co_return {fsm_ec};
                 }
             }
@@ -267,9 +274,7 @@ struct co_connection::impl
                 co_return {ec};
         }
 
-        if (exec_st.diag)
-            *exec_st.diag = exec_st.fsm->get_handler_error().diag;  // TODO: could we move assign?
-        co_return {exec_st.fsm->get_handler_error().code};
+        co_return {};
     }
 
     boost::capy::io_task<> exec(const request& req, response_handler_ref handler, diagnostics* diag = nullptr)

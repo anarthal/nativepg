@@ -23,6 +23,7 @@
 #include <system_error>
 #include <vector>
 
+#include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
@@ -208,6 +209,29 @@ capy::task<> test_handler_error()
     BOOST_TEST_EQ(exec_diag.message(), "some_error"sv);
 
     // A handler error is not a protocol error
+    co_await check_connection_usable(conn);
+}
+
+// exec() fails if the request and the handler don't match. The failure is detected
+// before anything reaches the server, so the connection is left untouched
+capy::task<> test_setup_request_error()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    // The request produces two resultsets, but the handler only consumes one
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    req.add_query("SELECT $1 AS value", 10);
+    std::vector<row_int> ints;
+
+    // Execute
+    auto [ec] = co_await conn.exec(req, into(ints));
+
+    // Check
+    BOOST_TEST_EQ(ec, make_error_code(client_errc::incompatible_response_length));
+
+    // We never wrote anything, so the connection is still good
     co_await check_connection_usable(conn);
 }
 
@@ -577,6 +601,7 @@ int main()
     run_coroutine_test(test_multiplexing_2());
     run_coroutine_test(test_multiplexing_3());
     run_coroutine_test(test_handler_error());
+    run_coroutine_test(test_setup_request_error());
     run_coroutine_test(test_cancel_single());
     run_coroutine_test(test_cancel_partial_response());
     run_coroutine_test(test_cancel_single_with_queued());

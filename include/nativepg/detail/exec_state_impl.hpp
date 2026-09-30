@@ -1,0 +1,97 @@
+//
+// Copyright (c) 2025 Ruben Perez Hidalgo (rubenperez038 at gmail dot com)
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+
+#ifndef NATIVEPG_DETAIL_EXEC_STATE_IMPL_HPP
+#define NATIVEPG_DETAIL_EXEC_STATE_IMPL_HPP
+
+#include <boost/capy/ex/async_event.hpp>
+#include <boost/intrusive/list_hook.hpp>
+
+#include <cstddef>
+#include <optional>
+
+#include "nativepg/extended_error.hpp"
+#include "nativepg/protocol/read_response_fsm.hpp"
+#include "nativepg/request.hpp"
+#include "nativepg/responses/response_handler.hpp"
+
+namespace nativepg::detail {
+
+class multiplexer_v2;
+
+// All the state for a single exec operation. This doubles as the multiplexer's
+// queue node: the object is linked into the multiplexer's task list for as long as
+// the operation is registered, so being linked is what "registered" means.
+// Only reset() and setup() are defined here; everything that touches the multiplexer
+// lives in multiplexer_v2.hpp, which is where the two halves are tied together.
+struct exec_state_impl : boost::intrusive::list_base_hook<>
+{
+    enum class writer_status
+    {
+        // We haven't acquired the write mutex yet
+        initial,
+
+        // We hold the write mutex and still owe an exit report
+        locked,
+
+        // The writer exited and was accounted for
+        done,
+    };
+
+    // The multiplexer we're registered with, or nullptr if we were never set up
+    multiplexer_v2* mpx{};
+
+    // The request that we're trying to execute
+    const request* req{};
+
+    // Where does the writer stand?
+    writer_status writer_st{writer_status::initial};
+
+    // Did the reader report its exit?
+    bool reader_done{};
+
+    // Did the writer write at least one byte of our request?
+    bool request_committed{};
+
+    // Number of ReadyForQuery messages that we expect from
+    // previously cancelled items
+    std::size_t pending_rfqs{};
+
+    // How many ReadyForQuery messages did the reader read?
+    // This includes RFQs from leftover requests before us.
+    // -1 means "I've read everything I was supposed to and have no leftover"
+    std::size_t read_rfqs{};
+
+    // Setting it notifies the task to read next
+    boost::capy::async_event evt{};
+
+    // Where to store the diagnostics produced by the handler, if any
+    diagnostics* diag{};
+
+    // Tracks the response as it is read. TODO: optional not good
+    std::optional<protocol::read_response_fsm> fsm;
+
+    // Are we currently registered in the multiplexer's queue?
+    bool is_registered() const { return is_linked(); }
+
+    // Did each of the two halves of the operation finish?
+    bool write_done() const { return writer_st == writer_status::done; }
+    bool read_done() const { return reader_done; }
+
+    // Releases anything we still hold in the multiplexer and returns
+    // to a pristine state. Defined in multiplexer_v2.hpp
+    void reset();
+
+    // Cleans up any leftover from a previous operation and prepares for a new one.
+    // The request and the handler must outlive the operation.
+    // Defined in multiplexer_v2.hpp
+    void setup(multiplexer_v2& mpx, const request& req, response_handler_ref handler, diagnostics* diag);
+};
+
+}  // namespace nativepg::detail
+
+#endif

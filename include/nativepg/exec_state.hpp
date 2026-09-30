@@ -8,40 +8,17 @@
 #ifndef NATIVEPG_EXEC_STATE_HPP
 #define NATIVEPG_EXEC_STATE_HPP
 
-#include <optional>
-
-#include "nativepg/detail/multiplexer_v2.hpp"
-#include "nativepg/extended_error.hpp"
-#include "nativepg/protocol/read_response_fsm.hpp"
+#include "nativepg/detail/exec_state_impl.hpp"
 
 namespace nativepg {
 
 namespace detail {
-
-struct exec_state_impl
-{
-    enum class writer_status
-    {
-        initial,
-        locked,
-        done,
-    };
-
-    detail::multiplexer_v2* mpx{};
-    writer_status writer_st{writer_status::initial};
-    bool request_registered{};
-    bool reader_done{};
-    detail::multiplexer_v2::task_node node;
-    diagnostics* diag{};
-    std::optional<protocol::read_response_fsm> fsm;  // TODO: optional not good
-
-    void reset();
-};
-
 struct exec_state_access;
+}
 
-}  // namespace detail
-
+// Tracks a single exec operation. Owns whatever the operation holds in the
+// connection, and releases it on destruction, so an abandoned operation
+// leaves the connection usable.
 class exec_state
 {
     detail::exec_state_impl impl_;
@@ -56,9 +33,9 @@ public:
     exec_state& operator=(exec_state&&) = delete;
     ~exec_state() { impl_.reset(); }
 
-    bool is_registered() const { return impl_.mpx != nullptr; }
-    bool write_done() const { return impl_.writer_st == detail::exec_state_impl::writer_status::done; }
-    bool read_done() const { return impl_.reader_done; }
+    bool is_registered() const { return impl_.is_registered(); }
+    bool write_done() const { return impl_.write_done(); }
+    bool read_done() const { return impl_.read_done(); }
 
     void reset() { impl_.reset(); }
 };

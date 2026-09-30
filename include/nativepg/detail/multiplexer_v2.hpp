@@ -89,28 +89,11 @@ public:
     // Waits for our turn to read
     auto wait_for_read(exec_state_impl& st) { return st.evt.wait(); }
 
-    // Returns true of there are remaining ReadyForQuery messages that
-    // should be read from previous abandoned requests.
-    // Only meaningful after wait() completes.
-    // Should be called repeatedly, instead of being cached
-    bool has_previous_rfqs(const exec_state_impl& st) { return st.pending_rfqs; }
-
-    // Reports that we have read a RFQ.
-    // If the reader exits by an exception, we can still know what state the connection is in.
-    void report_rfq(exec_state_impl& st) { ++st.read_rfqs; }
-
     // Reports that the reader has exited with a fatal failure
     void report_reader_exit(exec_state_impl& st)
     {
         st.reader_done = true;
         on_reader_exit(st);
-    }
-
-    // Reports that we have read everything we had to and releases the guard
-    void report_reader_success(exec_state_impl& st)
-    {
-        st.read_rfqs = static_cast<std::size_t>(-1);
-        report_reader_exit(st);
     }
 
     // Registers a task within the multiplexer and waits for the writer's turn.

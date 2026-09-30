@@ -211,26 +211,28 @@ struct co_connection::impl
             consumed += res.size;
             st.update_tracked(res.message);
             bool is_rfq = res.message.type() == protocol::any_backend_message::kind::ready_for_query;
-            if (is_rfq)
-                mpx_.report_rfq(exec_st);
 
             // Store notifications so the receive loop can return them
             if (res.message.type() == protocol::any_backend_message::kind::notification_response)
             {
                 exec_notifications_.push_back(res.message.get_notification_response());
                 mpx_.notify_receiver();
+                continue;
             }
 
             // Act on the message
-            if (mpx_.has_previous_rfqs(exec_st))
+            if (exec_st.pending_rfqs > 0u)
             {
                 // A leftover message from previous execs
                 if (is_rfq)
-                    mpx_.report_rfq(exec_st);
+                    --exec_st.pending_rfqs;
             }
             else
             {
                 // One of our messages
+                if (is_rfq)
+                    ++exec_st.read_rfqs;
+
                 message_delivered = true;  // TODO: I think this is not right, it should be handler called?
                                            // define the contract of read_some
                 auto fsm_ec = fsm.resume(res.message);
@@ -238,7 +240,8 @@ struct co_connection::impl
                 {
                     // We've finished successfully
                     st.read_buffer.consume(consumed);
-                    mpx_.report_reader_success(exec_st);
+                    exec_st.read_rfqs = static_cast<std::size_t>(-1);  // we've read everything
+                    mpx_.report_reader_exit(exec_st);
                     if (exec_st.diag)
                         *exec_st.diag = fsm.get_handler_error().diag;  // TODO: could we move assign?
                     co_return {fsm.get_handler_error().code};

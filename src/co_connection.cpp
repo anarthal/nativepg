@@ -199,7 +199,7 @@ struct co_connection::impl
         bool message_delivered = false;
 
         // Wait for our turn (this is a no-op if it's out turn already)
-        if (auto [ec] = co_await mpx_.wait_for_read(exec_st); ec)
+        if (auto [ec] = co_await exec_st.evt.wait(); ec)
             co_return {ec};
 
         // Setup

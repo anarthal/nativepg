@@ -93,17 +93,22 @@ public:
 
         // The writer is done
         st.writer_st = exec_state_impl::writer_status::done;
-        on_writer_exit(st);
-    }
 
-    // Waits for our turn to read
-    auto wait_for_read(exec_state_impl& st) { return st.evt.wait(); }
+        // Unlock the mutex
+        BOOST_ASSERT(write_mtx_.is_locked());
+        write_mtx_.unlock();
+
+        // Potentially unlock the following op
+        if (st.read_done())
+            on_both_exited(st);
+    }
 
     // Reports that the reader has exited with a fatal failure
     void report_reader_exit(exec_state_impl& st)
     {
         st.reader_done = true;
-        on_reader_exit(st);
+        if (st.write_done())
+            on_both_exited(st);
     }
 
     // Registers a task within the multiplexer and waits for the writer's turn.
@@ -225,20 +230,6 @@ private:
         return std::ranges::count_if(req.messages(), [](request_message_type type) {
             return type == request_message_type::query || type == request_message_type::sync;
         });
-    }
-
-    void on_writer_exit(exec_state_impl& st)
-    {
-        BOOST_ASSERT(write_mtx_.is_locked());
-        write_mtx_.unlock();
-        if (st.read_done())
-            on_both_exited(st);
-    }
-
-    void on_reader_exit(exec_state_impl& st)
-    {
-        if (st.write_done())
-            on_both_exited(st);
     }
 
     void on_both_exited(exec_state_impl& st)

@@ -63,9 +63,9 @@ static capy::task<> co_main()
 
     // Register the request
     exec_state exec_st;
-    if (auto [ec] = co_await conn.register_request(exec_st, req, &handler, &diag); ec)
+    if (auto ec = conn.prepare_request(exec_st, req, &handler, &diag))
     {
-        print_err("Error registering the response", ec, diag);
+        print_err("Error preparing the request", ec, diag);
         co_return;
     }
 

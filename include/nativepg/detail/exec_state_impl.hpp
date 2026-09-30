@@ -75,8 +75,8 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
     // Tracks the response as it is read. TODO: optional not good
     std::optional<protocol::read_response_fsm> fsm;
 
-    // Are we currently registered in the multiplexer's queue?
-    bool is_registered() const { return is_linked(); }
+    // Did the user call prepare_request()?
+    bool is_prepared() const { return mpx != nullptr; }
 
     // Did each of the two halves of the operation finish?
     bool write_done() const { return writer_st == writer_status::done; }

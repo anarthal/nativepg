@@ -112,8 +112,8 @@ struct co_connection::impl
         co_return {write_ec};
     }
 
-    capy::io_task<> register_request(
-        detail::exec_state_impl& exec_st,
+    std::error_code prepare_request(
+        exec_state& exec_st,
         const request& req,
         response_handler_ref handler,
         diagnostics* diag
@@ -121,24 +121,23 @@ struct co_connection::impl
     {
         // Perform request setup
         if (auto ec = protocol::detail::setup_request(req, handler))
-            co_return {ec};
+            return {ec};
 
         // Set the state up. This cleans up any leftover from previous operations
-        exec_st.setup(mpx_, req, handler, diag);
-
-        // Wait for our turn to write and register what we are doing in the queue
-        if (auto [ec] = co_await mpx_.enter(exec_st); ec)
-            co_return {ec};
-
-        co_return {};
+        detail::exec_state_access::get_impl(exec_st).setup(mpx_, req, handler, diag);
+        return {};
     }
 
     // This is the writer side of exec
     boost::capy::io_task<> write_request(detail::exec_state_impl& exec_st)
     {
-        // State checks. If we're not writing, we can't proceed
-        if (exec_st.writer_st != detail::exec_state_impl::writer_status::locked)
+        // State checks. If we're not ready to write, we can't proceed
+        if (!exec_st.is_prepared() || exec_st.writer_st != detail::exec_state_impl::writer_status::initial)
             co_return {client_errc::invalid_state};
+
+        // Wait for our turn to write and register what we are doing in the queue
+        if (auto [ec] = co_await mpx_.enter(exec_st); ec)
+            co_return {ec};
 
         // Write any potential leftover from previous requests, plus our own request.
         // The former is required to keep the connection healthy.
@@ -162,7 +161,7 @@ struct co_connection::impl
     boost::capy::io_task<> read_some_response(detail::exec_state_impl& exec_st)
     {
         // State check
-        if (!exec_st.is_registered() || exec_st.read_done())
+        if (!exec_st.is_prepared() || exec_st.read_done())
             co_return {client_errc::invalid_state};
 
         auto& fsm = *exec_st.fsm;
@@ -272,15 +271,13 @@ struct co_connection::impl
     {
         // Setup
         exec_state exec_st;
-        auto& st_impl = detail::exec_state_access::get_impl(exec_st);
-
-        // Register ourselves within the multiplexer
-        if (auto [ec] = co_await register_request(st_impl, req, handler, diag); ec)
+        if (auto ec = prepare_request(exec_st, req, handler, diag))
             co_return {ec};
 
         // Run the reader and writer tasks in parallel
         // TODO: protocol violations should mark the connection as failed
         // once we have state checks
+        auto& st_impl = detail::exec_state_access::get_impl(exec_st);
         auto [final_ec, writer_dummy, reader_dummy] = co_await boost::capy::when_all(
             write_request(st_impl),
             read_response(st_impl)
@@ -519,14 +516,14 @@ capy::io_task<> co_connection::exec(const request& req, response_handler_ref han
 
 capy::io_task<> co_connection::receive(notification_vector& output) { return impl_->receive(output); }
 
-boost::capy::io_task<> co_connection::register_request(
-    exec_state& st,
+std::error_code co_connection::prepare_request(
+    exec_state& exec_st,
     const request& req,
     response_handler_ref handler,
     diagnostics* diag
 )
 {
-    return impl_->register_request(detail::exec_state_access::get_impl(st), req, handler, diag);
+    return impl_->prepare_request(exec_st, req, handler, diag);
 }
 
 boost::capy::io_task<> co_connection::write_request(exec_state& st)
@@ -557,7 +554,7 @@ void detail::exec_state_impl::reset()
 {
     // Release whatever we still hold in the multiplexer.
     // Being linked is what tells us that enter() succeeded
-    if (mpx != nullptr && is_registered())
+    if (is_prepared() && is_linked())
     {
         // The writer may still hold the write mutex
         if (writer_st == writer_status::locked)
@@ -567,7 +564,7 @@ void detail::exec_state_impl::reset()
         if (!reader_done)
             mpx->report_reader_exit(*this);
     }
-    BOOST_ASSERT(!is_registered());
+    BOOST_ASSERT(!is_linked());
 
     mpx = nullptr;
     req = nullptr;

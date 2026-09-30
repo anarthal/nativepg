@@ -33,7 +33,7 @@ public:
     exec_state& operator=(exec_state&&) = delete;
     ~exec_state() { impl_.reset(); }
 
-    bool is_registered() const { return impl_.is_registered(); }
+    bool is_prepared() const { return impl_.is_prepared(); }
     bool write_done() const { return impl_.write_done(); }
     bool read_done() const { return impl_.read_done(); }
 

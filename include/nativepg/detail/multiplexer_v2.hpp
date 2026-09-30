@@ -98,9 +98,9 @@ public:
 
     // Registers a task within the multiplexer and waits for the writer's turn.
     // The state and its request must be kept alive until the state is reset
-    boost::capy::io_task<> enter(exec_state_impl& st)
+    boost::capy::io_task<> enter(exec_state_impl& exec_st)
     {
-        BOOST_ASSERT(!st.is_registered());
+        BOOST_ASSERT(!exec_st.is_linked());
 
         // Wait for our turn to write
         // TODO: use a guard, as set() may technically throw.
@@ -110,16 +110,16 @@ public:
             co_return {ec};
 
         // We now hold the write mutex and owe an exit report
-        st.writer_st = exec_state_impl::writer_status::locked;
+        exec_st.writer_st = exec_state_impl::writer_status::locked;
 
         // Register what we are doing, so no other reader takes our turn
-        st.pending_rfqs = std::exchange(trailing_rfqs_, 0u);
-        active_tasks_.push_back(st);
+        exec_st.pending_rfqs = std::exchange(trailing_rfqs_, 0u);
+        active_tasks_.push_back(exec_st);
 
         // If there is no-one reading, set the event so the reader doesn't deadlock.
         // TODO: I think this needs to go here if we want to move this to the writer
-        if (&active_tasks_.front() == &st && !receiver_reading_)
-            st.evt.set();
+        if (&active_tasks_.front() == &exec_st && !receiver_reading_)
+            exec_st.evt.set();
 
         // Done
         co_return {};

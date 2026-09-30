@@ -99,8 +99,7 @@ public:
     [[nodiscard]] std::error_code prepare_request(
         exec_state& st,
         const request& req,
-        response_handler_ref handler,
-        diagnostics* diag = nullptr
+        response_handler_ref handler
     );
 
     // Writes the request pointed to by st to the server.

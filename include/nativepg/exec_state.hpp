@@ -9,6 +9,7 @@
 #define NATIVEPG_EXEC_STATE_HPP
 
 #include "nativepg/detail/exec_state_impl.hpp"
+#include "nativepg/extended_error.hpp"
 
 namespace nativepg {
 
@@ -39,6 +40,12 @@ public:
 
     // Cannot be used while any associated read/write operations are in-progress.
     void reset() { impl_.reset(); }
+
+    // Returns the result produced by the response handler.
+    // Precondition: read_done().
+    // An error here is never fatal - other requests may still make progress.
+    // reset() invalidates the reference.
+    const extended_error& handler_error() const { return impl_.fsm->get_handler_error(); }
 };
 
 namespace detail {

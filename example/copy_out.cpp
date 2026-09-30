@@ -63,7 +63,7 @@ static capy::task<> co_main()
 
     // Register the request
     exec_state exec_st;
-    if (auto ec = conn.prepare_request(exec_st, req, &handler, &diag))
+    if (auto ec = conn.prepare_request(exec_st, req, &handler))
     {
         print_err("Error preparing the request", ec, diag);
         co_return;
@@ -91,6 +91,13 @@ static capy::task<> co_main()
             std::cout.write(reinterpret_cast<const char*>(buff.data()), buff.size());
         }
         buffers.clear();
+    }
+
+    // Did the server report any errors?
+    if (exec_st.handler_error().code)
+    {
+        print_err("Handler returned an error", exec_st.handler_error().code, exec_st.handler_error().diag);
+        co_return;
     }
 
     // Orderly close the connection.

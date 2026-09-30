@@ -75,9 +75,6 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
     // Setting it notifies the task to read next
     boost::capy::async_event evt{};
 
-    // Where to store the diagnostics produced by the handler, if any
-    diagnostics* diag{};
-
     // Tracks the response as it is read. TODO: optional not good
     std::optional<protocol::read_response_fsm> fsm;
 
@@ -98,7 +95,7 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
     // Cleans up any leftover from a previous operation and prepares for a new one.
     // The request and the handler must outlive the operation.
     // Defined in multiplexer_v2.hpp
-    void setup(multiplexer_v2& mpx, const request& req, response_handler_ref handler, diagnostics* diag);
+    void setup(multiplexer_v2& mpx, const request& req, response_handler_ref handler);
 
     const request& get_request() const { return fsm->get_request(); }
     std::span<const unsigned char> remaining_payload() const

@@ -112,19 +112,14 @@ struct co_connection::impl
         co_return {write_ec};
     }
 
-    std::error_code prepare_request(
-        exec_state& exec_st,
-        const request& req,
-        response_handler_ref handler,
-        diagnostics* diag
-    )
+    std::error_code prepare_request(exec_state& exec_st, const request& req, response_handler_ref handler)
     {
         // Perform request setup
         if (auto ec = protocol::detail::setup_request(req, handler))
             return {ec};
 
         // Set the state up. This cleans up any leftover from previous operations
-        detail::exec_state_access::get_impl(exec_st).setup(mpx_, req, handler, diag);
+        detail::exec_state_access::get_impl(exec_st).setup(mpx_, req, handler);
         return {};
     }
 
@@ -276,9 +271,7 @@ struct co_connection::impl
                     st.read_buffer.consume(consumed);
                     exec_st.read_rfqs = static_cast<std::size_t>(-1);  // we've read everything
                     mpx_.report_reader_exit(exec_st);
-                    if (exec_st.diag)
-                        *exec_st.diag = fsm.get_handler_error().diag;  // TODO: could we move assign?
-                    co_return {fsm.get_handler_error().code};
+                    co_return {};
                 }
                 else if (fsm_ec != client_errc::needs_more)
                 {
@@ -291,7 +284,7 @@ struct co_connection::impl
         }
     }
 
-    boost::capy::io_task<> read_response(detail::exec_state_impl& exec_st)
+    boost::capy::io_task<> read_response(detail::exec_state_impl& exec_st, diagnostics* diag)
     {
         while (!exec_st.fsm->is_done())
         {
@@ -299,14 +292,17 @@ struct co_connection::impl
                 co_return {ec};
         }
 
-        co_return {};
+        const auto& handler_err = exec_st.fsm->get_handler_error();
+        if (diag)
+            *diag = handler_err.diag;  // TODO: could we move assign?
+        co_return {handler_err.code};
     }
 
     boost::capy::io_task<> exec(const request& req, response_handler_ref handler, diagnostics* diag = nullptr)
     {
         // Setup
         exec_state exec_st;
-        if (auto ec = prepare_request(exec_st, req, handler, diag))
+        if (auto ec = prepare_request(exec_st, req, handler))
             co_return {ec};
 
         // Run the reader and writer tasks in parallel
@@ -315,7 +311,7 @@ struct co_connection::impl
         auto& st_impl = detail::exec_state_access::get_impl(exec_st);
         auto [final_ec, writer_dummy, reader_dummy] = co_await boost::capy::when_all(
             write_request(st_impl),
-            read_response(st_impl)
+            read_response(st_impl, diag)
         );
 
         co_return {final_ec};
@@ -554,11 +550,10 @@ capy::io_task<> co_connection::receive(notification_vector& output) { return imp
 std::error_code co_connection::prepare_request(
     exec_state& exec_st,
     const request& req,
-    response_handler_ref handler,
-    diagnostics* diag
+    response_handler_ref handler
 )
 {
-    return impl_->prepare_request(exec_st, req, handler, diag);
+    return impl_->prepare_request(exec_st, req, handler);
 }
 
 boost::capy::io_task<> co_connection::write_request(exec_state& st)
@@ -611,22 +606,15 @@ void detail::exec_state_impl::reset()
     pending_rfqs = 0u;
     read_rfqs = 0u;
     evt.clear();
-    diag = nullptr;
     fsm.reset();
 }
 
-void detail::exec_state_impl::setup(
-    multiplexer_v2& mpx_ref,
-    const request& req,
-    response_handler_ref handler,
-    diagnostics* diag_ptr
-)
+void detail::exec_state_impl::setup(multiplexer_v2& mpx_ref, const request& req, response_handler_ref handler)
 {
     // Clean up any leftover from previous operations
     reset();
 
     mpx = &mpx_ref;
-    diag = diag_ptr;
     fsm.emplace(&req, handler, true);  // TODO: probably remove the copy_allowed flag
 }
 

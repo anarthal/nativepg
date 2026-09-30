@@ -37,6 +37,7 @@ public:
     bool write_done() const { return impl_.write_done(); }
     bool read_done() const { return impl_.read_done(); }
 
+    // Cannot be used while any associated read/write operations are in-progress.
     void reset() { impl_.reset(); }
 };
 

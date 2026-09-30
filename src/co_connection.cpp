@@ -587,6 +587,9 @@ std::optional<encoding> co_connection::client_encoding() const { return impl_->s
 // TODO: do we want another cpp for this?
 void detail::exec_state_impl::reset()
 {
+    BOOST_ASSERT(!writing);
+    BOOST_ASSERT(!reading);
+
     // Release whatever we still hold in the multiplexer.
     // Being linked is what tells us that enter() succeeded
     if (is_prepared() && is_linked())
@@ -605,8 +608,6 @@ void detail::exec_state_impl::reset()
     writer_st = writer_status::initial;
     reader_done = false;
     bytes_written = 0u;
-    writing = false;
-    reading = false;
     pending_rfqs = 0u;
     read_rfqs = 0u;
     evt.clear();

@@ -13,6 +13,7 @@
 
 #include <cstddef>
 #include <optional>
+#include <span>
 
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/read_response_fsm.hpp"
@@ -45,9 +46,6 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
 
     // The multiplexer we're registered with, or nullptr if we were never set up
     multiplexer_v2* mpx{};
-
-    // The request that we're trying to execute
-    const request* req{};
 
     // Where does the writer stand?
     writer_status writer_st{writer_status::initial};
@@ -101,6 +99,12 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
     // The request and the handler must outlive the operation.
     // Defined in multiplexer_v2.hpp
     void setup(multiplexer_v2& mpx, const request& req, response_handler_ref handler, diagnostics* diag);
+
+    const request& get_request() const { return fsm->get_request(); }
+    std::span<const unsigned char> remaining_payload() const
+    {
+        return get_request().payload().subspan(bytes_written);
+    }
 };
 
 }  // namespace nativepg::detail

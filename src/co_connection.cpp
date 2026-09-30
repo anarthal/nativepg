@@ -160,12 +160,11 @@ struct co_connection::impl
         // of our own. The former is required to keep the connection healthy.
         // Most of the time, the 1st buffer is empty, and Corosio coalesces this to a
         // non-vectored write, for all backends.
-        const auto payload = exec_st.req->payload();
         auto [ec, bytes_written] = co_await boost::capy::write(
             stream,
             std::array<boost::capy::const_buffer, 2u>{
                 boost::capy::make_buffer(mpx_.previous_write_bytes()),
-                boost::capy::make_buffer(payload.subspan(exec_st.bytes_written))
+                boost::capy::make_buffer(exec_st.remaining_payload())
             }
         );
 
@@ -179,7 +178,6 @@ struct co_connection::impl
             co_return {ec};
 
         // We wrote the request in full. Release the write side
-        BOOST_ASSERT(exec_st.bytes_written == payload.size());
         mpx_.report_writer_exit(exec_st);
 
         // Done
@@ -604,7 +602,6 @@ void detail::exec_state_impl::reset()
     BOOST_ASSERT(!is_linked());
 
     mpx = nullptr;
-    req = nullptr;
     writer_st = writer_status::initial;
     reader_done = false;
     bytes_written = 0u;
@@ -619,18 +616,17 @@ void detail::exec_state_impl::reset()
 
 void detail::exec_state_impl::setup(
     multiplexer_v2& mpx_ref,
-    const request& r,
+    const request& req,
     response_handler_ref handler,
-    diagnostics* d
+    diagnostics* diag_ptr
 )
 {
     // Clean up any leftover from previous operations
     reset();
 
     mpx = &mpx_ref;
-    req = &r;
-    diag = d;
-    fsm.emplace(&r, handler, true);  // TODO: probably remove the copy_allowed flag
+    diag = diag_ptr;
+    fsm.emplace(&req, handler, true);  // TODO: probably remove the copy_allowed flag
 }
 
 }  // namespace nativepg

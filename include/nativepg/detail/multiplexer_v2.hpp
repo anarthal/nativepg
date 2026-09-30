@@ -72,7 +72,7 @@ public:
         {
             // Part of the request has been sent to the server, at least
             st.bytes_written += bytes_written;
-            BOOST_ASSERT(st.bytes_written <= st.req->payload().size());
+            BOOST_ASSERT(st.bytes_written <= st.get_request().payload().size());
         }
     }
 
@@ -87,7 +87,7 @@ public:
 
         // Subsequent execs need to send whatever we didn't
         // if they want to keep the connection healthy
-        auto payload = st.req->payload();
+        auto payload = st.get_request().payload();
         if (st.bytes_written < payload.size())
             pending_write_.assign(payload.begin() + st.bytes_written, payload.end());
 
@@ -256,7 +256,8 @@ private:
         const std::size_t remaining_rfqs =
             (st.read_rfqs == static_cast<std::size_t>(-1)
                  ? 0u
-                 : st.pending_rfqs + (st.request_committed() ? count_rfqs(*st.req) : 0u) - st.read_rfqs);
+                 : st.pending_rfqs + (st.request_committed() ? count_rfqs(st.get_request()) : 0u) -
+                       st.read_rfqs);
 
         // Remove ourselves from the list
         active_tasks_.erase(it);

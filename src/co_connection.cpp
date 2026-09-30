@@ -607,7 +607,6 @@ void detail::exec_state_impl::reset()
     req = nullptr;
     writer_st = writer_status::initial;
     reader_done = false;
-    request_committed = false;
     bytes_written = 0u;
     writing = false;
     reading = false;

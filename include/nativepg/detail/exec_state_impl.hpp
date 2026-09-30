@@ -55,9 +55,6 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
     // Did the reader report its exit?
     bool reader_done{};
 
-    // Did the writer write at least one byte of our request?
-    bool request_committed{};
-
     // How many bytes of our request's payload reached the server.
     // A write that fails half-way leaves this at the resume point
     std::size_t bytes_written{};
@@ -92,6 +89,9 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
     // Did each of the two halves of the operation finish?
     bool write_done() const { return writer_st == writer_status::done; }
     bool read_done() const { return reader_done; }
+
+    // Did the writer write at least one byte of our request?
+    bool request_committed() const { return bytes_written > 0u; };
 
     // Releases anything we still hold in the multiplexer and returns
     // to a pristine state. Defined in multiplexer_v2.hpp

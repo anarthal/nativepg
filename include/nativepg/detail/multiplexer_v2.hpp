@@ -71,7 +71,6 @@ public:
         if (bytes_written > 0u)
         {
             // Part of the request has been sent to the server, at least
-            st.request_committed = true;
             st.bytes_written += bytes_written;
             BOOST_ASSERT(st.bytes_written <= st.req->payload().size());
         }
@@ -257,7 +256,7 @@ private:
         const std::size_t remaining_rfqs =
             (st.read_rfqs == static_cast<std::size_t>(-1)
                  ? 0u
-                 : st.pending_rfqs + (st.request_committed ? count_rfqs(*st.req) : 0u) - st.read_rfqs);
+                 : st.pending_rfqs + (st.request_committed() ? count_rfqs(*st.req) : 0u) - st.read_rfqs);
 
         // Remove ourselves from the list
         active_tasks_.erase(it);

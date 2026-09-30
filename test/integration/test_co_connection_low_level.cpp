@@ -11,12 +11,14 @@
 #include <boost/describe/class.hpp>
 #include <boost/describe/operators.hpp>
 
+#include <cstdint>
 #include <system_error>
 #include <vector>
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/exec_state.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/responses/check.hpp"
 #include "nativepg/responses/into.hpp"
 #include "nativepg/responses/response.hpp"
 #include "test_utils/co_connection_utils.hpp"
@@ -85,6 +87,60 @@ capy::task<> test_success()
     co_await check_connection_usable(conn);
 }
 
+// Instead of blocking, read_some_response returns when only some messages are read
+// in one read_some
+capy::task<> test_partial_read()
+{
+    // Setup
+    auto conn = co_await establish_connection(), locker = co_await establish_connection();
+
+    // Take the lock, so the second query in our request can't complete.
+    // Note: different tests should use different IDs
+    constexpr std::int64_t lock_id = 21;
+    if (!co_await checked_exec(locker, request().add_query("SELECT pg_advisory_lock($1)", lock_id)))
+        co_return;
+
+    // The first query answers right away, the second one blocks on the lock
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    req.add_query("SELECT pg_advisory_lock($1)", lock_id);
+    std::vector<row_int> rows;
+    response handler{into(rows), check_execute()};
+
+    // Prepare and write
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+
+    // Read until the first resultset arrives. The server still owes us the second
+    // one at this point, so read_some_response had to return without completing
+    while (rows.empty())
+    {
+        if (!check_success(co_await conn.read_some_response(st)))
+            co_return;
+    }
+    BOOST_TEST(!st.read_done());
+    test_range_eq(rows, std::vector<row_int>{{.value = 42}});
+
+    // Unblock the rest of the response
+    if (!check_success(co_await locker.shutdown()))
+        co_return;
+
+    // Read the remainder
+    while (!st.read_done())
+    {
+        if (!check_success(co_await conn.read_some_response(st)))
+            co_return;
+    }
+
+    // Check
+    check_success(st.handler_error());
+
+    co_await check_connection_usable(conn);
+}
+
 // // A state that has been driven to completion can be reused for another request
 // capy::task<> test_reuse_state()
 // {
@@ -127,6 +183,7 @@ capy::task<> test_success()
 int main()
 {
     run_coroutine_test(test_success());
+    run_coroutine_test(test_partial_read());
 
     return boost::report_errors();
 }

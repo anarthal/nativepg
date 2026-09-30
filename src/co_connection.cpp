@@ -284,39 +284,6 @@ struct co_connection::impl
         }
     }
 
-    boost::capy::io_task<> read_response(detail::exec_state_impl& exec_st, diagnostics* diag)
-    {
-        while (!exec_st.fsm->is_done())
-        {
-            if (auto [ec] = co_await read_some_response(exec_st); ec)
-                co_return {ec};
-        }
-
-        const auto& handler_err = exec_st.fsm->get_handler_error();
-        if (diag)
-            *diag = handler_err.diag;  // TODO: could we move assign?
-        co_return {handler_err.code};
-    }
-
-    boost::capy::io_task<> exec(const request& req, response_handler_ref handler, diagnostics* diag = nullptr)
-    {
-        // Setup
-        exec_state exec_st;
-        if (auto ec = prepare_request(exec_st, req, handler))
-            co_return {ec};
-
-        // Run the reader and writer tasks in parallel
-        // TODO: protocol violations should mark the connection as failed
-        // once we have state checks
-        auto& st_impl = detail::exec_state_access::get_impl(exec_st);
-        auto [final_ec, writer_dummy, reader_dummy] = co_await boost::capy::when_all(
-            write_request(st_impl),
-            read_response(st_impl, diag)
-        );
-
-        co_return {final_ec};
-    }
-
     boost::capy::io_task<> receive(notification_vector& output)
     {
         // Verify that no two receivers run in parallel
@@ -540,11 +507,6 @@ capy::io_task<> co_connection::connect(connect_params params, diagnostics* diag)
 
 capy::io_task<> co_connection::shutdown() { return impl_->shutdown(); }
 
-capy::io_task<> co_connection::exec(const request& req, response_handler_ref handler, diagnostics* diag)
-{
-    return impl_->exec(req, handler, diag);
-}
-
 capy::io_task<> co_connection::receive(notification_vector& output) { return impl_->receive(output); }
 
 std::error_code co_connection::prepare_request(
@@ -564,6 +526,36 @@ boost::capy::io_task<> co_connection::write_request(exec_state& st)
 boost::capy::io_task<> co_connection::read_some_response(exec_state& st)
 {
     return impl_->read_some_response(detail::exec_state_access::get_impl(st));
+}
+
+static capy::io_task<> read_response(co_connection& conn, exec_state& exec_st, diagnostics* diag)
+{
+    while (!exec_st.read_done())
+    {
+        if (auto [ec] = co_await conn.read_some_response(exec_st); ec)
+            co_return {ec};
+    }
+
+    const auto& handler_err = exec_st.handler_error();
+    if (diag)
+        *diag = handler_err.diag;
+    co_return {handler_err.code};
+}
+
+capy::io_task<> co_connection::exec(const request& req, response_handler_ref handler, diagnostics* diag)
+{
+    // Setup
+    exec_state exec_st;
+    if (auto ec = prepare_request(exec_st, req, handler))
+        co_return {ec};
+
+    // Run the reader and writer tasks in parallel
+    auto [final_ec, writer_dummy, reader_dummy] = co_await boost::capy::when_all(
+        write_request(exec_st),
+        read_response(*this, exec_st, diag)
+    );
+
+    co_return {final_ec};
 }
 
 capy::io_task<> co_connection::read_some_messages() { return impl_->read_some_messages(); }

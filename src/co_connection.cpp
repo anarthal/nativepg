@@ -131,31 +131,59 @@ struct co_connection::impl
     // This is the writer side of exec
     boost::capy::io_task<> write_request(detail::exec_state_impl& exec_st)
     {
-        // State checks. If we're not ready to write, we can't proceed
-        if (!exec_st.is_prepared() || exec_st.writer_st != detail::exec_state_impl::writer_status::initial)
+        using writer_status = detail::exec_state_impl::writer_status;
+
+        // We must have been prepared, and must still have something to write
+        if (!exec_st.is_prepared() || exec_st.write_done())
             co_return {client_errc::invalid_state};
 
-        // Wait for our turn to write and register what we are doing in the queue
-        if (auto [ec] = co_await mpx_.enter(exec_st); ec)
-            co_return {ec};
+        // Only one writer per state may be in flight
+        if (exec_st.writing)
+            co_return {client_errc::already_running};
+        exec_st.writing = true;
+        struct writing_guard
+        {
+            detail::exec_state_impl* st;
+            ~writing_guard() { st->writing = false; }
+        } guard{&exec_st};
 
-        // Write any potential leftover from previous requests, plus our own request.
-        // The former is required to keep the connection healthy.
+        // Wait for our turn to write and register what we are doing in the queue.
+        // When resuming a partially written request we still hold both, so skip this
+        if (exec_st.writer_st == writer_status::initial)
+        {
+            if (auto [ec] = co_await mpx_.enter(exec_st); ec)
+                co_return {ec};
+        }
+        BOOST_ASSERT(exec_st.writer_st == writer_status::locked);
+
+        // Write any potential leftover from previous requests, plus whatever is left
+        // of our own. The former is required to keep the connection healthy.
         // Most of the time, the 1st buffer is empty, and Corosio coalesces this to a
         // non-vectored write, for all backends.
+        const auto payload = exec_st.req->payload();
         auto [ec, bytes_written] = co_await boost::capy::write(
             stream,
             std::array<boost::capy::const_buffer, 2u>{
                 boost::capy::make_buffer(mpx_.previous_write_bytes()),
-                boost::capy::make_buffer(exec_st.req->payload())
+                boost::capy::make_buffer(payload.subspan(exec_st.bytes_written))
             }
         );
 
-        // Report the result, so subsequent execs know how to keep the connection healthy
-        mpx_.report_writer_exit(exec_st, bytes_written);
+        // Record what made it to the server, so a retry resumes where we left off
+        mpx_.on_bytes_written(exec_st, bytes_written);
+
+        // On failure we keep holding the write mutex, so no other request can
+        // interleave its bytes with our half-written one. The caller may retry,
+        // and destroying the exec_state hands the leftovers to the next writer
+        if (ec)
+            co_return {ec};
+
+        // We wrote the request in full. Release the write side
+        BOOST_ASSERT(exec_st.bytes_written == payload.size());
+        mpx_.report_writer_exit(exec_st);
 
         // Done
-        co_return {ec};
+        co_return {};
     }
 
     boost::capy::io_task<> read_some_response(detail::exec_state_impl& exec_st)
@@ -558,7 +586,7 @@ void detail::exec_state_impl::reset()
     {
         // The writer may still hold the write mutex
         if (writer_st == writer_status::locked)
-            mpx->report_writer_exit(*this, 0u);
+            mpx->report_writer_exit(*this);
 
         // The reader may still owe an exit report
         if (!reader_done)
@@ -571,6 +599,8 @@ void detail::exec_state_impl::reset()
     writer_st = writer_status::initial;
     reader_done = false;
     request_committed = false;
+    bytes_written = 0u;
+    writing = false;
     pending_rfqs = 0u;
     read_rfqs = 0u;
     evt.clear();

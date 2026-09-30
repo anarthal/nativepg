@@ -106,14 +106,14 @@ public:
     // Writes the request pointed to by st to the server.
     // If another operation is currently writing requests (e.g. another parallel exec()),
     //   waits until its write part finishes before initiating the write.
-    // Returns success if all the request's bytes were written to the server,
-    //   error otherwise.
+    // Returns success if all the request's bytes were written to the server.
+    //   In this case, st.write_finished() returns true.
     // If this function finishes with an error, the number of transferred bytes
-    //   is stored within st. Subsequent write_request calls are allowed.
+    //   is stored internally within st. Subsequent write_request calls are allowed.
     //   This allows to resume writing after a cancellation, for example.
     // Only one instance of write_request for a given exec_state is allowed
     //   to be in-flight at a time. Attempting to launch another fails with client_errc::already_running.
-    // Requires st.phase() == exec_phase::prepared && !st.write_done().
+    // Requires st.is_prepared() && !st.write_done().
     //   Otherwise, finishes with client_errc::invalid_state.
     boost::capy::io_task<> write_request(exec_state& st);
 

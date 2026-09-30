@@ -35,7 +35,8 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
         // We haven't acquired the write mutex yet
         initial,
 
-        // We hold the write mutex and still owe an exit report
+        // We hold the write mutex and still owe an exit report.
+        // A partially written request stays here, so it can be resumed
         locked,
 
         // The writer exited and was accounted for
@@ -56,6 +57,13 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
 
     // Did the writer write at least one byte of our request?
     bool request_committed{};
+
+    // How many bytes of our request's payload reached the server.
+    // A write that fails half-way leaves this at the resume point
+    std::size_t bytes_written{};
+
+    // Is there a write_request operation in flight for this state?
+    bool writing{};
 
     // Number of ReadyForQuery messages that we expect from
     // previously cancelled items

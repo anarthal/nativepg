@@ -53,12 +53,12 @@ public:
     // that should be written before our request
     std::span<const unsigned char> previous_write_bytes() const { return pending_write_; }
 
-    // Reports the result of the writer and releases the guard
-    // TODO: this calls potentially-throwing functions and is called from a destructor.
-    // An exception here leaves the connection in an unrecoverable state.
-    // Exceptions here are rare, so we'll handle this later.
-    void report_writer_exit(exec_state_impl& st, std::size_t bytes_written)
+    // Records bytes that reached the server. The leading bytes belong to leftovers
+    // from previously abandoned requests, and the rest to st's own request.
+    void on_bytes_written(exec_state_impl& st, std::size_t bytes_written)
     {
+        BOOST_ASSERT(st.writer_st == exec_state_impl::writer_status::locked);
+
         // Did we manage to write any leftover bytes from previous execs?
         if (!pending_write_.empty())
         {
@@ -67,19 +67,30 @@ public:
             bytes_written -= consumed_bytes;
         }
 
-        // Did we manage to write any bytes from our request?
+        // The rest belongs to our own request
         if (bytes_written > 0u)
         {
             // Part of the request has been sent to the server, at least
             st.request_committed = true;
-
-            // If it was only a part, subsequent execs need to send it fully
-            // if they want to keep the connection healthy
-            if (bytes_written < st.req->payload().size())
-            {
-                pending_write_.assign(st.req->payload().begin() + bytes_written, st.req->payload().end());
-            }
+            st.bytes_written += bytes_written;
+            BOOST_ASSERT(st.bytes_written <= st.req->payload().size());
         }
+    }
+
+    // Releases the write side. If the request wasn't written in full, whatever is
+    // left is handed over to the next writer, so the connection doesn't desync.
+    // TODO: this calls potentially-throwing functions and is called from a destructor.
+    // An exception here leaves the connection in an unrecoverable state.
+    // Exceptions here are rare, so we'll handle this later.
+    void report_writer_exit(exec_state_impl& st)
+    {
+        BOOST_ASSERT(st.writer_st == exec_state_impl::writer_status::locked);
+
+        // Subsequent execs need to send whatever we didn't
+        // if they want to keep the connection healthy
+        auto payload = st.req->payload();
+        if (st.bytes_written < payload.size())
+            pending_write_.assign(payload.begin() + st.bytes_written, payload.end());
 
         // The writer is done
         st.writer_st = exec_state_impl::writer_status::done;
@@ -103,10 +114,7 @@ public:
         BOOST_ASSERT(!exec_st.is_linked());
 
         // Wait for our turn to write
-        // TODO: use a guard, as set() may technically throw.
-        // scoped_lock() doesn't work because the guard doesn't have a release() method
-        auto [ec] = co_await write_mtx_.lock();
-        if (ec)
+        if (auto [ec] = co_await write_mtx_.lock(); ec)
             co_return {ec};
 
         // We now hold the write mutex and owe an exit report
@@ -116,8 +124,7 @@ public:
         exec_st.pending_rfqs = std::exchange(trailing_rfqs_, 0u);
         active_tasks_.push_back(exec_st);
 
-        // If there is no-one reading, set the event so the reader doesn't deadlock.
-        // TODO: I think this needs to go here if we want to move this to the writer
+        // If there is no-one reading, set the event so the reader doesn't deadlock
         if (&active_tasks_.front() == &exec_st && !receiver_reading_)
             exec_st.evt.set();
 

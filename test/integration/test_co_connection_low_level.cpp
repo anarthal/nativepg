@@ -974,23 +974,22 @@ int main()
     run_coroutine_test(test_gucs());
     run_coroutine_test(test_gucs_leftovers());
 
-    run_coroutine_test(test_reuse_state());
-
     run_coroutine_test(test_partial_read());
     run_coroutine_test(test_read_before_write());
     run_coroutine_test(test_retry_write());
     run_coroutine_test(test_retry_read_after_cancel());
+
+    run_coroutine_test(test_exec_before());
+    run_coroutine_test(test_exec_after());
+    run_coroutine_test(test_receive_before());
+    run_coroutine_test(test_receive_after());
 
     run_coroutine_test(test_reset_not_prepared());
     run_coroutine_test(test_reset_prepared());
     run_coroutine_test(test_reset_after_write());
     run_coroutine_test(test_reset_after_partial_read());
     run_coroutine_test(test_destructor_abandons());
-
-    run_coroutine_test(test_exec_before());
-    run_coroutine_test(test_exec_after());
-    run_coroutine_test(test_receive_before());
-    run_coroutine_test(test_receive_after());
+    run_coroutine_test(test_reuse_state());
 
     return boost::report_errors();
 }

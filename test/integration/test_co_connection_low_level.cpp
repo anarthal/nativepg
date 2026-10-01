@@ -25,6 +25,7 @@
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
+#include "nativepg/encoding.hpp"
 #include "nativepg/exec_state.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/notification_vector.hpp"
@@ -39,6 +40,7 @@
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
 #include "test_utils/test_cond_eq.hpp"
+#include "test_utils/test_opt_eq.hpp"
 #include "test_utils/test_range_eq.hpp"
 #include "test_utils/yield.hpp"
 
@@ -186,6 +188,84 @@ capy::task<> test_prepare_request_error()
     BOOST_TEST_NOT(st.write_done());
 
     // Nothing was written, so the connection is untouched
+    co_await check_connection_usable(conn);
+}
+
+// Parameters reported by the server while reading a response are applied
+capy::task<> test_gucs()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    // Sanity check: the test would pass vacuously if this were already the case
+    BOOST_TEST(conn.client_encoding() != encoding::latin1);
+
+    // Changing the parameter makes the server report it back as part of the response
+    request req;
+    req.add_query("SET SESSION client_encoding TO 'LATIN1'");
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    while (!st.read_done())
+    {
+        if (!check_success(co_await conn.read_some_response(st)))
+            co_return;
+    }
+    check_success(st.handler_error());
+
+    // The reader picked the ParameterStatus up on its way through the response
+    test_opt_eq(conn.client_encoding(), encoding::latin1);
+}
+
+// Parameters reported among the leftovers of an abandoned operation are applied
+// by whoever ends up discarding them
+capy::task<> test_gucs_leftovers()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+    BOOST_TEST(conn.client_encoding() != encoding::latin1);
+
+    // Write a request that changes the parameter, and abandon it without reading.
+    // The ParameterStatus it produces is now owed to whoever reads next
+    {
+        request req;
+        req.add_query("SET SESSION client_encoding TO 'LATIN1'");
+        check handler;
+
+        exec_state st;
+        if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+            co_return;
+        if (!check_success(co_await conn.write_request(st)))
+            co_return;
+    }
+
+    // This one has to skip the abandoned response before reading its own,
+    // and applies the parameter it finds on the way
+    request req2;
+    req2.add_query("SELECT $1 AS value", "abcd");
+    std::vector<row_string> rows;
+    auto handler2 = into(rows);
+
+    exec_state st2;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st2, req2, &handler2), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st2)))
+        co_return;
+    while (!st2.read_done())
+    {
+        if (!check_success(co_await conn.read_some_response(st2)))
+            co_return;
+    }
+
+    // It read its own response, and tracked the parameter from the abandoned one
+    check_success(st2.handler_error());
+    test_range_eq(rows, std::vector<row_string>{{.value = "abcd"}});
+    test_opt_eq(conn.client_encoding(), encoding::latin1);
+
     co_await check_connection_usable(conn);
 }
 
@@ -881,6 +961,8 @@ int main()
     run_coroutine_test(test_success());
     run_coroutine_test(test_handler_error());
     run_coroutine_test(test_prepare_request_error());
+    run_coroutine_test(test_gucs());
+    run_coroutine_test(test_gucs_leftovers());
 
     run_coroutine_test(test_partial_read());
     run_coroutine_test(test_read_before_write());

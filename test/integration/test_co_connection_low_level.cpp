@@ -13,19 +13,25 @@
 #include <boost/describe/class.hpp>
 #include <boost/describe/operators.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
+#include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/exec_state.hpp"
+#include "nativepg/extended_error.hpp"
 #include "nativepg/notification_vector.hpp"
 #include "nativepg/protocol/async.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/check.hpp"
 #include "nativepg/responses/into.hpp"
 #include "nativepg/responses/response.hpp"
+#include "nativepg/responses/response_handler.hpp"
 #include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
@@ -35,6 +41,7 @@
 namespace capy = boost::capy;
 using namespace nativepg;
 using namespace nativepg::test;
+using namespace std::string_view_literals;
 
 namespace {
 
@@ -52,6 +59,10 @@ BOOST_DESCRIBE_STRUCT(row_string, (), (value))
 
 using boost::describe::operators::operator==;
 using boost::describe::operators::operator<<;
+
+//
+// Usual cases
+//
 
 // Sunny-day case. This executes write fully before reading, as opposed to exec()
 capy::task<> test_success()
@@ -99,6 +110,84 @@ capy::task<> test_success()
     // Having read the response in full, we left nothing behind
     co_await check_connection_usable(conn);
 }
+
+// An error reported by the handler while reading is surfaced by the operation
+// and recorded in the exec_state
+capy::task<> test_handler_error()
+{
+    // A response handler that reports a well-known error
+    struct failing_handler
+    {
+        handler_setup_result setup(const request& req, std::size_t) { return req.messages().size(); }
+
+        void on_message(const any_request_message&, std::size_t, extended_error& err)
+        {
+            err.code = std::make_error_code(std::errc::invalid_argument);
+            err.diag = diagnostics("some_error");
+        }
+    };
+
+    // Setup
+    auto conn = co_await establish_connection();
+
+    // The query itself is valid: the error comes from the handler
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    failing_handler handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+
+    // In the low-level API, handler errors only appear in the exec_state
+    while (!st.read_done())
+    {
+        if (!check_success(co_await conn.read_some_response(st)))
+            co_return;
+    }
+
+    // The error is reported by the operation and recorded in the state
+    BOOST_TEST(st.write_done());
+    BOOST_TEST(st.read_done());
+    const extended_error expected_err{
+        std::make_error_code(std::errc::invalid_argument),
+        diagnostics("some_error")
+    };
+    BOOST_TEST_EQ(st.handler_error(), expected_err);
+
+    // A handler error is not a protocol error: we read the response in full
+    co_await check_connection_usable(conn);
+}
+
+// prepare_request fails if the handler's setup fails, leaving the state unprepared
+capy::task<> test_prepare_request_error()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    req.add_query("SELECT $1 AS value", 50);
+    check_execute handler;  // incompatible
+    exec_state st;
+
+    BOOST_TEST_EQ(
+        conn.prepare_request(st, req, &handler),
+        std::error_code(client_errc::incompatible_response_length)
+    );
+    BOOST_TEST_NOT(st.is_prepared());
+    BOOST_TEST_NOT(st.read_done());
+    BOOST_TEST_NOT(st.write_done());
+
+    // Nothing was written, so the connection is untouched
+    co_await check_connection_usable(conn);
+}
+
+//
+// Partial reads, sequencing, retries...
+//
 
 // Instead of blocking, read_some_response returns when only some messages are read
 // in one read_some
@@ -202,6 +291,10 @@ capy::task<> test_read_before_write()
 
     co_await check_connection_usable(conn);
 }
+
+//
+// Interaction with exec() and receive()
+//
 
 // The low-level API waits if an exec() is in flight
 capy::task<> test_exec_before()
@@ -526,8 +619,12 @@ capy::task<> test_receive_after()
 int main()
 {
     run_coroutine_test(test_success());
+    run_coroutine_test(test_handler_error());
+    run_coroutine_test(test_prepare_request_error());
+
     run_coroutine_test(test_partial_read());
     run_coroutine_test(test_read_before_write());
+
     run_coroutine_test(test_exec_before());
     run_coroutine_test(test_exec_after());
     run_coroutine_test(test_receive_before());

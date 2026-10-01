@@ -475,6 +475,8 @@ void test_close_error()
     });
 }
 
+// TODO: COPY tests
+
 // --- Pipeline cases ---
 // The usual extended query flow works
 void test_extended_query()

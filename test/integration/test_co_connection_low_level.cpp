@@ -782,7 +782,7 @@ capy::task<> test_reset_after_partial_read()
     request req;
     req.add_query("SELECT $1 AS value", "abcd");
     req.add_query("SELECT pg_advisory_lock($1)", lock_id);
-    std::vector<row_int> rows;
+    std::vector<row_string> rows;
     response handler{into(rows), check_execute()};
 
     exec_state st;
@@ -798,7 +798,7 @@ capy::task<> test_reset_after_partial_read()
             co_return;
     }
     BOOST_TEST_NOT(st.read_done());
-    test_range_eq(rows, std::vector<row_int>{{.value = 42}});
+    test_range_eq(rows, std::vector<row_string>{{.value = "abcd"}});
 
     // Abandon with the second resultset outstanding
     st.reset();
@@ -819,7 +819,7 @@ capy::task<> test_destructor_abandons()
 
     request req;
     req.add_query("SELECT $1 AS value", "abcd");
-    std::vector<row_int> rows;
+    std::vector<row_string> rows;
     auto handler = into(rows);
 
     {

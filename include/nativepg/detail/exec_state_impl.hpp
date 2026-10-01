@@ -15,7 +15,6 @@
 #include <optional>
 #include <span>
 
-#include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
@@ -24,11 +23,7 @@ namespace nativepg::detail {
 
 class multiplexer_v2;
 
-// All the state for a single exec operation. This doubles as the multiplexer's
-// queue node: the object is linked into the multiplexer's task list for as long as
-// the operation is registered, so being linked is what "registered" means.
-// Only reset() and setup() are defined here; everything that touches the multiplexer
-// lives in multiplexer_v2.hpp, which is where the two halves are tied together.
+// All the state for a single exec operation
 struct exec_state_impl : boost::intrusive::list_base_hook<>
 {
     enum class writer_status

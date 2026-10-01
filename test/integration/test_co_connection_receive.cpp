@@ -18,7 +18,6 @@
 #include <boost/describe/operators.hpp>
 
 #include <cstdint>
-#include <ostream>
 #include <stop_token>
 #include <string_view>
 #include <system_error>
@@ -47,16 +46,6 @@ using namespace nativepg;
 using namespace nativepg::test;
 using namespace std::string_view_literals;
 using namespace std::chrono_literals;
-
-namespace nativepg::protocol {
-
-std::ostream& operator<<(std::ostream& os, const notification_response& value)
-{
-    return os << "{ .process_id=" << value.process_id << ", .channel_name=" << value.channel_name
-              << ", .payload=" << value.payload << " }";
-}
-
-}  // namespace nativepg::protocol
 
 namespace {
 

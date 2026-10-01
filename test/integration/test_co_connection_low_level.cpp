@@ -20,12 +20,15 @@
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/exec_state.hpp"
+#include "nativepg/notification_vector.hpp"
+#include "nativepg/protocol/async.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
 #include "nativepg/responses/into.hpp"
 #include "nativepg/responses/response.hpp"
 #include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
+#include "test_utils/printing.hpp"
 #include "test_utils/test_range_eq.hpp"
 #include "test_utils/yield.hpp"
 
@@ -339,6 +342,148 @@ capy::task<> test_exec_after()
     co_await check_connection_usable(conn);
 }
 
+// A receive() is running when the low-level operation is started
+capy::task<> test_receive_before()
+{
+    // Setup
+    auto conn = co_await establish_connection(), notifier = co_await establish_connection();
+    if (!co_await checked_exec(conn, request().add_query("LISTEN test_ll_receive_before")))
+        co_return;
+
+    // Runs through the low-level API, once the receive() is the current reader
+    request req;
+    req.add_query("SELECT $1 AS value", "abcd");
+    std::vector<row_string> rows;
+    auto ll_handler = into(rows);
+    exec_state st;
+
+    notification_vector notifs;
+
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::io_task<> {
+            // Takes the read side, since nothing else is running
+            check_success(co_await conn.receive(notifs));
+            co_return {};
+        }(),
+
+        [&]() -> capy::io_task<> {
+            // Ensure receive() goes first
+            co_await yield();
+
+            // Setup
+            if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &ll_handler), std::error_code()))
+                co_return {};
+
+            // The receive() hands the read side over as soon as it sees a message
+            // that isn't a notification
+            if (!check_success(co_await conn.write_request(st)))
+                co_return {};
+            while (!st.read_done())
+            {
+                if (!check_success(co_await conn.read_some_response(st)))
+                    co_return {};
+            }
+
+            // The receive() is still waiting, so give it something to report
+            co_await checked_exec(notifier, request().add_query("NOTIFY test_ll_receive_before, 'hello'"));
+            co_return {};
+        }()
+    ));
+
+    // Each operation got its own output
+    check_success(st.handler_error());
+    test_range_eq(rows, std::vector<row_string>{{.value = "abcd"}});
+    const protocol::notification_response expected[] = {
+        {.process_id = notifier.state().backend_process_id,
+         .channel_name = "test_ll_receive_before",
+         .payload = "hello"}
+    };
+    test_range_eq(notifs, expected);
+
+    co_await check_connection_usable(conn);
+}
+
+// The reverse: a receive() started while a low-level operation owns the read
+// side waits for it, and gets its notifications through it
+capy::task<> test_receive_after()
+{
+    // Setup
+    auto conn = co_await establish_connection(), locker = co_await establish_connection(),
+         notifier = co_await establish_connection();
+    if (!co_await checked_exec(conn, request().add_query("LISTEN test_ll_receive_after")))
+        co_return;
+
+    // Note: different tests should use different IDs
+    constexpr std::int64_t lock_id = 24;
+    if (!co_await checked_exec(locker, request().add_query("SELECT pg_advisory_lock($1)", lock_id)))
+        co_return;
+
+    // Blocks on the lock after its first resultset, so it keeps the read side
+    request req_ll;
+    req_ll.add_query("SELECT $1 AS value", 42);
+    req_ll.add_query("SELECT pg_advisory_lock($1)", lock_id);
+    std::vector<row_int> ll_rows;
+    response ll_handler{into(ll_rows), check_execute()};
+    exec_state st;
+
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req_ll, &ll_handler), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    while (ll_rows.empty())
+    {
+        if (!check_success(co_await conn.read_some_response(st)))
+            co_return;
+    }
+    BOOST_TEST_NOT(st.read_done());
+
+    // Start a receive() that has to wait for us
+    notification_vector notifs;
+    bool receive_finished = false;
+
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::io_task<> {
+            check_success(co_await conn.receive(notifs));
+            receive_finished = true;
+            co_return {};
+        }(),
+
+        [&]() -> capy::io_task<> {
+            co_await yield();  // let the receive() start
+
+            // We still own the read side, so the receive() can't have read anything
+            BOOST_TEST_NOT(receive_finished);
+            BOOST_TEST(notifs.empty());
+
+            // Raise a notification. Our reader is the one that takes it off the
+            // wire and hands it over to the receive()
+            co_await checked_exec(notifier, request().add_query("NOTIFY test_ll_receive_after, 'hello'"));
+
+            // Unblock the rest of our own response
+            check_success(co_await locker.shutdown());
+            while (!st.read_done())
+            {
+                if (!check_success(co_await conn.read_some_response(st)))
+                    co_return {};
+            }
+            co_return {};
+        }()
+    ));
+
+    // Each operation got its own output
+    BOOST_TEST(st.read_done());
+    check_success(st.handler_error());
+    test_range_eq(ll_rows, std::vector<row_int>{{.value = 42}});
+    const protocol::notification_response expected[] = {
+        {.process_id = notifier.state().backend_process_id,
+         .channel_name = "test_ll_receive_after",
+         .payload = "hello"}
+    };
+    test_range_eq(notifs, expected);
+
+    co_await check_connection_usable(conn);
+}
+
 // // A state that has been driven to completion can be reused for another request
 // capy::task<> test_reuse_state()
 // {
@@ -385,6 +530,8 @@ int main()
     run_coroutine_test(test_read_before_write());
     run_coroutine_test(test_exec_before());
     run_coroutine_test(test_exec_after());
+    run_coroutine_test(test_receive_before());
+    run_coroutine_test(test_receive_after());
 
     return boost::report_errors();
 }

@@ -27,6 +27,13 @@ std::ostream& operator<<(std::ostream& os, const diagnostics&);
 enum class encoding;
 std::ostream& operator<<(std::ostream& os, encoding);
 
+namespace protocol {
+
+struct notification_response;
+std::ostream& operator<<(std::ostream& os, const notification_response&);
+
+}  // namespace protocol
+
 }  // namespace nativepg
 
 #endif

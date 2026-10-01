@@ -31,10 +31,7 @@
 #include "nativepg/request.hpp"
 
 // TODO: impl notes
-//   why the write mutex
-//   why an intrusive list
-//   why pending write bytes
-//   why RAII guards
+// TODO: encapsulation here is completely broken. This needs a refactor when we write its unit tests
 
 namespace nativepg::detail {
 
@@ -199,7 +196,6 @@ public:
         co_return {{}, receive_guard{*this}};
     }
 
-    // TODO: this lacks encapsulation
     void notify_receiver() { receive_evt_.set(); }
 
     // Are there any exec readers waiting?
@@ -278,8 +274,6 @@ private:
             receive_evt_.set();
     }
 };
-
-// TODO: I think the reader and writer really belong here
 
 }  // namespace nativepg::detail
 

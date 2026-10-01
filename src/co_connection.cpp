@@ -27,7 +27,6 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
-#include "nativepg/detail/multiplexer_v2.hpp"
 #include "nativepg/encoding.hpp"
 #include "nativepg/exec_state.hpp"
 #include "nativepg/extended_error.hpp"
@@ -39,6 +38,7 @@
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
 #include "nativepg_internal/check_request.hpp"
+#include "nativepg_internal/multiplexed_connection/multiplexer_v2.hpp"
 
 namespace capy = boost::capy;
 namespace corosio = boost::corosio;

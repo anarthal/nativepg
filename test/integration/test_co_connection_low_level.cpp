@@ -5,7 +5,9 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#include <boost/capy/cond.hpp>
 #include <boost/capy/ex/async_event.hpp>
+#include <boost/capy/ex/run.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
@@ -15,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -35,6 +38,7 @@
 #include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
+#include "test_utils/test_cond_eq.hpp"
 #include "test_utils/test_range_eq.hpp"
 #include "test_utils/yield.hpp"
 
@@ -288,6 +292,113 @@ capy::task<> test_read_before_write()
     BOOST_TEST(st.read_done());
     check_success(st.handler_error());
     test_range_eq(rows, std::vector<row_int>{{.value = 42}});
+
+    co_await check_connection_usable(conn);
+}
+
+// A cancelled write isn't terminal: the state records what made it to the
+// server, and the operation can be retried to send the rest
+capy::task<> test_retry_write()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    std::vector<row_int> rows;
+    auto handler = into(rows);
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+        co_return;
+
+    // Run the write under a token that is already stopped, so it reports
+    // cancellation however much of the request it managed to send
+    std::stop_source stop_src;
+    stop_src.request_stop();
+    auto [write_ec] = co_await capy::run(stop_src.get_token())(conn.write_request(st));
+    test_cond_eq(write_ec, capy::cond::canceled);
+
+    // We still hold the write side, so no other request can interleave with ours
+    BOOST_TEST_NOT(st.write_done());
+
+    // Retrying sends whatever didn't make it the first time
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    BOOST_TEST(st.write_done());
+
+    // The server received the request exactly once, so the response matches
+    while (!st.read_done())
+    {
+        if (!check_success(co_await conn.read_some_response(st)))
+            co_return;
+    }
+    check_success(st.handler_error());
+    test_range_eq(rows, std::vector<row_int>{{.value = 42}});
+
+    co_await check_connection_usable(conn);
+}
+
+// Same for the reader: a cancelled read keeps whatever progress it made and
+// can be retried to finish the response
+capy::task<> test_retry_read_after_cancel()
+{
+    // Setup
+    auto conn = co_await establish_connection(), locker = co_await establish_connection();
+
+    // Take the lock, so the second query can't answer until we say so.
+    // Note: different tests should use different IDs
+    constexpr std::int64_t lock_id = 25;
+    if (!co_await checked_exec(locker, request().add_query("SELECT pg_advisory_lock($1)", lock_id)))
+        co_return;
+
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    req.add_query("SELECT pg_advisory_lock($1)", lock_id);
+    std::vector<row_int> rows;
+    response handler{into(rows), check_execute()};
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+
+    // Read the first resultset. The second one is stuck on the lock
+    while (rows.empty())
+    {
+        if (!check_success(co_await conn.read_some_response(st)))
+            co_return;
+    }
+    test_range_eq(rows, std::vector<row_int>{{.value = 42}});
+    BOOST_TEST_NOT(st.read_done());
+
+    // Cancel a read that is waiting for the rest of the response
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::io_task<> {
+            auto [ec] = co_await conn.read_some_response(st);
+            test_cond_eq(ec, capy::cond::canceled);
+            co_return {};
+        }(),
+
+        [&]() -> capy::io_task<> {
+            co_await yield();  // let the reader start
+            co_return {std::make_error_code(std::errc::io_error)};
+        }()
+    ));
+
+    // The cancellation didn't release the read side
+    BOOST_TEST_NOT(st.read_done());
+
+    // Unblock the server and retry until completion
+    if (!check_success(co_await locker.shutdown()))
+        co_return;
+    while (!st.read_done())
+    {
+        if (!check_success(co_await conn.read_some_response(st)))
+            co_return;
+    }
+    check_success(st.handler_error());
 
     co_await check_connection_usable(conn);
 }
@@ -624,6 +735,8 @@ int main()
 
     run_coroutine_test(test_partial_read());
     run_coroutine_test(test_read_before_write());
+    run_coroutine_test(test_retry_write());
+    run_coroutine_test(test_retry_read_after_cancel());
 
     run_coroutine_test(test_exec_before());
     run_coroutine_test(test_exec_after());

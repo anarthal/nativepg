@@ -116,11 +116,11 @@ struct co_connection::impl
     {
         // Perform request setup
         if (auto ec = protocol::detail::setup_request(req, handler))
-            return {ec};
+            return ec;
 
         // Set the state up. This cleans up any leftover from previous operations
         detail::exec_state_access::get_impl(exec_st).setup(mpx_, req, handler);
-        return {};
+        return std::error_code();
     }
 
     // This is the writer side of exec

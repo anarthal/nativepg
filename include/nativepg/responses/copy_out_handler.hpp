@@ -40,6 +40,7 @@ concept copy_out_callback = requires(T& obj, std::span<const unsigned char> copy
 
 // Handles a single COPY OUT operation by invoking a user-supplied visitor
 // TODO: erase this
+// TODO: unit test
 template <copy_out_visitor Visitor>
 class copy_out_handler_t
 {

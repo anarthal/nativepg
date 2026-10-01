@@ -7,6 +7,7 @@
 
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/task.hpp>
+#include <boost/capy/when_all.hpp>
 #include <boost/core/lightweight_test.hpp>
 #include <boost/describe/class.hpp>
 #include <boost/describe/operators.hpp>
@@ -24,6 +25,7 @@
 #include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/test_range_eq.hpp"
+#include "test_utils/yield.hpp"
 
 namespace capy = boost::capy;
 using namespace nativepg;
@@ -141,6 +143,55 @@ capy::task<> test_partial_read()
     co_await check_connection_usable(conn);
 }
 
+// Starting the reader first is OK
+capy::task<> test_read_before_write()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    std::vector<row_int> rows;
+    auto handler = into(rows);
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+        co_return;
+
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::io_task<> {
+            while (!st.read_done())
+            {
+                if (!check_success(co_await conn.read_some_response(st)))
+                    co_return {};
+            }
+            co_return {};
+        }(),
+
+        [&]() -> capy::io_task<> {
+            // Just in case
+            co_await yield();
+
+            // Nothing has been written yet, so the reader can't have made progress
+            BOOST_TEST(!st.write_done());
+            BOOST_TEST(!st.read_done());
+            BOOST_TEST(rows.empty());
+
+            // This is what unblocks the reader
+            check_success(co_await conn.write_request(st));
+            BOOST_TEST(st.write_done());
+            co_return {};
+        }()
+    ));
+
+    // Check
+    BOOST_TEST(st.read_done());
+    check_success(st.handler_error());
+    test_range_eq(rows, std::vector<row_int>{{.value = 42}});
+
+    co_await check_connection_usable(conn);
+}
+
 // // A state that has been driven to completion can be reused for another request
 // capy::task<> test_reuse_state()
 // {
@@ -184,6 +235,7 @@ int main()
 {
     run_coroutine_test(test_success());
     run_coroutine_test(test_partial_read());
+    run_coroutine_test(test_read_before_write());
 
     return boost::report_errors();
 }

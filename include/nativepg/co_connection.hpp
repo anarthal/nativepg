@@ -106,7 +106,7 @@ public:
     // If another operation is currently writing requests (e.g. another parallel exec()),
     //   waits until its write part finishes before initiating the write.
     // Returns success if all the request's bytes were written to the server.
-    //   In this case, st.write_finished() returns true.
+    //   In this case, st.write_done() returns true.
     // If this function finishes with an error, the number of transferred bytes
     //   is stored internally within st. Subsequent write_request calls are allowed.
     //   This allows to resume writing after a cancellation, for example.

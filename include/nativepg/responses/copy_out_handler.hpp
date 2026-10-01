@@ -173,6 +173,7 @@ copy_out_handler_t<Visitor> copy_out_handler(Visitor&& cb, command_info* info = 
 }
 
 template <copy_out_callback Callback>
+    requires(!copy_out_visitor<Callback>)
 auto copy_out_handler(Callback&& cb, command_info* info = nullptr)
 {
     return copy_out_handler_t<detail::copy_out_visitor_adapter<Callback>>(

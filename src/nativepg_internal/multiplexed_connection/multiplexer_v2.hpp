@@ -85,7 +85,7 @@ public:
         // Subsequent execs need to send whatever we didn't
         // if they want to keep the connection healthy
         auto payload = st.get_request().payload();
-        if (st.bytes_written < payload.size())
+        if (st.request_committed() && st.bytes_written < payload.size())
             pending_write_.assign(payload.begin() + st.bytes_written, payload.end());
 
         // The writer is done

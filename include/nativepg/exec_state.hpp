@@ -8,6 +8,8 @@
 #ifndef NATIVEPG_EXEC_STATE_HPP
 #define NATIVEPG_EXEC_STATE_HPP
 
+#include <boost/assert.hpp>
+
 #include "nativepg/detail/exec_state_impl.hpp"
 #include "nativepg/extended_error.hpp"
 
@@ -45,7 +47,11 @@ public:
     // Precondition: read_done().
     // An error here is never fatal - other requests may still make progress.
     // reset() invalidates the reference.
-    const extended_error& handler_error() const { return impl_.fsm->get_handler_error(); }
+    const extended_error& handler_error() const
+    {
+        BOOST_ASSERT(read_done());
+        return impl_.fsm->get_handler_error();
+    }
 };
 
 namespace detail {

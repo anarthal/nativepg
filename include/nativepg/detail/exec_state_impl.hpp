@@ -83,13 +83,11 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
     // Did the writer write at least one byte of our request?
     bool request_committed() const { return bytes_written > 0u; };
 
-    // Releases anything we still hold in the multiplexer and returns
-    // to a pristine state. Defined in multiplexer_v2.hpp
+    // Marks the operation as abandoned and returns the state to default-constructed
     void reset();
 
     // Cleans up any leftover from a previous operation and prepares for a new one.
     // The request and the handler must outlive the operation.
-    // Defined in multiplexer_v2.hpp
     void setup(multiplexer_v2& mpx, const request& req, response_handler_ref handler);
 
     const request& get_request() const { return fsm->get_request(); }

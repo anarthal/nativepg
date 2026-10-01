@@ -917,42 +917,52 @@ capy::task<> test_destructor_abandons()
     co_await check_connection_usable(conn);
 }
 
-// // A state that has been driven to completion can be reused for another request
-// capy::task<> test_reuse_state()
-// {
-//     // Setup
-//     auto conn = co_await establish_connection();
+// A state that was left mid-operation can be reused: prepare_request releases
+// whatever the previous round still held
+capy::task<> test_reuse_state()
+{
+    // Setup
+    auto conn = co_await establish_connection();
 
-//     exec_state st;
+    exec_state st;
 
-//     for (int expected : {1, 2})
-//     {
-//         request req;
-//         req.add_query("SELECT $1 AS value", expected);
-//         std::vector<row_int> rows;
-//         auto handler = into(rows);
+    // First round: write a request and abandon it without reading
+    request req1;
+    req1.add_query("SELECT $1 AS value", 42);
+    check handler1;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req1, &handler1), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    BOOST_TEST(st.write_done());
+    BOOST_TEST_NOT(st.read_done());
 
-//         // prepare_request cleans up whatever the previous round left
-//         if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
-//             co_return;
-//         if (!check_success(co_await conn.write_request(st)))
-//             co_return;
-//         while (!st.read_done())
-//         {
-//             if (!check_success(co_await conn.read_some_response(st)))
-//                 co_return;
-//         }
+    // Second round on the same state. A distinct row type makes it obvious
+    // if we end up reading the response the first round left behind
+    request req2;
+    req2.add_query("SELECT $1 AS value", "abcd");
+    std::vector<row_string> rows;
+    auto handler2 = into(rows);
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req2, &handler2), std::error_code()))
+        co_return;
+    BOOST_TEST(st.is_prepared());
+    BOOST_TEST_NOT(st.write_done());
+    BOOST_TEST_NOT(st.read_done());
 
-//         check_success(st.handler_error());
-//         test_range_eq(rows, std::vector<row_int>{{.value = expected}});
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    while (!st.read_done())
+    {
+        if (!check_success(co_await conn.read_some_response(st)))
+            co_return;
+    }
 
-//         // The request and the handler die at the end of this iteration, so the
-//         // state must not outlive them holding references
-//         st.reset();
-//     }
+    // We got our own response, with the abandoned one discarded along the way
+    check_success(st.handler_error());
+    test_range_eq(rows, std::vector<row_string>{{.value = "abcd"}});
 
-//     co_await check_connection_usable(conn);
-// }
+    co_await check_connection_usable(conn);
+}
 
 }  // namespace
 
@@ -963,6 +973,8 @@ int main()
     run_coroutine_test(test_prepare_request_error());
     run_coroutine_test(test_gucs());
     run_coroutine_test(test_gucs_leftovers());
+
+    run_coroutine_test(test_reuse_state());
 
     run_coroutine_test(test_partial_read());
     run_coroutine_test(test_read_before_write());

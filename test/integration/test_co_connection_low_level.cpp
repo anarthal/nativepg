@@ -964,6 +964,191 @@ capy::task<> test_reuse_state()
     co_await check_connection_usable(conn);
 }
 
+//
+// State checks
+//
+
+// write_request requires a state that has been prepared
+capy::task<> test_write_not_prepared()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    exec_state st;
+    auto [ec] = co_await conn.write_request(st);
+    BOOST_TEST_EQ(ec, make_error_code(client_errc::invalid_state));
+
+    co_await check_connection_usable(conn);
+}
+
+// Only one write_request per state may be in flight
+capy::task<> test_write_already_running()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    check handler;
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+        co_return;
+
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::io_task<> {
+            // Writes successfully
+            check_success(co_await conn.write_request(st));
+            co_return {};
+        }(),
+
+        [&]() -> capy::io_task<> {
+            // Launched after the first write
+            auto [ec] = co_await conn.write_request(st);
+            BOOST_TEST_EQ(ec, make_error_code(client_errc::already_running));
+            co_return {};
+        }()
+    ));
+
+    BOOST_TEST(st.write_done());
+
+    // After abandonment, the connection is usable
+    st.reset();
+    co_await check_connection_usable(conn);
+}
+
+// write_request requires a state that hasn't been fully written
+capy::task<> test_write_already_done()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    BOOST_TEST(st.write_done());
+
+    // Writing again would send the request twice
+    auto [ec] = co_await conn.write_request(st);
+    BOOST_TEST_EQ(ec, make_error_code(client_errc::invalid_state));
+
+    st.reset();
+    co_await check_connection_usable(conn);
+}
+
+// read_some_response requires a state that has been prepared
+capy::task<> test_read_not_prepared()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    exec_state st;
+    auto [ec] = co_await conn.read_some_response(st);
+    BOOST_TEST_EQ(ec, make_error_code(client_errc::invalid_state));
+
+    co_await check_connection_usable(conn);
+}
+
+// Only one read_some_response per state may be in flight
+capy::task<> test_read_already_running()
+{
+    // Setup
+    auto conn = co_await establish_connection(), locker = co_await establish_connection();
+
+    // Take the lock, so our reader parks after the first resultset.
+    // Note: different tests should use different IDs
+    constexpr std::int64_t lock_id = 27;
+    if (!co_await checked_exec(locker, request().add_query("SELECT pg_advisory_lock($1)", lock_id)))
+        co_return;
+
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    req.add_query("SELECT pg_advisory_lock($1)", lock_id);
+
+    std::vector<row_int> rows;
+    response handler{into(rows), check_execute()};
+
+    // Setup and write
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+
+    // Read the 1st resultset
+    while (rows.empty())
+    {
+        if (!check_success(co_await conn.read_some_response(st)))
+            co_return;
+    }
+    test_range_eq(rows, std::vector<row_int>{{.value = 42}});
+
+    // Reading further will block
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::io_task<> {
+            // This one will block and succeed
+            while (!st.read_done())
+            {
+                if (!check_success(co_await conn.read_some_response(st)))
+                    co_return {};
+            }
+            co_return {};
+        }(),
+
+        [&]() -> capy::io_task<> {
+            co_await yield();  // let the read start
+
+            // A second read on the same state is rejected
+            auto [ec] = co_await conn.read_some_response(st);
+            BOOST_TEST_EQ(ec, make_error_code(client_errc::already_running));
+
+            // Let the one that is running finish
+            check_success(co_await locker.shutdown());
+            co_return {};
+        }()
+    ));
+
+    // The rejected call didn't disturb the running one
+    BOOST_TEST(st.read_done());
+    check_success(st.handler_error());
+
+    co_await check_connection_usable(conn);
+}
+
+// read_some_response requires a state whose response hasn't been fully read
+capy::task<> test_read_already_done()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    std::vector<row_int> rows;
+    auto handler = into(rows);
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    while (!st.read_done())
+    {
+        if (!check_success(co_await conn.read_some_response(st)))
+            co_return;
+    }
+
+    // Reading again would consume somebody else's response
+    auto [ec] = co_await conn.read_some_response(st);
+    BOOST_TEST_EQ(ec, make_error_code(client_errc::invalid_state));
+
+    co_await check_connection_usable(conn);
+}
+
 }  // namespace
 
 int main()
@@ -990,6 +1175,13 @@ int main()
     run_coroutine_test(test_reset_after_partial_read());
     run_coroutine_test(test_destructor_abandons());
     run_coroutine_test(test_reuse_state());
+
+    run_coroutine_test(test_write_not_prepared());
+    run_coroutine_test(test_write_already_running());
+    run_coroutine_test(test_write_already_done());
+    run_coroutine_test(test_read_not_prepared());
+    run_coroutine_test(test_read_already_running());
+    run_coroutine_test(test_read_already_done());
 
     return boost::report_errors();
 }

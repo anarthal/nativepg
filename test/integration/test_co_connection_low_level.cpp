@@ -688,6 +688,155 @@ capy::task<> test_receive_after()
     co_await check_connection_usable(conn);
 }
 
+//
+// Abandonment
+//
+
+// Resetting a state that was never set up does nothing
+capy::task<> test_reset_not_prepared()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    exec_state st;
+    BOOST_TEST_NOT(st.is_prepared());
+    st.reset();
+    BOOST_TEST_NOT(st.is_prepared());
+
+    // The connection never knew about it
+    co_await check_connection_usable(conn);
+}
+
+// Resetting a state that was prepared but never started does nothing
+capy::task<> test_reset_prepared()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    // Setting a session-scoped variable leaves a trace we can look for
+    request req;
+    req.add_query("SET SESSION nativepg.query_run = 'yes'");
+    check handler;
+
+    // current_setting will return NULL if the variable is not there
+    request req_check;
+    req_check.add_query("SELECT coalesce(current_setting('nativepg.query_run', true), 'no') AS value");
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+        co_return;
+    BOOST_TEST(st.is_prepared());
+
+    st.reset();
+    BOOST_TEST_NOT(st.is_prepared());
+    BOOST_TEST_NOT(st.write_done());
+    BOOST_TEST_NOT(st.read_done());
+
+    // The statement never made it to the server, so the variable isn't there
+    std::vector<row_string> rows;
+    if (!co_await checked_exec(conn, req_check, into(rows)))
+        co_return;
+    test_range_eq(rows, std::vector<row_string>{{.value = "no"}});
+}
+
+// Resetting after writing, without reading anything, leaves a response that
+// nobody wants. The next request has to discard it before reading its own
+capy::task<> test_reset_after_write()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req;
+    req.add_query("SELECT $1 AS value", "abcd");
+    std::vector<row_int> rows;
+    auto handler = into(rows);
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    BOOST_TEST(st.write_done());
+    BOOST_TEST_NOT(st.read_done());
+
+    // Abandon it. The server still owes us the whole response
+    st.reset();
+    BOOST_TEST_NOT(st.is_prepared());
+    BOOST_TEST(rows.empty());
+
+    co_await check_connection_usable(conn);
+}
+
+// Same, but abandoning with part of the response already read
+capy::task<> test_reset_after_partial_read()
+{
+    // Setup
+    auto conn = co_await establish_connection(), locker = co_await establish_connection();
+
+    // Take the lock, so the second query can't answer while we hold it.
+    // Note: different tests should use different IDs
+    constexpr std::int64_t lock_id = 26;
+    if (!co_await checked_exec(locker, request().add_query("SELECT pg_advisory_lock($1)", lock_id)))
+        co_return;
+
+    request req;
+    req.add_query("SELECT $1 AS value", "abcd");
+    req.add_query("SELECT pg_advisory_lock($1)", lock_id);
+    std::vector<row_int> rows;
+    response handler{into(rows), check_execute()};
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+
+    // Read the first resultset
+    while (rows.empty())
+    {
+        if (!check_success(co_await conn.read_some_response(st)))
+            co_return;
+    }
+    BOOST_TEST_NOT(st.read_done());
+    test_range_eq(rows, std::vector<row_int>{{.value = 42}});
+
+    // Abandon with the second resultset outstanding
+    st.reset();
+    BOOST_TEST_NOT(st.is_prepared());
+
+    // Let the server produce what we abandoned
+    if (!check_success(co_await locker.shutdown()))
+        co_return;
+
+    co_await check_connection_usable(conn);
+}
+
+// exec_state destructor counts as abandonment
+capy::task<> test_destructor_abandons()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req;
+    req.add_query("SELECT $1 AS value", "abcd");
+    std::vector<row_int> rows;
+    auto handler = into(rows);
+
+    {
+        // Prepare and write, but don't read
+        exec_state st;
+        if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+            co_return;
+        if (!check_success(co_await conn.write_request(st)))
+            co_return;
+        BOOST_TEST(st.write_done());
+        BOOST_TEST_NOT(st.read_done());
+    }
+
+    // The request has been abandoned, but with enough info to keep the connection healthy
+    co_await check_connection_usable(conn);
+}
+
 // // A state that has been driven to completion can be reused for another request
 // capy::task<> test_reuse_state()
 // {
@@ -737,6 +886,12 @@ int main()
     run_coroutine_test(test_read_before_write());
     run_coroutine_test(test_retry_write());
     run_coroutine_test(test_retry_read_after_cancel());
+
+    run_coroutine_test(test_reset_not_prepared());
+    run_coroutine_test(test_reset_prepared());
+    run_coroutine_test(test_reset_after_write());
+    run_coroutine_test(test_reset_after_partial_read());
+    run_coroutine_test(test_destructor_abandons());
 
     run_coroutine_test(test_exec_before());
     run_coroutine_test(test_exec_after());

@@ -21,7 +21,6 @@
 #include "nativepg/connect_params.hpp"
 #include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
-#include "nativepg/notification_vector.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
@@ -29,6 +28,7 @@
 namespace nativepg {
 
 class exec_state;
+class notification_vector;
 
 class co_connection
 {

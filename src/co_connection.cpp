@@ -196,11 +196,18 @@ struct co_connection::impl
         } guard{&exec_st};
 
         auto& fsm = *exec_st.fsm;
-        bool message_delivered = false;
 
         // Wait for our turn (this is a no-op if it's out turn already)
         if (auto [ec] = co_await exec_st.evt.wait(); ec)
             co_return {ec};
+
+        // Read one batch of messages (this is a no-op if we have cached messages)
+        if (auto [ec] = co_await read_some_messages(); ec)
+        {
+            // Report the error to the user, up to them to decide what to do.
+            // Whatever we read so far is recorded in exec_st
+            co_return {ec};
+        }
 
         // Setup
         std::size_t consumed = 0u;
@@ -211,23 +218,14 @@ struct co_connection::impl
             auto bytes = st.read_buffer.committed_area();
             auto res = protocol::parse_message(bytes.subspan(consumed));
 
-            // Check for errors and end of input.
-            // Errors here are irrecoverable.
+            // Check for errors and end of input
             if (res.ec)
             {
                 st.read_buffer.consume(consumed);
                 consumed = 0u;
                 if (res.ec == client_errc::needs_more)
                 {
-                    if (message_delivered)
-                        co_return {};  // Yield until the next call
-                    else if (auto [ec] = co_await read_some_messages(); ec)
-                    {
-                        // Report the error to the user, up to them to decide what to do.
-                        // Whatever we read so far is recorded in exec_st
-                        co_return {ec};
-                    }
-                    continue;
+                    co_return {};  // Yield until the next call
                 }
                 else
                 {
@@ -262,8 +260,6 @@ struct co_connection::impl
                 if (is_rfq)
                     ++exec_st.read_rfqs;
 
-                message_delivered = true;  // TODO: I think this is not right, it should be handler called?
-                                           // define the contract of read_some
                 auto fsm_ec = fsm.resume(res.message);
                 if (!fsm_ec)
                 {

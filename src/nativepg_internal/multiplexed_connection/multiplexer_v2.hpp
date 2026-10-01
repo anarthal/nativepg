@@ -19,7 +19,6 @@
 #include <boost/capy/when_any.hpp>
 #include <boost/capy/write.hpp>
 #include <boost/intrusive/list.hpp>
-#include <boost/intrusive/list_hook.hpp>
 
 #include <algorithm>
 #include <cstddef>
@@ -28,17 +27,11 @@
 #include <utility>
 #include <vector>
 
-#include "nativepg/client_errc.hpp"
-#include "nativepg/notification_event.hpp"
-#include "nativepg/protocol/async.hpp"
+#include "nativepg/detail/exec_state_impl.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg_internal/multiplexed_connection/multiplexer.hpp"
 
 // TODO: impl notes
-//   why the write mutex
-//   why an intrusive list
-//   why pending write bytes
-//   why RAII guards
+// TODO: encapsulation here is completely broken. This needs a refactor when we write its unit tests
 
 namespace nativepg::detail {
 
@@ -53,157 +46,92 @@ public:
     // TODO: this should have a proper reset to call on connection establishment.
     // If leftovers happen after a connection is severed, they are never cleaned up.
 
-    // Should be used as an opaque type
-    struct task_node : boost::intrusive::list_base_hook<>
+    // Gets a buffer containing leftover bytes from previous execs
+    // that should be written before our request
+    std::span<const unsigned char> previous_write_bytes() const { return pending_write_; }
+
+    // Records bytes that reached the server. The leading bytes belong to leftovers
+    // from previously abandoned requests, and the rest to st's own request.
+    void on_bytes_written(exec_state_impl& st, std::size_t bytes_written)
     {
-        // The request that we're trying to execute
-        const request* req;
+        BOOST_ASSERT(st.writer_st == exec_state_impl::writer_status::locked);
 
-        // Number of ReadyForQuery messages that we expect from
-        // previously cancelled items
-        std::size_t pending_rfqs{};
+        // Did we manage to write any leftover bytes from previous execs?
+        if (!pending_write_.empty())
+        {
+            const std::size_t consumed_bytes = (std::min)(bytes_written, pending_write_.size());
+            pending_write_.erase(pending_write_.begin(), pending_write_.begin() + consumed_bytes);
+            bytes_written -= consumed_bytes;
+        }
 
-        // Setting it notifies the task to read next
-        boost::capy::async_event evt{};
+        // The rest belongs to our own request
+        if (bytes_written > 0u)
+        {
+            // Part of the request has been sent to the server, at least
+            st.bytes_written += bytes_written;
+            BOOST_ASSERT(st.bytes_written <= st.get_request().payload().size());
+        }
+    }
 
-        // Did the writer write at least one byte of our request?
-        bool request_committed{};
-
-        // How many ReadyForQuery messages did the reader read?
-        // This includes RFQs from leftover requests before us.
-        // -1 means "I've read everything I was supposed to and have no leftover"
-        std::size_t read_rfqs{};
-
-        // How many tasks (reader, writer) remain active?
-        // We run both tasks in parallel, so under cancellation, the reader
-        // might finish before the writer
-        int remaining_tasks{2};
-    };
-
-    class write_guard
+    // Releases the write side. If the request wasn't written in full, whatever is
+    // left is handed over to the next writer, so the connection doesn't desync.
+    // TODO: this calls potentially-throwing functions and is called from a destructor.
+    // An exception here leaves the connection in an unrecoverable state.
+    // Exceptions here are rare, so we'll handle this later.
+    void report_writer_exit(exec_state_impl& st)
     {
-        multiplexer_v2* obj_{};
-        task_node* node_{};
+        BOOST_ASSERT(st.writer_st == exec_state_impl::writer_status::locked);
 
-    public:
-        write_guard() = default;
-        explicit write_guard(multiplexer_v2& obj, task_node& node) noexcept : obj_(&obj), node_(&node) {}
+        // Subsequent execs need to send whatever we didn't
+        // if they want to keep the connection healthy
+        auto payload = st.get_request().payload();
+        if (st.request_committed() && st.bytes_written < payload.size())
+            pending_write_.assign(payload.begin() + st.bytes_written, payload.end());
 
-        write_guard(write_guard&& rhs) noexcept : obj_(std::exchange(rhs.obj_, nullptr)), node_(rhs.node_) {}
-        write_guard(const write_guard& rhs) = delete;
-        write_guard& operator=(write_guard&& rhs) noexcept
-        {
-            if (this != &rhs)
-            {
-                // Release whatever we were holding before taking over rhs's node
-                if (obj_)
-                    obj_->on_writer_exit(*node_);
-                obj_ = std::exchange(rhs.obj_, nullptr);
-                node_ = rhs.node_;
-            }
-            return *this;
-        }
-        write_guard& operator=(const write_guard& rhs) = delete;
-        ~write_guard()
-        {
-            if (obj_)
-                obj_->on_writer_exit(*node_);
-        }
+        // The writer is done
+        st.writer_st = exec_state_impl::writer_status::done;
 
-        // Gets a buffer containing leftover bytes from previous execs
-        // that should be written before our request
-        std::span<const unsigned char> previous_write_bytes() const { return obj_->pending_write_; }
+        // Unlock the mutex
+        BOOST_ASSERT(write_mtx_.is_locked());
+        write_mtx_.unlock();
 
-        // Reports the result of the writer and releases the guard
-        // TODO: this calls potentially-throwing functions and is called from a destructor.
-        // An exception here leaves the connection in an unrecoverable state.
-        // Exceptions here are rare, so we'll handle this later.
-        void report_result(std::size_t bytes_written) &&
-        {
-            // Did we manage to write any leftover bytes from previous execs?
-            if (!obj_->pending_write_.empty())
-            {
-                const std::size_t consumed_bytes = (std::min)(bytes_written, obj_->pending_write_.size());
-                obj_->pending_write_.erase(
-                    obj_->pending_write_.begin(),
-                    obj_->pending_write_.begin() + consumed_bytes
-                );
-                bytes_written -= consumed_bytes;
-            }
+        // Potentially unlock the following op
+        if (st.read_done())
+            on_both_exited(st);
+    }
 
-            // Did we manage to write any bytes from our request?
-            if (bytes_written > 0u)
-            {
-                // Part of the request has been sent to the server, at least
-                node_->request_committed = true;
-
-                // If it was only a part, subsequent execs need to send it fully
-                // if they want to keep the connection healthy
-                if (bytes_written < node_->req->payload().size())
-                {
-                    obj_->pending_write_.assign(
-                        node_->req->payload().begin() + bytes_written,
-                        node_->req->payload().end()
-                    );
-                }
-            }
-
-            // The writer should be done
-            obj_->on_writer_exit(*node_);
-            obj_ = nullptr;
-        }
-    };
-
-    class read_guard
+    // Reports that the reader has exited with a fatal failure
+    void report_reader_exit(exec_state_impl& st)
     {
-        multiplexer_v2* obj_{};
-        task_node* node_{};
+        st.reader_done = true;
+        if (st.write_done())
+            on_both_exited(st);
+    }
 
-    public:
-        read_guard() = default;
-        explicit read_guard(multiplexer_v2& obj, task_node& node) noexcept : obj_(&obj), node_(&node) {}
+    // Registers a task within the multiplexer and waits for the writer's turn.
+    // The state and its request must be kept alive until the state is reset
+    boost::capy::io_task<> enter(exec_state_impl& exec_st)
+    {
+        BOOST_ASSERT(!exec_st.is_linked());
 
-        read_guard(read_guard&& rhs) noexcept : obj_(std::exchange(rhs.obj_, nullptr)), node_(rhs.node_) {}
-        read_guard(const read_guard& rhs) = delete;
-        read_guard& operator=(read_guard&& rhs) noexcept
-        {
-            if (this != &rhs)
-            {
-                // Release whatever we were holding before taking over rhs's node
-                if (obj_)
-                    obj_->on_reader_exit(*node_);
-                obj_ = std::exchange(rhs.obj_, nullptr);
-                node_ = rhs.node_;
-            }
-            return *this;
-        }
-        read_guard& operator=(const read_guard& rhs) = delete;
-        ~read_guard()
-        {
-            if (obj_)
-                obj_->on_reader_exit(*node_);
-        }
+        // Wait for our turn to write
+        if (auto [ec] = co_await write_mtx_.lock(); ec)
+            co_return {ec};
 
-        // Waits for our turn.
-        auto wait() { return node_->evt.wait(); }
+        // We now hold the write mutex and owe an exit report
+        exec_st.writer_st = exec_state_impl::writer_status::locked;
 
-        // Returns the number of ReadyForQuery messages that
-        // should be read from previous abandoned requests.
-        // Only meaningful after wait() completes.
-        std::size_t previous_rfqs() const { return node_->pending_rfqs; }
+        // Register what we are doing, so no other reader takes our turn
+        exec_st.pending_rfqs = std::exchange(trailing_rfqs_, 0u);
+        active_tasks_.push_back(exec_st);
 
-        // Reports that we have read a RFQ.
-        // If the reader exits by an exception, we can still know what state the connection is in.
-        void report_rfq() { ++node_->read_rfqs; }
+        // If there is no-one reading, set the event so the reader doesn't deadlock
+        if (&active_tasks_.front() == &exec_st && !receiver_reading_)
+            exec_st.evt.set();
 
-        // Reports that we have read everything we had to and releases the guard
-        void report_success() &&
-        {
-            node_->read_rfqs = static_cast<std::size_t>(-1);
-            obj_->on_reader_exit(*node_);
-            obj_ = nullptr;
-        }
-    };
+        // Done
+        co_return {};
+    }
 
     class receive_guard
     {
@@ -250,30 +178,6 @@ public:
         }
     };
 
-    // Registers a task within the multiplexer and waits for the writer's turn
-    // The task node and the request should be kept alive until both guards are destroyed
-    boost::capy::io_task<write_guard, read_guard> enter(task_node& node, const request* req)
-    {
-        // Wait for our turn to write
-        // TODO: use a guard, as set() may technically throw.
-        // scoped_lock() doesn't work because the guard doesn't have a release() method
-        auto [ec] = co_await write_mtx_.lock();
-        if (ec)
-            co_return {ec, {}, {}};
-
-        // If there is no-one reading, set the event so the reader doesn't deadlock
-        if (active_tasks_.empty() && !receiver_reading_)
-            node.evt.set();
-
-        // Register what we are doing, so no other reader takes our turn
-        node.req = req;
-        node.pending_rfqs = std::exchange(trailing_rfqs_, 0u);
-        active_tasks_.push_back(node);
-
-        // Done
-        co_return {{}, write_guard(*this, node), read_guard(*this, node)};
-    }
-
     // TODO: do we want this as an awaitable instead?
     boost::capy::io_task<receive_guard> enter_receive()
     {
@@ -292,7 +196,6 @@ public:
         co_return {{}, receive_guard{*this}};
     }
 
-    // TODO: this lacks encapsulation
     void notify_receiver() { receive_evt_.set(); }
 
     // Are there any exec readers waiting?
@@ -303,7 +206,7 @@ private:
     boost::capy::async_mutex write_mtx_;
 
     // The list of active tasks that need access to the connection
-    boost::intrusive::list<task_node> active_tasks_;
+    boost::intrusive::list<exec_state_impl> active_tasks_;
 
     // RFQs left over by the last task that run
     std::size_t trailing_rfqs_{};
@@ -325,24 +228,10 @@ private:
         });
     }
 
-    void on_writer_exit(task_node& node)
-    {
-        BOOST_ASSERT(write_mtx_.is_locked());
-        write_mtx_.unlock();
-        if (--node.remaining_tasks == 0)
-            on_both_exited(node);
-    }
-
-    void on_reader_exit(task_node& node)
-    {
-        if (--node.remaining_tasks == 0)
-            on_both_exited(node);
-    }
-
-    void on_both_exited(task_node& node)
+    void on_both_exited(exec_state_impl& st)
     {
         // Setup
-        auto it = active_tasks_.iterator_to(node);
+        auto it = active_tasks_.iterator_to(st);
         auto next = std::next(it);
         bool is_current_reader = it == active_tasks_.begin();
 
@@ -352,10 +241,10 @@ private:
         // TODO: I think this could technically overflow
         // if many requests are cancelled one after the other
         const std::size_t remaining_rfqs =
-            (node.read_rfqs == static_cast<std::size_t>(-1)
+            (st.read_rfqs == static_cast<std::size_t>(-1)
                  ? 0u
-                 : node.pending_rfqs + (node.request_committed ? count_rfqs(*node.req) : 0u) -
-                       node.read_rfqs);
+                 : st.pending_rfqs + (st.request_committed() ? count_rfqs(st.get_request()) : 0u) -
+                       st.read_rfqs);
 
         // Remove ourselves from the list
         active_tasks_.erase(it);
@@ -385,8 +274,6 @@ private:
             receive_evt_.set();
     }
 };
-
-// TODO: I think the reader and writer really belong here
 
 }  // namespace nativepg::detail
 

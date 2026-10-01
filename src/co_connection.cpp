@@ -28,15 +28,16 @@
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
 #include "nativepg/encoding.hpp"
+#include "nativepg/exec_state.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/notification_vector.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
-#include "nativepg/protocol/detail/exec_some_fsm.hpp"
 #include "nativepg/protocol/parse_message.hpp"
 #include "nativepg/protocol/terminate.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
+#include "nativepg_internal/check_request.hpp"
 #include "nativepg_internal/multiplexed_connection/multiplexer_v2.hpp"
 
 namespace capy = boost::capy;
@@ -50,8 +51,6 @@ struct co_connection::impl
     corosio::tcp_socket sock;
     protocol::connection_state st{};
     capy::any_stream stream{&sock};
-    std::vector<capy::const_buffer> copy_out_buffers;
-    std::optional<protocol::detail::exec_some_fsm> exec_some_fsm;
     detail::multiplexer_v2 mpx_;  // TODO: clean up this?
     notification_vector exec_notifications_;
     bool receiver_running_{};
@@ -113,43 +112,105 @@ struct co_connection::impl
         co_return {write_ec};
     }
 
-    // This is the writer side of exec
-    boost::capy::io_task<> write_request(detail::multiplexer_v2::write_guard guard, const request& req)
+    std::error_code prepare_request(exec_state& exec_st, const request& req, response_handler_ref handler)
     {
-        // Write any potential leftover from previous requests, plus our own request.
-        // The former is required to keep the connection healthy.
+        // Perform request setup
+        if (auto ec = protocol::detail::setup_request(req, handler))
+            return ec;
+
+        // Set the state up. This cleans up any leftover from previous operations
+        detail::exec_state_access::get_impl(exec_st).setup(mpx_, req, handler);
+        return std::error_code();
+    }
+
+    // This is the writer side of exec
+    boost::capy::io_task<> write_request(detail::exec_state_impl& exec_st)
+    {
+        using writer_status = detail::exec_state_impl::writer_status;
+
+        // We must have been prepared, and must still have something to write
+        if (!exec_st.is_prepared() || exec_st.write_done())
+            co_return {client_errc::invalid_state};
+
+        // Only one writer per state may be in flight
+        if (exec_st.writing)
+            co_return {client_errc::already_running};
+        exec_st.writing = true;
+        struct writing_guard
+        {
+            detail::exec_state_impl* st;
+            ~writing_guard() { st->writing = false; }
+        } guard{&exec_st};
+
+        // Wait for our turn to write and register what we are doing in the queue.
+        // When resuming a partially written request we still hold both, so skip this
+        if (exec_st.writer_st == writer_status::initial)
+        {
+            if (auto [ec] = co_await mpx_.enter(exec_st); ec)
+                co_return {ec};
+        }
+        BOOST_ASSERT(exec_st.writer_st == writer_status::locked);
+
+        // Write any potential leftover from previous requests, plus whatever is left
+        // of our own. The former is required to keep the connection healthy.
         // Most of the time, the 1st buffer is empty, and Corosio coalesces this to a
         // non-vectored write, for all backends.
         auto [ec, bytes_written] = co_await boost::capy::write(
             stream,
             std::array<boost::capy::const_buffer, 2u>{
-                boost::capy::make_buffer(guard.previous_write_bytes()),
-                boost::capy::make_buffer(req.payload())
+                boost::capy::make_buffer(mpx_.previous_write_bytes()),
+                boost::capy::make_buffer(exec_st.remaining_payload())
             }
         );
 
-        // Report the result, so subsequent execs know how to keep the connection healthy
-        std::move(guard).report_result(bytes_written);
+        // Record what made it to the server, so a retry resumes where we left off
+        mpx_.on_bytes_written(exec_st, bytes_written);
 
-        // Done
-        co_return {ec};
-    }
-
-    boost::capy::io_task<> read_response(
-        detail::multiplexer_v2::read_guard guard,
-        const request& req,
-        response_handler_ref handler,
-        diagnostics* diag
-    )
-    {
-        // Wait for our turn
-        if (auto [ec] = co_await guard.wait(); ec)
+        // On failure we keep holding the write mutex, so no other request can
+        // interleave its bytes with our half-written one. The caller may retry,
+        // and destroying the exec_state hands the leftovers to the next writer
+        if (ec)
             co_return {ec};
 
+        // We wrote the request in full. Release the write side
+        mpx_.report_writer_exit(exec_st);
+
+        // Done
+        co_return {};
+    }
+
+    boost::capy::io_task<> read_some_response(detail::exec_state_impl& exec_st)
+    {
+        // We must have been prepared, and must still have something to read
+        if (!exec_st.is_prepared() || exec_st.read_done())
+            co_return {client_errc::invalid_state};
+
+        // Only one reader per state may be in flight
+        if (exec_st.reading)
+            co_return {client_errc::already_running};
+        exec_st.reading = true;
+        struct reading_guard
+        {
+            detail::exec_state_impl* st;
+            ~reading_guard() { st->reading = false; }
+        } guard{&exec_st};
+
+        auto& fsm = *exec_st.fsm;
+
+        // Wait for our turn (this is a no-op if it's out turn already)
+        if (auto [ec] = co_await exec_st.evt.wait(); ec)
+            co_return {ec};
+
+        // Read one batch of messages (this is a no-op if we have cached messages)
+        if (auto [ec] = co_await read_some_messages(); ec)
+        {
+            // Report the error to the user, up to them to decide what to do.
+            // Whatever we read so far is recorded in exec_st
+            co_return {ec};
+        }
+
         // Setup
-        protocol::read_response_fsm fsm{&req, handler, false};  // disallow COPY
         std::size_t consumed = 0u;
-        std::size_t remaining_prev_rfqs = guard.previous_rfqs();
 
         while (true)
         {
@@ -157,20 +218,18 @@ struct co_connection::impl
             auto bytes = st.read_buffer.committed_area();
             auto res = protocol::parse_message(bytes.subspan(consumed));
 
-            // Check for errors and end of input.
-            // Errors here are irrecoverable.
+            // Check for errors and end of input
             if (res.ec)
             {
                 st.read_buffer.consume(consumed);
                 consumed = 0u;
                 if (res.ec == client_errc::needs_more)
                 {
-                    if (auto [ec] = co_await read_some_messages(); ec)
-                        co_return {ec};
-                    continue;
+                    co_return {};  // Yield until the next call
                 }
                 else
                 {
+                    // TODO: this is a fatal error and should be recorded as such
                     co_return {res.ec};
                 }
             }
@@ -179,67 +238,46 @@ struct co_connection::impl
             consumed += res.size;
             st.update_tracked(res.message);
             bool is_rfq = res.message.type() == protocol::any_backend_message::kind::ready_for_query;
-            if (is_rfq)
-                guard.report_rfq();
 
             // Store notifications so the receive loop can return them
             if (res.message.type() == protocol::any_backend_message::kind::notification_response)
             {
                 exec_notifications_.push_back(res.message.get_notification_response());
                 mpx_.notify_receiver();
+                continue;
             }
 
             // Act on the message
-            if (remaining_prev_rfqs > 0u)
+            if (exec_st.pending_rfqs > 0u)
             {
                 // A leftover message from previous execs
                 if (is_rfq)
-                    --remaining_prev_rfqs;
+                    --exec_st.pending_rfqs;
             }
             else
             {
                 // One of our messages
+                if (is_rfq)
+                    ++exec_st.read_rfqs;
+
                 auto fsm_ec = fsm.resume(res.message);
                 if (!fsm_ec)
                 {
                     // We've finished successfully
                     st.read_buffer.consume(consumed);
-                    std::move(guard).report_success();
-                    if (diag)
-                        *diag = fsm.get_handler_error().diag;  // TODO: could we move assign?
-                    co_return {fsm.get_handler_error().code};
+                    exec_st.read_rfqs = static_cast<std::size_t>(-1);  // we've read everything
+                    mpx_.report_reader_exit(exec_st);
+                    co_return {};
                 }
                 else if (fsm_ec != client_errc::needs_more)
                 {
                     // There has been a severe protocol violation (unrecoverable)
+                    // TODO: flag this internally
                     st.read_buffer.consume(consumed);
                     co_return {fsm_ec};
                 }
             }
         }
-    }
-
-    boost::capy::io_task<> exec(const request& req, response_handler_ref handler, diagnostics* diag = nullptr)
-    {
-        // Perform request setup
-        if (auto ec = protocol::detail::setup_request(req, handler))
-            co_return {ec};
-
-        // Wait for our turn to write and register what we are doing in the queue
-        detail::multiplexer_v2::task_node node;
-        auto [enter_ec, write_guard, read_guard] = co_await mpx_.enter(node, &req);
-        if (enter_ec)
-            co_return {enter_ec};
-
-        // Run the reader and writer tasks in parallel
-        // TODO: protocol violations should mark the connection as failed
-        // once we have state checks
-        auto [final_ec, writer_dummy, reader_dummy] = co_await boost::capy::when_all(
-            write_request(std::move(write_guard), req),
-            read_response(std::move(read_guard), req, handler, diag)
-        );
-
-        co_return {final_ec};
     }
 
     boost::capy::io_task<> receive(notification_vector& output)
@@ -379,12 +417,6 @@ struct co_connection::impl
         }
     }
 
-    void setup_request(const request& req, response_handler_ref handler)
-    {
-        BOOST_ASSERT(!exec_some_fsm.has_value());
-        exec_some_fsm.emplace(&req, handler);
-    }
-
     capy::io_task<> read_some_messages()
     {
         while (true)
@@ -406,61 +438,6 @@ struct co_connection::impl
 
             // Commit the data we were handed in
             st.read_buffer.commit(bytes);
-        }
-    }
-
-    capy::io_task<exec_some_result> exec_some()
-    {
-        BOOST_ASSERT(exec_some_fsm.has_value());
-        auto& fsm = *exec_some_fsm;
-
-        while (true)
-        {
-            auto act = fsm.resume(st, copy_out_buffers);
-
-            switch (act.type())
-            {
-                case protocol::detail::exec_some_fsm::result_type::write:
-                {
-                    auto [ec, bytes] = co_await capy::write(
-                        stream,
-                        capy::make_buffer(fsm.get_request().payload())
-                    );
-                    if (ec)
-                        co_return {ec, {}};
-                    break;
-                }
-                case protocol::detail::exec_some_fsm::result_type::read:
-                {
-                    auto [ec] = co_await read_some_messages();
-                    if (ec)
-                        co_return {ec, {}};
-                    break;
-                }
-                case protocol::detail::exec_some_fsm::result_type::copy_out:
-                {
-                    co_return {{}, exec_some_result{act.get_copy_out()}};
-                }
-                case protocol::detail::exec_some_fsm::result_type::copy_data:
-                {
-                    co_return {
-                        {},
-                        exec_some_result{copy_out_buffers, false}
-                    };
-                }
-                case protocol::detail::exec_some_fsm::result_type::copy_data_with_eof:
-                {
-                    co_return {
-                        {},
-                        exec_some_result{copy_out_buffers, true}
-                    };
-                }
-                case protocol::detail::exec_some_fsm::result_type::done:
-                {
-                    exec_some_fsm.reset();
-                    co_return {act.error(), {}};
-                }
-            }
         }
     }
 };
@@ -526,20 +503,56 @@ capy::io_task<> co_connection::connect(connect_params params, diagnostics* diag)
 
 capy::io_task<> co_connection::shutdown() { return impl_->shutdown(); }
 
-capy::io_task<> co_connection::exec(const request& req, response_handler_ref handler, diagnostics* diag)
-{
-    return impl_->exec(req, handler, diag);
-}
-
 capy::io_task<> co_connection::receive(notification_vector& output) { return impl_->receive(output); }
 
-void co_connection::setup_request(const request& req, response_handler_ref handler)
+std::error_code co_connection::prepare_request(
+    exec_state& exec_st,
+    const request& req,
+    response_handler_ref handler
+)
 {
-    // TODO: exec_some() currently plays badly with multiplexing
-    return impl_->setup_request(req, handler);
+    return impl_->prepare_request(exec_st, req, handler);
 }
 
-capy::io_task<exec_some_result> co_connection::exec_some() { return impl_->exec_some(); }
+boost::capy::io_task<> co_connection::write_request(exec_state& st)
+{
+    return impl_->write_request(detail::exec_state_access::get_impl(st));
+}
+
+boost::capy::io_task<> co_connection::read_some_response(exec_state& st)
+{
+    return impl_->read_some_response(detail::exec_state_access::get_impl(st));
+}
+
+static capy::io_task<> read_response(co_connection& conn, exec_state& exec_st, diagnostics* diag)
+{
+    while (!exec_st.read_done())
+    {
+        if (auto [ec] = co_await conn.read_some_response(exec_st); ec)
+            co_return {ec};
+    }
+
+    const auto& handler_err = exec_st.handler_error();
+    if (diag)
+        *diag = handler_err.diag;
+    co_return {handler_err.code};
+}
+
+capy::io_task<> co_connection::exec(const request& req, response_handler_ref handler, diagnostics* diag)
+{
+    // Setup
+    exec_state exec_st;
+    if (auto ec = prepare_request(exec_st, req, handler))
+        co_return {ec};
+
+    // Run the reader and writer tasks in parallel
+    auto [final_ec, writer_dummy, reader_dummy] = co_await boost::capy::when_all(
+        write_request(exec_st),
+        read_response(*this, exec_st, diag)
+    );
+
+    co_return {final_ec};
+}
 
 capy::io_task<> co_connection::read_some_messages() { return impl_->read_some_messages(); }
 
@@ -553,5 +566,44 @@ std::optional<bool> co_connection::standard_conforming_strings() const
 }
 
 std::optional<encoding> co_connection::client_encoding() const { return impl_->st.client_encoding; }
+
+// TODO: do we want another cpp for this?
+void detail::exec_state_impl::reset()
+{
+    BOOST_ASSERT(!writing);
+    BOOST_ASSERT(!reading);
+
+    // Release whatever we still hold in the multiplexer.
+    // Being linked is what tells us that enter() succeeded
+    if (is_prepared() && is_linked())
+    {
+        // The writer may still hold the write mutex
+        if (writer_st == writer_status::locked)
+            mpx->report_writer_exit(*this);
+
+        // The reader may still owe an exit report
+        if (!reader_done)
+            mpx->report_reader_exit(*this);
+    }
+    BOOST_ASSERT(!is_linked());
+
+    mpx = nullptr;
+    writer_st = writer_status::initial;
+    reader_done = false;
+    bytes_written = 0u;
+    pending_rfqs = 0u;
+    read_rfqs = 0u;
+    evt.clear();
+    fsm.reset();
+}
+
+void detail::exec_state_impl::setup(multiplexer_v2& mpx_ref, const request& req, response_handler_ref handler)
+{
+    // Clean up any leftover from previous operations
+    reset();
+
+    mpx = &mpx_ref;
+    fsm.emplace(&req, handler, true);  // TODO: probably remove the copy_allowed flag
+}
 
 }  // namespace nativepg

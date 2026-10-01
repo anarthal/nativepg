@@ -136,6 +136,10 @@ enum class client_errc : int
     // Another instance of the invoked async operation is already running.
     // Both instances can't run in parallel (e.g. no two receive() operations in parallel)
     already_running,
+
+    // An operation was attempted on an object whose state doesn't match the state required by the operation
+    // (e.g. write_request but the request has already been written).
+    invalid_state,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

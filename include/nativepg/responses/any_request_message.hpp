@@ -13,6 +13,7 @@
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/close.hpp"
 #include "nativepg/protocol/command_complete.hpp"
+#include "nativepg/protocol/copy.hpp"
 #include "nativepg/protocol/data_row.hpp"
 #include "nativepg/protocol/describe.hpp"
 #include "nativepg/protocol/empty_query_response.hpp"
@@ -42,6 +43,10 @@ public:
         portal_suspended,
         error_response,
         parse_complete,
+        copy_in_response,
+        copy_out_response,
+        copy_both_response,
+        copy_data,
 
         // Signals that the corresponding message was skipped due to a previous error
         message_skipped,
@@ -75,6 +80,19 @@ public:
     {
     }
     any_request_message(const protocol::parse_complete&) noexcept : kind_(kind::parse_complete), empty_{} {}
+    any_request_message(const protocol::copy_in_response& v) noexcept
+        : kind_(kind::copy_in_response), copy_in_response_(v)
+    {
+    }
+    any_request_message(const protocol::copy_out_response& v) noexcept
+        : kind_(kind::copy_out_response), copy_out_response_(v)
+    {
+    }
+    any_request_message(const protocol::copy_both_response& v) noexcept
+        : kind_(kind::copy_both_response), copy_both_response_(v)
+    {
+    }
+    any_request_message(const protocol::copy_data& v) noexcept : kind_(kind::copy_data), copy_data_(v) {}
 
     // Constructs a value with kind == message_skipped
     // Required because there is no message_skipped message in the protocol
@@ -113,6 +131,26 @@ public:
         BOOST_ASSERT(kind_ == kind::error_response);
         return error_response_;
     }
+    const protocol::copy_in_response& get_copy_in_response() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::copy_in_response);
+        return copy_in_response_;
+    }
+    const protocol::copy_out_response& get_copy_out_response() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::copy_out_response);
+        return copy_out_response_;
+    }
+    const protocol::copy_both_response& get_copy_both_response() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::copy_both_response);
+        return copy_both_response_;
+    }
+    const protocol::copy_data& get_copy_data() const noexcept
+    {
+        BOOST_ASSERT(kind_ == kind::copy_data);
+        return copy_data_;
+    }
 
     // Checked getters. Throw if the actual kind doesn't match.
     const protocol::command_complete& as_command_complete() const
@@ -145,6 +183,30 @@ public:
             throw_invalid_argument();
         return error_response_;
     }
+    const protocol::copy_in_response& as_copy_in_response() const
+    {
+        if (kind_ != kind::copy_in_response)
+            throw_invalid_argument();
+        return copy_in_response_;
+    }
+    const protocol::copy_out_response& as_copy_out_response() const
+    {
+        if (kind_ != kind::copy_out_response)
+            throw_invalid_argument();
+        return copy_out_response_;
+    }
+    const protocol::copy_both_response& as_copy_both_response() const
+    {
+        if (kind_ != kind::copy_both_response)
+            throw_invalid_argument();
+        return copy_both_response_;
+    }
+    const protocol::copy_data& as_copy_data() const
+    {
+        if (kind_ != kind::copy_data)
+            throw_invalid_argument();
+        return copy_data_;
+    }
 
 private:
     explicit any_request_message(kind k) noexcept : kind_(k), empty_{} {}
@@ -158,6 +220,10 @@ private:
         protocol::parameter_description parameter_description_;
         protocol::row_description row_description_;
         protocol::error_response error_response_;
+        protocol::copy_in_response copy_in_response_;
+        protocol::copy_out_response copy_out_response_;
+        protocol::copy_both_response copy_both_response_;
+        protocol::copy_data copy_data_;
     };
 };
 

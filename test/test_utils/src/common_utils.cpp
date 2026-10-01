@@ -17,6 +17,7 @@
 
 #include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/protocol/async.hpp"
 #include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/command_info.hpp"
 #include "nativepg/responses/response_handler.hpp"
@@ -42,6 +43,12 @@ std::ostream& nativepg::operator<<(std::ostream& os, const handler_setup_result&
         return os << "{ .ec=" << value.ec << " }";
     else
         return os << "{ .offset=" << value.offset << " }";
+}
+
+std::ostream& nativepg::protocol::operator<<(std::ostream& os, const notification_response& value)
+{
+    return os << "{ .process_id=" << value.process_id << ", .channel_name=" << value.channel_name
+              << ", .payload=" << value.payload << " }";
 }
 
 std::ostream& nativepg::operator<<(std::ostream& os, const command_info& value)

@@ -16,6 +16,10 @@
 #include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/response_handler.hpp"
 
+// TODO: some ErrorResponse messages contain fatal errors
+// (e.g. when the server detected a desync). We should probably
+// detect these here and report them.
+
 using namespace nativepg;
 using protocol::any_backend_message;
 using kind = protocol::any_backend_message::kind;
@@ -30,8 +34,14 @@ enum class read_response_fsm_impl::state_t
     query_rows,
     exec_copy_out,
     exec_copy_out_needs_command_complete,
+    exec_copy_in,
+    exec_copy_both,
+    exec_copy_both_needs_command_complete,
     query_copy_out,
     query_copy_out_needs_command_complete,
+    query_copy_in,
+    query_copy_both,
+    query_copy_both_needs_command_complete,
 };
 
 static void call_handler(read_response_fsm_impl& fsm, const any_request_message& msg)
@@ -146,8 +156,13 @@ static std::error_code handle_execute(read_response_fsm_impl& fsm, const any_bac
 {
     // execute: either:
     //   copy_out_response, then any number of copy_data, then copy_done, then either (command_complete,
-    //   error_response) any number of data_row, then either (command_complete, portal_suspended,
-    //   error_response) empty_query_response
+    //       error_response)
+    //   copy_in_response, then either (command_complete, error_response). The client drives the
+    //       copy_data/copy_done/copy_fail flow, so we observe nothing until it finishes
+    //   copy_both_response, then any number of copy_data, then copy_done, then either (command_complete,
+    //       error_response)
+    //   any number of data_row, then either (command_complete, portal_suspended,
+    //       error_response) empty_query_response
     switch (fsm.state)
     {
         case state_t::msg_first:
@@ -155,13 +170,26 @@ static std::error_code handle_execute(read_response_fsm_impl& fsm, const any_bac
             switch (msg.type())
             {
                 case kind::copy_out_response:
-                    // Starts a COPY OUT block.
-                    // Data is handled by the upper layers as a separate channel.
-                    // The handler sees an empty resultset.
+                    // Starts a COPY OUT block. Data is delivered to the handler as copy_data
                     if (!fsm.allow_copy)
                         return std::error_code(client_errc::copy_not_allowed);
-                    call_handler(fsm, protocol::row_description{});
+                    call_handler(fsm, msg.get_copy_out_response());
                     fsm.state = state_t::exec_copy_out;
+                    return client_errc::needs_more;
+                case kind::copy_in_response:
+                    // Starts a COPY IN block. The client supplies the data, so we don't
+                    // expect anything from the server until the copy finishes
+                    if (!fsm.allow_copy)
+                        return std::error_code(client_errc::copy_not_allowed);
+                    call_handler(fsm, msg.get_copy_in_response());
+                    fsm.state = state_t::exec_copy_in;
+                    return client_errc::needs_more;
+                case kind::copy_both_response:
+                    // Starts a COPY BOTH block. Both sides send data
+                    if (!fsm.allow_copy)
+                        return std::error_code(client_errc::copy_not_allowed);
+                    call_handler(fsm, msg.get_copy_both_response());
+                    fsm.state = state_t::exec_copy_both;
                     return client_errc::needs_more;
                 case kind::error_response:
                     // An error finishes this message and makes the server skip everything until sync
@@ -186,23 +214,29 @@ static std::error_code handle_execute(read_response_fsm_impl& fsm, const any_bac
             }
         }
         case state_t::exec_copy_out:
+        case state_t::exec_copy_both:
         {
             switch (msg.type())
             {
                 case kind::copy_data:
-                    // Data is handled by upper layers, we don't need to do anything
+                    // Deliver the data to the handler. This doesn't change state
+                    call_handler(fsm, msg.get_copy_data());
                     return client_errc::needs_more;
                 case kind::error_response:
-                    // Terminates copy out
+                    // Terminates the copy
                     return handle_error(fsm, msg.get_error_response());
                 case kind::copy_done:
-                    // Terminates copy out, but should be followed by CommandComplete
-                    fsm.state = state_t::exec_copy_out_needs_command_complete;
+                    // Terminates the copy, but should be followed by CommandComplete
+                    fsm.state = fsm.state == state_t::exec_copy_out
+                                    ? state_t::exec_copy_out_needs_command_complete
+                                    : state_t::exec_copy_both_needs_command_complete;
                     return client_errc::needs_more;
                 default: return std::error_code(client_errc::unexpected_message);
             }
         }
+        case state_t::exec_copy_in:
         case state_t::exec_copy_out_needs_command_complete:
+        case state_t::exec_copy_both_needs_command_complete:
         {
             switch (msg.type())
             {
@@ -256,9 +290,12 @@ static std::error_code handle_query(read_response_fsm_impl& fsm, const any_backe
     //            any number of data_row
     //            finalizer: command_complete, error_response
     //        or
-    //            copy_out_response
+    //            copy_out_response or copy_both_response
     //            any number of copy_data
     //            copy_done, followed by (command_complete or error_response), or error_response
+    //        or
+    //            copy_in_response, followed by (command_complete or error_response).
+    //            The client drives the copy_data/copy_done/copy_fail flow
     //    ready_for_query
     // or empty_query_response
     switch (fsm.state)
@@ -269,13 +306,26 @@ static std::error_code handle_query(read_response_fsm_impl& fsm, const any_backe
             switch (msg.type())
             {
                 case kind::copy_out_response:
-                    // Starts a COPY OUT block.
-                    // Data is handled by the upper layers as a separate channel.
-                    // The handler sees an empty resultset.
+                    // Starts a COPY OUT block. Data is delivered to the handler as copy_data
                     if (!fsm.allow_copy)
                         return std::error_code(client_errc::copy_not_allowed);
-                    call_handler(fsm, protocol::row_description{});
+                    call_handler(fsm, msg.get_copy_out_response());
                     fsm.state = state_t::query_copy_out;
+                    return client_errc::needs_more;
+                case kind::copy_in_response:
+                    // Starts a COPY IN block. The client supplies the data, so we don't
+                    // expect anything from the server until the copy finishes
+                    if (!fsm.allow_copy)
+                        return std::error_code(client_errc::copy_not_allowed);
+                    call_handler(fsm, msg.get_copy_in_response());
+                    fsm.state = state_t::query_copy_in;
+                    return client_errc::needs_more;
+                case kind::copy_both_response:
+                    // Starts a COPY BOTH block. Both sides send data
+                    if (!fsm.allow_copy)
+                        return std::error_code(client_errc::copy_not_allowed);
+                    call_handler(fsm, msg.get_copy_both_response());
+                    fsm.state = state_t::query_copy_both;
                     return client_errc::needs_more;
                 case kind::error_response:
                     // An error should always be followed by ReadyForQuery
@@ -343,11 +393,13 @@ static std::error_code handle_query(read_response_fsm_impl& fsm, const any_backe
             }
             return std::error_code(client_errc::unexpected_message);
         case state_t::query_copy_out:
+        case state_t::query_copy_both:
         {
             switch (msg.type())
             {
                 case kind::copy_data:
-                    // Data is handled by upper layers, we don't need to do anything
+                    // Deliver the data to the handler. This doesn't change state
+                    call_handler(fsm, msg.get_copy_data());
                     return client_errc::needs_more;
                 case kind::error_response:
                     // An error should always be followed by ReadyForQuery
@@ -355,13 +407,17 @@ static std::error_code handle_query(read_response_fsm_impl& fsm, const any_backe
                     call_handler(fsm, msg.get_error_response());
                     return client_errc::needs_more;
                 case kind::copy_done:
-                    // Terminates copy out, but should be followed by CommandComplete
-                    fsm.state = state_t::query_copy_out_needs_command_complete;
+                    // Terminates the copy, but should be followed by CommandComplete
+                    fsm.state = fsm.state == state_t::query_copy_out
+                                    ? state_t::query_copy_out_needs_command_complete
+                                    : state_t::query_copy_both_needs_command_complete;
                     return client_errc::needs_more;
                 default: return std::error_code(client_errc::unexpected_message);
             }
         }
+        case state_t::query_copy_in:
         case state_t::query_copy_out_needs_command_complete:
+        case state_t::query_copy_both_needs_command_complete:
         {
             switch (msg.type())
             {

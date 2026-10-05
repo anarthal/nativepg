@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_MULTIPLEXER_V2_HPP
-#define NATIVEPG_MULTIPLEXER_V2_HPP
+#ifndef NATIVEPG_MULTIPLEXER_HPP
+#define NATIVEPG_MULTIPLEXER_HPP
 
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
@@ -36,10 +36,10 @@
 
 namespace nativepg::detail {
 
-class multiplexer_v2
+class multiplexer
 {
 public:
-    multiplexer_v2()
+    multiplexer()
     {
         receive_evt_.set();  // tasks start empty
     }
@@ -139,11 +139,11 @@ public:
 
     class receive_guard
     {
-        multiplexer_v2* obj_{};
+        multiplexer* obj_{};
 
     public:
         receive_guard() = default;
-        explicit receive_guard(multiplexer_v2& obj) noexcept : obj_(&obj) {}
+        explicit receive_guard(multiplexer& obj) noexcept : obj_(&obj) {}
 
         receive_guard(receive_guard&& rhs) noexcept : obj_(std::exchange(rhs.obj_, nullptr)) {}
         receive_guard(const receive_guard& rhs) = delete;

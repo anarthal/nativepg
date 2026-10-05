@@ -22,7 +22,7 @@
 
 namespace nativepg::detail {
 
-class multiplexer_v2;
+class multiplexer;
 
 // All the state for a single exec operation
 struct exec_state_impl : boost::intrusive::list_base_hook<>
@@ -41,7 +41,7 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
     };
 
     // The multiplexer we're registered with, or nullptr if we were never set up
-    multiplexer_v2* mpx{};
+    multiplexer* mpx{};
 
     // Is the operation exclusive?
     exclusivity excl{exclusivity::shared};
@@ -92,7 +92,7 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
 
     // Cleans up any leftover from a previous operation and prepares for a new one.
     // The request and the handler must outlive the operation.
-    void setup(multiplexer_v2& mpx, const request& req, response_handler_ref handler, exclusivity excl);
+    void setup(multiplexer& mpx, const request& req, response_handler_ref handler, exclusivity excl);
 
     const request& get_request() const { return fsm->get_request(); }
     std::span<const unsigned char> remaining_payload() const

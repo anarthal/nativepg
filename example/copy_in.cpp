@@ -41,17 +41,6 @@ static void print_err(const char* prefix, std::error_code err, const diagnostics
     std::cout << '\n';
 }
 
-struct stream_adapter
-{
-    exec_state& st;
-    co_connection& conn;
-
-    capy::io_task<std::size_t> write_some(capy::const_buffer buff)
-    {
-        return conn.write_some_copy_data(st, buff);
-    }
-};
-
 static capy::task<> co_main()
 {
     // Create a connection
@@ -102,10 +91,16 @@ static capy::task<> co_main()
 
             // Write the data
             // TODO: extract this from somewhere useful
-            constexpr std::string_view copy_data = "42\thello\n50\tworld\n";
-            stream_adapter adapter{exec_st, conn};
-            if (auto [ec, bytes] = co_await capy::write(adapter, capy::make_buffer(copy_data)); ec)
-                co_return {ec};
+            constexpr std::string_view copy_data = "hello\t42\nworld\t50\n";
+            std::size_t written = 0u;
+            while (written < copy_data.size())
+            {
+                const auto buff = capy::make_buffer(copy_data.substr(written));
+                auto [ec, bytes] = co_await conn.write_some_copy_data(exec_st, buff);
+                if (ec)
+                    co_return {ec};
+                written += bytes;
+            }
 
             // Tell the server that we're done
             co_return co_await conn.write_copy_done(exec_st);

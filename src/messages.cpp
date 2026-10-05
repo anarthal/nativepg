@@ -295,7 +295,7 @@ std::error_code parse_copy_response(
 std::error_code serialize_header_only(char header, std::vector<unsigned char>& to)
 {
     std::array<unsigned char, 5u> buff;
-    [[maybe_unused]] auto ec = serialize_header({static_cast<unsigned char>(header), 4u}, buff);
+    [[maybe_unused]] auto ec = serialize_header({static_cast<unsigned char>(header), 0u}, buff);
     BOOST_ASSERT(!ec);
     to.insert(to.end(), buff.begin(), buff.end());
     return {};

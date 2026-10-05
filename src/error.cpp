@@ -64,6 +64,7 @@ static const char* error_to_string(client_errc error)
         case client_errc::copy_in: return "copy_in";
         case client_errc::copy_in_not_last: return "copy_in_not_last";
         case client_errc::requires_exclusive: return "requires_exclusive";
+        case client_errc::copy_in_incomplete_transfer: return "copy_in_incomplete_transfer";
         default: return "<unknown nativepg client error>";
     }
 }

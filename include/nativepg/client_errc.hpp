@@ -155,6 +155,10 @@ enum class client_errc : int
     // Exclusive mode is required to run this request (e.g. COPY ... FROM STDIN)
     // Specify exclusivity::exclusive in prepare_request
     requires_exclusive,
+
+    // write_copy_done() was called with an incomplete transfer
+    // Call write_some_data() until all the supplied bytes are transferred
+    copy_in_incomplete_transfer,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

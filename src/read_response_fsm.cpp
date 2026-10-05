@@ -5,6 +5,7 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#include <cstddef>
 #include <system_error>
 
 #include "nativepg/client_errc.hpp"
@@ -82,6 +83,26 @@ static std::error_code handle_error(read_response_fsm_impl& fsm, const protocol:
     return std::error_code(client_errc::request_ends_without_sync);
 }
 
+// Counts the number of Sync messages after an Exec that has returned a CopyInResponse,
+// and validates that only Flush and Sync messages follow the Exec.
+// Returns > 0 on success, == 0 on error (at least one Sync must follow for a valid request).
+static std::size_t count_copy_in_syncs(const read_response_fsm_impl& fsm)
+{
+    std::size_t num_syncs = 0u;
+
+    for (auto type : fsm.req->messages().subspan(fsm.current + 1u))
+    {
+        switch (type)
+        {
+            case request_message_type::sync: ++num_syncs; break;
+            case request_message_type::flush: break;
+            default: return 0u;
+        }
+    }
+
+    return num_syncs;
+}
+
 static std::error_code advance(read_response_fsm_impl& fsm)
 {
     if (++fsm.current >= fsm.req->messages().size())
@@ -152,7 +173,10 @@ static std::error_code handle_describe(read_response_fsm_impl& fsm, const any_ba
     }
 }
 
-static std::error_code handle_execute(read_response_fsm_impl& fsm, const any_backend_message& msg)
+static protocol::read_response_fsm::result_type handle_execute(
+    read_response_fsm_impl& fsm,
+    const any_backend_message& msg
+)
 {
     // execute: either:
     //   copy_out_response, then any number of copy_data, then copy_done, then either (command_complete,
@@ -172,45 +196,50 @@ static std::error_code handle_execute(read_response_fsm_impl& fsm, const any_bac
                 case kind::copy_out_response:
                     // Starts a COPY OUT block. Data is delivered to the handler as copy_data
                     if (!fsm.allow_copy)
-                        return std::error_code(client_errc::copy_not_allowed);
+                        return {client_errc::copy_not_allowed, 0u};
                     call_handler(fsm, msg.get_copy_out_response());
                     fsm.state = state_t::exec_copy_out;
-                    return client_errc::needs_more;
+                    return {client_errc::needs_more, 0u};
                 case kind::copy_in_response:
+                {
                     // Starts a COPY IN block. The client supplies the data, so we don't
                     // expect anything from the server until the copy finishes
                     if (!fsm.allow_copy)
-                        return std::error_code(client_errc::copy_not_allowed);
+                        return {client_errc::copy_not_allowed, 0u};
+                    auto nsyncs = count_copy_in_syncs(fsm);
+                    if (nsyncs == 0u)
+                        return {client_errc::copy_in_not_last, 0u};
                     call_handler(fsm, msg.get_copy_in_response());
                     fsm.state = state_t::exec_copy_in;
-                    return client_errc::needs_more;
+                    return {client_errc::copy_in, nsyncs};
+                }
                 case kind::copy_both_response:
                     // Starts a COPY BOTH block. Both sides send data
                     if (!fsm.allow_copy)
-                        return std::error_code(client_errc::copy_not_allowed);
+                        return {client_errc::copy_not_allowed, 0u};
                     call_handler(fsm, msg.get_copy_both_response());
                     fsm.state = state_t::exec_copy_both;
-                    return client_errc::needs_more;
+                    return {client_errc::needs_more, 0u};
                 case kind::error_response:
                     // An error finishes this message and makes the server skip everything until sync
-                    return handle_error(fsm, msg.get_error_response());
+                    return {handle_error(fsm, msg.get_error_response()), 0u};
                 case kind::command_complete:
                     // Finishes the execution phase
                     call_handler(fsm, msg.get_command_complete());
-                    return advance(fsm);
+                    return {advance(fsm), 0u};
                 case kind::empty_query_response:
                     // Finishes the execution phase
                     call_handler(fsm, msg.get_empty_query_response());
-                    return advance(fsm);
+                    return {advance(fsm), 0u};
                 case kind::portal_suspended:
                     // Finishes the execution phase
                     call_handler(fsm, msg.get_portal_suspended());
-                    return advance(fsm);
+                    return {advance(fsm), 0u};
                 case kind::data_row:
                     // We got a row. This doesn't change state
                     call_handler(fsm, msg.get_data_row());
-                    return client_errc::needs_more;
-                default: return std::error_code(client_errc::unexpected_message);
+                    return {client_errc::needs_more, 0u};
+                default: return {client_errc::unexpected_message, 0u};
             }
         }
         case state_t::exec_copy_out:
@@ -220,18 +249,19 @@ static std::error_code handle_execute(read_response_fsm_impl& fsm, const any_bac
             {
                 case kind::copy_data:
                     // Deliver the data to the handler. This doesn't change state
+                    // TODO: handle this like COPY IN
                     call_handler(fsm, msg.get_copy_data());
-                    return client_errc::needs_more;
+                    return {client_errc::needs_more, 0u};
                 case kind::error_response:
                     // Terminates the copy
-                    return handle_error(fsm, msg.get_error_response());
+                    return {handle_error(fsm, msg.get_error_response()), 0u};
                 case kind::copy_done:
                     // Terminates the copy, but should be followed by CommandComplete
                     fsm.state = fsm.state == state_t::exec_copy_out
                                     ? state_t::exec_copy_out_needs_command_complete
                                     : state_t::exec_copy_both_needs_command_complete;
-                    return client_errc::needs_more;
-                default: return std::error_code(client_errc::unexpected_message);
+                    return {client_errc::needs_more, 0u};
+                default: return {client_errc::unexpected_message, 0u};
             }
         }
         case state_t::exec_copy_in:
@@ -242,15 +272,15 @@ static std::error_code handle_execute(read_response_fsm_impl& fsm, const any_bac
             {
                 case kind::error_response:
                     // This is possible, in theory
-                    return handle_error(fsm, msg.get_error_response());
+                    return {handle_error(fsm, msg.get_error_response()), 0u};
                 case kind::command_complete:
                     call_handler(fsm, msg.get_command_complete());
                     fsm.state = state_t::msg_first;
-                    return advance(fsm);
-                default: return std::error_code(client_errc::unexpected_message);
+                    return {advance(fsm), 0u};
+                default: return {client_errc::unexpected_message, 0u};
             }
         }
-        default: return std::error_code(client_errc::unexpected_message);
+        default: return {client_errc::unexpected_message, 0u};
     }
 }
 
@@ -314,12 +344,14 @@ static std::error_code handle_query(read_response_fsm_impl& fsm, const any_backe
                     return client_errc::needs_more;
                 case kind::copy_in_response:
                     // Starts a COPY IN block. The client supplies the data, so we don't
-                    // expect anything from the server until the copy finishes
+                    // expect anything from the server until the copy finishes.
+                    // The simple query protocol has no Sync messages, so the server
+                    // discards none of them and the client has none to re-send
                     if (!fsm.allow_copy)
                         return std::error_code(client_errc::copy_not_allowed);
                     call_handler(fsm, msg.get_copy_in_response());
                     fsm.state = state_t::query_copy_in;
-                    return client_errc::needs_more;
+                    return client_errc::copy_in;
                 case kind::copy_both_response:
                     // Starts a COPY BOTH block. Both sides send data
                     if (!fsm.allow_copy)
@@ -437,7 +469,7 @@ static std::error_code handle_query(read_response_fsm_impl& fsm, const any_backe
     }
 }
 
-std::error_code protocol::read_response_fsm::resume(const any_backend_message& msg)
+protocol::read_response_fsm::result_type protocol::read_response_fsm::resume(const any_backend_message& msg)
 {
     // Some messages may be found interleaved with the expected message flow
     // TODO: actually do something useful with these
@@ -445,7 +477,7 @@ std::error_code protocol::read_response_fsm::resume(const any_backend_message& m
     {
         case kind::notice_response:
         case kind::notification_response:
-        case kind::parameter_status: return client_errc::needs_more;
+        case kind::parameter_status: return {client_errc::needs_more, 0u};
         default: break;
     }
 
@@ -454,18 +486,18 @@ std::error_code protocol::read_response_fsm::resume(const any_backend_message& m
     {
         switch (impl_.req->messages()[impl_.current])
         {
-            case request_message_type::bind: return handle_bind(impl_, msg);
-            case request_message_type::close: return handle_close(impl_, msg);
-            case request_message_type::describe: return handle_describe(impl_, msg);
+            case request_message_type::bind: return {handle_bind(impl_, msg), 0u};
+            case request_message_type::close: return {handle_close(impl_, msg), 0u};
+            case request_message_type::describe: return {handle_describe(impl_, msg), 0u};
             case request_message_type::execute: return handle_execute(impl_, msg);
             case request_message_type::flush:
             {
                 ++impl_.current;
                 continue;  // nothing is expected here
             }
-            case request_message_type::parse: return handle_parse(impl_, msg);
-            case request_message_type::query: return handle_query(impl_, msg);
-            case request_message_type::sync: return handle_sync(impl_, msg);
+            case request_message_type::parse: return {handle_parse(impl_, msg), 0u};
+            case request_message_type::query: return {handle_query(impl_, msg), 0u};
+            case request_message_type::sync: return {handle_sync(impl_, msg), 0u};
         }
     }
 }

@@ -311,7 +311,10 @@ static std::error_code handle_sync(read_response_fsm_impl& fsm, const any_backen
     return advance(fsm);
 }
 
-static std::error_code handle_query(read_response_fsm_impl& fsm, const any_backend_message& msg)
+static protocol::read_response_fsm::result_type handle_query(
+    read_response_fsm_impl& fsm,
+    const any_backend_message& msg
+)
 {
     // either
     //    at least one
@@ -338,60 +341,65 @@ static std::error_code handle_query(read_response_fsm_impl& fsm, const any_backe
                 case kind::copy_out_response:
                     // Starts a COPY OUT block. Data is delivered to the handler as copy_data
                     if (!fsm.allow_copy)
-                        return std::error_code(client_errc::copy_not_allowed);
+                        return {client_errc::copy_not_allowed, 0u};
                     call_handler(fsm, msg.get_copy_out_response());
                     fsm.state = state_t::query_copy_out;
-                    return client_errc::needs_more;
+                    return {client_errc::needs_more, 0u};
                 case kind::copy_in_response:
+                {
                     // Starts a COPY IN block. The client supplies the data, so we don't
                     // expect anything from the server until the copy finishes.
                     // The simple query protocol has no Sync messages, so the server
                     // discards none of them and the client has none to re-send
                     if (!fsm.allow_copy)
-                        return std::error_code(client_errc::copy_not_allowed);
+                        return {client_errc::copy_not_allowed, 0u};
+                    auto nsyncs = count_copy_in_syncs(fsm);
+                    if (nsyncs == 0u)
+                        return {client_errc::copy_in_not_last, 0u};
                     call_handler(fsm, msg.get_copy_in_response());
                     fsm.state = state_t::query_copy_in;
-                    return client_errc::copy_in;
+                    return {client_errc::copy_in, nsyncs};
+                }
                 case kind::copy_both_response:
                     // Starts a COPY BOTH block. Both sides send data
                     if (!fsm.allow_copy)
-                        return std::error_code(client_errc::copy_not_allowed);
+                        return {client_errc::copy_not_allowed, 0u};
                     call_handler(fsm, msg.get_copy_both_response());
                     fsm.state = state_t::query_copy_both;
-                    return client_errc::needs_more;
+                    return {client_errc::needs_more, 0u};
                 case kind::error_response:
                     // An error should always be followed by ReadyForQuery
                     fsm.state = state_t::query_needs_ready;
                     call_handler(fsm, msg.get_error_response());
-                    return client_errc::needs_more;
+                    return {client_errc::needs_more, 0u};
                 case kind::row_description:
                     // Row descriptions are optional, and can only appear at the beginning of
                     // a resultset, but should always precede rows
                     fsm.state = state_t::query_rows;
                     call_handler(fsm, msg.get_row_description());
-                    return client_errc::needs_more;
+                    return {client_errc::needs_more, 0u};
                 case kind::command_complete:
                     // Query might return command_complete directly, without NoData.
                     // Synthesize a fake row_description to help handlers
                     fsm.state = state_t::query_first;
                     call_handler(fsm, protocol::row_description{});
                     call_handler(fsm, msg.get_command_complete());
-                    return client_errc::needs_more;
+                    return {client_errc::needs_more, 0u};
                 case kind::empty_query_response:
                     // Only allowed as the first and only message. Signals that there was no query to begin
                     // with
                     if (fsm.state != state_t::msg_first)
-                        return std::error_code(client_errc::unexpected_message);
+                        return {client_errc::unexpected_message, 0u};
                     fsm.state = state_t::query_needs_ready;
                     call_handler(fsm, msg.get_empty_query_response());
-                    return client_errc::needs_more;
+                    return {client_errc::needs_more, 0u};
                 case kind::ready_for_query:
                     if (fsm.state != state_t::query_first)
-                        return std::error_code(client_errc::unexpected_message);
+                        return {client_errc::unexpected_message, 0u};
                     // Not allowed as the only response to a query
                     fsm.state = state_t::msg_first;
-                    return advance(fsm);
-                default: return std::error_code(client_errc::unexpected_message);
+                    return {advance(fsm), 0u};
+                default: return {client_errc::unexpected_message, 0u};
             }
         }
         case state_t::query_rows:
@@ -402,17 +410,17 @@ static std::error_code handle_query(read_response_fsm_impl& fsm, const any_backe
                     // An error should always be followed by ReadyForQuery
                     fsm.state = state_t::query_needs_ready;
                     call_handler(fsm, msg.get_error_response());
-                    return client_errc::needs_more;
+                    return {client_errc::needs_more, 0u};
                 case kind::data_row:
                     // We got a row. This doesn't change state
                     call_handler(fsm, msg.get_data_row());
-                    return client_errc::needs_more;
+                    return {client_errc::needs_more, 0u};
                 case kind::command_complete:
                     // This resultset is done
                     fsm.state = state_t::query_first;
                     call_handler(fsm, msg.get_command_complete());
-                    return client_errc::needs_more;
-                default: return std::error_code(client_errc::unexpected_message);
+                    return {client_errc::needs_more, 0u};
+                default: return {client_errc::unexpected_message, 0u};
             }
         }
         case state_t::query_needs_ready:
@@ -421,9 +429,9 @@ static std::error_code handle_query(read_response_fsm_impl& fsm, const any_backe
             {
                 // We're done with the current message
                 fsm.state = state_t::msg_first;
-                return advance(fsm);
+                return {advance(fsm), 0u};
             }
-            return std::error_code(client_errc::unexpected_message);
+            return {client_errc::unexpected_message, 0u};
         case state_t::query_copy_out:
         case state_t::query_copy_both:
         {
@@ -432,19 +440,19 @@ static std::error_code handle_query(read_response_fsm_impl& fsm, const any_backe
                 case kind::copy_data:
                     // Deliver the data to the handler. This doesn't change state
                     call_handler(fsm, msg.get_copy_data());
-                    return client_errc::needs_more;
+                    return {client_errc::needs_more, 0u};
                 case kind::error_response:
                     // An error should always be followed by ReadyForQuery
                     fsm.state = state_t::query_needs_ready;
                     call_handler(fsm, msg.get_error_response());
-                    return client_errc::needs_more;
+                    return {client_errc::needs_more, 0u};
                 case kind::copy_done:
                     // Terminates the copy, but should be followed by CommandComplete
                     fsm.state = fsm.state == state_t::query_copy_out
                                     ? state_t::query_copy_out_needs_command_complete
                                     : state_t::query_copy_both_needs_command_complete;
-                    return client_errc::needs_more;
-                default: return std::error_code(client_errc::unexpected_message);
+                    return {client_errc::needs_more, 0u};
+                default: return {client_errc::unexpected_message, 0u};
             }
         }
         case state_t::query_copy_in:
@@ -457,15 +465,15 @@ static std::error_code handle_query(read_response_fsm_impl& fsm, const any_backe
                     // An error should always be followed by ReadyForQuery
                     fsm.state = state_t::query_needs_ready;
                     call_handler(fsm, msg.get_error_response());
-                    return client_errc::needs_more;
+                    return {client_errc::needs_more, 0u};
                 case kind::command_complete:
                     call_handler(fsm, msg.get_command_complete());
                     fsm.state = state_t::query_first;
-                    return client_errc::needs_more;
-                default: return std::error_code(client_errc::unexpected_message);
+                    return {client_errc::needs_more, 0u};
+                default: return {client_errc::unexpected_message, 0u};
             }
         }
-        default: BOOST_ASSERT(false); return std::error_code(client_errc::unexpected_message);
+        default: BOOST_ASSERT(false); return {client_errc::unexpected_message, 0u};
     }
 }
 
@@ -496,7 +504,7 @@ protocol::read_response_fsm::result_type protocol::read_response_fsm::resume(con
                 continue;  // nothing is expected here
             }
             case request_message_type::parse: return {handle_parse(impl_, msg), 0u};
-            case request_message_type::query: return {handle_query(impl_, msg), 0u};
+            case request_message_type::query: return handle_query(impl_, msg);
             case request_message_type::sync: return {handle_sync(impl_, msg), 0u};
         }
     }

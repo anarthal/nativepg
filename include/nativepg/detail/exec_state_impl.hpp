@@ -62,6 +62,12 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
     // Is there a read_some_response operation in flight for this state?
     bool reading{};
 
+    // Are we in CopyIn mode?
+    bool copy_in{};
+
+    // How many Sync messages did the server swallow when it entered CopyIn mode?
+    std::size_t swallowed_syncs{};
+
     // Number of ReadyForQuery messages that we expect from
     // previously cancelled items
     std::size_t pending_rfqs{};

@@ -151,6 +151,10 @@ enum class client_errc : int
     // has messages other than Flush or Sync after the Execute that started the copy.
     // Such messages reach a backend that is already in copy-in mode, which desyncs the connection.
     copy_in_not_last,
+
+    // Exclusive mode is required to run this request (e.g. COPY ... FROM STDIN)
+    // Specify exclusivity::exclusive in prepare_request
+    requires_exclusive,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

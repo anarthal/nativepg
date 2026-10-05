@@ -266,13 +266,32 @@ struct co_connection::impl
                 if (is_rfq)
                     ++exec_st.read_rfqs;
 
-                auto fsm_ec = fsm.resume(res.message);
+                auto [fsm_ec, nsyncs] = fsm.resume(res.message);
                 if (!fsm_ec)
                 {
                     // We've finished successfully
                     st.read_buffer.consume(consumed);
                     exec_st.read_rfqs = static_cast<std::size_t>(-1);  // we've read everything
                     mpx_.report_reader_exit(exec_st);
+                    co_return {};
+                }
+                else if (fsm_ec == client_errc::copy_not_allowed)  // TODO: use the new error
+                {
+                    // We've received a CopyInResponse
+                    // Running these requires exclusive mode. Otherwise,
+                    // other requests might end up being intercalated between copy data
+                    if (exec_st.excl != exclusivity::exclusive)
+                    {
+                        // TODO: this is a fatal error
+                        st.read_buffer.consume(consumed);
+                        co_return {client_errc::requires_exclusive};
+                    }
+
+                    // Record the fact that we're now in CopyIn mode
+                    exec_st.copy_in = true;
+                    exec_st.swallowed_syncs = nsyncs;
+
+                    // Yield, it's now the user's turn to write data
                     co_return {};
                 }
                 else if (fsm_ec != client_errc::needs_more)
@@ -598,6 +617,8 @@ void detail::exec_state_impl::reset()
     excl = exclusivity::shared;
     writer_st = writer_status::initial;
     reader_done = false;
+    copy_in = false;
+    swallowed_syncs = 0u;
     bytes_written = 0u;
     pending_rfqs = 0u;
     read_rfqs = 0u;

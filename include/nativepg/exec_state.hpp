@@ -36,9 +36,11 @@ public:
     exec_state& operator=(exec_state&&) = delete;
     ~exec_state() { impl_.reset(); }
 
+    // TODO: re-work the user-facing state model when we implement CopyBoth
     bool is_prepared() const { return impl_.is_prepared(); }
     bool write_done() const { return impl_.write_done(); }
     bool read_done() const { return impl_.read_done(); }
+    bool copy_in() const { return impl_.copy_in; }
 
     // Cannot be used while any associated read/write operations are in-progress.
     void reset() { impl_.reset(); }

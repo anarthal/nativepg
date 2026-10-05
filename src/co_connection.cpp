@@ -462,12 +462,18 @@ struct co_connection::impl
 
         // Send this to the server
         auto [ec, bytes] = co_await capy::write(stream, capy::make_buffer(st.write_buffer));
+        if (ec)
+        {
+            // TODO: an incomplete transfer here is fatal. Mark the connection
+            // as dead when we have the functionality
+            // TODO: do we want resumability here, too?
+            co_return {ec};
+        }
 
-        // TODO: an incomplete transfer here is fatal. Mark the connection
-        // as dead when we have the functionality
-        // TODO: do we want resumability here, too?
+        // We're no longer in Copy-in mode
+        exec_st.copy_in = {};
 
-        co_return {ec};
+        co_return {};
     }
 
     boost::capy::io_task<> receive(notification_vector& output)

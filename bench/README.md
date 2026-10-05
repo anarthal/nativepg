@@ -37,9 +37,21 @@ multiplexed), issued by a number of independent sessions running in
 parallel. Both cases are given a single connection, shared by all
 sessions:
 
-- **Multiplexed**: sessions share a single `co_multiplexed_connection`.
-- **Dedicated**: sessions share a single `co_connection`. Access is
-  arbitrated using a `capy::async_mutex`.
+- **Multiplexed**: sessions call `co_connection::exec()` concurrently,
+  letting the connection pipeline the requests.
+- **Dedicated**: sessions take a `capy::async_mutex` around
+  `co_connection::exec()`, so only one request is in flight at a time.
+
+> **Note on the figures below**: they were measured when multiplexing lived in
+> a separate class, [`co_multiplexed_connection`](https://github.com/anarthal/nativepg/blob/8c3ecf7b5f57d7fc86d192f0670cc13a9e7c9a0b/include/nativepg/co_multiplexed_connection.hpp)
+> ([implementation](https://github.com/anarthal/nativepg/blob/8c3ecf7b5f57d7fc86d192f0670cc13a9e7c9a0b/src/co_multiplexed_connection.cpp)),
+> which required a separate `run()` task to drive it. That class has since been
+> removed: `co_connection::exec()` supports multiplexing natively, so the
+> benchmark now uses `co_connection` for both cases. The numbers have not been
+> re-measured against the current source. The overhead of the merge was
+> measured separately (see
+> [below](#co_connectionexec-supports-multiplexing-how-much-overhead-does-this-add)),
+> and is small, so the conclusions should still hold.
 
 Doing this measures connection utilization (i.e. given a fixed number
 of connections, which case uses them more effectively?). This is
@@ -79,8 +91,13 @@ Source: [`multiplexed_scaling.cpp`](multiplexed_scaling.cpp).
 
 The workload is composed of simple SELECT queries (suitable for being
 multiplexed), issued by a number of independent sessions running in
-parallel. The sessions share a pool of multiplexed connections.
+parallel. The sessions are spread round-robin over a set of connections.
 The benchmark varies the number of connections and records throughput.
+
+> **Note on the figures below**: as above, they were measured against
+> [`co_multiplexed_connection`](https://github.com/anarthal/nativepg/blob/8c3ecf7b5f57d7fc86d192f0670cc13a9e7c9a0b/include/nativepg/co_multiplexed_connection.hpp),
+> which has since been removed in favor of `co_connection`. They have not been
+> re-measured against the current source.
 
 Results for the localhost server:
 
@@ -144,7 +161,8 @@ and [AWS](write_coalescing_aws.csv) setups.
 The benchmark compares two connection implementations that allow multiplexing with `exec()`:
 
 - One that coalesces write operations into one big write, like Boost.Redis does,
-  at the expense of copying the request payload ([old `co_multiplexed_connection::exec()`](https://github.com/anarthal/nativepg/blob/a68d3481bb0853ee2a55c579bc4ce1ff803f1167/src/co_multiplexed_connection.cpp)).
+  at the expense of copying the request payload ([`co_multiplexed_connection::exec()`](https://github.com/anarthal/nativepg/blob/a68d3481bb0853ee2a55c579bc4ce1ff803f1167/src/co_multiplexed_connection.cpp),
+  a class that has since been removed).
 - One that does no coalescing and no copying
   ([current `co_connection::exec()` writer](https://github.com/anarthal/nativepg/blob/8442621352faad9f300b0072281b8bf9b60d77e1/src/co_connection.cpp#L102-L121)).
 

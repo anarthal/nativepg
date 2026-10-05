@@ -10,11 +10,9 @@
  * See bench/README.md for a rationale.
  *
  * The workload is the same as in multiplexed_vs_dedicated.cpp: a fixed number
- * of sessions, each issuing a fixed number of simple SELECTs. The only thing
- * that changes between cases is how many multiplexed connections the sessions
- * are spread over:
- *   - Case A: a single connection, shared by all sessions.
- *   - Case B: two connections; half the sessions use one, half the other.
+ * of sessions, each issuing a fixed number of simple SELECTs, with concurrent
+ * exec() calls being pipelined by the connection. The only thing that changes
+ * between cases is how many connections the sessions are spread over.
  *
  * Reported figures:
  *   - Latency: wall time from issuing a query to having its response, as a
@@ -38,7 +36,6 @@
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
-#include <boost/capy/when_any.hpp>
 #include <boost/corosio/io_context.hpp>
 
 #include <chrono>
@@ -48,11 +45,10 @@
 #include <iostream>
 #include <string>
 #include <string_view>
-#include <variant>
 #include <vector>
 
 #include "bench_utils.hpp"
-#include "nativepg/co_multiplexed_connection.hpp"
+#include "nativepg/co_connection.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
 
@@ -70,22 +66,22 @@ constexpr std::string_view query = "SELECT first_name FROM employee WHERE id = $
 constexpr int nqueries = 1000;
 constexpr int nsess = 100;
 
-struct multiplexed_state
+struct bench_state
 {
-    std::vector<co_multiplexed_connection> conns;
+    std::vector<co_connection> conns;
     stats latency;  // shared by all sessions; they all run on the same executor
 
-    multiplexed_state(capy::executor_ref ex, std::size_t nconns)
+    bench_state(capy::executor_ref ex, std::size_t nconns)
     {
-        // run() holds a reference to each connection, so the vector must not
-        // reallocate once the benchmark is under way
+        // Sessions hold a reference to the connection they use, so the vector
+        // must not reallocate once the benchmark is under way
         conns.reserve(nconns);
         for (std::size_t i = 0; i < nconns; ++i)
             conns.emplace_back(ex);
     }
 };
 
-capy::io_task<> multiplexed_session(multiplexed_state& st, std::int64_t session_id)
+capy::io_task<> multiplexed_session(bench_state& st, std::int64_t session_id)
 {
     // Sessions are spread over the available connections round-robin
     auto& conn = st.conns[static_cast<std::size_t>(session_id) % st.conns.size()];
@@ -110,17 +106,21 @@ capy::io_task<> multiplexed_session(multiplexed_state& st, std::int64_t session_
     co_return {};
 }
 
-// Runs all the sessions and reports the results. Must run concurrently with
-// run() on every connection, which is what actually drives them.
-capy::io_task<> multiplexed_bench(multiplexed_state& st, const char* name)
+capy::task<> run_case(const connect_params& params, std::size_t nconns)
 {
-    // A multiplexed connection has no separate connect step: exec() blocks
-    // until run() has established the session. Pay that cost with a single
-    // warm-up query per connection, before the clock starts.
+    // Setup
+    bench_state st{co_await capy::this_coro::executor, nconns};
+
+    // Establishing the connections is not part of the measurement
     request warmup;
     warmup.add_query(query, static_cast<std::int64_t>(-1));
     for (auto& conn : st.conns)
     {
+        if (auto [ec] = co_await conn.connect(params); ec)
+            die("connect", ec);
+
+        // Discard one query per connection, so that first-query costs don't
+        // land in the measurement
         if (auto [ec] = co_await conn.exec(warmup, check_execute()); ec)
             die("warmup", ec);
     }
@@ -136,8 +136,9 @@ capy::io_task<> multiplexed_bench(multiplexed_state& st, const char* name)
         die("session", ec);
     const auto t1 = clock_type::now();
 
+    const auto name = std::to_string(nconns) + " multiplexed connection(s)";
     print_results(
-        name,
+        name.c_str(),
         st.conns.size(),
         nsess,
         nqueries,
@@ -145,27 +146,11 @@ capy::io_task<> multiplexed_bench(multiplexed_state& st, const char* name)
         st.latency
     );
 
-    co_return {};
-}
-
-capy::task<> run_case(const connect_params& params, std::size_t nconns)
-{
-    // Setup
-    multiplexed_state st{co_await capy::this_coro::executor, nconns};
-
-    // run() only returns on error, so race it against the benchmark: once the
-    // benchmark wins, when_any stop-requests the run() tasks and waits for
-    // them to unwind.
-    std::vector<capy::io_task<>> tasks;
-    tasks.reserve(nconns + 1u);
     for (auto& conn : st.conns)
-        tasks.push_back(conn.run(multiplexed_config{.transport = params}));
-    auto name = std::to_string(nconns) + " multiplexed connection(s)";
-    tasks.push_back(multiplexed_bench(st, name.c_str()));
-
-    auto res = co_await capy::when_any(std::move(tasks));
-    if (res.index() == 0)
-        die("multiplexed", std::get<0>(res));
+    {
+        if (auto [ec] = co_await conn.shutdown(); ec)
+            die("shutdown", ec);
+    }
 }
 
 // params must outlive this coroutine

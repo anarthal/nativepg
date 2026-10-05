@@ -38,7 +38,7 @@
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
 #include "nativepg_internal/check_request.hpp"
-#include "nativepg_internal/multiplexed_connection/multiplexer_v2.hpp"
+#include "nativepg_internal/multiplexer.hpp"
 
 namespace capy = boost::capy;
 namespace corosio = boost::corosio;
@@ -51,7 +51,7 @@ struct co_connection::impl
     corosio::tcp_socket sock;
     protocol::connection_state st{};
     capy::any_stream stream{&sock};
-    detail::multiplexer_v2 mpx_;  // TODO: clean up this?
+    detail::multiplexer mpx_;  // TODO: clean up this?
     notification_vector exec_notifications_;
     bool receiver_running_{};
 
@@ -341,7 +341,7 @@ struct co_connection::impl
     }
 
     boost::capy::io_task<> receive_read(
-        detail::multiplexer_v2::receive_guard& guard,
+        detail::multiplexer::receive_guard& guard,
         notification_vector& output
     )
     {
@@ -597,7 +597,7 @@ void detail::exec_state_impl::reset()
     fsm.reset();
 }
 
-void detail::exec_state_impl::setup(multiplexer_v2& mpx_ref, const request& req, response_handler_ref handler)
+void detail::exec_state_impl::setup(multiplexer& mpx_ref, const request& req, response_handler_ref handler)
 {
     // Clean up any leftover from previous operations
     reset();

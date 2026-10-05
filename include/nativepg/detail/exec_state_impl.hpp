@@ -21,7 +21,7 @@
 
 namespace nativepg::detail {
 
-class multiplexer_v2;
+class multiplexer;
 
 // All the state for a single exec operation
 struct exec_state_impl : boost::intrusive::list_base_hook<>
@@ -40,7 +40,7 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
     };
 
     // The multiplexer we're registered with, or nullptr if we were never set up
-    multiplexer_v2* mpx{};
+    multiplexer* mpx{};
 
     // Where does the writer stand?
     writer_status writer_st{writer_status::initial};
@@ -88,7 +88,7 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
 
     // Cleans up any leftover from a previous operation and prepares for a new one.
     // The request and the handler must outlive the operation.
-    void setup(multiplexer_v2& mpx, const request& req, response_handler_ref handler);
+    void setup(multiplexer& mpx, const request& req, response_handler_ref handler);
 
     const request& get_request() const { return fsm->get_request(); }
     std::span<const unsigned char> remaining_payload() const

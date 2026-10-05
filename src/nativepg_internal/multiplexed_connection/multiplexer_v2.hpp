@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "nativepg/detail/exec_state_impl.hpp"
+#include "nativepg/exclusivity.hpp"
 #include "nativepg/request.hpp"
 
 // TODO: impl notes
@@ -91,9 +92,12 @@ public:
         // The writer is done
         st.writer_st = exec_state_impl::writer_status::done;
 
-        // Unlock the mutex
-        BOOST_ASSERT(write_mtx_.is_locked());
-        write_mtx_.unlock();
+        // Unlock the mutex if required
+        if (st.excl == exclusivity::shared)
+        {
+            BOOST_ASSERT(write_mtx_.is_locked());
+            write_mtx_.unlock();
+        }
 
         // Potentially unlock the following op
         if (st.read_done())
@@ -234,6 +238,13 @@ private:
         auto it = active_tasks_.iterator_to(st);
         auto next = std::next(it);
         bool is_current_reader = it == active_tasks_.begin();
+
+        // Unlock the write mutex if required
+        if (st.excl == exclusivity::exclusive)
+        {
+            BOOST_ASSERT(write_mtx_.is_locked());
+            write_mtx_.unlock();
+        }
 
         // Compute the remaining RFQs. The reader might set read_rfqs to -1
         // to indicate that everything was read so we can skip this calculation

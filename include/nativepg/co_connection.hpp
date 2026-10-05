@@ -20,6 +20,7 @@
 
 #include "nativepg/connect_params.hpp"
 #include "nativepg/encoding.hpp"
+#include "nativepg/exclusivity.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/request.hpp"
@@ -99,7 +100,8 @@ public:
     [[nodiscard]] std::error_code prepare_request(
         exec_state& st,
         const request& req,
-        response_handler_ref handler
+        response_handler_ref handler,
+        exclusivity excl = exclusivity::shared
     );
 
     // Writes the request pointed to by st to the server.

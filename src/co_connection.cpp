@@ -28,6 +28,7 @@
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
 #include "nativepg/encoding.hpp"
+#include "nativepg/exclusivity.hpp"
 #include "nativepg/exec_state.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/notification_vector.hpp"
@@ -112,14 +113,19 @@ struct co_connection::impl
         co_return {write_ec};
     }
 
-    std::error_code prepare_request(exec_state& exec_st, const request& req, response_handler_ref handler)
+    std::error_code prepare_request(
+        exec_state& exec_st,
+        const request& req,
+        response_handler_ref handler,
+        exclusivity excl
+    )
     {
         // Perform request setup
         if (auto ec = protocol::detail::setup_request(req, handler))
             return ec;
 
         // Set the state up. This cleans up any leftover from previous operations
-        detail::exec_state_access::get_impl(exec_st).setup(mpx_, req, handler);
+        detail::exec_state_access::get_impl(exec_st).setup(mpx_, req, handler, excl);
         return std::error_code();
     }
 
@@ -508,10 +514,11 @@ capy::io_task<> co_connection::receive(notification_vector& output) { return imp
 std::error_code co_connection::prepare_request(
     exec_state& exec_st,
     const request& req,
-    response_handler_ref handler
+    response_handler_ref handler,
+    exclusivity excl
 )
 {
-    return impl_->prepare_request(exec_st, req, handler);
+    return impl_->prepare_request(exec_st, req, handler, excl);
 }
 
 boost::capy::io_task<> co_connection::write_request(exec_state& st)
@@ -542,7 +549,7 @@ capy::io_task<> co_connection::exec(const request& req, response_handler_ref han
 {
     // Setup
     exec_state exec_st;
-    if (auto ec = prepare_request(exec_st, req, handler))
+    if (auto ec = prepare_request(exec_st, req, handler, exclusivity::shared))
         co_return {ec};
 
     // Run the reader and writer tasks in parallel
@@ -588,6 +595,7 @@ void detail::exec_state_impl::reset()
     BOOST_ASSERT(!is_linked());
 
     mpx = nullptr;
+    excl = exclusivity::shared;
     writer_st = writer_status::initial;
     reader_done = false;
     bytes_written = 0u;
@@ -597,12 +605,18 @@ void detail::exec_state_impl::reset()
     fsm.reset();
 }
 
-void detail::exec_state_impl::setup(multiplexer_v2& mpx_ref, const request& req, response_handler_ref handler)
+void detail::exec_state_impl::setup(
+    multiplexer_v2& mpx_ref,
+    const request& req,
+    response_handler_ref handler,
+    exclusivity new_excl
+)
 {
     // Clean up any leftover from previous operations
     reset();
 
     mpx = &mpx_ref;
+    excl = new_excl;
     fsm.emplace(&req, handler, true);  // TODO: probably remove the copy_allowed flag
 }
 

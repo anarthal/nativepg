@@ -15,6 +15,7 @@
 #include <optional>
 #include <span>
 
+#include "nativepg/exclusivity.hpp"
 #include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
@@ -41,6 +42,9 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
 
     // The multiplexer we're registered with, or nullptr if we were never set up
     multiplexer_v2* mpx{};
+
+    // Is the operation exclusive?
+    exclusivity excl{exclusivity::shared};
 
     // Where does the writer stand?
     writer_status writer_st{writer_status::initial};
@@ -88,7 +92,7 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
 
     // Cleans up any leftover from a previous operation and prepares for a new one.
     // The request and the handler must outlive the operation.
-    void setup(multiplexer_v2& mpx, const request& req, response_handler_ref handler);
+    void setup(multiplexer_v2& mpx, const request& req, response_handler_ref handler, exclusivity excl);
 
     const request& get_request() const { return fsm->get_request(); }
     std::span<const unsigned char> remaining_payload() const

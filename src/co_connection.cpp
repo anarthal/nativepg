@@ -430,7 +430,11 @@ struct co_connection::impl
         co_return {ec, retval};
     }
 
-    boost::capy::io_task<> write_copy_done(detail::exec_state_impl& exec_st)
+    boost::capy::io_task<> write_copy_finished(
+        detail::exec_state_impl& exec_st,
+        bool success,
+        std::string_view error_message
+    )
     {
         // State check
         if (!exec_st.copy_in.active)
@@ -440,44 +444,14 @@ struct co_connection::impl
         if (exec_st.copy_in.frame_num_bytes > 0u)
             co_return {client_errc::copy_in_incomplete_transfer};
 
-        // Compose the message to send. This is a CopyDone, plus
-        // any number of Sync messages swallowed by the server
+        // Compose the message to send. This is:
+        //  CopyDone if we were successful
+        //  CopyError if we failed
+        //  In both cases, any number of Sync messages swallowed by the server
         st.write_buffer.clear();
-        [[maybe_unused]] auto serialize_ec = protocol::serialize(protocol::copy_done{}, st.write_buffer);
-        BOOST_ASSERT(!serialize_ec);  // TODO: not ideal
-        for (std::size_t i = 0u; i < exec_st.copy_in.swallowed_syncs; ++i)
-        {
-            serialize_ec = protocol::serialize(protocol::sync{}, st.write_buffer);
-            BOOST_ASSERT(!serialize_ec);  // TODO: not ideal
-        }
-
-        // Send this to the server
-        auto [ec, bytes] = co_await capy::write(stream, capy::make_buffer(st.write_buffer));
-
-        // TODO: an incomplete transfer here is fatal. Mark the connection
-        // as dead when we have the functionality
-        // TODO: do we want resumability here, too?
-
-        co_return {ec};
-    }
-
-    boost::capy::io_task<> write_copy_fail(detail::exec_state_impl& exec_st, std::string_view message)
-    {
-        // State check
-        if (!exec_st.copy_in.active)
-            co_return {client_errc::invalid_state};
-
-        // If there are missing bytes to transfer, that's an error
-        if (exec_st.copy_in.frame_num_bytes > 0u)
-            co_return {client_errc::copy_in_incomplete_transfer};
-
-        // Compose the message to send. This is a CopyDone, plus
-        // any number of Sync messages swallowed by the server
-        st.write_buffer.clear();
-        auto serialize_ec = protocol::serialize(
-            protocol::copy_fail{.error_message = message},
-            st.write_buffer
-        );
+        auto serialize_ec = success
+                                ? protocol::serialize(protocol::copy_done{}, st.write_buffer)
+                                : protocol::serialize(protocol::copy_fail{error_message}, st.write_buffer);
         if (serialize_ec)
             co_return {serialize_ec};
         for (std::size_t i = 0u; i < exec_st.copy_in.swallowed_syncs; ++i)
@@ -778,12 +752,12 @@ capy::io_task<std::size_t> co_connection::write_some_copy_data(exec_state& st, c
 
 capy::io_task<> co_connection::write_copy_done(exec_state& st)
 {
-    return impl_->write_copy_done(detail::exec_state_access::get_impl(st));
+    return impl_->write_copy_finished(detail::exec_state_access::get_impl(st), true, {});
 }
 
 capy::io_task<> co_connection::write_copy_fail(exec_state& st, std::string_view message)
 {
-    return impl_->write_copy_fail(detail::exec_state_access::get_impl(st), message);
+    return impl_->write_copy_finished(detail::exec_state_access::get_impl(st), false, message);
 }
 
 capy::io_task<> co_connection::read_some_messages() { return impl_->read_some_messages(); }

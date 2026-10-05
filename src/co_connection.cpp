@@ -16,6 +16,10 @@
 #include <boost/corosio/socket_option.hpp>
 #include <boost/corosio/tcp_socket.hpp>
 
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <span>
@@ -27,13 +31,16 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
+#include "nativepg/detail/exec_state_impl.hpp"
 #include "nativepg/encoding.hpp"
 #include "nativepg/exclusivity.hpp"
 #include "nativepg/exec_state.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/notification_vector.hpp"
 #include "nativepg/protocol/connection_state.hpp"
+#include "nativepg/protocol/copy.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
+#include "nativepg/protocol/header.hpp"
 #include "nativepg/protocol/parse_message.hpp"
 #include "nativepg/protocol/terminate.hpp"
 #include "nativepg/request.hpp"
@@ -188,6 +195,7 @@ struct co_connection::impl
     boost::capy::io_task<> read_some_response(detail::exec_state_impl& exec_st)
     {
         // We must have been prepared, and must still have something to read
+        // This function is allowed in CopyIn mode
         if (!exec_st.is_prepared() || exec_st.read_done())
             co_return {client_errc::invalid_state};
 
@@ -288,10 +296,10 @@ struct co_connection::impl
                     }
 
                     // Record the fact that we're now in CopyIn mode
-                    exec_st.copy_in = true;
-                    exec_st.swallowed_syncs = nsyncs;
+                    exec_st.copy_in = {.active = true, .swallowed_syncs = nsyncs};
 
                     // Yield, it's now the user's turn to write data
+                    // TODO: but the user may want to keep reading to look for errors
                     co_return {};
                 }
                 else if (fsm_ec != client_errc::needs_more)
@@ -303,6 +311,121 @@ struct co_connection::impl
                 }
             }
         }
+    }
+
+    static constexpr std::size_t max_frame_size = (std::numeric_limits<std::int32_t>::max)() - 4u;
+
+    static std::array<unsigned char, 5u> make_copy_data_header(std::size_t size)
+    {
+        BOOST_ASSERT(size <= max_frame_size);
+        protocol::message_header h{protocol::copy_data_message_type, static_cast<std::int32_t>(size)};
+        std::array<unsigned char, 5u> res;
+        [[maybe_unused]] auto ec = protocol::serialize_header(h, res);
+        BOOST_ASSERT(!ec);
+        return res;
+    }
+
+    boost::capy::io_task<std::size_t> write_some_copy_data(
+        detail::exec_state_impl& exec_st,
+        boost::capy::const_buffer buff
+    )
+    {
+        // State check
+        if (!exec_st.copy_in.active)
+            co_return {client_errc::invalid_state, 0u};
+
+        // Empty buffers are a no-op
+        if (buff.size() == 0u)
+            co_return {};
+
+        std::vector<capy::const_buffer> bufs;
+        std::array<unsigned char, 5u> frame_header, prev_frame_header;
+        std::span<const unsigned char> buff_as_span{
+            static_cast<const unsigned char*>(buff.data()),
+            buff.size()
+        };
+
+        // Compute sizes
+        const std::size_t prev_header_size = exec_st.copy_in.frame_num_bytes == 0u ||
+                                                     exec_st.copy_in.transferred_bytes >= 5u
+                                                 ? 0u
+                                                 : 5u - exec_st.copy_in.transferred_bytes;
+        const std::size_t prev_payload_size = exec_st.copy_in.frame_num_bytes == 0u
+                                                  ? 0u
+                                                  : exec_st.copy_in.frame_num_bytes +
+                                                        exec_st.copy_in.transferred_bytes - 5u;
+        const std::size_t prev_size = prev_header_size + prev_payload_size;
+        const std::size_t payload_size = prev_payload_size >= buff.size()
+                                             ? 0u
+                                             : (std::min)(buff.size() - prev_payload_size, max_frame_size);
+        const std::size_t total_size = prev_size + (payload_size == 0u ? 0u : payload_size + 5u);
+
+        // Serialize what we need
+        if (prev_header_size > 0u)
+        {
+            prev_frame_header = make_copy_data_header(exec_st.copy_in.frame_num_bytes);
+            bufs.push_back(
+                boost::capy::make_buffer(
+                    std::span<const unsigned char>(prev_frame_header)
+                        .subspan(exec_st.copy_in.transferred_bytes)
+                )
+            );
+        }
+
+        if (prev_payload_size > 0u)
+        {
+            bufs.push_back(boost::capy::make_buffer(buff_as_span.first(prev_size)));
+            buff_as_span = buff_as_span.subspan(prev_size);
+        }
+
+        if (payload_size > 0u)
+        {
+            frame_header = make_copy_data_header(payload_size);
+            bufs.push_back(boost::capy::make_buffer(frame_header));
+            bufs.push_back(boost::capy::make_buffer(buff_as_span.first(payload_size)));
+        }
+
+        // Write the thing
+        auto [ec, bytes] = co_await stream.write_some(std::span(bufs));
+        std::size_t retval = 0u;
+
+        if (bytes <= prev_header_size)
+        {
+            exec_st.copy_in.transferred_bytes += bytes;
+            retval = 0u;
+        }
+        else if (bytes < prev_size)
+        {
+            exec_st.copy_in.transferred_bytes += bytes;
+            retval = bytes - prev_header_size;
+        }
+        else if (bytes == prev_size)
+        {
+            exec_st.copy_in.frame_num_bytes = 0u;
+            exec_st.copy_in.transferred_bytes = 0u;
+            retval = prev_payload_size;
+        }
+        else if (bytes <= prev_size + 5u)
+        {
+            exec_st.copy_in.frame_num_bytes = payload_size;
+            exec_st.copy_in.transferred_bytes = bytes - prev_size;
+            retval = prev_payload_size;
+        }
+        else if (bytes < total_size)
+        {
+            exec_st.copy_in.frame_num_bytes = payload_size;
+            exec_st.copy_in.transferred_bytes = bytes - prev_size;
+            retval = bytes - prev_header_size - 5u;
+        }
+        else
+        {
+            BOOST_ASSERT(bytes == total_size);
+            exec_st.copy_in.frame_num_bytes = 0u;
+            exec_st.copy_in.transferred_bytes = 0u;
+            retval = prev_payload_size + payload_size;
+        }
+
+        co_return {ec, retval};
     }
 
     boost::capy::io_task<> receive(notification_vector& output)
@@ -580,6 +703,11 @@ capy::io_task<> co_connection::exec(const request& req, response_handler_ref han
     co_return {final_ec};
 }
 
+capy::io_task<std::size_t> co_connection::write_some_copy_data(exec_state& st, capy::const_buffer buff)
+{
+    return impl_->write_some_copy_data(detail::exec_state_access::get_impl(st), buff);
+}
+
 capy::io_task<> co_connection::read_some_messages() { return impl_->read_some_messages(); }
 
 capy::any_stream& co_connection::stream() { return impl_->stream; }
@@ -617,8 +745,7 @@ void detail::exec_state_impl::reset()
     excl = exclusivity::shared;
     writer_st = writer_status::initial;
     reader_done = false;
-    copy_in = false;
-    swallowed_syncs = 0u;
+    copy_in = {};
     bytes_written = 0u;
     pending_rfqs = 0u;
     read_rfqs = 0u;

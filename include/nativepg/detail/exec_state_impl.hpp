@@ -24,6 +24,24 @@ namespace nativepg::detail {
 
 class multiplexer;
 
+struct copy_in_state
+{
+    // Are we in CopyIn?
+    bool active{};
+
+    // How many Sync messages did the server swallow when it entered CopyIn mode?
+    std::size_t swallowed_syncs{};
+
+    // Number of (payload) bytes that we stamped in the frame header.
+    // Stored only on error/cancellation
+    std::size_t frame_num_bytes{};
+
+    // Number of bytes that were transferred for this frame
+    // (incl. the frame bytes)
+    // Stored only on error/cancellation
+    std::size_t transferred_bytes{};
+};
+
 // All the state for a single exec operation
 struct exec_state_impl : boost::intrusive::list_base_hook<>
 {
@@ -62,11 +80,8 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
     // Is there a read_some_response operation in flight for this state?
     bool reading{};
 
-    // Are we in CopyIn mode?
-    bool copy_in{};
-
-    // How many Sync messages did the server swallow when it entered CopyIn mode?
-    std::size_t swallowed_syncs{};
+    // Data related to CopyIn
+    copy_in_state copy_in{};
 
     // Number of ReadyForQuery messages that we expect from
     // previously cancelled items

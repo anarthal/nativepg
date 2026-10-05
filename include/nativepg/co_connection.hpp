@@ -15,8 +15,10 @@
 #include <boost/capy/io_task.hpp>
 
 #include <concepts>
+#include <cstddef>
 #include <memory>
 #include <optional>
+#include <string_view>
 
 #include "nativepg/connect_params.hpp"
 #include "nativepg/encoding.hpp"
@@ -134,6 +136,13 @@ public:
     //   for calling write_request() until st.write_done() return true.
     //   A failure in write_request() won't cancel read_some_response(), to allow re-trying.
     boost::capy::io_task<> read_some_response(exec_state& st);
+
+    // TODO: this should use a ConstBufferSequence
+    boost::capy::io_task<std::size_t> write_some_copy_data(exec_state& st, boost::capy::const_buffer buff);
+
+    boost::capy::io_task<> write_copy_done(exec_state& st);
+
+    boost::capy::io_task<> write_copy_fail(exec_state& st, std::string_view error_message);
 
     // Reads until there is at least one message in the read buffer.
     // Access messages with state().read_buffer

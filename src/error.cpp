@@ -61,6 +61,8 @@ static const char* error_to_string(client_errc error)
         case client_errc::null_byte: return "null_byte";
         case client_errc::already_running: return "already_running";
         case client_errc::invalid_state: return "invalid_state";
+        case client_errc::copy_in: return "copy_in";
+        case client_errc::copy_in_not_last: return "copy_in_not_last";
         default: return "<unknown nativepg client error>";
     }
 }

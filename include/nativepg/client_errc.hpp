@@ -140,6 +140,17 @@ enum class client_errc : int
     // An operation was attempted on an object whose state doesn't match the state required by the operation
     // (e.g. write_request but the request has already been written).
     invalid_state,
+
+    // TODO: I don't love this
+    // The server accepted a COPY ... FROM STDIN statement and is now expecting copy data
+    // from us (i.e. it sent a CopyInResponse). This is not a failure: it signals that the
+    // client must now drive the copy_data/copy_done/copy_fail flow.
+    copy_in,
+
+    // A request containing a COPY ... FROM STDIN issued through the extended query protocol
+    // has messages other than Flush or Sync after the Execute that started the copy.
+    // Such messages reach a backend that is already in copy-in mode, which desyncs the connection.
+    copy_in_not_last,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

@@ -285,7 +285,7 @@ struct co_connection::impl
                     mpx_.report_reader_exit(exec_st);
                     co_return {};
                 }
-                else if (fsm_ec == client_errc::copy_not_allowed)  // TODO: use the new error
+                else if (fsm_ec == client_errc::copy_in)
                 {
                     // We've received a CopyInResponse
                     // Running these requires exclusive mode. Otherwise,
@@ -302,6 +302,7 @@ struct co_connection::impl
 
                     // Yield, it's now the user's turn to write data
                     // TODO: but the user may want to keep reading to look for errors
+                    st.read_buffer.consume(consumed);
                     co_return {};
                 }
                 else if (fsm_ec != client_errc::needs_more)
@@ -319,6 +320,7 @@ struct co_connection::impl
 
     static std::array<unsigned char, 5u> make_copy_data_header(std::size_t size)
     {
+        // TODO: I don't like this serialize_header
         BOOST_ASSERT(size <= max_frame_size);
         protocol::message_header h{protocol::copy_data_message_type, static_cast<std::int32_t>(size)};
         std::array<unsigned char, 5u> res;
@@ -352,10 +354,11 @@ struct co_connection::impl
                                                      exec_st.copy_in.transferred_bytes >= 5u
                                                  ? 0u
                                                  : 5u - exec_st.copy_in.transferred_bytes;
-        const std::size_t prev_payload_size = exec_st.copy_in.frame_num_bytes == 0u
+        const std::size_t prev_payload_size = exec_st.copy_in.frame_num_bytes == 0u ||
+                                                      exec_st.copy_in.transferred_bytes < 5u
                                                   ? 0u
-                                                  : exec_st.copy_in.frame_num_bytes +
-                                                        exec_st.copy_in.transferred_bytes - 5u;
+                                                  : exec_st.copy_in.frame_num_bytes + 5u -
+                                                        exec_st.copy_in.transferred_bytes;
         const std::size_t prev_size = prev_header_size + prev_payload_size;
         const std::size_t payload_size = prev_payload_size >= buff.size()
                                              ? 0u
@@ -376,8 +379,8 @@ struct co_connection::impl
 
         if (prev_payload_size > 0u)
         {
-            bufs.push_back(boost::capy::make_buffer(buff_as_span.first(prev_size)));
-            buff_as_span = buff_as_span.subspan(prev_size);
+            bufs.push_back(boost::capy::make_buffer(buff_as_span.first(prev_payload_size)));
+            buff_as_span = buff_as_span.subspan(prev_payload_size);
         }
 
         if (payload_size > 0u)

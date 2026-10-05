@@ -323,7 +323,7 @@ std::error_code nativepg::protocol::serialize_header(
     to[0] = header.type;
 
     // Length
-    boost::endian::store_big_s32(to.data() + 1, static_cast<std::int32_t>(header.size));
+    boost::endian::store_big_s32(to.data() + 1, static_cast<std::int32_t>(header.size + 4u));
 
     // Done
     return {};

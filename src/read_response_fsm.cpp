@@ -45,6 +45,25 @@ enum class read_response_fsm_impl::state_t
     query_copy_both_needs_command_complete,
 };
 
+// Counts the number of Sync messages after an Exec/Query that has returned a CopyInResponse,
+// and validates that only Flush and Sync messages follow the message.
+static protocol::read_response_fsm::result_type count_copy_in_syncs(const read_response_fsm_impl& fsm)
+{
+    std::size_t num_syncs = 0u;
+
+    for (auto type : fsm.req->messages().subspan(fsm.current + 1u))
+    {
+        switch (type)
+        {
+            case request_message_type::sync: ++num_syncs; break;
+            case request_message_type::flush: break;
+            default: return {client_errc::copy_not_allowed, 0u};
+        }
+    }
+
+    return {{}, num_syncs};
+}
+
 static void call_handler(read_response_fsm_impl& fsm, const any_request_message& msg)
 {
     // First error wins. Pass a dummy object if there is already an error
@@ -81,26 +100,6 @@ static std::error_code handle_error(read_response_fsm_impl& fsm, const protocol:
 
     BOOST_ASSERT(false);
     return std::error_code(client_errc::request_ends_without_sync);
-}
-
-// Counts the number of Sync messages after an Exec that has returned a CopyInResponse,
-// and validates that only Flush and Sync messages follow the Exec.
-// Returns > 0 on success, == 0 on error (at least one Sync must follow for a valid request).
-static std::size_t count_copy_in_syncs(const read_response_fsm_impl& fsm)
-{
-    std::size_t num_syncs = 0u;
-
-    for (auto type : fsm.req->messages().subspan(fsm.current + 1u))
-    {
-        switch (type)
-        {
-            case request_message_type::sync: ++num_syncs; break;
-            case request_message_type::flush: break;
-            default: return 0u;
-        }
-    }
-
-    return num_syncs;
 }
 
 static std::error_code advance(read_response_fsm_impl& fsm)
@@ -206,9 +205,9 @@ static protocol::read_response_fsm::result_type handle_execute(
                     // expect anything from the server until the copy finishes
                     if (!fsm.allow_copy)
                         return {client_errc::copy_not_allowed, 0u};
-                    auto nsyncs = count_copy_in_syncs(fsm);
-                    if (nsyncs == 0u)
-                        return {client_errc::copy_in_not_last, 0u};
+                    auto [ec, nsyncs] = count_copy_in_syncs(fsm);
+                    if (ec)
+                        return {ec, 0u};
                     call_handler(fsm, msg.get_copy_in_response());
                     fsm.state = state_t::exec_copy_in;
                     return {client_errc::copy_in, nsyncs};
@@ -353,9 +352,9 @@ static protocol::read_response_fsm::result_type handle_query(
                     // discards none of them and the client has none to re-send
                     if (!fsm.allow_copy)
                         return {client_errc::copy_not_allowed, 0u};
-                    auto nsyncs = count_copy_in_syncs(fsm);
-                    if (nsyncs == 0u)
-                        return {client_errc::copy_in_not_last, 0u};
+                    auto [ec, nsyncs] = count_copy_in_syncs(fsm);
+                    if (ec)
+                        return {ec, 0u};
                     call_handler(fsm, msg.get_copy_in_response());
                     fsm.state = state_t::query_copy_in;
                     return {client_errc::copy_in, nsyncs};

@@ -22,6 +22,7 @@
 #include <string_view>
 
 #include "nativepg/co_connection.hpp"
+#include "nativepg/exclusivity.hpp"
 #include "nativepg/exec_state.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
@@ -77,7 +78,7 @@ static capy::task<> co_main()
 
     // Register the request
     exec_state exec_st;
-    if (auto ec = conn.prepare_request(exec_st, req, &handler))
+    if (auto ec = conn.prepare_request(exec_st, req, &handler, exclusivity::exclusive))
     {
         print_err("Error preparing the request", ec, diag);
         co_return;

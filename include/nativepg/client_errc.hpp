@@ -111,10 +111,6 @@ enum class client_errc : int
     // We need more input
     needs_more,
 
-    // You issued a COPY SQL statement through an API that doesn't support COPY operations.
-    // Use an appropriate API, instead
-    copy_not_allowed,
-
     // There is a mismatch between the number of format codes
     // and parameters passed to a bind message. Either use a single
     // format code for all parameters, or the same number of codes than parameters.

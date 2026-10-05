@@ -54,7 +54,6 @@ static const char* error_to_string(client_errc error)
         case client_errc::unknown_openssl_error: return "unknown_openssl_error";
         case client_errc::unmatched_request: return "unmatched_request";
         case client_errc::needs_more: return "needs_more";
-        case client_errc::copy_not_allowed: return "copy_not_allowed";
         case client_errc::num_format_codes_mismatch: return "num_format_codes_mismatch";
         case client_errc::serialize_null: return "serialize_null";
         case client_errc::unsupported_encoding: return "unsupported_encoding";

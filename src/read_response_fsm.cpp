@@ -57,7 +57,7 @@ static protocol::read_response_fsm::result_type count_copy_in_syncs(const read_r
         {
             case request_message_type::sync: ++num_syncs; break;
             case request_message_type::flush: break;
-            default: return {client_errc::copy_not_allowed, 0u};
+            default: return {client_errc::copy_in_not_last, 0u};
         }
     }
 
@@ -194,8 +194,6 @@ static protocol::read_response_fsm::result_type handle_execute(
             {
                 case kind::copy_out_response:
                     // Starts a COPY OUT block. Data is delivered to the handler as copy_data
-                    if (!fsm.allow_copy)
-                        return {client_errc::copy_not_allowed, 0u};
                     call_handler(fsm, msg.get_copy_out_response());
                     fsm.state = state_t::exec_copy_out;
                     return {client_errc::needs_more, 0u};
@@ -203,8 +201,6 @@ static protocol::read_response_fsm::result_type handle_execute(
                 {
                     // Starts a COPY IN block. The client supplies the data, so we don't
                     // expect anything from the server until the copy finishes
-                    if (!fsm.allow_copy)
-                        return {client_errc::copy_not_allowed, 0u};
                     auto [ec, nsyncs] = count_copy_in_syncs(fsm);
                     if (ec)
                         return {ec, 0u};
@@ -214,8 +210,6 @@ static protocol::read_response_fsm::result_type handle_execute(
                 }
                 case kind::copy_both_response:
                     // Starts a COPY BOTH block. Both sides send data
-                    if (!fsm.allow_copy)
-                        return {client_errc::copy_not_allowed, 0u};
                     call_handler(fsm, msg.get_copy_both_response());
                     fsm.state = state_t::exec_copy_both;
                     return {client_errc::needs_more, 0u};
@@ -339,8 +333,6 @@ static protocol::read_response_fsm::result_type handle_query(
             {
                 case kind::copy_out_response:
                     // Starts a COPY OUT block. Data is delivered to the handler as copy_data
-                    if (!fsm.allow_copy)
-                        return {client_errc::copy_not_allowed, 0u};
                     call_handler(fsm, msg.get_copy_out_response());
                     fsm.state = state_t::query_copy_out;
                     return {client_errc::needs_more, 0u};
@@ -350,8 +342,6 @@ static protocol::read_response_fsm::result_type handle_query(
                     // expect anything from the server until the copy finishes.
                     // The simple query protocol has no Sync messages, so the server
                     // discards none of them and the client has none to re-send
-                    if (!fsm.allow_copy)
-                        return {client_errc::copy_not_allowed, 0u};
                     auto [ec, nsyncs] = count_copy_in_syncs(fsm);
                     if (ec)
                         return {ec, 0u};
@@ -361,8 +351,6 @@ static protocol::read_response_fsm::result_type handle_query(
                 }
                 case kind::copy_both_response:
                     // Starts a COPY BOTH block. Both sides send data
-                    if (!fsm.allow_copy)
-                        return {client_errc::copy_not_allowed, 0u};
                     call_handler(fsm, msg.get_copy_both_response());
                     fsm.state = state_t::query_copy_both;
                     return {client_errc::needs_more, 0u};

@@ -826,7 +826,7 @@ void detail::exec_state_impl::setup(
 
     mpx = &mpx_ref;
     excl = new_excl;
-    fsm.emplace(&req, handler, true);  // TODO: probably remove the copy_allowed flag
+    fsm.emplace(&req, handler);
 }
 
 }  // namespace nativepg

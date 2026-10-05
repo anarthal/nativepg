@@ -29,7 +29,6 @@ struct read_response_fsm_impl
     // Params
     const request* req;
     response_handler_ref handler;
-    bool allow_copy;
 
     // Working state
     std::size_t current{};
@@ -42,8 +41,7 @@ struct read_response_fsm_impl
 class read_response_fsm
 {
 public:
-    read_response_fsm(const request* req, response_handler_ref handler, bool allow_copy = false) noexcept
-        : impl_{req, handler, allow_copy}
+    read_response_fsm(const request* req, response_handler_ref handler) noexcept : impl_{req, handler}
     {
         BOOST_ASSERT(req != nullptr);
     }

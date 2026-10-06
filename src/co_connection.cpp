@@ -463,7 +463,7 @@ struct co_connection::impl
 
         // If there are missing bytes to transfer, that's an error
         if (exec_st.copy_in.frame_num_bytes > 0u)
-            co_return {client_errc::copy_in_incomplete_transfer};
+            co_return {client_errc::copy_incomplete_transfer};
 
         // Compose the message to send. This is:
         //  CopyDone if we were successful

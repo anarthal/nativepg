@@ -167,7 +167,7 @@ public:
     // On success, st.write_phase() transitions from write_status::copy_data to
     //   write_status::waiting_for_reader. Read the rest of the response with read_some_response().
     // Requires that all the copy data passed to write_some_copy_data() has been transferred.
-    //   Otherwise, finishes with client_errc::copy_in_incomplete_transfer, and the copy may
+    //   Otherwise, finishes with client_errc::copy_incomplete_transfer, and the copy may
     //   still be completed by sending the missing bytes.
     // If this function finishes with an error, the terminator may have been written partially.
     //   Retrying is not supported: the connection should be considered unusable.
@@ -184,7 +184,7 @@ public:
     // On success, st.write_phase() transitions from write_status::copy_data to
     //   write_status::waiting_for_reader. Read the rest of the response with read_some_response().
     // Requires that all the copy data passed to write_some_copy_data() has been transferred.
-    //   Otherwise, finishes with client_errc::copy_in_incomplete_transfer, and the copy may
+    //   Otherwise, finishes with client_errc::copy_incomplete_transfer, and the copy may
     //   still be completed by sending the missing bytes.
     // If this function finishes with an error, the terminator may have been written partially.
     //   Retrying is not supported: the connection should be considered unusable.

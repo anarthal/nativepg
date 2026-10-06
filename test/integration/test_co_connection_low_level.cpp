@@ -84,7 +84,7 @@ void check_status(
 )
 {
     bool ok = BOOST_TEST_EQ(exec_st.is_prepared(), expected.is_prepared);
-    ok &= BOOST_TEST(exec_st.write_phase() == expected.write_phase);  // TODO
+    ok &= BOOST_TEST_EQ(exec_st.write_phase(), expected.write_phase);
     ok &= BOOST_TEST_EQ(exec_st.read_done(), expected.reader_done);
 
     if (!ok)

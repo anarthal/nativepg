@@ -165,12 +165,34 @@ capy::task<> test_success_simple_query_protocol()
     co_await do_test_success(req);
 }
 
+// Extra Sync messages are tolerated
+capy::task<> test_success_extended_protocol_extra_syncs()
+{
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+    req.add_sync();
+    req.add_sync();
+    co_await do_test_success(req);
+}
+
+capy::task<> test_success_simple_query_protocol_extra_syncs()
+{
+    request req;
+    req.add_simple_query("COPY copy_in_test FROM STDIN");
+    req.add_sync();
+    req.add_sync();
+    req.add_sync();
+    co_await do_test_success(req);
+}
+
 }  // namespace
 
 int main()
 {
     run_coroutine_test(test_success_extended_protocol());
     run_coroutine_test(test_success_simple_query_protocol());
+    run_coroutine_test(test_success_extended_protocol_extra_syncs());
+    run_coroutine_test(test_success_simple_query_protocol_extra_syncs());
 
     return boost::report_errors();
 }

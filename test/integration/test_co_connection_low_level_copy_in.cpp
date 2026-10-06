@@ -5,6 +5,7 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#include <boost/assert/source_location.hpp>
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/io_task.hpp>
@@ -13,6 +14,7 @@
 #include <boost/describe/class.hpp>
 #include <boost/describe/operators.hpp>
 
+#include <iostream>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -63,79 +65,104 @@ capy::io_task<> write_all_copy_data(co_connection& conn, exec_state& st, std::st
     co_return {};
 }
 
-// Extended protocol, nothing fails
-capy::task<> test_success_extended_protocol()
+// Sunny-day case. Might be run with different requests
+// (e.g. simple queries/extended protocol)
+capy::task<> do_test_success(const request& req_copy_in, boost::source_location loc = BOOST_CURRENT_LOCATION)
 {
     // Setup
     auto conn = co_await establish_connection();
 
     request req_setup;
     req_setup.add_query("CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)");
-    if (!co_await checked_exec(conn, req_setup))
+    if (!co_await checked_exec(conn, req_setup, loc))
         co_return;
 
-    request req;
-    req.add_query("COPY copy_in_test FROM STDIN");
     check handler;
 
     // A request that may enter copy-in mode requires exclusive access
     exec_state st;
-    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+    if (!BOOST_TEST_EQ(
+            conn.prepare_request(st, req_copy_in, &handler, exclusivity::exclusive),
+            std::error_code()
+        ))
+    {
+        std::cerr << "  Called from " << loc << std::endl;
         co_return;
-    check_status(st, {.is_prepared = true, .write_phase = write_status::request, .reader_done = false});
+    }
+    check_status(st, {.is_prepared = true, .write_phase = write_status::request, .reader_done = false}, loc);
 
     // Writing the request doesn't put us in copy-in mode: only the reader can
     // tell us that the server accepted the COPY and is waiting for data
-    if (!check_success(co_await conn.write_request(st)))
+    if (!check_success(co_await conn.write_request(st), loc))
         co_return;
     check_status(
         st,
-        {.is_prepared = true, .write_phase = write_status::waiting_for_reader, .reader_done = false}
+        {.is_prepared = true, .write_phase = write_status::waiting_for_reader, .reader_done = false},
+        loc
     );
 
     // Read until the server asks us for data (CopyInResponse)
     while (st.write_phase() == write_status::waiting_for_reader)
     {
-        if (!check_success(co_await conn.read_some_response(st)))
+        if (!check_success(co_await conn.read_some_response(st), loc))
             co_return;
     }
-    check_status(st, {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false});
+    check_status(
+        st,
+        {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false},
+        loc
+    );
 
     // Send the rows
-    if (!check_success(co_await write_all_copy_data(conn, st, "1\tone\n2\ttwo\n3\tthree\n"sv)))
+    if (!check_success(co_await write_all_copy_data(conn, st, "1\tone\n2\ttwo\n3\tthree\n"sv), loc))
         co_return;
 
     // Terminating the copy hands the connection back to the reader
-    if (!check_success(co_await conn.write_copy_done(st)))
+    if (!check_success(co_await conn.write_copy_done(st), loc))
         co_return;
     check_status(
         st,
-        {.is_prepared = true, .write_phase = write_status::waiting_for_reader, .reader_done = false}
+        {.is_prepared = true, .write_phase = write_status::waiting_for_reader, .reader_done = false},
+        loc
     );
 
     // Read the rest of the response
     while (!st.read_done())
     {
-        if (!check_success(co_await conn.read_some_response(st)))
+        if (!check_success(co_await conn.read_some_response(st), loc))
             co_return;
     }
-    check_status(st, {.is_prepared = true, .write_phase = write_status::done, .reader_done = true});
-    check_success(st.handler_error());
+    check_status(st, {.is_prepared = true, .write_phase = write_status::done, .reader_done = true}, loc);
+    check_success(st.handler_error(), loc);
 
     // The rows made it into the table
     std::vector<row_copy> rows;
     request req_check;
     req_check.add_query("SELECT id, name FROM copy_in_test ORDER BY id");
-    if (!co_await checked_exec(conn, req_check, into(rows)))
+    if (!co_await checked_exec(conn, req_check, into(rows), loc))
         co_return;
     const row_copy expected[] = {
         {.id = 1, .name = "one"  },
         {.id = 2, .name = "two"  },
         {.id = 3, .name = "three"}
     };
-    test_range_eq(rows, expected);
+    test_range_eq(rows, expected, loc);
 
-    co_await check_connection_usable(conn);
+    co_await check_connection_usable(conn, loc);
+}
+
+capy::task<> test_success_extended_protocol()
+{
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+    co_await do_test_success(req);
+}
+
+capy::task<> test_success_simple_query_protocol()
+{
+    request req;
+    req.add_simple_query("COPY copy_in_test FROM STDIN");
+    co_await do_test_success(req);
 }
 
 }  // namespace
@@ -143,6 +170,7 @@ capy::task<> test_success_extended_protocol()
 int main()
 {
     run_coroutine_test(test_success_extended_protocol());
+    run_coroutine_test(test_success_simple_query_protocol());
 
     return boost::report_errors();
 }

@@ -263,6 +263,71 @@ capy::task<> test_success_simple_query_several_copies()
     co_await check_connection_usable(conn);
 }
 
+// Copy data can be handed over in as many calls as the caller likes
+capy::task<> test_success_several_writes()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req_setup;
+    req_setup.add_query("CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)");
+    if (!co_await checked_exec(conn, req_setup))
+        co_return;
+
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+
+    // Wait until the server asks us for data
+    while (st.write_phase() == write_status::waiting_for_reader)
+    {
+        if (!check_success(co_await conn.read_some_response(st)))
+            co_return;
+    }
+    check_status(st, {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false});
+
+    // Split points are arbitrary
+    if (!check_success(co_await write_all_copy_data(conn, st, "1")) ||
+        !check_success(co_await write_all_copy_data(conn, st, "\tone\n2\tt")) ||
+        !check_success(co_await write_all_copy_data(conn, st, "wo\n3\tthr")) ||
+        !check_success(co_await write_all_copy_data(conn, st, "ee\n")))
+        co_return;
+    check_status(st, {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false});
+
+    if (!check_success(co_await conn.write_copy_done(st)))
+        co_return;
+
+    // Read the rest of the response
+    while (!st.read_done())
+    {
+        if (!check_success(co_await conn.read_some_response(st)))
+            co_return;
+    }
+    check_status(st, {.is_prepared = true, .write_phase = write_status::done, .reader_done = true});
+    check_success(st.handler_error());
+
+    // The server reassembled the stream regardless of how we split it
+    std::vector<row_copy> rows;
+    request req_check;
+    req_check.add_query("SELECT id, name FROM copy_in_test ORDER BY id");
+    if (!co_await checked_exec(conn, req_check, into(rows)))
+        co_return;
+    const row_copy expected[] = {
+        {.id = 1, .name = "one"  },
+        {.id = 2, .name = "two"  },
+        {.id = 3, .name = "three"}
+    };
+    test_range_eq(rows, expected);
+
+    co_await check_connection_usable(conn);
+}
+
 }  // namespace
 
 int main()
@@ -272,6 +337,7 @@ int main()
     run_coroutine_test(test_success_extended_protocol_extra_syncs());
     run_coroutine_test(test_success_simple_query_protocol_extra_syncs());
     run_coroutine_test(test_success_simple_query_several_copies());
+    run_coroutine_test(test_success_several_writes());
 
     return boost::report_errors();
 }

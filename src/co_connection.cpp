@@ -57,6 +57,17 @@ namespace nativepg {
 
 struct co_connection::impl
 {
+    // Marks a state as having a write operation in flight, so that no two of
+    // write_request/write_some_copy_data/write_copy_done/write_copy_fail overlap
+    struct writing_guard
+    {
+        detail::exec_state_impl* st;
+        explicit writing_guard(detail::exec_state_impl& s) noexcept : st(&s) { st->writing = true; }
+        writing_guard(const writing_guard&) = delete;
+        writing_guard& operator=(const writing_guard&) = delete;
+        ~writing_guard() { st->writing = false; }
+    };
+
     corosio::resolver resolv;
     corosio::tcp_socket sock;
     protocol::connection_state st{};
@@ -147,15 +158,10 @@ struct co_connection::impl
         if (!exec_st.is_prepared() || exec_st.payload_written())
             co_return {client_errc::invalid_state};
 
-        // Only one writer per state may be in flight
+        // Only one write operation per state may be in flight
         if (exec_st.writing)
             co_return {client_errc::already_running};
-        exec_st.writing = true;
-        struct writing_guard
-        {
-            detail::exec_state_impl* st;
-            ~writing_guard() { st->writing = false; }
-        } guard{&exec_st};
+        writing_guard guard{exec_st};
 
         // Wait for our turn to write and register what we are doing in the queue.
         // When resuming a partially written request we still hold both, so skip this
@@ -334,9 +340,15 @@ struct co_connection::impl
         boost::capy::const_buffer buff
     )
     {
-        // State check
-        if (!exec_st.copy_in.active)
+        // The server must have asked us for data. This also implies that our request
+        // was written in full, so our frames can't interleave with its payload
+        if (exec_st.phase() != write_status::copy_data)
             co_return {client_errc::invalid_state, 0u};
+
+        // Only one write operation per state may be in flight
+        if (exec_st.writing)
+            co_return {client_errc::already_running, 0u};
+        writing_guard guard{exec_st};
 
         // Empty buffers are a no-op
         if (buff.size() == 0u)
@@ -439,9 +451,15 @@ struct co_connection::impl
         std::string_view error_message
     )
     {
-        // State check
-        if (!exec_st.copy_in.active)
+        // The server must have asked us for data. This also implies that our request
+        // was written in full, so our terminator can't interleave with its payload
+        if (exec_st.phase() != write_status::copy_data)
             co_return {client_errc::invalid_state};
+
+        // Only one write operation per state may be in flight
+        if (exec_st.writing)
+            co_return {client_errc::already_running};
+        writing_guard guard{exec_st};
 
         // If there are missing bytes to transfer, that's an error
         if (exec_st.copy_in.frame_num_bytes > 0u)

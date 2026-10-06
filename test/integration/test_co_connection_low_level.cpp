@@ -5,6 +5,7 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#include <boost/assert/source_location.hpp>
 #include <boost/capy/cond.hpp>
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/run.hpp>
@@ -17,6 +18,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <iostream>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -36,6 +38,7 @@
 #include "nativepg/responses/into.hpp"
 #include "nativepg/responses/response.hpp"
 #include "nativepg/responses/response_handler.hpp"
+#include "nativepg/write_status.hpp"
 #include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
@@ -66,6 +69,28 @@ BOOST_DESCRIBE_STRUCT(row_string, (), (value))
 using boost::describe::operators::operator==;
 using boost::describe::operators::operator<<;
 
+// A tool to check that exec_state's status accessors have the expected values
+struct expected_status
+{
+    bool is_prepared{};
+    write_status write_phase{write_status::request};
+    bool reader_done{};
+};
+
+void check_status(
+    const exec_state& exec_st,
+    const expected_status& expected,
+    boost::source_location loc = BOOST_CURRENT_LOCATION
+)
+{
+    bool ok = BOOST_TEST_EQ(exec_st.is_prepared(), expected.is_prepared);
+    ok &= BOOST_TEST(exec_st.write_phase() == expected.write_phase);  // TODO
+    ok &= BOOST_TEST_EQ(exec_st.read_done(), expected.reader_done);
+
+    if (!ok)
+        std::cerr << "  Called from " << loc << std::endl;
+}
+
 //
 // Usual cases
 //
@@ -83,22 +108,20 @@ capy::task<> test_success()
 
     // A fresh state holds nothing
     exec_state st;
-    BOOST_TEST(!st.is_prepared());
-    BOOST_TEST(!st.write_done());
-    BOOST_TEST(!st.read_done());
+    check_status(st, {.is_prepared = false, .write_phase = write_status::request, .reader_done = false});
 
     // Prepare
     if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
         co_return;
     BOOST_TEST(st.is_prepared());
-    BOOST_TEST(!st.write_done());
+    BOOST_TEST(st.write_phase() == write_status::request);
     BOOST_TEST(!st.read_done());
 
     // Write the request
     if (!check_success(co_await conn.write_request(st)))
         co_return;
     BOOST_TEST(st.is_prepared());
-    BOOST_TEST(st.write_done());
+    BOOST_TEST(st.write_phase() == write_status::done);
     BOOST_TEST(!st.read_done());
 
     // Read the response. A single call only guarantees progress, not completion
@@ -155,7 +178,7 @@ capy::task<> test_handler_error()
     }
 
     // The error is reported by the operation and recorded in the state
-    BOOST_TEST(st.write_done());
+    BOOST_TEST(st.write_phase() == write_status::done);
     BOOST_TEST(st.read_done());
     const extended_error expected_err{
         std::make_error_code(std::errc::invalid_argument),
@@ -185,7 +208,7 @@ capy::task<> test_prepare_request_error()
     );
     BOOST_TEST_NOT(st.is_prepared());
     BOOST_TEST_NOT(st.read_done());
-    BOOST_TEST_NOT(st.write_done());
+    BOOST_TEST(st.write_phase() == write_status::request);
 
     // Nothing was written, so the connection is untouched
     co_await check_connection_usable(conn);
@@ -357,13 +380,13 @@ capy::task<> test_read_before_write()
             co_await yield();
 
             // Nothing has been written yet, so the reader can't have made progress
-            BOOST_TEST(!st.write_done());
+            BOOST_TEST(st.write_phase() == write_status::request);
             BOOST_TEST(!st.read_done());
             BOOST_TEST(rows.empty());
 
             // This is what unblocks the reader
             check_success(co_await conn.write_request(st));
-            BOOST_TEST(st.write_done());
+            BOOST_TEST(st.write_phase() == write_status::done);
             co_return {};
         }()
     ));
@@ -400,12 +423,12 @@ capy::task<> test_retry_write()
     test_cond_eq(write_ec, capy::cond::canceled);
 
     // We still hold the write side, so no other request can interleave with ours
-    BOOST_TEST_NOT(st.write_done());
+    BOOST_TEST(st.write_phase() == write_status::request);
 
     // Retrying sends whatever didn't make it the first time
     if (!check_success(co_await conn.write_request(st)))
         co_return;
-    BOOST_TEST(st.write_done());
+    BOOST_TEST(st.write_phase() == write_status::done);
 
     // The server received the request exactly once, so the response matches
     while (!st.read_done())
@@ -530,7 +553,7 @@ capy::task<> test_exec_before()
 
             // We should be able to write even if exec() hasn't finished
             check_success(co_await conn.write_request(st));
-            BOOST_TEST(st.write_done());
+            BOOST_TEST(st.write_phase() == write_status::done);
             BOOST_TEST_NOT(st.read_done());
 
             // Unblock exec()
@@ -809,7 +832,7 @@ capy::task<> test_reset_prepared()
 
     st.reset();
     BOOST_TEST_NOT(st.is_prepared());
-    BOOST_TEST_NOT(st.write_done());
+    BOOST_TEST(st.write_phase() == write_status::request);
     BOOST_TEST_NOT(st.read_done());
 
     // The statement never made it to the server, so the variable isn't there
@@ -836,7 +859,7 @@ capy::task<> test_reset_after_write()
         co_return;
     if (!check_success(co_await conn.write_request(st)))
         co_return;
-    BOOST_TEST(st.write_done());
+    BOOST_TEST(st.write_phase() == write_status::done);
     BOOST_TEST_NOT(st.read_done());
 
     // Abandon it. The server still owes us the whole response
@@ -909,7 +932,7 @@ capy::task<> test_destructor_abandons()
             co_return;
         if (!check_success(co_await conn.write_request(st)))
             co_return;
-        BOOST_TEST(st.write_done());
+        BOOST_TEST(st.write_phase() == write_status::done);
         BOOST_TEST_NOT(st.read_done());
     }
 
@@ -934,7 +957,7 @@ capy::task<> test_reuse_state()
         co_return;
     if (!check_success(co_await conn.write_request(st)))
         co_return;
-    BOOST_TEST(st.write_done());
+    BOOST_TEST(st.write_phase() == write_status::done);
     BOOST_TEST_NOT(st.read_done());
 
     // Second round on the same state. A distinct row type makes it obvious
@@ -946,7 +969,7 @@ capy::task<> test_reuse_state()
     if (!BOOST_TEST_EQ(conn.prepare_request(st, req2, &handler2), std::error_code()))
         co_return;
     BOOST_TEST(st.is_prepared());
-    BOOST_TEST_NOT(st.write_done());
+    BOOST_TEST(st.write_phase() == write_status::request);
     BOOST_TEST_NOT(st.read_done());
 
     if (!check_success(co_await conn.write_request(st)))
@@ -1009,7 +1032,7 @@ capy::task<> test_write_already_running()
         }()
     ));
 
-    BOOST_TEST(st.write_done());
+    BOOST_TEST(st.write_phase() == write_status::done);
 
     // After abandonment, the connection is usable
     st.reset();
@@ -1031,7 +1054,7 @@ capy::task<> test_write_already_done()
         co_return;
     if (!check_success(co_await conn.write_request(st)))
         co_return;
-    BOOST_TEST(st.write_done());
+    BOOST_TEST(st.write_phase() == write_status::done);
 
     // Writing again would send the request twice
     auto [ec] = co_await conn.write_request(st);

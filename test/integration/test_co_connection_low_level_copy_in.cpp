@@ -185,6 +185,84 @@ capy::task<> test_success_simple_query_protocol_extra_syncs()
     co_await do_test_success(req);
 }
 
+// A single simple query may contain several COPY ... FROM STDIN statements,
+// with other statements in between. Each one takes the writer back to copy_data
+capy::task<> test_success_simple_query_several_copies()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req_setup;
+    req_setup.add_query("CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)");
+    if (!co_await checked_exec(conn, req_setup))
+        co_return;
+
+    // The statement between the two copies makes the server go back to its
+    // regular flow before asking us for data again.
+    // This works even in the presence of trailing syncs.
+    request req;
+    req.add_simple_query(
+        "COPY copy_in_test FROM STDIN;"
+        "INSERT INTO copy_in_test VALUES (2, 'two');"
+        "COPY copy_in_test FROM STDIN"
+    );
+    req.add_sync();
+    req.add_sync();
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+
+    // Both copies follow the same pattern: read until the server asks for data,
+    // send it, then hand the connection back to the reader
+    constexpr std::string_view copy_data[] = {"1\tone\n"sv, "3\tthree\n"sv};
+    for (auto data : copy_data)
+    {
+        while (st.write_phase() == write_status::waiting_for_reader)
+        {
+            if (!check_success(co_await conn.read_some_response(st)))
+                co_return;
+        }
+        check_status(st, {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false});
+
+        if (!check_success(co_await write_all_copy_data(conn, st, data)))
+            co_return;
+        if (!check_success(co_await conn.write_copy_done(st)))
+            co_return;
+        check_status(
+            st,
+            {.is_prepared = true, .write_phase = write_status::waiting_for_reader, .reader_done = false}
+        );
+    }
+
+    // Read the rest of the response
+    while (!st.read_done())
+    {
+        if (!check_success(co_await conn.read_some_response(st)))
+            co_return;
+    }
+    check_status(st, {.is_prepared = true, .write_phase = write_status::done, .reader_done = true});
+    check_success(st.handler_error());
+
+    // Both copies landed in the table, and so did the statement between them
+    std::vector<row_copy> rows;
+    request req_check;
+    req_check.add_query("SELECT id, name FROM copy_in_test ORDER BY id");
+    if (!co_await checked_exec(conn, req_check, into(rows)))
+        co_return;
+    const row_copy expected[] = {
+        {.id = 1, .name = "one"  },
+        {.id = 2, .name = "two"  },
+        {.id = 3, .name = "three"}
+    };
+    test_range_eq(rows, expected);
+
+    co_await check_connection_usable(conn);
+}
+
 }  // namespace
 
 int main()
@@ -193,6 +271,7 @@ int main()
     run_coroutine_test(test_success_simple_query_protocol());
     run_coroutine_test(test_success_extended_protocol_extra_syncs());
     run_coroutine_test(test_success_simple_query_protocol_extra_syncs());
+    run_coroutine_test(test_success_simple_query_several_copies());
 
     return boost::report_errors();
 }

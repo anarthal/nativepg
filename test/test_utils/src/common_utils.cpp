@@ -21,6 +21,7 @@
 #include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/command_info.hpp"
 #include "nativepg/responses/response_handler.hpp"
+#include "nativepg/write_status.hpp"
 #include "test_utils/ci_server.hpp"
 #include "test_utils/printing.hpp"
 #include "test_utils/response_handler_utils.hpp"
@@ -143,6 +144,20 @@ static const char* to_string(nativepg::encoding v)
 }
 
 std::ostream& nativepg::operator<<(std::ostream& os, encoding v) { return os << to_string(v); }
+
+static const char* to_string(nativepg::write_status v)
+{
+    switch (v)
+    {
+        case nativepg::write_status::request: return "request";
+        case nativepg::write_status::waiting_for_reader: return "waiting_for_reader";
+        case nativepg::write_status::copy_data: return "copy_data";
+        case nativepg::write_status::done: return "done";
+        default: return "<unknown write_status>";
+    }
+}
+
+std::ostream& nativepg::operator<<(std::ostream& os, write_status v) { return os << to_string(v); }
 
 // --- CI server ---
 static std::string safe_getenv(const char* name, const char* default_value)

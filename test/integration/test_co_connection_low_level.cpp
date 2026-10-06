@@ -5,7 +5,6 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include <boost/assert/source_location.hpp>
 #include <boost/capy/cond.hpp>
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/run.hpp>
@@ -18,7 +17,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <iostream>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -41,6 +39,7 @@
 #include "nativepg/write_status.hpp"
 #include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
+#include "test_utils/exec_state_utils.hpp"
 #include "test_utils/printing.hpp"
 #include "test_utils/test_cond_eq.hpp"
 #include "test_utils/test_opt_eq.hpp"
@@ -68,28 +67,6 @@ BOOST_DESCRIBE_STRUCT(row_string, (), (value))
 
 using boost::describe::operators::operator==;
 using boost::describe::operators::operator<<;
-
-// A tool to check that exec_state's status accessors have the expected values
-struct expected_status
-{
-    bool is_prepared{};
-    write_status write_phase{write_status::request};
-    bool reader_done{};
-};
-
-void check_status(
-    const exec_state& exec_st,
-    const expected_status& expected,
-    boost::source_location loc = BOOST_CURRENT_LOCATION
-)
-{
-    bool ok = BOOST_TEST_EQ(exec_st.is_prepared(), expected.is_prepared);
-    ok &= BOOST_TEST_EQ(exec_st.write_phase(), expected.write_phase);
-    ok &= BOOST_TEST_EQ(exec_st.read_done(), expected.reader_done);
-
-    if (!ok)
-        std::cerr << "  Called from " << loc << std::endl;
-}
 
 //
 // Usual cases

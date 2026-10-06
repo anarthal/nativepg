@@ -19,6 +19,7 @@
 #include "nativepg/protocol/read_response_fsm.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
+#include "nativepg/write_status.hpp"
 
 namespace nativepg::detail {
 
@@ -101,9 +102,32 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
     // Did the user call prepare_request()?
     bool is_prepared() const { return mpx != nullptr; }
 
-    // Did each of the two halves of the operation finish?
-    bool write_done() const { return writer_st == writer_status::done; }
+    // Did the writer finish sending the request's payload and report its exit?
+    // This is write-mutex accounting, and is not the user-facing notion of
+    // "the writer has nothing left to do" - see phase()
+    bool payload_written() const { return writer_st == writer_status::done; }
+
+    // Did the reader report its exit?
     bool read_done() const { return reader_done; }
+
+    // What should the writer do next? See write_phase for the possible sequences
+    write_status phase() const
+    {
+        // We still owe the server part of our request
+        if (!payload_written())
+            return write_status::request;
+
+        // Shared requests can't enter copy mode, so we're definitely finished
+        if (excl != exclusivity::exclusive)
+            return write_status::done;
+
+        // The server asked us for data
+        if (copy_in.active)
+            return write_status::copy_data;
+
+        // The server may still ask us for data, and only the reader can tell
+        return read_done() ? write_status::done : write_status::waiting_for_reader;
+    }
 
     // Did the writer write at least one byte of our request?
     bool request_committed() const { return bytes_written > 0u; };

@@ -108,7 +108,7 @@ public:
     void report_reader_exit(exec_state_impl& st)
     {
         st.reader_done = true;
-        if (st.write_done())
+        if (st.payload_written())
             on_both_exited(st);
     }
 

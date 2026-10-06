@@ -28,6 +28,7 @@
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
 #include "nativepg/responses/error_into.hpp"
+#include "nativepg/write_status.hpp"
 
 using namespace nativepg;
 namespace capy = boost::capy;
@@ -113,7 +114,7 @@ static capy::task<> co_main()
                     co_return {ec};
 
                 // If we're in Copy-in mode, notify the writer
-                if (exec_st.copy_in())
+                if (exec_st.write_phase() == write_status::copy_data)
                     copy_in_received.set();
             }
 

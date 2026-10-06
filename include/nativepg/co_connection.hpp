@@ -110,13 +110,15 @@ public:
     // If another operation is currently writing requests (e.g. another parallel exec()),
     //   waits until its write part finishes before initiating the write.
     // Returns success if all the request's bytes were written to the server.
-    //   In this case, st.write_done() returns true.
+    //   In this case, st.write_phase() transitions from write_status::request
+    //   to write_status::done (for requests using exclusivity::shared)
+    //   or write_status::copy_in/write_status::waiting_for_reader (for exclusive requests).
     // If this function finishes with an error, the number of transferred bytes
     //   is stored internally within st. Subsequent write_request calls are allowed.
     //   This allows to resume writing after a cancellation, for example.
     // Only one instance of write_request for a given exec_state is allowed
     //   to be in-flight at a time. Attempting to launch another fails with client_errc::already_running.
-    // Requires st.is_prepared() && !st.write_done().
+    // Requires st.is_prepared() && st.write_phase() == write_status::request.
     //   Otherwise, finishes with client_errc::invalid_state.
     boost::capy::io_task<> write_request(exec_state& st);
 
@@ -132,9 +134,10 @@ public:
     //   to be in-flight at a time. Attempting to launch another fails with client_errc::already_running.
     // Requires st.is_prepared() && !st.read_done().
     //   Otherwise, finishes with client_errc::invalid_state.
-    // This function is fully independent from write_request(). You are responsible
-    //   for calling write_request() until st.write_done() return true.
-    //   A failure in write_request() won't cancel read_some_response(), to allow re-trying.
+    // This function is fully independent from the writer functions. You are responsible
+    //   for calling write_request(), write_some_copy_data(), write_copy_done() or write_copy_fail()
+    //   until st.write_phase() == write_status::done.
+    //   A failure in any of the writer functions won't cancel read_some_response(), to allow re-trying.
     boost::capy::io_task<> read_some_response(exec_state& st);
 
     // TODO: this should use a ConstBufferSequence

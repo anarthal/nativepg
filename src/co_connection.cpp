@@ -144,7 +144,7 @@ struct co_connection::impl
         using writer_status = detail::exec_state_impl::writer_status;
 
         // We must have been prepared, and must still have something to write
-        if (!exec_st.is_prepared() || exec_st.write_done())
+        if (!exec_st.is_prepared() || exec_st.payload_written())
             co_return {client_errc::invalid_state};
 
         // Only one writer per state may be in flight

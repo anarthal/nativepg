@@ -305,10 +305,9 @@ struct co_connection::impl
                     // Record the fact that we're now in CopyIn mode
                     exec_st.copy_in = {.active = true, .swallowed_syncs = nsyncs};
 
-                    // Yield, it's now the user's turn to write data
-                    // TODO: but the user may want to keep reading to look for errors
-                    st.read_buffer.consume(consumed);
-                    co_return {};
+                    // The message batch should finish, and we will yield.
+                    // We don't need to do it explicitly, though - that's guaranteed by
+                    // our read_some semantics
                 }
                 else if (fsm_ec != client_errc::needs_more)
                 {

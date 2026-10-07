@@ -776,6 +776,37 @@ capy::task<> test_copy_in_not_last_simple_query_protocol()
     co_await do_test_copy_in_not_last(req);
 }
 
+// Copy-in requires exclusive mode
+capy::task<> test_copy_in_not_exclusive()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req_setup;
+    req_setup.add_query("CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)");
+    if (!co_await checked_exec(conn, req_setup))
+        co_return;
+
+    check handler;
+
+    // Preparing and writing the request both succeed
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::shared), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+
+    // The reader receives CopyInResponse and fails
+    std::error_code ec;
+    while (!ec && !st.read_done())
+        ec = (co_await conn.read_some_response(st)).ec;
+    BOOST_TEST_EQ(ec, std::error_code(client_errc::requires_exclusive));
+
+    // The connection is not usable
+}
+
 //
 // State checks
 //
@@ -981,6 +1012,7 @@ int main()
 
     run_coroutine_test(test_copy_in_not_last_extended_protocol());
     run_coroutine_test(test_copy_in_not_last_simple_query_protocol());
+    run_coroutine_test(test_copy_in_not_exclusive());
 
     run_coroutine_test(test_not_prepared());
     run_coroutine_test(test_request_not_written());

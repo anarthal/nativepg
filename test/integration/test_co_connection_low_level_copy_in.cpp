@@ -8,8 +8,11 @@
 #include <boost/assert/source_location.hpp>
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
+#include <boost/capy/error.hpp>
+#include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/task.hpp>
+#include <boost/capy/when_all.hpp>
 #include <boost/core/lightweight_test.hpp>
 #include <boost/describe/class.hpp>
 #include <boost/describe/operators.hpp>
@@ -391,6 +394,80 @@ capy::task<> test_success_no_data()
     co_await check_connection_usable(conn);
 }
 
+// Reader and writer can run in parallel
+capy::task<> test_success_parallel()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req_setup;
+    req_setup.add_query("CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)");
+    if (!co_await checked_exec(conn, req_setup))
+        co_return;
+
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+
+    capy::async_event copy_in_received;
+
+    auto [ec, writer_dummy, reader_dummy] = co_await capy::when_all(
+        [&]() -> capy::io_task<> {
+            // Writer. Write the request
+            if (!check_success(co_await conn.write_request(st)))
+                co_return {capy::error::canceled};
+
+            // Wait until the reader tells us that the server wants data
+            if (!check_success(co_await copy_in_received.wait()))
+                co_return {capy::error::canceled};
+
+            // Write all the data
+            if (!check_success(co_await write_all_copy_data(conn, st, "1\tone\n2\ttwo\n3\tthree\n"sv)))
+                co_return {capy::error::canceled};
+
+            // Finish
+            if (!check_success(co_await conn.write_copy_done(st)))
+                co_return {capy::error::canceled};
+
+            co_return {};
+        }(),
+
+        [&]() -> capy::io_task<> {
+            // Reader. Needs to notify the writer to start writing copy data
+            while (!st.read_done())
+            {
+                if (!check_success(co_await conn.read_some_response(st)))
+                    co_return {capy::error::canceled};
+
+                if (st.write_phase() == write_status::copy_data)
+                    copy_in_received.set();
+            }
+
+            // If we received no request for copy data, unblock the writer
+            co_return {copy_in_received.is_set() ? std::error_code{} : capy::error::canceled};
+        }()
+    );
+
+    if (ec)
+        co_return;
+    check_status(st, {.is_prepared = true, .write_phase = write_status::done, .reader_done = true});
+    check_success(st.handler_error());
+
+    // The rows were transferred
+    const row_copy expected[] = {
+        {.id = 1, .name = "one"  },
+        {.id = 2, .name = "two"  },
+        {.id = 3, .name = "three"}
+    };
+    co_await check_copy_rows(conn, expected);
+
+    co_await check_connection_usable(conn);
+}
+
 // write_copy_fail works
 capy::task<> test_copy_fail()
 {
@@ -585,6 +662,7 @@ int main()
     run_coroutine_test(test_success_simple_query_several_copies());
     run_coroutine_test(test_success_several_writes());
     run_coroutine_test(test_success_no_data());
+    run_coroutine_test(test_success_parallel());
     run_coroutine_test(test_copy_fail());
     run_coroutine_test(test_copy_fail_no_data());
     run_coroutine_test(test_server_error_mid_transfer());

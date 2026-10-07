@@ -118,10 +118,9 @@ static capy::task<> co_main()
                     copy_in_received.set();
             }
 
-            // This will be non-empty if the server detected an error in the
-            // data that we sent. It will cancel the writer, so it doesn't write
-            // more useless data.
-            co_return {err.code};
+            // TODO: we could try to detect server-issued errors
+            // (but better in a high-level utility)
+            co_return {};
         }()
     );
 

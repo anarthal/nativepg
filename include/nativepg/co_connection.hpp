@@ -171,6 +171,11 @@ public:
     //   still be completed by sending the missing bytes.
     // If this function finishes with an error, the terminator may have been written partially.
     //   Retrying is not supported: the connection should be considered unusable.
+    // If the server detects an error in the data (e.g. a row with an invalid format),
+    //   it will send an error that can be read with read_some_messages.
+    //   You should still call write_copy_done or write_copy_fail to terminate the copy
+    //   operation, even after reading the error, as this function performs
+    //   protocol-level bookkeeping required to keep the connection in sync.
     // Only one writer function (write_request, write_some_copy_data, write_copy_done or
     //   write_copy_fail) for a given exec_state may be in-flight at a time.
     //   Attempting to launch another fails with client_errc::already_running.
@@ -186,6 +191,11 @@ public:
     // Requires that all the copy data passed to write_some_copy_data() has been transferred.
     //   Otherwise, finishes with client_errc::copy_incomplete_transfer, and the copy may
     //   still be completed by sending the missing bytes.
+    // If the server detects an error in the data (e.g. a row with an invalid format),
+    //   it will send an error that can be read with read_some_messages.
+    //   You should still call write_copy_done or write_copy_fail to terminate the copy
+    //   operation, even after reading the error, as this function performs
+    //   protocol-level bookkeeping required to keep the connection in sync.
     // If this function finishes with an error, the terminator may have been written partially.
     //   Retrying is not supported: the connection should be considered unusable.
     // Only one writer function (write_request, write_some_copy_data, write_copy_done or

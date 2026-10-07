@@ -26,6 +26,7 @@
 #include <system_error>
 #include <vector>
 
+#include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/exclusivity.hpp"
 #include "nativepg/exec_state.hpp"
@@ -714,6 +715,67 @@ capy::task<> test_cancel_retry_copy_data()
     co_await check_connection_usable(conn);
 }
 
+// A COPY ... FROM STDIN must be the last thing in its request (fatal error)
+capy::task<> do_test_copy_in_not_last(
+    const request& req_copy_in,
+    boost::source_location loc = BOOST_CURRENT_LOCATION
+)
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req_setup;
+    req_setup.add_query("CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)");
+    if (!co_await checked_exec(conn, req_setup, loc))
+        co_return;
+
+    check handler;
+
+    // Preparing and writing the request both succeed
+    exec_state st;
+    if (!BOOST_TEST_EQ(
+            conn.prepare_request(st, req_copy_in, &handler, exclusivity::exclusive),
+            std::error_code()
+        ))
+    {
+        std::cerr << "  Called from " << loc << std::endl;
+        co_return;
+    }
+    if (!check_success(co_await conn.write_request(st), loc))
+        co_return;
+
+    // The reader finds out when the CopyInResponse arrives
+    auto [ec] = co_await read_until_copy_data(conn, st);
+    if (!BOOST_TEST_EQ(ec, make_error_code(client_errc::copy_in_not_last)))
+        std::cerr << "  Called from " << loc << std::endl;
+
+    // The copy never started, and the operation didn't complete.
+    // The connection is unusable
+    check_status(
+        st,
+        {.is_prepared = true, .write_phase = write_status::waiting_for_reader, .reader_done = false},
+        loc
+    );
+}
+
+capy::task<> test_copy_in_not_last_extended_protocol()
+{
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+    req.add_query("SELECT 1");
+    co_await do_test_copy_in_not_last(req);
+}
+
+capy::task<> test_copy_in_not_last_simple_query_protocol()
+{
+    request req;
+    req.add_simple_query("COPY copy_in_test FROM STDIN");
+    req.add_simple_query("SELECT 1");
+    co_await do_test_copy_in_not_last(req);
+}
+
+// TODO: cancelling write_copy_done/write_copy_fail is fatal
+
 }  // namespace
 
 int main()
@@ -732,6 +794,9 @@ int main()
     run_coroutine_test(test_server_error_mid_transfer());
 
     run_coroutine_test(test_cancel_retry_copy_data());
+
+    run_coroutine_test(test_copy_in_not_last_extended_protocol());
+    run_coroutine_test(test_copy_in_not_last_simple_query_protocol());
 
     return boost::report_errors();
 }

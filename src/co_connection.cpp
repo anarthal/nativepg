@@ -11,6 +11,7 @@
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/write.hpp>
+#include <boost/container/static_vector.hpp>
 #include <boost/corosio/connect.hpp>
 #include <boost/corosio/resolver.hpp>
 #include <boost/corosio/socket_option.hpp>
@@ -20,14 +21,12 @@
 #include <array>
 #include <cstddef>
 #include <limits>
-#include <memory>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <utility>
-#include <vector>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
@@ -354,7 +353,7 @@ struct co_connection::impl
         if (buff.size() == 0u)
             co_return {};
 
-        std::vector<capy::const_buffer> bufs;
+        boost::container::static_vector<capy::const_buffer, 4u> bufs;
         std::array<unsigned char, 5u> frame_header, prev_frame_header;
         std::span<const unsigned char> buff_as_span{
             static_cast<const unsigned char*>(buff.data()),

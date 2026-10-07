@@ -715,6 +715,8 @@ capy::task<> test_cancel_retry_copy_data()
     co_await check_connection_usable(conn);
 }
 
+// TODO: cancelling write_copy_done/write_copy_fail is fatal
+
 // A COPY ... FROM STDIN must be the last thing in its request (fatal error)
 capy::task<> do_test_copy_in_not_last(
     const request& req_copy_in,
@@ -774,7 +776,189 @@ capy::task<> test_copy_in_not_last_simple_query_protocol()
     co_await do_test_copy_in_not_last(req);
 }
 
-// TODO: cancelling write_copy_done/write_copy_fail is fatal
+//
+// State checks
+//
+
+// A state that was never prepared has nothing to write to
+capy::task<> test_not_prepared()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+    exec_state st;
+
+    auto [ec1, bytes] = co_await conn.write_some_copy_data(st, capy::make_buffer("abc"sv));
+    BOOST_TEST_EQ(ec1, std::error_code(client_errc::invalid_state));
+
+    auto [ec2] = co_await conn.write_copy_done(st);
+    BOOST_TEST_EQ(ec2, std::error_code(client_errc::invalid_state));
+
+    auto [ec3] = co_await conn.write_copy_fail(st, "message");
+    BOOST_TEST_EQ(ec3, std::error_code(client_errc::invalid_state));
+
+    // Nothing was written, so the connection is untouched
+    co_await check_connection_usable(conn);
+}
+
+// The request has to reach the server before the server can ask for data
+capy::task<> test_request_not_written()
+{
+    auto conn = co_await establish_connection();
+
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+
+    auto [ec1, bytes] = co_await conn.write_some_copy_data(st, capy::make_buffer("abc"sv));
+    BOOST_TEST_EQ(ec1, std::error_code(client_errc::invalid_state));
+
+    auto [ec2] = co_await conn.write_copy_done(st);
+    BOOST_TEST_EQ(ec2, std::error_code(client_errc::invalid_state));
+
+    auto [ec3] = co_await conn.write_copy_fail(st, "message");
+    BOOST_TEST_EQ(ec3, std::error_code(client_errc::invalid_state));
+
+    // Nothing was written, so the connection is untouched
+    co_await check_connection_usable(conn);
+}
+
+// The request was written, but the server hasn't asked for data
+capy::task<> test_not_in_copy_data()
+{
+    auto conn = co_await establish_connection();
+
+    request req;
+    req.add_query("SELECT 1");
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    check_status(
+        st,
+        {.is_prepared = true, .write_phase = write_status::waiting_for_reader, .reader_done = false}
+    );
+
+    auto [ec1, bytes] = co_await conn.write_some_copy_data(st, capy::make_buffer("abc"sv));
+    BOOST_TEST_EQ(ec1, std::error_code(client_errc::invalid_state));
+
+    auto [ec2] = co_await conn.write_copy_done(st);
+    BOOST_TEST_EQ(ec2, std::error_code(client_errc::invalid_state));
+
+    auto [ec3] = co_await conn.write_copy_fail(st, "message");
+    BOOST_TEST_EQ(ec3, std::error_code(client_errc::invalid_state));
+
+    // The rejected call didn't disturb the response
+    if (!check_success(co_await read_until_done(conn, st)))
+        co_return;
+    check_success(st.handler_error());
+    co_await check_connection_usable(conn);
+}
+
+// Once the operation is over, there is nothing left to write
+capy::task<> test_already_done()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req;
+    req.add_query("SELECT 1");
+    check handler;
+
+    exec_state st;
+
+    // Run the operation until it's done
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    if (!check_success(co_await read_until_done(conn, st)))
+        co_return;
+    check_status(st, {.is_prepared = true, .write_phase = write_status::done, .reader_done = true});
+
+    // Try to write
+    auto [ec1, bytes] = co_await conn.write_some_copy_data(st, capy::make_buffer("abc"sv));
+    BOOST_TEST_EQ(ec1, std::error_code(client_errc::invalid_state));
+
+    auto [ec2] = co_await conn.write_copy_done(st);
+    BOOST_TEST_EQ(ec2, std::error_code(client_errc::invalid_state));
+
+    auto [ec3] = co_await conn.write_copy_fail(st, "message");
+    BOOST_TEST_EQ(ec3, std::error_code(client_errc::invalid_state));
+
+    // We didn't disturb the connection
+    co_await check_connection_usable(conn);
+}
+
+// The writer functions are mutually exclusive
+capy::task<> test_already_running()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req_setup;
+    req_setup.add_query("CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)");
+    if (!co_await checked_exec(conn, req_setup))
+        co_return;
+
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+    check handler;
+
+    // Run until CopyInResponse
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    if (!check_success(co_await read_until_copy_data(conn, st)))
+        co_return;
+
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::io_task<> {
+            // Takes the write side
+            auto [ec, bytes] = co_await conn.write_some_copy_data(st, capy::make_buffer("1\tone\n"sv));
+            check_success(ec);
+            co_return {};
+        }(),
+
+        [&]() -> capy::io_task<> {
+            // Launched while the first one is still in flight
+            auto [ec, bytes] = co_await conn.write_some_copy_data(st, capy::make_buffer("abc"sv));
+            BOOST_TEST_EQ(ec, std::error_code(client_errc::already_running));
+            co_return {};
+        }(),
+
+        [&]() -> capy::io_task<> {
+            // Launched while the first one is still in flight
+            auto [ec] = co_await conn.write_copy_done(st);
+            BOOST_TEST_EQ(ec, std::error_code(client_errc::already_running));
+            co_return {};
+        }(),
+
+        [&]() -> capy::io_task<> {
+            // Launched while the first one is still in flight
+            auto [ec] = co_await conn.write_copy_fail(st, "message");
+            BOOST_TEST_EQ(ec, std::error_code(client_errc::already_running));
+            co_return {};
+        }()
+    ));
+
+    // The rejected call didn't disturb the copy
+    if (!check_success(co_await conn.write_copy_done(st)))
+        co_return;
+    if (!check_success(co_await read_until_done(conn, st)))
+        co_return;
+    check_success(st.handler_error());
+
+    co_await check_connection_usable(conn);
+}
 
 }  // namespace
 
@@ -797,6 +981,12 @@ int main()
 
     run_coroutine_test(test_copy_in_not_last_extended_protocol());
     run_coroutine_test(test_copy_in_not_last_simple_query_protocol());
+
+    run_coroutine_test(test_not_prepared());
+    run_coroutine_test(test_request_not_written());
+    run_coroutine_test(test_not_in_copy_data());
+    run_coroutine_test(test_already_done());
+    run_coroutine_test(test_already_running());
 
     return boost::report_errors();
 }

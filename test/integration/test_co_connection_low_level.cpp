@@ -26,6 +26,7 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/encoding.hpp"
+#include "nativepg/exclusivity.hpp"
 #include "nativepg/exec_state.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/notification_vector.hpp"
@@ -1028,6 +1029,54 @@ capy::task<> test_write_already_done()
     co_await check_connection_usable(conn);
 }
 
+// write_request can't be called while in Copy-in mode
+capy::task<> test_write_copy_data()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+    if (!co_await checked_exec(
+            conn,
+            request().add_query("CREATE TEMPORARY TABLE test_write_copy_data (id INT, name TEXT)")
+        ))
+        co_return;
+
+    // A COPY ... FROM STDIN leaves the writer waiting for the server to ask for data
+    request req;
+    req.add_query("COPY test_write_copy_data FROM STDIN");
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+
+    // Only the reader can tell us that the server entered Copy-in mode
+    while (st.write_phase() == write_status::waiting_for_reader)
+    {
+        if (!check_success(co_await conn.read_some_response(st)))
+            co_return;
+    }
+    check_status(st, {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false});
+
+    // We should write_some_copy_data, not the request
+    auto [ec] = co_await conn.write_request(st);
+    BOOST_TEST_EQ(ec, make_error_code(client_errc::invalid_state));
+
+    // The rejected call didn't disturb the copy
+    if (!check_success(co_await conn.write_copy_done(st)))
+        co_return;
+    while (!st.read_done())
+    {
+        if (!check_success(co_await conn.read_some_response(st)))
+            co_return;
+    }
+    check_status(st, {.is_prepared = true, .write_phase = write_status::done, .reader_done = true});
+    check_success(st.handler_error());
+
+    co_await check_connection_usable(conn);
+}
+
 // read_some_response requires a state that has been prepared
 capy::task<> test_read_not_prepared()
 {
@@ -1166,6 +1215,7 @@ int main()
     run_coroutine_test(test_write_not_prepared());
     run_coroutine_test(test_write_already_running());
     run_coroutine_test(test_write_already_done());
+    run_coroutine_test(test_write_copy_data());
     run_coroutine_test(test_read_not_prepared());
     run_coroutine_test(test_read_already_running());
     run_coroutine_test(test_read_already_done());

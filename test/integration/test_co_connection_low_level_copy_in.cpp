@@ -6,8 +6,8 @@
 //
 
 #include <boost/assert/source_location.hpp>
-#include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
+#include <boost/capy/buffers/slice.hpp>
 #include <boost/capy/cond.hpp>
 #include <boost/capy/error.hpp>
 #include <boost/capy/ex/async_event.hpp>
@@ -19,6 +19,7 @@
 #include <boost/describe/class.hpp>
 #include <boost/describe/operators.hpp>
 
+#include <cstddef>
 #include <iostream>
 #include <stop_token>
 #include <string>
@@ -342,6 +343,74 @@ capy::task<> test_success_several_writes()
     check_success(st.handler_error());
 
     // The server reassembled the stream regardless of how we split it
+    const row_copy expected[] = {
+        {.id = 1, .name = "one"  },
+        {.id = 2, .name = "two"  },
+        {.id = 3, .name = "three"}
+    };
+    co_await check_copy_rows(conn, expected);
+
+    co_await check_connection_usable(conn);
+}
+
+// Copy data may be supplied as any ConstBufferSequence
+capy::task<> test_success_buffer_sequence()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req_setup;
+    req_setup.add_query("CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)");
+    if (!co_await checked_exec(conn, req_setup))
+        co_return;
+
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+
+    // Wait until the server asks us for data
+    if (!check_success(co_await read_until_copy_data(conn, st)))
+        co_return;
+    check_status(st, {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false});
+
+    // A sequence with several buffers
+    constexpr auto part0 = "1\tone\n2\tt"sv;
+    constexpr auto part1 = "wo\n3\tthr"sv;
+    constexpr auto part2 = "ee\n"sv;
+    const std::array<capy::const_buffer, 4u> seq{
+        capy::make_buffer(part0),
+        capy::make_buffer(part1),
+        capy::const_buffer(),
+        capy::make_buffer(part2),
+    };
+    const auto total_size = part0.size() + part1.size() + part2.size();
+
+    // Transfer all data
+    for (std::size_t transferred = 0u; transferred < total_size;)
+    {
+        auto [ec, bytes] = co_await conn.write_some_copy_data(st, boost::capy::sans_prefix(seq, transferred));
+        if (!BOOST_TEST_EQ(ec, std::error_code()))
+            co_return;
+        transferred += bytes;
+    }
+    check_status(st, {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false});
+
+    if (!check_success(co_await conn.write_copy_done(st)))
+        co_return;
+
+    // Read the rest of the response
+    if (!check_success(co_await read_until_done(conn, st)))
+        co_return;
+    check_status(st, {.is_prepared = true, .write_phase = write_status::done, .reader_done = true});
+    check_success(st.handler_error());
+
+    // The server saw a single, contiguous stream
     const row_copy expected[] = {
         {.id = 1, .name = "one"  },
         {.id = 2, .name = "two"  },
@@ -1001,6 +1070,7 @@ int main()
     run_coroutine_test(test_success_simple_query_protocol_extra_syncs());
     run_coroutine_test(test_success_simple_query_several_copies());
     run_coroutine_test(test_success_several_writes());
+    run_coroutine_test(test_success_buffer_sequence());
     run_coroutine_test(test_success_no_data());
     run_coroutine_test(test_success_parallel());
 

@@ -46,6 +46,7 @@ struct copy_in_state
 // All the state for a single exec operation
 struct exec_state_impl : boost::intrusive::list_base_hook<>
 {
+    // TODO: this should not exist, refactor
     enum class writer_status
     {
         // We haven't acquired the write mutex yet

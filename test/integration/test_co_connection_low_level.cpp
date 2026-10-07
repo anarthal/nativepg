@@ -114,6 +114,77 @@ capy::task<> test_success()
     co_await check_connection_usable(conn);
 }
 
+// An exclusive request that never enters a copy keeps the write side until both
+// halves are done
+capy::task<> test_success_exclusive()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    std::vector<row_int> rows;
+    auto handler = into(rows);
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+    check_status(st, {.is_prepared = true, .write_phase = write_status::request, .reader_done = false});
+
+    // Writing doesn't finish the write side
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    check_status(
+        st,
+        {.is_prepared = true, .write_phase = write_status::waiting_for_reader, .reader_done = false}
+    );
+
+    // A second request has to queue behind us
+    request req2;
+    req2.add_query("SELECT $1 AS value", "abcd");
+    std::vector<row_string> rows2;
+    auto handler2 = into(rows2);
+    exec_state st2;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st2, req2, &handler2), std::error_code()))
+        co_return;
+
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::io_task<> {
+            // Even if the next writer starts first, it will have to queue
+            if (!check_success(co_await conn.write_request(st2)))
+                co_return {};
+            BOOST_TEST(st.read_done());
+
+            while (!st2.read_done())
+            {
+                if (!check_success(co_await conn.read_some_response(st2)))
+                    co_return {};
+            }
+            co_return {};
+        }(),
+
+        [&]() -> capy::io_task<> {
+            // Reading to completion is what releases the write side
+            while (!st.read_done())
+            {
+                if (!check_success(co_await conn.read_some_response(st)))
+                    co_return {};
+            }
+            co_return {};
+        }()
+    ));
+
+    // Each operation got its own response
+    check_status(st, {.is_prepared = true, .write_phase = write_status::done, .reader_done = true});
+    check_status(st2, {.is_prepared = true, .write_phase = write_status::done, .reader_done = true});
+    check_success(st.handler_error());
+    check_success(st2.handler_error());
+    test_range_eq(rows, std::vector<row_int>{{.value = 42}});
+    test_range_eq(rows2, std::vector<row_string>{{.value = "abcd"}});
+
+    co_await check_connection_usable(conn);
+}
+
 // An error reported by the handler while reading is surfaced by the operation
 // and recorded in the exec_state
 capy::task<> test_handler_error()
@@ -883,6 +954,35 @@ capy::task<> test_reset_after_partial_read()
     co_await check_connection_usable(conn);
 }
 
+// Abandoning an exclusive request in waiting_for_reader status releases correctly
+capy::task<> test_reset_waiting_for_reader()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    check_status(
+        st,
+        {.is_prepared = true, .write_phase = write_status::waiting_for_reader, .reader_done = false}
+    );
+
+    // Abandon it. The server still owes us the whole response
+    st.reset();
+    check_status(st, {.is_prepared = false, .write_phase = write_status::request, .reader_done = false});
+
+    // The write side was released, so the next request can run, discarding
+    // what we left behind on its way
+    co_await check_connection_usable(conn);
+}
+
 // exec_state destructor counts as abandonment
 capy::task<> test_destructor_abandons()
 {
@@ -1190,6 +1290,7 @@ capy::task<> test_read_already_done()
 int main()
 {
     run_coroutine_test(test_success());
+    run_coroutine_test(test_success_exclusive());
     run_coroutine_test(test_handler_error());
     run_coroutine_test(test_prepare_request_error());
     run_coroutine_test(test_gucs());
@@ -1209,6 +1310,7 @@ int main()
     run_coroutine_test(test_reset_prepared());
     run_coroutine_test(test_reset_after_write());
     run_coroutine_test(test_reset_after_partial_read());
+    run_coroutine_test(test_reset_waiting_for_reader());
     run_coroutine_test(test_destructor_abandons());
     run_coroutine_test(test_reuse_state());
 

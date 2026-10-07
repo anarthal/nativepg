@@ -16,12 +16,15 @@
 #include <system_error>
 
 #include "nativepg/encoding.hpp"
+#include "nativepg/exec_state.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/async.hpp"
 #include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/command_info.hpp"
 #include "nativepg/responses/response_handler.hpp"
+#include "nativepg/write_status.hpp"
 #include "test_utils/ci_server.hpp"
+#include "test_utils/exec_state_utils.hpp"
 #include "test_utils/printing.hpp"
 #include "test_utils/response_handler_utils.hpp"
 #include "test_utils/test_cond_eq.hpp"
@@ -144,6 +147,20 @@ static const char* to_string(nativepg::encoding v)
 
 std::ostream& nativepg::operator<<(std::ostream& os, encoding v) { return os << to_string(v); }
 
+static const char* to_string(nativepg::write_status v)
+{
+    switch (v)
+    {
+        case nativepg::write_status::request: return "request";
+        case nativepg::write_status::waiting_for_reader: return "waiting_for_reader";
+        case nativepg::write_status::copy_data: return "copy_data";
+        case nativepg::write_status::done: return "done";
+        default: return "<unknown write_status>";
+    }
+}
+
+std::ostream& nativepg::operator<<(std::ostream& os, write_status v) { return os << to_string(v); }
+
 // --- CI server ---
 static std::string safe_getenv(const char* name, const char* default_value)
 {
@@ -165,4 +182,18 @@ bool nativepg::test::test_cond_eq(std::error_code ec, std::error_condition cond,
         std::cerr << "  Called from " << loc << std::endl;
     }
     return ok;
+}
+
+void nativepg::test::check_status(
+    const exec_state& exec_st,
+    const expected_status& expected,
+    boost::source_location loc
+)
+{
+    bool ok = BOOST_TEST_EQ(exec_st.is_prepared(), expected.is_prepared);
+    ok &= BOOST_TEST_EQ(exec_st.write_phase(), expected.write_phase);
+    ok &= BOOST_TEST_EQ(exec_st.read_done(), expected.reader_done);
+
+    if (!ok)
+        std::cerr << "  Called from " << loc << std::endl;
 }

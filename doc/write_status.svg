@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="430" viewBox="0 0 980 430" role="img"
+     aria-label="State machine for nativepg::write_status">
+  <title>nativepg::write_status state machine</title>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#44506b"/>
+    </marker>
+    <marker id="arrow-muted" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#8892a8"/>
+    </marker>
+  </defs>
+
+  <style>
+    .state  { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+              font-size: 15px; fill: #1f2937; text-anchor: middle; }
+    .call   { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+              font-size: 10.5px; fill: #5b6b86; text-anchor: middle; }
+    .edge   { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+              font-size: 11px; fill: #44506b; }
+    .code   { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+              font-size: 11px; fill: #44506b; }
+    .muted  { fill: #8892a8; }
+    .title  { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+              font-size: 16px; fill: #1f2937; text-anchor: middle; }
+    .box    { fill: #f4f6fa; stroke: #2f3b52; stroke-width: 1.6; }
+    .box-io { fill: #fff4e2; stroke: #9a6300; stroke-width: 1.6; }
+    .box-end{ fill: #eaf4ec; stroke: #2e6b3f; stroke-width: 2.2; }
+    .link   { fill: none; stroke: #44506b; stroke-width: 1.6; marker-end: url(#arrow); }
+    .link-m { fill: none; stroke: #8892a8; stroke-width: 1.4; stroke-dasharray: 5 4;
+              marker-end: url(#arrow-muted); }
+  </style>
+
+  <rect width="980" height="430" fill="#ffffff"/>
+
+  <text class="title" x="490" y="34">write_status</text>
+
+  <!-- entry -->
+  <circle cx="24" cy="172" r="5.5" fill="#44506b"/>
+  <path class="link" d="M 30 172 L 44 172"/>
+
+  <!-- request -> done (shared): arch over the top -->
+  <path class="link" d="M 150 140 C 150 70, 820 70, 820 140"/>
+  <text class="edge" x="485" y="82" text-anchor="middle">Successful write_request(), exclusivity::shared</text>
+
+  <!-- request -> waiting_for_reader -->
+  <path class="link" d="M 250 172 L 384 172"/>
+  <text class="edge" x="317" y="150" text-anchor="middle">Successful write_request(),</text>
+  <text class="edge" x="317" y="163" text-anchor="middle">exclusivity::exclusive</text>
+
+  <!-- waiting_for_reader -> done -->
+  <path class="link" d="M 590 172 L 724 172"/>
+  <text class="edge" x="657" y="150" text-anchor="middle">read_some_response(),</text>
+  <text class="edge" x="657" y="163" text-anchor="middle">response fully read</text>
+
+  <!-- waiting_for_reader -> copy_data -->
+  <path class="link" d="M 455 204 L 455 314"/>
+  <text class="edge" x="445" y="249" text-anchor="end">read_some_response(),</text>
+  <text class="edge" x="445" y="263" text-anchor="end">CopyInResponse seen</text>
+
+  <!-- copy_data -> waiting_for_reader -->
+  <path class="link" d="M 525 320 L 525 210"/>
+  <text class="code" x="537" y="257">write_copy_done()</text>
+  <text class="code" x="537" y="271">write_copy_fail()</text>
+
+  <!-- request -> copy_data (CopyInResponse arrived before the write finished) -->
+  <path class="link-m" d="M 150 204 L 150 352 L 384 352"/>
+  <text class="edge muted" x="134" y="282" text-anchor="end">read_some_response(),</text>
+  <text class="edge muted" x="134" y="296" text-anchor="end">CopyInResponse seen</text>
+  <text class="edge muted" x="134" y="310" text-anchor="end">before the write finished</text>
+
+  <!-- states -->
+  <rect class="box" x="50" y="140" width="200" height="64" rx="9"/>
+  <text class="state" x="150" y="178">request</text>
+
+  <rect class="box" x="390" y="140" width="200" height="64" rx="9"/>
+  <text class="state" x="490" y="178">waiting_for_reader</text>
+
+  <rect class="box-end" x="730" y="140" width="180" height="64" rx="9"/>
+  <rect x="736" y="146" width="168" height="52" rx="6" fill="none" stroke="#2e6b3f" stroke-width="0.9"/>
+  <text class="state" x="820" y="168">done</text>
+  <text class="call"  x="820" y="188">terminal</text>
+
+  <rect class="box-io" x="390" y="320" width="200" height="64" rx="9"/>
+  <text class="state" x="490" y="348">copy_data</text>
+  <text class="call"  x="490" y="368">write_some_copy_data()</text>
+</svg>

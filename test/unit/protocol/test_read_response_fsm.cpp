@@ -36,16 +36,27 @@
 #include "nativepg/responses/response_handler.hpp"
 #include "test_utils/printing.hpp"
 #include "test_utils/response_handler_utils.hpp"
+#include "test_utils/test_range_eq.hpp"
 
 using namespace nativepg;
 using namespace nativepg::test;
 using protocol::read_response_fsm;
-using std::error_code;
 using kind = any_request_message::kind;
+using result_type = read_response_fsm::result_type;
+
+namespace nativepg::protocol {
+
+std::ostream& operator<<(std::ostream& os, read_response_fsm::result_type v)
+{
+    return os << "{ .ec=" << v.ec << ", .num_syncs=" << v.num_syncs << " }";
+}
+
+}  // namespace nativepg::protocol
 
 namespace {
 
-const error_code needs_more{client_errc::needs_more};
+const read_response_fsm::result_type needs_more{client_errc::needs_more, 0u};
+const read_response_fsm::result_type done{{}, 0u};
 
 // Some distinct errors for the handler to report
 extended_error first_error() { return {client_errc::field_not_found, diagnostics(std::string("first"))}; }
@@ -87,8 +98,7 @@ struct fixture
         boost::source_location loc = BOOST_CURRENT_LOCATION
     )
     {
-        if (!BOOST_TEST_ALL_EQ(handler.msgs.begin(), handler.msgs.end(), expected.begin(), expected.end()))
-            std::cerr << "Called from " << loc << std::endl;
+        test_range_eq(handler.msgs, expected, loc);
     }
 };
 
@@ -103,7 +113,7 @@ void test_simple_query()
     BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -123,7 +133,7 @@ void test_simple_query_no_rows()
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -141,7 +151,7 @@ void test_simple_query_no_data()
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -164,7 +174,7 @@ void test_simple_query_multi()
     BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -187,7 +197,7 @@ void test_simple_query_empty()
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::empty_query_response{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -203,7 +213,7 @@ void test_simple_query_error()
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::error_response{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -221,7 +231,7 @@ void test_simple_query_error_skipping()
     BOOST_TEST_EQ(fix.fsm.resume(protocol::error_response{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -241,7 +251,7 @@ void test_parse()
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::parse_complete{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -259,7 +269,7 @@ void test_parse_error()
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::error_response{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -276,7 +286,7 @@ void test_bind()
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::bind_complete{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -292,7 +302,7 @@ void test_bind_error()
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::error_response{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -311,7 +321,7 @@ void test_execute()
     BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -329,7 +339,7 @@ void test_execute_no_rows()
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -347,7 +357,7 @@ void test_execute_portal_suspended()
     BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::portal_suspended{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -365,7 +375,7 @@ void test_execute_empty()
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::empty_query_response{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -381,7 +391,7 @@ void test_execute_error()
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::error_response{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -398,7 +408,7 @@ void test_describe_portal()
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -415,7 +425,7 @@ void test_describe_portal_no_data()
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::no_data{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -432,7 +442,7 @@ void test_describe_portal_error()
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::error_response{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -449,7 +459,7 @@ void test_close()
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::close_complete{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -466,7 +476,7 @@ void test_close_error()
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::error_response{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -490,7 +500,7 @@ void test_extended_query()
     BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -513,7 +523,7 @@ void test_async()
     BOOST_TEST_EQ(fix.fsm.resume(protocol::notice_response{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::notification_response{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::parameter_status{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -539,7 +549,7 @@ void test_several_syncs()
     BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -568,7 +578,7 @@ void test_error_recovery()
     BOOST_TEST_EQ(fix.fsm.resume(protocol::error_response{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -589,7 +599,7 @@ void test_error_recovery_sync_last()
 
     // Run the FSM
     BOOST_TEST_EQ(fix.fsm.resume(protocol::error_response{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // Check handler messages
     fix.check({
@@ -611,7 +621,7 @@ void test_handler_error_does_not_fail_fsm()
     // The FSM runs to completion, unaffected
     BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     // The handler's error is reported separately
     BOOST_TEST_EQ(fix.fsm.get_handler_error(), first_error());
@@ -633,7 +643,7 @@ void test_handler_error_then_nonerror()
     BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     BOOST_TEST_EQ(fix.fsm.get_handler_error(), first_error());
 
@@ -656,7 +666,7 @@ void test_handler_three_errors()
     BOOST_TEST_EQ(fix.fsm.resume(protocol::row_description{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), needs_more);
     BOOST_TEST_EQ(fix.fsm.resume(protocol::command_complete{}), needs_more);
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), error_code());
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::ready_for_query{}), done);
 
     BOOST_TEST_EQ(fix.fsm.get_handler_error(), first_error());
 
@@ -674,7 +684,8 @@ void test_fsm_error_not_reported_as_handler_error()
     fix.req.add_prepare("SELECT 1", "stmt");
 
     // A data_row is not a legal response to a parse
-    BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), error_code(client_errc::unexpected_message));
+    result_type expected{client_errc::unexpected_message, 0u};
+    BOOST_TEST_EQ(fix.fsm.resume(protocol::data_row{}), expected);
 
     // The handler never ran, so its error is still clean
     BOOST_TEST_EQ(fix.fsm.get_handler_error(), extended_error{});

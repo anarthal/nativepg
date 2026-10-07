@@ -34,15 +34,24 @@ boost::capy::task<bool> checked_exec(
     boost::source_location loc = BOOST_CURRENT_LOCATION
 );
 
-template <response_handler Handler = check>
+template <response_handler Handler>
 boost::capy::task<bool> checked_exec(
     co_connection& conn,
     const request& req,
-    Handler handler = check(),
+    Handler handler,
     boost::source_location loc = BOOST_CURRENT_LOCATION
 )
 {
     co_return co_await checked_exec(conn, req, &handler, loc);
+}
+
+inline boost::capy::task<bool> checked_exec(
+    co_connection& conn,
+    const request& req,
+    boost::source_location loc = BOOST_CURRENT_LOCATION
+)
+{
+    return checked_exec(conn, req, check(), loc);
 }
 
 // Runs a plain request and checks it produces its own response (detects de-syncs)

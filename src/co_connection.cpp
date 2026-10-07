@@ -11,29 +11,38 @@
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/write.hpp>
+#include <boost/container/static_vector.hpp>
 #include <boost/corosio/connect.hpp>
 #include <boost/corosio/resolver.hpp>
 #include <boost/corosio/socket_option.hpp>
 #include <boost/corosio/tcp_socket.hpp>
 
-#include <memory>
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
-#include <vector>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
+#include "nativepg/detail/exec_state_impl.hpp"
 #include "nativepg/encoding.hpp"
+#include "nativepg/exclusivity.hpp"
 #include "nativepg/exec_state.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/notification_vector.hpp"
 #include "nativepg/protocol/connection_state.hpp"
+#include "nativepg/protocol/copy.hpp"
 #include "nativepg/protocol/detail/connect_fsm.hpp"
+#include "nativepg/protocol/header.hpp"
 #include "nativepg/protocol/parse_message.hpp"
+#include "nativepg/protocol/sync.hpp"
 #include "nativepg/protocol/terminate.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
@@ -47,6 +56,17 @@ namespace nativepg {
 
 struct co_connection::impl
 {
+    // Marks a state as having a write operation in flight, so that no two of
+    // write_request/write_some_copy_data/write_copy_done/write_copy_fail overlap
+    struct writing_guard
+    {
+        detail::exec_state_impl* st;
+        explicit writing_guard(detail::exec_state_impl& s) noexcept : st(&s) { st->writing = true; }
+        writing_guard(const writing_guard&) = delete;
+        writing_guard& operator=(const writing_guard&) = delete;
+        ~writing_guard() { st->writing = false; }
+    };
+
     corosio::resolver resolv;
     corosio::tcp_socket sock;
     protocol::connection_state st{};
@@ -112,14 +132,19 @@ struct co_connection::impl
         co_return {write_ec};
     }
 
-    std::error_code prepare_request(exec_state& exec_st, const request& req, response_handler_ref handler)
+    std::error_code prepare_request(
+        exec_state& exec_st,
+        const request& req,
+        response_handler_ref handler,
+        exclusivity excl
+    )
     {
         // Perform request setup
         if (auto ec = protocol::detail::setup_request(req, handler))
             return ec;
 
         // Set the state up. This cleans up any leftover from previous operations
-        detail::exec_state_access::get_impl(exec_st).setup(mpx_, req, handler);
+        detail::exec_state_access::get_impl(exec_st).setup(mpx_, req, handler, excl);
         return std::error_code();
     }
 
@@ -129,18 +154,13 @@ struct co_connection::impl
         using writer_status = detail::exec_state_impl::writer_status;
 
         // We must have been prepared, and must still have something to write
-        if (!exec_st.is_prepared() || exec_st.write_done())
+        if (!exec_st.is_prepared() || exec_st.payload_written())
             co_return {client_errc::invalid_state};
 
-        // Only one writer per state may be in flight
+        // Only one write operation per state may be in flight
         if (exec_st.writing)
             co_return {client_errc::already_running};
-        exec_st.writing = true;
-        struct writing_guard
-        {
-            detail::exec_state_impl* st;
-            ~writing_guard() { st->writing = false; }
-        } guard{&exec_st};
+        writing_guard guard{exec_st};
 
         // Wait for our turn to write and register what we are doing in the queue.
         // When resuming a partially written request we still hold both, so skip this
@@ -182,6 +202,7 @@ struct co_connection::impl
     boost::capy::io_task<> read_some_response(detail::exec_state_impl& exec_st)
     {
         // We must have been prepared, and must still have something to read
+        // This function is allowed in CopyIn mode
         if (!exec_st.is_prepared() || exec_st.read_done())
             co_return {client_errc::invalid_state};
 
@@ -260,7 +281,7 @@ struct co_connection::impl
                 if (is_rfq)
                     ++exec_st.read_rfqs;
 
-                auto fsm_ec = fsm.resume(res.message);
+                auto [fsm_ec, nsyncs] = fsm.resume(res.message);
                 if (!fsm_ec)
                 {
                     // We've finished successfully
@@ -268,6 +289,25 @@ struct co_connection::impl
                     exec_st.read_rfqs = static_cast<std::size_t>(-1);  // we've read everything
                     mpx_.report_reader_exit(exec_st);
                     co_return {};
+                }
+                else if (fsm_ec == client_errc::copy_in)
+                {
+                    // We've received a CopyInResponse
+                    // Running these requires exclusive mode. Otherwise,
+                    // other requests might end up being intercalated between copy data
+                    if (exec_st.excl != exclusivity::exclusive)
+                    {
+                        // TODO: this is a fatal error
+                        st.read_buffer.consume(consumed);
+                        co_return {client_errc::requires_exclusive};
+                    }
+
+                    // Record the fact that we're now in CopyIn mode
+                    exec_st.copy_in = {.active = true, .swallowed_syncs = nsyncs};
+
+                    // The message batch should finish, and we will yield.
+                    // We don't need to do it explicitly, though - that's guaranteed by
+                    // our read_some semantics
                 }
                 else if (fsm_ec != client_errc::needs_more)
                 {
@@ -278,6 +318,181 @@ struct co_connection::impl
                 }
             }
         }
+    }
+
+    static constexpr std::size_t max_frame_size = (std::numeric_limits<std::int32_t>::max)() - 4u;
+
+    static std::array<unsigned char, 5u> make_copy_data_header(std::size_t size)
+    {
+        // TODO: I don't like this serialize_header
+        BOOST_ASSERT(size <= max_frame_size);
+        protocol::message_header h{protocol::copy_data_message_type, static_cast<std::int32_t>(size)};
+        std::array<unsigned char, 5u> res;
+        [[maybe_unused]] auto ec = protocol::serialize_header(h, res);
+        BOOST_ASSERT(!ec);
+        return res;
+    }
+
+    boost::capy::io_task<std::size_t> write_some_copy_data(
+        detail::exec_state_impl& exec_st,
+        boost::capy::const_buffer buff
+    )
+    {
+        // The server must have asked us for data. This also implies that our request
+        // was written in full, so our frames can't interleave with its payload
+        if (exec_st.phase() != write_status::copy_data)
+            co_return {client_errc::invalid_state, 0u};
+
+        // Only one write operation per state may be in flight
+        if (exec_st.writing)
+            co_return {client_errc::already_running, 0u};
+        writing_guard guard{exec_st};
+
+        // Empty buffers are a no-op
+        if (buff.size() == 0u)
+            co_return {};
+
+        boost::container::static_vector<capy::const_buffer, 4u> bufs;
+        std::array<unsigned char, 5u> frame_header, prev_frame_header;
+        std::span<const unsigned char> buff_as_span{
+            static_cast<const unsigned char*>(buff.data()),
+            buff.size()
+        };
+
+        // Compute sizes
+        const std::size_t prev_header_size = exec_st.copy_in.frame_num_bytes == 0u ||
+                                                     exec_st.copy_in.transferred_bytes >= 5u
+                                                 ? 0u
+                                                 : 5u - exec_st.copy_in.transferred_bytes;
+        const std::size_t prev_payload_size = exec_st.copy_in.frame_num_bytes == 0u ? 0u
+                                              : exec_st.copy_in.transferred_bytes < 5u
+                                                  ? exec_st.copy_in.frame_num_bytes
+                                                  : exec_st.copy_in.frame_num_bytes + 5u -
+                                                        exec_st.copy_in.transferred_bytes;
+        const std::size_t prev_size = prev_header_size + prev_payload_size;
+        const std::size_t payload_size = prev_payload_size >= buff.size()
+                                             ? 0u
+                                             : (std::min)(buff.size() - prev_payload_size, max_frame_size);
+        const std::size_t total_size = prev_size + (payload_size == 0u ? 0u : payload_size + 5u);
+
+        // Serialize what we need
+        if (prev_header_size > 0u)
+        {
+            prev_frame_header = make_copy_data_header(exec_st.copy_in.frame_num_bytes);
+            bufs.push_back(
+                boost::capy::make_buffer(
+                    std::span<const unsigned char>(prev_frame_header)
+                        .subspan(exec_st.copy_in.transferred_bytes)
+                )
+            );
+        }
+
+        if (prev_payload_size > 0u)
+        {
+            bufs.push_back(boost::capy::make_buffer(buff_as_span.first(prev_payload_size)));
+            buff_as_span = buff_as_span.subspan(prev_payload_size);
+        }
+
+        if (payload_size > 0u)
+        {
+            frame_header = make_copy_data_header(payload_size);
+            bufs.push_back(boost::capy::make_buffer(frame_header));
+            bufs.push_back(boost::capy::make_buffer(buff_as_span.first(payload_size)));
+        }
+
+        // Write the thing
+        auto [ec, bytes] = co_await stream.write_some(std::span(bufs));
+        std::size_t retval = 0u;
+
+        if (bytes <= prev_header_size)
+        {
+            exec_st.copy_in.transferred_bytes += bytes;
+            retval = 0u;
+        }
+        else if (bytes < prev_size)
+        {
+            exec_st.copy_in.transferred_bytes += bytes;
+            retval = bytes - prev_header_size;
+        }
+        else if (bytes == prev_size)
+        {
+            exec_st.copy_in.frame_num_bytes = 0u;
+            exec_st.copy_in.transferred_bytes = 0u;
+            retval = prev_payload_size;
+        }
+        else if (bytes <= prev_size + 5u)
+        {
+            exec_st.copy_in.frame_num_bytes = payload_size;
+            exec_st.copy_in.transferred_bytes = bytes - prev_size;
+            retval = prev_payload_size;
+        }
+        else if (bytes < total_size)
+        {
+            exec_st.copy_in.frame_num_bytes = payload_size;
+            exec_st.copy_in.transferred_bytes = bytes - prev_size;
+            retval = bytes - prev_header_size - 5u;
+        }
+        else
+        {
+            BOOST_ASSERT(bytes == total_size);
+            exec_st.copy_in.frame_num_bytes = 0u;
+            exec_st.copy_in.transferred_bytes = 0u;
+            retval = prev_payload_size + payload_size;
+        }
+
+        co_return {ec, retval};
+    }
+
+    boost::capy::io_task<> write_copy_finished(
+        detail::exec_state_impl& exec_st,
+        bool success,
+        std::string_view error_message
+    )
+    {
+        // The server must have asked us for data. This also implies that our request
+        // was written in full, so our terminator can't interleave with its payload
+        if (exec_st.phase() != write_status::copy_data)
+            co_return {client_errc::invalid_state};
+
+        // Only one write operation per state may be in flight
+        if (exec_st.writing)
+            co_return {client_errc::already_running};
+        writing_guard guard{exec_st};
+
+        // If there are missing bytes to transfer, that's an error
+        if (exec_st.copy_in.frame_num_bytes > 0u)
+            co_return {client_errc::copy_incomplete_transfer};
+
+        // Compose the message to send. This is:
+        //  CopyDone if we were successful
+        //  CopyError if we failed
+        //  In both cases, any number of Sync messages swallowed by the server
+        st.write_buffer.clear();
+        auto serialize_ec = success
+                                ? protocol::serialize(protocol::copy_done{}, st.write_buffer)
+                                : protocol::serialize(protocol::copy_fail{error_message}, st.write_buffer);
+        if (serialize_ec)
+            co_return {serialize_ec};
+        for (std::size_t i = 0u; i < exec_st.copy_in.swallowed_syncs; ++i)
+        {
+            serialize_ec = protocol::serialize(protocol::sync{}, st.write_buffer);
+            BOOST_ASSERT(!serialize_ec);  // TODO: not ideal
+        }
+
+        // Send this to the server
+        auto [ec, bytes] = co_await capy::write(stream, capy::make_buffer(st.write_buffer));
+        if (ec)
+        {
+            // TODO: an incomplete transfer here is fatal. Mark the connection
+            // as dead when we have the functionality
+            // TODO: do we want resumability here, too?
+            co_return {ec};
+        }
+
+        // We're no longer in Copy-in mode
+        exec_st.copy_in = {};
+
+        co_return {};
     }
 
     boost::capy::io_task<> receive(notification_vector& output)
@@ -508,10 +723,11 @@ capy::io_task<> co_connection::receive(notification_vector& output) { return imp
 std::error_code co_connection::prepare_request(
     exec_state& exec_st,
     const request& req,
-    response_handler_ref handler
+    response_handler_ref handler,
+    exclusivity excl
 )
 {
-    return impl_->prepare_request(exec_st, req, handler);
+    return impl_->prepare_request(exec_st, req, handler, excl);
 }
 
 boost::capy::io_task<> co_connection::write_request(exec_state& st)
@@ -542,7 +758,7 @@ capy::io_task<> co_connection::exec(const request& req, response_handler_ref han
 {
     // Setup
     exec_state exec_st;
-    if (auto ec = prepare_request(exec_st, req, handler))
+    if (auto ec = prepare_request(exec_st, req, handler, exclusivity::shared))
         co_return {ec};
 
     // Run the reader and writer tasks in parallel
@@ -552,6 +768,21 @@ capy::io_task<> co_connection::exec(const request& req, response_handler_ref han
     );
 
     co_return {final_ec};
+}
+
+capy::io_task<std::size_t> co_connection::write_some_copy_data(exec_state& st, capy::const_buffer buff)
+{
+    return impl_->write_some_copy_data(detail::exec_state_access::get_impl(st), buff);
+}
+
+capy::io_task<> co_connection::write_copy_done(exec_state& st)
+{
+    return impl_->write_copy_finished(detail::exec_state_access::get_impl(st), true, {});
+}
+
+capy::io_task<> co_connection::write_copy_fail(exec_state& st, std::string_view message)
+{
+    return impl_->write_copy_finished(detail::exec_state_access::get_impl(st), false, message);
 }
 
 capy::io_task<> co_connection::read_some_messages() { return impl_->read_some_messages(); }
@@ -588,8 +819,10 @@ void detail::exec_state_impl::reset()
     BOOST_ASSERT(!is_linked());
 
     mpx = nullptr;
+    excl = exclusivity::shared;
     writer_st = writer_status::initial;
     reader_done = false;
+    copy_in = {};
     bytes_written = 0u;
     pending_rfqs = 0u;
     read_rfqs = 0u;
@@ -597,13 +830,19 @@ void detail::exec_state_impl::reset()
     fsm.reset();
 }
 
-void detail::exec_state_impl::setup(multiplexer& mpx_ref, const request& req, response_handler_ref handler)
+void detail::exec_state_impl::setup(
+    multiplexer& mpx_ref,
+    const request& req,
+    response_handler_ref handler,
+    exclusivity new_excl
+)
 {
     // Clean up any leftover from previous operations
     reset();
 
     mpx = &mpx_ref;
-    fsm.emplace(&req, handler, true);  // TODO: probably remove the copy_allowed flag
+    excl = new_excl;
+    fsm.emplace(&req, handler);
 }
 
 }  // namespace nativepg

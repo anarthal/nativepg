@@ -321,3 +321,97 @@ of `co_connection`, it can mark the connection as failed.
 `receive()` already fulfilled its contract of reading at least
 one notification. Subsequent operations will encounter the
 error.
+
+## Why an exclusive mode for Copy-in and Copy-both?
+
+While the connection is in Copy-in mode, only copy-related messages may be sent -
+regular messages like `Query` or `Execute` are forbidden. If other requests were
+issued in parallel, their messages could end up interleaved with the copy data.
+Exclusive mode makes that impossible, by holding the write side for the entire operation.
+
+Not requiring it would be equivalent to making it a precondition that the user has to
+honor. That turns the failure into "sometimes an error", depending on whether other
+requests happen to be in flight, which is hard to debug. Requiring exclusive mode makes
+it always an error instead.
+
+## Why does Copy-out not require exclusive mode?
+
+Because Copy-out mode does not require the frontend to send any special messages to the
+backend. Messages pipelined after a request that triggers Copy-out mode are queued until
+Copy-out finishes. In this sense, Copy-out mode behaves like any other request.
+
+## Why do I have to pass `exclusivity::exclusive` to `prepare_request`? Can't you deduce it?
+
+No. There is no way to know whether a request will cause the connection to enter Copy-in
+mode without running it. For example, a request with a `COPY myt FROM STDIN` won't
+trigger Copy-in mode if `myt` does not exist.
+
+## Why can't a request with an `Execute` yielding `CopyInResponse` contain more pipelined messages?
+
+Such a request may only contain `Flush` and `Sync` messages after the `Execute`. Once the
+backend enters Copy-in mode, any other message is forbidden, so the rest of a pipelined
+request would reach a backend that can't accept it, and the server would issue an error
+and close the connection. `Sync` is the exception, because the backend ignores it while in
+Copy-in mode. We remember how many `Sync` messages were ignored and replay them after the
+copy data is sent, to keep the connection in sync.
+
+Since there is no way to tell from the request alone whether an `Execute` will trigger
+Copy-in, we run this check as soon as the server reports Copy-in, and kill the connection
+if you messed up.
+
+## Why are reader and writer not fully independent for Copy-in operations?
+
+For regular requests, reader and writer are fully independent: what you write doesn't
+depend on what the server answers at all. Copy-in breaks this. Data should only be sent
+once the server asks for it with a `CopyInResponse` - although this part is workable
+around, since backends ignore `CopyData`, `CopyDone` and `CopyFail` received outside
+Copy-in mode. The harder problem is `Sync`. Backends ignore `Sync` messages received while in Copy-in mode. To make things harder, under the extended protocol, the operation won't finish until we
+write a `Sync` after the backend has left Copy-in mode. This happens only after we write
+`CopyDone`/`CopyFail`, or the server sends an `ErrorResponse` (e.g. a bad row format).
+
+As we know, there is no way to predict when a request will trigger
+Copy-in mode except by running it. Also, a single `Query` message may trigger
+Copy-in several times, since it can contain several statements separated by semicolons.
+
+Making the writer independent would:
+
+- Save one round-trip. This shouldn't be noticeable for
+  the large transfers that justify using COPY in the first place (use `INSERT` otherwise).
+- Make error detection worse: calling `write_some_copy_data` without ever
+  issuing a COPY operation would succeed and do nothing, instead of being reported
+  immediately.
+- Make the implementation more complex, as the reader would need to know
+  how many times `write_copy_done`/`write_copy_fail` were called to know how many
+  `ReadyForQuery` messages to expect. This can lead to races because they can be called in parallel.
+  The benefits don't outweigh the problems, so writing copy data waits until the server
+  confirms that it wants data. `libpq` does the same.
+
+## Why does writing copy data have `write_some` (rather than `write`) semantics?
+
+Copy-in operations are usually high-volume and take a long time. Users might want to report
+progress, set timeouts and retry failures. `write_some_copy_data` is a low-level primitive,
+and higher-level primitives can be built on top of it. The opposite is not true.
+
+## Why do `write_copy_done` and `write_copy_fail` require sending all the bytes passed to previous `write_some_copy_data` ops?
+
+Although we expose a stream-like interface, the Copy-in protocol is not a stream: it uses a
+sequence of length-prefixed messages. Once you start a message, you must send as many bytes as
+you advertised, and you can't send another message until you finish the current one.
+`CopyDone` and `CopyFail` are also messages, so they can't be sent until the last `CopyData`
+has been fully written.
+
+We could allow `write_copy_fail` with a half-written message by sending padding bytes to
+finish the outstanding `CopyData`. However, this requires unbounded I/O, as the max
+message size is `INT32_MAX`. The user can always abandon the `exec_state` and let the
+connection die.
+
+For this same reason, abandoning an `exec_state` while in Copy-in mode is
+fatal, as opposed to abandoning any other request.
+
+## What is `write_status::waiting_for_reader`?
+
+It only happens for exclusive operations, and exists because of the coupling between reader
+and writer in Copy-in mode. If the reader reports that Copy-in mode was entered, the writer
+transitions to `write_status::copy_data`; otherwise, to `write_status::done`:
+
+![write_status.svg](./write_status.svg)

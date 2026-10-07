@@ -15,11 +15,14 @@
 #include <boost/capy/io_task.hpp>
 
 #include <concepts>
+#include <cstddef>
 #include <memory>
 #include <optional>
+#include <string_view>
 
 #include "nativepg/connect_params.hpp"
 #include "nativepg/encoding.hpp"
+#include "nativepg/exclusivity.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/request.hpp"
@@ -99,20 +102,24 @@ public:
     [[nodiscard]] std::error_code prepare_request(
         exec_state& st,
         const request& req,
-        response_handler_ref handler
+        response_handler_ref handler,
+        exclusivity excl = exclusivity::shared
     );
 
     // Writes the request pointed to by st to the server.
     // If another operation is currently writing requests (e.g. another parallel exec()),
     //   waits until its write part finishes before initiating the write.
     // Returns success if all the request's bytes were written to the server.
-    //   In this case, st.write_done() returns true.
+    //   In this case, st.write_phase() transitions from write_status::request
+    //   to write_status::done (for requests using exclusivity::shared)
+    //   or write_status::copy_data/write_status::waiting_for_reader (for exclusive requests).
     // If this function finishes with an error, the number of transferred bytes
     //   is stored internally within st. Subsequent write_request calls are allowed.
     //   This allows to resume writing after a cancellation, for example.
-    // Only one instance of write_request for a given exec_state is allowed
-    //   to be in-flight at a time. Attempting to launch another fails with client_errc::already_running.
-    // Requires st.is_prepared() && !st.write_done().
+    // Only one writer function (write_request, write_some_copy_data, write_copy_done or
+    //   write_copy_fail) for a given exec_state may be in-flight at a time.
+    //   Attempting to launch another fails with client_errc::already_running.
+    // Requires st.is_prepared() && st.write_phase() == write_status::request.
     //   Otherwise, finishes with client_errc::invalid_state.
     boost::capy::io_task<> write_request(exec_state& st);
 
@@ -128,10 +135,75 @@ public:
     //   to be in-flight at a time. Attempting to launch another fails with client_errc::already_running.
     // Requires st.is_prepared() && !st.read_done().
     //   Otherwise, finishes with client_errc::invalid_state.
-    // This function is fully independent from write_request(). You are responsible
-    //   for calling write_request() until st.write_done() return true.
-    //   A failure in write_request() won't cancel read_some_response(), to allow re-trying.
+    // This function is fully independent from the writer functions. You are responsible
+    //   for calling write_request(), write_some_copy_data(), write_copy_done() or write_copy_fail()
+    //   until st.write_phase() == write_status::done.
+    //   A failure in any of the writer functions won't cancel read_some_response(), to allow re-trying.
     boost::capy::io_task<> read_some_response(exec_state& st);
+
+    // Sends the contents of buff to the server as copy data.
+    // The data is framed into one or more CopyData messages. Frames are length-prefixed.
+    //   The exact framing is unspecified, as it has no meaning for the server.
+    // Returns the number of bytes from buff that reached the server (framing overhead not included).
+    //   As with WriteStream::write_some(), this may be less than buff.size() even on success,
+    //   so call this function repeatedly until the entire buffer has been consumed.
+    // If this function finishes with an error, it may be called again to try to resume the
+    //   transfer. This is useful in the presence of cancellations and timeouts.
+    // Once buffers have been handed to this function, they need to be fully written
+    //   (by repeatedly calling write_some_copy_data) before the transfer can be finished
+    //   with write_copy_done or write_copy_fail. In other words, you cannot "withdraw"
+    //   bytes that were handed to this function, even if they were not reported as written.
+    //   This is because CopyData messages have a length prefix, written before anything else.
+    //   Alternatively, you can abandon the exec_state and re-open the connection.
+    // Only one writer function (write_request, write_some_copy_data, write_copy_done or
+    //   write_copy_fail) for a given exec_state may be in-flight at a time.
+    //   Attempting to launch another fails with client_errc::already_running.
+    // Requires st.write_phase() == write_status::copy_data.
+    //   Otherwise, finishes with client_errc::invalid_state.
+    // TODO: this should use a ConstBufferSequence
+    boost::capy::io_task<std::size_t> write_some_copy_data(exec_state& st, boost::capy::const_buffer buff);
+
+    // Tells the server that we finished sending copy data successfully (CopyDone).
+    // On success, st.write_phase() transitions from write_status::copy_data to
+    //   write_status::waiting_for_reader. Read the rest of the response with read_some_response().
+    // Requires that all the copy data passed to write_some_copy_data() has been transferred.
+    //   Otherwise, finishes with client_errc::copy_incomplete_transfer, and the copy may
+    //   still be completed by sending the missing bytes.
+    // If this function finishes with an error, the terminator may have been written partially.
+    //   Retrying is not supported: the connection should be considered unusable.
+    // If the server detects an error in the data (e.g. a row with an invalid format),
+    //   it will send an error that can be read with read_some_messages.
+    //   You should still call write_copy_done or write_copy_fail to terminate the copy
+    //   operation, even after reading the error, as this function performs
+    //   protocol-level bookkeeping required to keep the connection in sync.
+    // Only one writer function (write_request, write_some_copy_data, write_copy_done or
+    //   write_copy_fail) for a given exec_state may be in-flight at a time.
+    //   Attempting to launch another fails with client_errc::already_running.
+    // Requires st.write_phase() == write_status::copy_data.
+    //   Otherwise, finishes with client_errc::invalid_state.
+    boost::capy::io_task<> write_copy_done(exec_state& st);
+
+    // Aborts the copy, making the server discard everything we sent for it (CopyFail).
+    // Upon receiving this message, the server exits copy mode and raises an error containing
+    //   error_message in it.
+    // On success, st.write_phase() transitions from write_status::copy_data to
+    //   write_status::waiting_for_reader. Read the rest of the response with read_some_response().
+    // Requires that all the copy data passed to write_some_copy_data() has been transferred.
+    //   Otherwise, finishes with client_errc::copy_incomplete_transfer, and the copy may
+    //   still be completed by sending the missing bytes.
+    // If the server detects an error in the data (e.g. a row with an invalid format),
+    //   it will send an error that can be read with read_some_messages.
+    //   You should still call write_copy_done or write_copy_fail to terminate the copy
+    //   operation, even after reading the error, as this function performs
+    //   protocol-level bookkeeping required to keep the connection in sync.
+    // If this function finishes with an error, the terminator may have been written partially.
+    //   Retrying is not supported: the connection should be considered unusable.
+    // Only one writer function (write_request, write_some_copy_data, write_copy_done or
+    //   write_copy_fail) for a given exec_state may be in-flight at a time.
+    //   Attempting to launch another fails with client_errc::already_running.
+    // Requires st.write_phase() == write_status::copy_data.
+    //   Otherwise, finishes with client_errc::invalid_state.
+    boost::capy::io_task<> write_copy_fail(exec_state& st, std::string_view error_message);
 
     // Reads until there is at least one message in the read buffer.
     // Access messages with state().read_buffer

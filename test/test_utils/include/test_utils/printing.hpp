@@ -27,6 +27,9 @@ std::ostream& operator<<(std::ostream& os, const diagnostics&);
 enum class encoding;
 std::ostream& operator<<(std::ostream& os, encoding);
 
+enum class write_status;
+std::ostream& operator<<(std::ostream& os, write_status);
+
 namespace protocol {
 
 struct notification_response;

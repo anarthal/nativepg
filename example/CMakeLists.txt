@@ -49,6 +49,9 @@ if (NATIVEPG_COROSIO_API)
     add_executable(nativepg_copy_out copy_out.cpp)
     target_link_libraries(nativepg_copy_out PRIVATE nativepg_corosio)
 
+    add_executable(nativepg_copy_in copy_in.cpp)
+    target_link_libraries(nativepg_copy_in PRIVATE nativepg_corosio)
+
     add_executable(nativepg_execute_max_rows execute_max_rows.cpp)
     target_link_libraries(nativepg_execute_max_rows PRIVATE nativepg_corosio)
 

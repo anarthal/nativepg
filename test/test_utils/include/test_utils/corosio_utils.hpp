@@ -29,9 +29,14 @@ bool check_success(
     boost::source_location loc = BOOST_CURRENT_LOCATION
 );
 
+inline bool check_success(boost::capy::io_result<> res, boost::source_location loc = BOOST_CURRENT_LOCATION)
+{
+    return check_success(res.ec, {}, loc);
+}
+
 inline bool check_success(
     boost::capy::io_result<> res,
-    const diagnostics& diag = {},
+    const diagnostics& diag,
     boost::source_location loc = BOOST_CURRENT_LOCATION
 )
 {

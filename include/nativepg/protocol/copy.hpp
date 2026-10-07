@@ -8,10 +8,9 @@
 #ifndef NATIVEPG_PROTOCOL_COPY_HPP
 #define NATIVEPG_PROTOCOL_COPY_HPP
 
-#include <system_error>
-
 #include <cstdint>
 #include <span>
+#include <system_error>
 #include <vector>
 
 #include "nativepg/protocol/common.hpp"
@@ -46,7 +45,7 @@ inline std::error_code parse(std::span<const unsigned char> data, copy_data& to)
 // The body is a chunk of user-supplied data that might be large, and is likely
 // better sent using scatter/gather I/O.
 // Use serialize_header with this message type byte
-inline constexpr std::uint8_t copy_data_message_type = static_cast<std::uint8_t>('c');
+inline constexpr std::uint8_t copy_data_message_type = static_cast<std::uint8_t>('d');
 
 struct copy_done
 {

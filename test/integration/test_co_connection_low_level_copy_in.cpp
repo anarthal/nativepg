@@ -92,6 +92,20 @@ capy::io_task<> read_until_done(co_connection& conn, exec_state& st)
     co_return {};
 }
 
+capy::task<> check_copy_rows(
+    co_connection& conn,
+    std::span<const row_copy> expected,
+    boost::source_location loc = BOOST_CURRENT_LOCATION
+)
+{
+    std::vector<row_copy> actual;
+    request req_check;
+    req_check.add_query("SELECT id, name FROM copy_in_test ORDER BY id");
+    if (!co_await checked_exec(conn, req_check, into(actual), loc))
+        co_return;
+    test_range_eq(actual, expected, loc);
+}
+
 // Sunny-day case. Might be run with different requests
 // (e.g. simple queries/extended protocol)
 capy::task<> do_test_success(const request& req_copy_in, boost::source_location loc = BOOST_CURRENT_LOCATION)
@@ -157,17 +171,12 @@ capy::task<> do_test_success(const request& req_copy_in, boost::source_location 
     check_success(st.handler_error(), loc);
 
     // The rows made it into the table
-    std::vector<row_copy> rows;
-    request req_check;
-    req_check.add_query("SELECT id, name FROM copy_in_test ORDER BY id");
-    if (!co_await checked_exec(conn, req_check, into(rows), loc))
-        co_return;
     const row_copy expected[] = {
         {.id = 1, .name = "one"  },
         {.id = 2, .name = "two"  },
-        {.id = 3, .name = "three"}
+        {.id = 3, .name = "three"},
     };
-    test_range_eq(rows, expected, loc);
+    co_await check_copy_rows(conn, expected);
 
     co_await check_connection_usable(conn, loc);
 }
@@ -271,18 +280,13 @@ capy::task<> test_success_simple_query_several_copies()
     check_status(st, {.is_prepared = true, .write_phase = write_status::done, .reader_done = true});
     check_success(st.handler_error());
 
-    // Both copies landed in the table, and so did the statement between them
-    std::vector<row_copy> rows;
-    request req_check;
-    req_check.add_query("SELECT id, name FROM copy_in_test ORDER BY id");
-    if (!co_await checked_exec(conn, req_check, into(rows)))
-        co_return;
+    // Both copies and the insert had effect
     const row_copy expected[] = {
         {.id = 1, .name = "one"  },
         {.id = 2, .name = "two"  },
         {.id = 3, .name = "three"}
     };
-    test_range_eq(rows, expected);
+    co_await check_copy_rows(conn, expected);
 
     co_await check_connection_usable(conn);
 }
@@ -331,17 +335,12 @@ capy::task<> test_success_several_writes()
     check_success(st.handler_error());
 
     // The server reassembled the stream regardless of how we split it
-    std::vector<row_copy> rows;
-    request req_check;
-    req_check.add_query("SELECT id, name FROM copy_in_test ORDER BY id");
-    if (!co_await checked_exec(conn, req_check, into(rows)))
-        co_return;
     const row_copy expected[] = {
         {.id = 1, .name = "one"  },
         {.id = 2, .name = "two"  },
         {.id = 3, .name = "three"}
     };
-    test_range_eq(rows, expected);
+    co_await check_copy_rows(conn, expected);
 
     co_await check_connection_usable(conn);
 }
@@ -387,12 +386,7 @@ capy::task<> test_success_no_data()
     check_success(st.handler_error());
 
     // The copy completed without copying anything
-    std::vector<row_copy> rows;
-    request req_check;
-    req_check.add_query("SELECT id, name FROM copy_in_test ORDER BY id");
-    if (!co_await checked_exec(conn, req_check, into(rows)))
-        co_return;
-    BOOST_TEST(rows.empty());
+    co_await check_copy_rows(conn, {});
 
     co_await check_connection_usable(conn);
 }
@@ -449,12 +443,7 @@ capy::task<> test_copy_fail()
     BOOST_TEST_WITH(st.handler_error().diag.message(), fail_msg, pred);
 
     // The rows we sent before failing were discarded
-    std::vector<row_copy> rows;
-    request req_check;
-    req_check.add_query("SELECT id, name FROM copy_in_test ORDER BY id");
-    if (!co_await checked_exec(conn, req_check, into(rows)))
-        co_return;
-    test_range_eq(rows, std::vector<row_copy>{});
+    co_await check_copy_rows(conn, {});
 
     // Failing a copy is not a protocol error
     co_await check_connection_usable(conn);
@@ -507,13 +496,8 @@ capy::task<> test_copy_fail_no_data()
     };
     BOOST_TEST_WITH(st.handler_error().diag.message(), fail_msg, pred);
 
-    // The rows we sent before failing were discarded
-    std::vector<row_copy> rows;
-    request req_check;
-    req_check.add_query("SELECT id, name FROM copy_in_test ORDER BY id");
-    if (!co_await checked_exec(conn, req_check, into(rows)))
-        co_return;
-    test_range_eq(rows, std::vector<row_copy>{});
+    // No data was copied
+    co_await check_copy_rows(conn, {});
 
     // Failing a copy is not a protocol error
     co_await check_connection_usable(conn);
@@ -583,13 +567,8 @@ capy::task<> test_server_error_mid_transfer()
     test_cond_eq(st.handler_error().code, sqlstate_cond::bad_copy_file_format);
     BOOST_TEST_NOT(st.handler_error().diag.message().empty());
 
-    // The copy is all-or-nothing: the row that was fine didn't make it either
-    std::vector<row_copy> rows;
-    request req_check;
-    req_check.add_query("SELECT id, name FROM copy_in_test ORDER BY id");
-    if (!co_await checked_exec(conn, req_check, into(rows)))
-        co_return;
-    BOOST_TEST(rows.empty());
+    // No data was copied
+    co_await check_copy_rows(conn, {});
 
     // A rejected copy is not a protocol error
     co_await check_connection_usable(conn);

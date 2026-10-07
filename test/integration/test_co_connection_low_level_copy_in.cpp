@@ -342,6 +342,58 @@ capy::task<> test_success_several_writes()
     co_await check_connection_usable(conn);
 }
 
+// A copy may transfer no data at all: terminating it right after the server
+// asks for data leaves the table untouched and the connection healthy
+capy::task<> test_success_no_data()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req_setup;
+    req_setup.add_query("CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)");
+    if (!co_await checked_exec(conn, req_setup))
+        co_return;
+
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+
+    // Wait until the server asks us for data
+    if (!check_success(co_await read_until_copy_data(conn, st)))
+        co_return;
+    check_status(st, {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false});
+
+    // Terminate the copy without ever calling write_some_copy_data
+    if (!check_success(co_await conn.write_copy_done(st)))
+        co_return;
+    check_status(
+        st,
+        {.is_prepared = true, .write_phase = write_status::waiting_for_reader, .reader_done = false}
+    );
+
+    // Read the rest of the response
+    if (!check_success(co_await read_until_done(conn, st)))
+        co_return;
+    check_status(st, {.is_prepared = true, .write_phase = write_status::done, .reader_done = true});
+    check_success(st.handler_error());
+
+    // The copy completed without copying anything
+    std::vector<row_copy> rows;
+    request req_check;
+    req_check.add_query("SELECT id, name FROM copy_in_test ORDER BY id");
+    if (!co_await checked_exec(conn, req_check, into(rows)))
+        co_return;
+    BOOST_TEST(rows.empty());
+
+    co_await check_connection_usable(conn);
+}
+
 }  // namespace
 
 int main()
@@ -352,6 +404,7 @@ int main()
     run_coroutine_test(test_success_simple_query_protocol_extra_syncs());
     run_coroutine_test(test_success_simple_query_several_copies());
     run_coroutine_test(test_success_several_writes());
+    run_coroutine_test(test_success_no_data());
 
     return boost::report_errors();
 }

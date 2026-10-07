@@ -23,8 +23,10 @@
 #include "nativepg/co_connection.hpp"
 #include "nativepg/exclusivity.hpp"
 #include "nativepg/exec_state.hpp"
+#include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
+#include "nativepg/responses/error_into.hpp"
 #include "nativepg/responses/into.hpp"
 #include "nativepg/sqlstate_cond.hpp"
 #include "nativepg/write_status.hpp"
@@ -458,6 +460,141 @@ capy::task<> test_copy_fail()
     co_await check_connection_usable(conn);
 }
 
+// write_copy_fail might be called without transferring any data first
+capy::task<> test_copy_fail_no_data()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req_setup;
+    req_setup.add_query("CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)");
+    if (!co_await checked_exec(conn, req_setup))
+        co_return;
+
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+
+    // Wait until the server asks us for data
+    if (!check_success(co_await read_until_copy_data(conn, st)))
+        co_return;
+    check_status(st, {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false});
+
+    // Abort the transfer
+    constexpr auto fail_msg = "test_copy_fail_marker"sv;
+    if (!check_success(co_await conn.write_copy_fail(st, fail_msg)))
+        co_return;
+    check_status(
+        st,
+        {.is_prepared = true, .write_phase = write_status::waiting_for_reader, .reader_done = false}
+    );
+
+    // Read the rest of the response
+    if (!check_success(co_await read_until_done(conn, st)))
+        co_return;
+    check_status(st, {.is_prepared = true, .write_phase = write_status::done, .reader_done = true});
+
+    // The server reports an error containing the message that we sent
+    test_cond_eq(st.handler_error().code, sqlstate_cond::query_canceled);
+    auto pred = [](std::string_view big, std::string_view small) {
+        return big.find(small) != std::string_view::npos;
+    };
+    BOOST_TEST_WITH(st.handler_error().diag.message(), fail_msg, pred);
+
+    // The rows we sent before failing were discarded
+    std::vector<row_copy> rows;
+    request req_check;
+    req_check.add_query("SELECT id, name FROM copy_in_test ORDER BY id");
+    if (!co_await checked_exec(conn, req_check, into(rows)))
+        co_return;
+    test_range_eq(rows, std::vector<row_copy>{});
+
+    // Failing a copy is not a protocol error
+    co_await check_connection_usable(conn);
+}
+
+// The server rejects the data while we are sending it
+capy::task<> test_server_error_mid_transfer()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req_setup;
+    req_setup.add_query("CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)");
+    if (!co_await checked_exec(conn, req_setup))
+        co_return;
+
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+    extended_error err;
+    error_into handler(check(), err);
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+
+    if (!check_success(co_await read_until_copy_data(conn, st)))
+        co_return;
+    check_status(st, {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false});
+
+    // The first row is fine, the second one has an extra column for a table
+    // with two of them. The server rejects it as it parses the stream
+    if (!check_success(co_await write_all_copy_data(conn, st, "1\tone\n2\ttwo\textra\n"sv)))
+        co_return;
+
+    // Writing is still allowed: the server's error hasn't been read yet, so as
+    // far as the writer is concerned the copy is still running
+    check_status(st, {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false});
+    if (!check_success(co_await write_all_copy_data(conn, st, "3\tthree\n"sv)))
+        co_return;
+    check_status(st, {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false});
+
+    // Read the error message
+    while (!err.code)
+    {
+        if (!check_success(co_await conn.read_some_response(st)))
+            co_return;
+    }
+    test_cond_eq(err.code, sqlstate_cond::bad_copy_file_format);
+
+    // We're still stuck in Copy-in mode at this point.
+    // We still need to send the Sync messages to restore normality
+    if (!check_success(co_await conn.write_copy_done(st)))
+        co_return;
+    check_status(
+        st,
+        {.is_prepared = true, .write_phase = write_status::waiting_for_reader, .reader_done = false}
+    );
+
+    // Read the rest of the response
+    if (!check_success(co_await read_until_done(conn, st)))
+        co_return;
+    check_status(st, {.is_prepared = true, .write_phase = write_status::done, .reader_done = true});
+
+    // The failure is reported by the handler
+    test_cond_eq(st.handler_error().code, sqlstate_cond::bad_copy_file_format);
+    BOOST_TEST_NOT(st.handler_error().diag.message().empty());
+
+    // The copy is all-or-nothing: the row that was fine didn't make it either
+    std::vector<row_copy> rows;
+    request req_check;
+    req_check.add_query("SELECT id, name FROM copy_in_test ORDER BY id");
+    if (!co_await checked_exec(conn, req_check, into(rows)))
+        co_return;
+    BOOST_TEST(rows.empty());
+
+    // A rejected copy is not a protocol error
+    co_await check_connection_usable(conn);
+}
+
 }  // namespace
 
 int main()
@@ -470,6 +607,8 @@ int main()
     run_coroutine_test(test_success_several_writes());
     run_coroutine_test(test_success_no_data());
     run_coroutine_test(test_copy_fail());
+    run_coroutine_test(test_copy_fail_no_data());
+    run_coroutine_test(test_server_error_mid_transfer());
 
     return boost::report_errors();
 }

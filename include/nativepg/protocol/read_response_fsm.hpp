@@ -46,7 +46,8 @@ public:
         BOOST_ASSERT(req != nullptr);
     }
 
-    // TODO: encapsulate?
+    // TODO: I don't like this. It's somehow specific to how _we_ handle Copy-in.
+    // There could be other strategies.
     struct result_type
     {
         std::error_code ec;       // special: needs_more, copy_in

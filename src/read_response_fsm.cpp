@@ -47,7 +47,7 @@ enum class read_response_fsm_impl::state_t
 
 // Counts the number of Sync messages after an Exec/Query that has returned a CopyInResponse,
 // and validates that only Flush and Sync messages follow the message.
-// TODO: the restriction applies to Execute, but I think Query should be fine?
+// Any other message would cause the backend to issue a fatal error.
 static protocol::read_response_fsm::result_type count_copy_in_syncs(const read_response_fsm_impl& fsm)
 {
     std::size_t num_syncs = 0u;

@@ -366,9 +366,9 @@ struct co_connection::impl
                                                      exec_st.copy_in.transferred_bytes >= 5u
                                                  ? 0u
                                                  : 5u - exec_st.copy_in.transferred_bytes;
-        const std::size_t prev_payload_size = exec_st.copy_in.frame_num_bytes == 0u ||
-                                                      exec_st.copy_in.transferred_bytes < 5u
-                                                  ? 0u
+        const std::size_t prev_payload_size = exec_st.copy_in.frame_num_bytes == 0u ? 0u
+                                              : exec_st.copy_in.transferred_bytes < 5u
+                                                  ? exec_st.copy_in.frame_num_bytes
                                                   : exec_st.copy_in.frame_num_bytes + 5u -
                                                         exec_st.copy_in.transferred_bytes;
         const std::size_t prev_size = prev_header_size + prev_payload_size;

@@ -51,6 +51,8 @@ public:
     {
         std::error_code ec;       // special: needs_more, copy_in
         std::size_t num_syncs{};  // if copy_in, number of syncs that will be swallowed by the server
+
+        friend bool operator==(const result_type&, const result_type&) = default;
     };
 
     const request& get_request() const { return *impl_.req; }

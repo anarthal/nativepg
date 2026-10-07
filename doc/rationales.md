@@ -324,14 +324,23 @@ error.
 
 ## Why an exclusive mode for Copy-in and Copy-both?
 
-- Copy in requires the user to write data. No other messages must be written
-  to the server before this data is sent.
+- Copy in requires the user to write data. While in Copy-in mode,
+  only copy-related messages should be sent. Regular messages
+  (like Query or Execute) are forbidden.
 - If the user were to issue requests in parallel, there is a chance that
   these requests ended up being intercalated.
 - Not forcing exclusive mode is equivalent to asking the user to ensure that
   (i.e. precondition).
-- Precondition violations here yield a "sometimes an error" situation, and can be hard to debug.
-  Forcing exclusive mode changes it to "always an error".
+- Exclusive mode makes this interleaving impossible.
+- Requiring exclusive mode turns the precondition violation situation
+  from "sometimes an error" (depending on whether you're issuing other requests in parallel or not)
+  to "always an error".
+
+## Why do I have to pass exclusivity::exclusive to prepare_request? Can't you deduce it?
+
+No. There is no way to know whether a request will cause the connection
+to enter Copy-in mode without running it. For example, a request
+with a `COPY myt TO STDIN` won't trigger Copy-in mode if `myt` does not exist.
 
 ## Why can't a request with an Execute yielding CopyInResponse contain more pipelined messages?
 
@@ -340,7 +349,7 @@ error.
   Subsequent messages are forbidden - only CopyData messages are allowed.
   If your request contains more messages, the server will issue an error and close the connection.
 - There is no way to determine whether an Execute contains something that will trigger Copy-in,
-  just by examining the response.
+  just by examining the request.
 - We do the checking immediately after the server reports a Copy-in, and kill the connection
   if you messed up.
 - Sync is allowed because it will be ignored by the server. We do some magic to remember
@@ -373,7 +382,7 @@ error.
   - We worsen error detection. If the user calls write_some_copy_data without
     ever issuing a COPY operation, we now communicate this early. With an independent writer,
     we'd have the function succeed but do nothing, which is confusing.
-  - We further complicate the implementation. The reader needs to know
+  - We further complicate the implementation. The reader would need to know
     how many times write_copy_done/write_copy_fail were called to know how many
     ReadyForQuery messages to expect. This creates race conditions, because they
     might be called in parallel.
@@ -398,5 +407,25 @@ CopyDone and CopyFail are also frames, so they can't be sent until the last Copy
 
 Note: we could allow `write_copy_fail` with a half-written frame.
 That would require sending padding bytes to finish the currently
-outstanding CopyData frame. However, this is requires an unbound allocation.
+outstanding CopyData frame. However, this requires unbounded I/O,
+as the max frame size is INT32_MAX.
 The user can always abandon the exec_state and let the connection die.
+
+For this same reason, abandoning an exec_state while
+in Copy-in mode is fatal, as opposed to abandoning any other request.
+
+## Why does Copy-out not require exclusive mode?
+
+Because Copy-out mode does not require the frontend to send
+any special messages to the backend. When sending messages
+pipelined after a request that triggers Copy-out mode,
+they are queued until Copy-out finishes. In this sense,
+Copy-out mode behaves like any other request.
+
+## What is write_status::waiting_for_reader?
+
+It only happens for exclusive operations. It exists because
+of the coupling between reader and writer in Copy-in mode.
+If the reader reports that Copy-in mode was entered, the writer
+will transition to write_status::copy_data.
+Otherwise, to write_status::done.

@@ -65,6 +65,29 @@ capy::io_task<> write_all_copy_data(co_connection& conn, exec_state& st, std::st
     co_return {};
 }
 
+// Reads until st.write_phase() is copy_data
+capy::io_task<> read_until_copy_data(co_connection& conn, exec_state& st)
+{
+    while (st.write_phase() == write_status::waiting_for_reader)
+    {
+        if (auto [ec] = co_await conn.read_some_response(st); ec)
+            co_return {ec};
+    }
+
+    co_return {};
+}
+
+capy::io_task<> read_until_done(co_connection& conn, exec_state& st)
+{
+    while (!st.read_done())
+    {
+        if (auto [ec] = co_await conn.read_some_response(st); ec)
+            co_return {ec};
+    }
+
+    co_return {};
+}
+
 // Sunny-day case. Might be run with different requests
 // (e.g. simple queries/extended protocol)
 capy::task<> do_test_success(const request& req_copy_in, boost::source_location loc = BOOST_CURRENT_LOCATION)
@@ -102,11 +125,8 @@ capy::task<> do_test_success(const request& req_copy_in, boost::source_location 
     );
 
     // Read until the server asks us for data (CopyInResponse)
-    while (st.write_phase() == write_status::waiting_for_reader)
-    {
-        if (!check_success(co_await conn.read_some_response(st), loc))
-            co_return;
-    }
+    if (!check_success(co_await read_until_copy_data(conn, st)))
+        co_return;
     check_status(
         st,
         {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false},
@@ -127,11 +147,8 @@ capy::task<> do_test_success(const request& req_copy_in, boost::source_location 
     );
 
     // Read the rest of the response
-    while (!st.read_done())
-    {
-        if (!check_success(co_await conn.read_some_response(st), loc))
-            co_return;
-    }
+    if (!check_success(co_await read_until_done(conn, st)))
+        co_return;
     check_status(st, {.is_prepared = true, .write_phase = write_status::done, .reader_done = true}, loc);
     check_success(st.handler_error(), loc);
 
@@ -216,34 +233,37 @@ capy::task<> test_success_simple_query_several_copies()
     if (!check_success(co_await conn.write_request(st)))
         co_return;
 
-    // Both copies follow the same pattern: read until the server asks for data,
-    // send it, then hand the connection back to the reader
-    constexpr std::string_view copy_data[] = {"1\tone\n"sv, "3\tthree\n"sv};
-    for (auto data : copy_data)
-    {
-        while (st.write_phase() == write_status::waiting_for_reader)
-        {
-            if (!check_success(co_await conn.read_some_response(st)))
-                co_return;
-        }
-        check_status(st, {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false});
+    // First copy
+    if (!check_success(co_await read_until_copy_data(conn, st)))
+        co_return;
+    check_status(st, {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false});
 
-        if (!check_success(co_await write_all_copy_data(conn, st, data)))
-            co_return;
-        if (!check_success(co_await conn.write_copy_done(st)))
-            co_return;
-        check_status(
-            st,
-            {.is_prepared = true, .write_phase = write_status::waiting_for_reader, .reader_done = false}
-        );
-    }
+    if (!check_success(co_await write_all_copy_data(conn, st, "1\tone\n"sv)))
+        co_return;
+    if (!check_success(co_await conn.write_copy_done(st)))
+        co_return;
+    check_status(
+        st,
+        {.is_prepared = true, .write_phase = write_status::waiting_for_reader, .reader_done = false}
+    );
+
+    // Second copy
+    if (!check_success(co_await read_until_copy_data(conn, st)))
+        co_return;
+    check_status(st, {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false});
+
+    if (!check_success(co_await write_all_copy_data(conn, st, "3\tthree\n"sv)))
+        co_return;
+    if (!check_success(co_await conn.write_copy_done(st)))
+        co_return;
+    check_status(
+        st,
+        {.is_prepared = true, .write_phase = write_status::waiting_for_reader, .reader_done = false}
+    );
 
     // Read the rest of the response
-    while (!st.read_done())
-    {
-        if (!check_success(co_await conn.read_some_response(st)))
-            co_return;
-    }
+    if (!check_success(co_await read_until_done(conn, st)))
+        co_return;
     check_status(st, {.is_prepared = true, .write_phase = write_status::done, .reader_done = true});
     check_success(st.handler_error());
 
@@ -285,11 +305,8 @@ capy::task<> test_success_several_writes()
         co_return;
 
     // Wait until the server asks us for data
-    while (st.write_phase() == write_status::waiting_for_reader)
-    {
-        if (!check_success(co_await conn.read_some_response(st)))
-            co_return;
-    }
+    if (!check_success(co_await read_until_copy_data(conn, st)))
+        co_return;
     check_status(st, {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false});
 
     // Split points are arbitrary
@@ -304,11 +321,8 @@ capy::task<> test_success_several_writes()
         co_return;
 
     // Read the rest of the response
-    while (!st.read_done())
-    {
-        if (!check_success(co_await conn.read_some_response(st)))
-            co_return;
-    }
+    if (!check_success(co_await read_until_done(conn, st)))
+        co_return;
     check_status(st, {.is_prepared = true, .write_phase = write_status::done, .reader_done = true});
     check_success(st.handler_error());
 

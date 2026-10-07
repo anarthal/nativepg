@@ -321,3 +321,82 @@ of `co_connection`, it can mark the connection as failed.
 `receive()` already fulfilled its contract of reading at least
 one notification. Subsequent operations will encounter the
 error.
+
+## Why an exclusive mode for Copy-in and Copy-both?
+
+- Copy in requires the user to write data. No other messages must be written
+  to the server before this data is sent.
+- If the user were to issue requests in parallel, there is a chance that
+  these requests ended up being intercalated.
+- Not forcing exclusive mode is equivalent to asking the user to ensure that
+  (i.e. precondition).
+- Precondition violations here yield a "sometimes an error" situation, and can be hard to debug.
+  Forcing exclusive mode changes it to "always an error".
+
+## Why can't a request with an Execute yielding CopyInResponse contain more pipelined messages?
+
+- It can only contain Execute followed by Flush and Sync messages.
+- The problem is that the backend enters the special Copy-in mode.
+  Subsequent messages are forbidden - only CopyData messages are allowed.
+  If your request contains more messages, the server will issue an error and close the connection.
+- There is no way to determine whether an Execute contains something that will trigger Copy-in,
+  just by examining the response.
+- We do the checking immediately after the server reports a Copy-in, and kill the connection
+  if you messed up.
+- Sync is allowed because it will be ignored by the server. We do some magic to remember
+  how many Sync messages were ignored by the server, and replay them after copy data is sent,
+  to keep the connection in sync.
+
+## Why are reader and writer not fully independent for Copy-in operations?
+
+- For regular requests, reader and writer are fully independent: what you write
+  doesn't depend on what the server answers at all.
+- But for requests entering Copy-in or Copy-both mode, that's not true, because:
+  - Data should be sent to the server only if it sends CopyInResponse/CopyBothResponse.
+    This is work-aroundable, though: servers ignore CopyData/CopyDone/CopyFail
+    if they're not in Copy-in mode.
+  - Sync messages are ignored during Copy-in mode. This means that the meaning
+    of a Sync changes when in Copy-in mode. If using the extended protocol,
+    the server won't finish the operation until we write a Sync
+    after it has exited Copy-in mode. This happens after we write
+    CopyDone/CopyFail or the server sends an ErrorMessage (e.g. bad row format).
+- To complicate things more, there is no way to predict when a request may trigger Copy-in mode:
+  - The only difference between a regular request and one that may trigger Copy-in is their SQL content.
+  - Requests that are intended to produce Copy-in might fail and not trigger it.
+    E.g. a copy into a table that does not exist.
+  - Query messages may trigger Copy-in several times, because they might contain several queries
+    separated by semicolons.
+- If we make the writer independent (i.e. allow the user call write_some_copy_data
+  before receiving CopyInResponse), we would get the following trade-offs:
+  - We save one round-trip in Copy-in mode (the user can call write_some_copy_data
+    before CopyInResponse is received). Shouldn't be noticeable if the transfer is big (common case, otherwise use INSERT).
+  - We worsen error detection. If the user calls write_some_copy_data without
+    ever issuing a COPY operation, we now communicate this early. With an independent writer,
+    we'd have the function succeed but do nothing, which is confusing.
+  - We further complicate the implementation. The reader needs to know
+    how many times write_copy_done/write_copy_fail were called to know how many
+    ReadyForQuery messages to expect. This creates race conditions, because they
+    might be called in parallel.
+
+I don't think the benefits outweigh the problems, so writing copy data
+needs to wait until the server confirms that it does want data. Libpq does the same.
+
+## Why does writing copy data have write_some (rather than write) semantics?
+
+Copy-in operations are usually high-volume, and take long time.
+Users might want to report progress, set timeouts and retry failures.
+`write_some_copy_data` is a low-level primitive. Higher-level
+primitives can be built on top of it. The opposite is not true.
+
+## Why do write_copy_done and write_copy_fail require sending all the bytes passed to previous write_some_copy_data ops?
+
+Although we expose a stream-like interface, rhe Copy-in protocol is not a stream.
+It uses a bunch of frames, with a length prefix. Once you send a frame,
+you must send as many bytes as you advertised. Until you don't finish
+sending a frame, you can't send another one.
+CopyDone and CopyFail are also frames, so they can't be sent until the last CopyData message is fully written.
+
+Note: we could allow `write_copy_fail` with a half-written frame.
+That would require sending padding bytes to finish the currently
+outstanding CopyData frame. However, this is requires an unbound allocation.
+The user can always abandon the exec_state and let the connection die.

@@ -8,7 +8,7 @@
 #ifndef NATIVEPG_CO_CONNECTION_HPP
 #define NATIVEPG_CO_CONNECTION_HPP
 
-#include <boost/capy/buffers.hpp>
+#include <boost/capy/buffers/buffer_param.hpp>
 #include <boost/capy/concept/executor.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/io/any_stream.hpp>
@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string_view>
 
 #include "nativepg/connect_params.hpp"
@@ -141,12 +142,14 @@ public:
     //   A failure in any of the writer functions won't cancel read_some_response(), to allow re-trying.
     boost::capy::io_task<> read_some_response(exec_state& st);
 
-    // Sends the contents of buff to the server as copy data.
+    // Sends the contents of buffers to the server as copy data.
+    //   Any memory that buffers points into must be kept alive until the op completes.
     // The data is framed into one or more CopyData messages. Frames are length-prefixed.
     //   The exact framing is unspecified, as it has no meaning for the server.
-    // Returns the number of bytes from buff that reached the server (framing overhead not included).
-    //   As with WriteStream::write_some(), this may be less than buff.size() even on success,
-    //   so call this function repeatedly until the entire buffer has been consumed.
+    // Returns the number of bytes from buffers that reached the server
+    //   (framing overhead not included).
+    //   As with WriteStream::write_some(), this may be less than buffer_size(buffers) even on
+    //   success, so call this function repeatedly until the entire sequence has been consumed.
     // If this function finishes with an error, it may be called again to try to resume the
     //   transfer. This is useful in the presence of cancellations and timeouts.
     // Once buffers have been handed to this function, they need to be fully written
@@ -160,8 +163,14 @@ public:
     //   Attempting to launch another fails with client_errc::already_running.
     // Requires st.write_phase() == write_status::copy_data.
     //   Otherwise, finishes with client_errc::invalid_state.
-    // TODO: this should use a ConstBufferSequence
-    boost::capy::io_task<std::size_t> write_some_copy_data(exec_state& st, boost::capy::const_buffer buff);
+    template <boost::capy::ConstBufferSequence ConstBufferSeq>
+    boost::capy::io_task<std::size_t> write_some_copy_data(exec_state& st, ConstBufferSeq buffers)
+    {
+        // A plain forwarder doesn't work because param needs to be kept alive
+        // and is a template
+        boost::capy::const_buffer_param<ConstBufferSeq> param{buffers};
+        co_return co_await write_some_copy_data_impl(st, param.data());
+    }
 
     // Tells the server that we finished sending copy data successfully (CopyDone).
     // On success, st.write_phase() transitions from write_status::copy_data to
@@ -216,6 +225,12 @@ public:
     // Values reported via ParameterStatus
     std::optional<bool> standard_conforming_strings() const;
     std::optional<encoding> client_encoding() const;
+
+private:
+    boost::capy::io_task<std::size_t> write_some_copy_data_impl(
+        exec_state& st,
+        std::span<const boost::capy::const_buffer> buffers
+    );
 };
 
 }  // namespace nativepg

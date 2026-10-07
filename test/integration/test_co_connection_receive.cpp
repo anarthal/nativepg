@@ -91,7 +91,7 @@ capy::task<> test_single_notification()
         co_return;
 
     // The next receive() delivers only the new one: the previous batch was consumed
-    if (!check_success(co_await conn.receive(notifs), {}))
+    if (!check_success(co_await conn.receive(notifs)))
         co_return;
 
     const protocol::notification_response expected2[] = {

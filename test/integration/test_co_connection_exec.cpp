@@ -312,7 +312,7 @@ capy::task<> test_cancel_partial_response()
     ));
 
     // Release the lock so the request completes server-side
-    if (!check_success(co_await conn_lock.shutdown(), {}))
+    if (!check_success(co_await conn_lock.shutdown()))
         co_return;
 
     // We read the leftovers and leave the connection usable
@@ -425,7 +425,7 @@ capy::task<> test_cancel_partial_response_with_queued()
             // Waits for req1 to finish, then releases the lock so req2 can make progress
             auto [ec] = co_await req1_finished.wait();
             BOOST_TEST_EQ(ec, std::error_code());
-            check_success(co_await conn_lock.shutdown(), {});
+            check_success(co_await conn_lock.shutdown());
             co_return {};
         }()
     ));
@@ -498,7 +498,7 @@ capy::task<> test_cancel_while_waiting()
             // Waits for req2 to be finish, then releases the lock so req1 can make progress.
             auto [ec] = co_await req2_finished.wait();
             BOOST_TEST_EQ(ec, std::error_code());
-            check_success(co_await conn_lock.shutdown(), {});
+            check_success(co_await conn_lock.shutdown());
             co_return {};
         }()
     ));
@@ -584,7 +584,7 @@ capy::task<> test_cancel_while_waiting_middle()
             // can make progress. Releasing earlier would race req2's cancellation
             auto [ec] = co_await req2_finished.wait();
             BOOST_TEST_EQ(ec, std::error_code());
-            check_success(co_await conn_lock.shutdown(), {});
+            check_success(co_await conn_lock.shutdown());
             co_return {};
         }()
     ));

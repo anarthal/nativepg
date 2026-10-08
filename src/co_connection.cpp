@@ -7,8 +7,8 @@
 
 #include <boost/assert.hpp>
 #include <boost/capy/buffers.hpp>
+#include <boost/capy/buffers/buffer_slice.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
-#include <boost/capy/buffers/slice.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/write.hpp>
@@ -402,16 +402,18 @@ struct co_connection::impl
 
         if (prev_payload_size > 0u)
         {
-            auto prev_payload = capy::prefix(input_buffs, prev_payload_size);
-            output_buffs.insert(output_buffs.end(), capy::begin(prev_payload), capy::end(prev_payload));
+            auto prev_payload = capy::buffer_slice(input_buffs, 0u, prev_payload_size);
+            auto data = prev_payload.data();
+            output_buffs.insert(output_buffs.end(), capy::begin(data), capy::end(data));
         }
 
         if (payload_size > 0u)
         {
             frame_header = make_copy_data_header(payload_size);
             output_buffs.push_back(capy::make_buffer(frame_header));
-            auto payload = capy::prefix(capy::sans_prefix(input_buffs, prev_payload_size), payload_size);
-            output_buffs.insert(output_buffs.end(), capy::begin(payload), capy::end(payload));
+            auto payload = capy::buffer_slice(input_buffs, prev_payload_size, payload_size);
+            auto data = payload.data();
+            output_buffs.insert(output_buffs.end(), capy::begin(data), capy::end(data));
         }
 
         // Write the thing

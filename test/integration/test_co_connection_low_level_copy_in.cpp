@@ -6,8 +6,8 @@
 //
 
 #include <boost/assert/source_location.hpp>
+#include <boost/capy/buffers/buffer_slice.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
-#include <boost/capy/buffers/slice.hpp>
 #include <boost/capy/cond.hpp>
 #include <boost/capy/error.hpp>
 #include <boost/capy/ex/async_event.hpp>
@@ -395,7 +395,8 @@ capy::task<> test_success_buffer_sequence()
     // Transfer all data
     for (std::size_t transferred = 0u; transferred < total_size;)
     {
-        auto [ec, bytes] = co_await conn.write_some_copy_data(st, boost::capy::sans_prefix(seq, transferred));
+        auto slc = capy::buffer_slice(seq, transferred);
+        auto [ec, bytes] = co_await conn.write_some_copy_data(st, slc.data());
         if (!BOOST_TEST_EQ(ec, std::error_code()))
             co_return;
         transferred += bytes;

@@ -10,6 +10,8 @@
 
 #include <boost/capy/task.hpp>
 
+#include <string_view>
+
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
 #include "nativepg/request.hpp"
@@ -52,6 +54,17 @@ inline boost::capy::task<bool> checked_exec(
 )
 {
     return checked_exec(conn, req, check(), loc);
+}
+
+inline boost::capy::task<bool> checked_exec(
+    co_connection& conn,
+    std::string_view sql,
+    boost::source_location loc = BOOST_CURRENT_LOCATION
+)
+{
+    request req;
+    req.add_query(sql);
+    co_return co_await checked_exec(conn, req, check(), loc);
 }
 
 // Runs a plain request and checks it produces its own response (detects de-syncs)

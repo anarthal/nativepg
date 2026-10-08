@@ -21,6 +21,7 @@
 
 #include <cstddef>
 #include <iostream>
+#include <span>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -415,6 +416,69 @@ capy::task<> test_success_buffer_sequence()
         {.id = 1, .name = "one"  },
         {.id = 2, .name = "two"  },
         {.id = 3, .name = "three"}
+    };
+    co_await check_copy_rows(conn, expected);
+
+    co_await check_connection_usable(conn);
+}
+
+// Sequences with no bytes in them are a no-op
+capy::task<> test_success_empty_buffer()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req_setup;
+    req_setup.add_query("CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)");
+    if (!co_await checked_exec(conn, req_setup))
+        co_return;
+
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+
+    // Wait until the server asks us for data
+    if (!check_success(co_await read_until_copy_data(conn, st)))
+        co_return;
+    check_status(st, {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false});
+
+    // Write some actual data, to verify that an empty write mid-transfer
+    // doesn't break anything
+    if (!check_success(co_await write_all_copy_data(conn, st, "1\tone\n"sv)))
+        co_return;
+
+    // Sequences with no bytes are OK
+    auto [ec1, bytes1] = co_await conn.write_some_copy_data(st, capy::const_buffer());
+    BOOST_TEST_EQ(ec1, std::error_code());
+    BOOST_TEST_EQ(bytes1, 0u);
+
+    auto [ec2, bytes2] = co_await conn.write_some_copy_data(st, std::span<const capy::const_buffer>());
+    BOOST_TEST_EQ(ec2, std::error_code());
+    BOOST_TEST_EQ(bytes2, 0u);
+
+    // None of them moved the writer
+    check_status(st, {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false});
+
+    // Finish the transfer
+    if (!check_success(co_await write_all_copy_data(conn, st, "2\ttwo\n"sv)))
+        co_return;
+    if (!check_success(co_await conn.write_copy_done(st)))
+        co_return;
+    if (!check_success(co_await read_until_done(conn, st)))
+        co_return;
+    check_status(st, {.is_prepared = true, .write_phase = write_status::done, .reader_done = true});
+    check_success(st.handler_error());
+
+    // The rows made it into the table
+    const row_copy expected[] = {
+        {.id = 1, .name = "one"},
+        {.id = 2, .name = "two"},
     };
     co_await check_copy_rows(conn, expected);
 
@@ -1071,6 +1135,7 @@ int main()
     run_coroutine_test(test_success_simple_query_several_copies());
     run_coroutine_test(test_success_several_writes());
     run_coroutine_test(test_success_buffer_sequence());
+    run_coroutine_test(test_success_empty_buffer());
     run_coroutine_test(test_success_no_data());
     run_coroutine_test(test_success_parallel());
 

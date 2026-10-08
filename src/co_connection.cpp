@@ -362,8 +362,9 @@ struct co_connection::impl
         if (input_buffs.size() > max_input_buffers)
             input_buffs = input_buffs.first(max_input_buffers);
 
-        // Empty buffers are a no-op
-        // TODO: can we get rid of this special case?
+        // Empty buffers are a no-op.
+        // Special case required because we might be in the middle of
+        // transferring a frame header
         const std::size_t buff_size = boost::capy::buffer_size(input_buffs);
         if (buff_size == 0u)
             co_return {};

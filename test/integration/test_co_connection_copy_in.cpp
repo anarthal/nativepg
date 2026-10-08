@@ -12,12 +12,11 @@
 #include <boost/capy/error.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/task.hpp>
+#include <boost/capy/test/buffer_source.hpp>
 #include <boost/core/lightweight_test.hpp>
 #include <boost/describe/class.hpp>
 #include <boost/describe/operators.hpp>
 
-#include <cstddef>
-#include <cstdint>
 #include <span>
 #include <string>
 #include <string_view>
@@ -52,39 +51,6 @@ BOOST_DESCRIBE_STRUCT(row_copy, (), (id, name))
 using boost::describe::operators::operator==;
 using boost::describe::operators::operator<<;
 
-// A BufferSource that hands the data over in chunks, one chunk per pull()
-class chunk_source
-{
-    std::span<const std::string_view> chunks_;
-    std::size_t consumed_{};  // bytes consumed from the current chunk
-
-public:
-    explicit chunk_source(std::span<const std::string_view> chunks) noexcept : chunks_(chunks) {}
-
-    capy::io_task<std::span<capy::const_buffer>> pull(std::span<capy::const_buffer> dest)
-    {
-        // Discard chunks that have been fully consumed
-        while (!chunks_.empty() && consumed_ == chunks_.front().size())
-        {
-            chunks_ = chunks_.subspan(1u);
-            consumed_ = 0u;
-        }
-
-        if (chunks_.empty())
-            co_return {capy::error::eof, {}};
-
-        dest[0] = capy::make_buffer(chunks_.front().substr(consumed_));
-        co_return {std::error_code(), dest.first(1u)};
-    }
-
-    void consume(std::size_t n) noexcept
-    {
-        BOOST_ASSERT(!chunks_.empty());
-        BOOST_ASSERT(consumed_ + n <= chunks_.front().size());
-        consumed_ += n;
-    }
-};
-
 // TODO: duplicated
 capy::task<> check_copy_rows(
     co_connection& conn,
@@ -100,7 +66,7 @@ capy::task<> check_copy_rows(
     test_range_eq(actual, expected, loc);
 }
 
-// The source is drained in two separate pull() calls,
+// The source is drained in several separate pull() calls,
 // and all the rows reach the server
 capy::task<> test_success()
 {
@@ -110,11 +76,12 @@ capy::task<> test_success()
     if (!co_await checked_exec(conn, "CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)"))
         co_return;
 
-    // Run the copy. The source splits the rows into two chunks
+    // Run the copy
     request req;
     req.add_query("COPY copy_in_test FROM STDIN");
-    const std::string_view chunks[] = {"1\tone\n2\ttwo\n"sv, "3\tthree\n"sv};
-    chunk_source source{chunks};
+
+    capy::test::buffer_source source{{}, 8u};  // max 8 bytes per pull
+    source.provide("1\tone\n2\ttwo\n3\tthree\n");
 
     diagnostics diag;
     auto [ec, rows] = co_await conn.copy_in(req, &source, &diag);
@@ -122,7 +89,7 @@ capy::task<> test_success()
         co_return;
 
     // The server reports how many rows it copied
-    BOOST_TEST_EQ(rows, std::uint64_t(3));
+    BOOST_TEST_EQ(rows, 3u);
 
     // The rows made it into the table
     const row_copy expected[] = {

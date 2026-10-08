@@ -873,6 +873,19 @@ public:
     const extended_error& error() const { return err_; }
 };
 
+// Adapts write_some_copy_data into capy::WriteStream
+struct stream_adaptor
+{
+    co_connection* conn_ptr;
+    exec_state* st_ptr;
+
+    template <capy::ConstBufferSequence Buffers>
+    capy::io_task<std::size_t> write_some(Buffers&& buffs)
+    {
+        return conn_ptr->write_some_copy_data(*st_ptr, std::forward<Buffers>(buffs));
+    }
+};
+
 // Feeds the server with data from source until the source is exhausted, the server
 // rejects the copy, or the source fails. Terminates the copy in all cases.
 // Only transport failures are reported: anything else is recorded in copy_ec.
@@ -884,7 +897,8 @@ capy::io_task<> run_copy(
     std::error_code& copy_ec
 )
 {
-    std::array<capy::const_buffer, max_copy_input_buffers> pull_storage, pending_storage;
+    std::array<capy::const_buffer, max_copy_input_buffers> pull_storage;
+    stream_adaptor adaptor{&conn, &st};
 
     while (true)
     {
@@ -896,7 +910,7 @@ capy::io_task<> run_copy(
 
         // Get more data
         auto [pull_ec, buffs] = co_await source.pull(pull_storage);
-        if (pull_ec == capy::cond::eof)  // TODO: does this guarantee buffer_size(buffs) == 0?
+        if (pull_ec == capy::cond::eof)
             co_return co_await conn.write_copy_done(st);
         if (pull_ec)
         {
@@ -904,59 +918,14 @@ capy::io_task<> run_copy(
             co_return co_await conn.write_copy_fail(st, pull_ec.message());
         }
 
-        // Clamping matches what write_some_copy_data accepts in a single call,
-        // so we always know how many bytes we committed. We copy the descriptors
-        // because we advance through them as they are transferred
-        if (buffs.size() > max_copy_input_buffers)
-            buffs = buffs.first(max_copy_input_buffers);
-        std::size_t num_pending = 0u;
-        for (auto buff : buffs)
-        {
-            if (buff.size() > 0u)
-                pending_storage[num_pending++] = buff;
-        }
-        std::span<capy::const_buffer> pending(pending_storage.data(), num_pending);
-        const std::size_t pulled = capy::buffer_size(pending);
+        // Write it. Writing it completely guarantees that we
+        // leave the connection in a clean state upon success (no partial frames)
+        auto [ec, bytes_written] = co_await capy::write(adaptor, buffs);
+        if (ec)
+            co_return {ec};  // Errors are fatal
 
-        // A conforming source doesn't report success without data
-        BOOST_ASSERT(pulled > 0u);
-
-        // Bytes handed to write_some_copy_data can't be withdrawn, so transfer the
-        // entire batch before pulling again. This way, the calls that terminate the
-        // copy never find a half-written frame
-        while (!pending.empty())
-        {
-            auto [write_ec, bytes] = co_await conn.write_some_copy_data(
-                st,
-                std::span<const capy::const_buffer>(pending)
-            );
-
-            // The frame may have been written partially, and we have no data
-            // to complete it with. The connection is unusable
-            if (write_ec)
-                co_return {write_ec};
-
-            // Discard what reached the server
-            while (bytes > 0u)
-            {
-                auto& front = pending.front();
-                if (front.size() > bytes)
-                {
-                    front = capy::const_buffer(
-                        static_cast<const unsigned char*>(front.data()) + bytes,
-                        front.size() - bytes
-                    );
-                    bytes = 0u;
-                }
-                else
-                {
-                    bytes -= front.size();
-                    pending = pending.subspan(1u);
-                }
-            }
-        }
-
-        source.consume(pulled);
+        // We've fully written the bytes
+        source.consume(bytes_written);
     }
 }
 

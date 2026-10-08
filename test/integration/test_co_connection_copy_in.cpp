@@ -113,6 +113,35 @@ capy::task<> test_success()
     co_await check_connection_usable(conn);
 }
 
+// The source is empty
+capy::task<> test_success_no_data()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    if (!co_await checked_exec(conn, "CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)"))
+        co_return;
+
+    // Run the copy
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+
+    capy::test::buffer_source source;
+
+    diagnostics diag;
+    auto [ec, rows] = co_await conn.copy_in(req, &source, &diag);
+    if (!check_success(ec, diag))
+        co_return;
+
+    // The server reports how many rows it copied
+    BOOST_TEST_EQ(rows, 0u);
+
+    // No rows were copied
+    co_await check_copy_rows(conn, {});
+
+    co_await check_connection_usable(conn);
+}
+
 // The server rejects the request, so it never asks us for data
 capy::task<> test_server_rejects_copy()
 {
@@ -307,6 +336,7 @@ capy::task<> test_source_error()
 int main()
 {
     run_coroutine_test(test_success());
+    run_coroutine_test(test_success_no_data());
 
     run_coroutine_test(test_server_rejects_copy());
     run_coroutine_test(test_server_error_mid_copy());

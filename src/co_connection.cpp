@@ -8,6 +8,7 @@
 #include <boost/assert.hpp>
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
+#include <boost/capy/buffers/slice.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/write.hpp>
@@ -51,6 +52,7 @@
 
 namespace capy = boost::capy;
 namespace corosio = boost::corosio;
+namespace container = boost::container;
 
 namespace nativepg {
 
@@ -333,11 +335,19 @@ struct co_connection::impl
         return res;
     }
 
-    boost::capy::io_task<std::size_t> write_some_copy_data(
+    capy::io_task<std::size_t> write_some_copy_data(
         detail::exec_state_impl& exec_st,
-        boost::capy::const_buffer buff
+        std::span<const capy::const_buffer> input_buffs
     )
     {
+        // This has write_some semantics.
+        // We clamp the input buffer sequence to this size.
+        constexpr std::size_t max_input_buffers = 13u;
+
+        // Buffer overhead is, at most, 3: 2 frame headers, and one
+        // intermediate buffer split into two
+        constexpr std::size_t max_output_buffers = max_input_buffers + 3;
+
         // The server must have asked us for data. This also implies that our request
         // was written in full, so our frames can't interleave with its payload
         if (exec_st.phase() != write_status::copy_data)
@@ -348,16 +358,18 @@ struct co_connection::impl
             co_return {client_errc::already_running, 0u};
         writing_guard guard{exec_st};
 
+        // Clamp the input sequence
+        if (input_buffs.size() > max_input_buffers)
+            input_buffs = input_buffs.first(max_input_buffers);
+
         // Empty buffers are a no-op
-        if (buff.size() == 0u)
+        // TODO: can we get rid of this special case?
+        const std::size_t buff_size = boost::capy::buffer_size(input_buffs);
+        if (buff_size == 0u)
             co_return {};
 
-        boost::container::static_vector<capy::const_buffer, 4u> bufs;
-        std::array<unsigned char, 5u> frame_header, prev_frame_header;
-        std::span<const unsigned char> buff_as_span{
-            static_cast<const unsigned char*>(buff.data()),
-            buff.size()
-        };
+        std::array<unsigned char, 5u> prev_frame_header, frame_header;
+        container::static_vector<capy::const_buffer, max_output_buffers> output_buffs;
 
         // Compute sizes
         const std::size_t prev_header_size = exec_st.copy_in.frame_num_bytes == 0u ||
@@ -370,17 +382,17 @@ struct co_connection::impl
                                                   : exec_st.copy_in.frame_num_bytes + 5u -
                                                         exec_st.copy_in.transferred_bytes;
         const std::size_t prev_size = prev_header_size + prev_payload_size;
-        const std::size_t payload_size = prev_payload_size >= buff.size()
+        const std::size_t payload_size = prev_payload_size >= buff_size
                                              ? 0u
-                                             : (std::min)(buff.size() - prev_payload_size, max_frame_size);
+                                             : (std::min)(buff_size - prev_payload_size, max_frame_size);
         const std::size_t total_size = prev_size + (payload_size == 0u ? 0u : payload_size + 5u);
 
         // Serialize what we need
         if (prev_header_size > 0u)
         {
             prev_frame_header = make_copy_data_header(exec_st.copy_in.frame_num_bytes);
-            bufs.push_back(
-                boost::capy::make_buffer(
+            output_buffs.push_back(
+                capy::make_buffer(
                     std::span<const unsigned char>(prev_frame_header)
                         .subspan(exec_st.copy_in.transferred_bytes)
                 )
@@ -389,19 +401,20 @@ struct co_connection::impl
 
         if (prev_payload_size > 0u)
         {
-            bufs.push_back(boost::capy::make_buffer(buff_as_span.first(prev_payload_size)));
-            buff_as_span = buff_as_span.subspan(prev_payload_size);
+            auto prev_payload = capy::prefix(input_buffs, prev_payload_size);
+            output_buffs.insert(output_buffs.end(), capy::begin(prev_payload), capy::end(prev_payload));
         }
 
         if (payload_size > 0u)
         {
             frame_header = make_copy_data_header(payload_size);
-            bufs.push_back(boost::capy::make_buffer(frame_header));
-            bufs.push_back(boost::capy::make_buffer(buff_as_span.first(payload_size)));
+            output_buffs.push_back(capy::make_buffer(frame_header));
+            auto payload = capy::prefix(capy::sans_prefix(input_buffs, prev_payload_size), payload_size);
+            output_buffs.insert(output_buffs.end(), capy::begin(payload), capy::end(payload));
         }
 
         // Write the thing
-        auto [ec, bytes] = co_await stream.write_some(std::span(bufs));
+        auto [ec, bytes] = co_await stream.write_some(std::span(output_buffs));
         std::size_t retval = 0u;
 
         if (bytes <= prev_header_size)
@@ -770,9 +783,12 @@ capy::io_task<> co_connection::exec(const request& req, response_handler_ref han
     co_return {final_ec};
 }
 
-capy::io_task<std::size_t> co_connection::write_some_copy_data(exec_state& st, capy::const_buffer buff)
+capy::io_task<std::size_t> co_connection::write_some_copy_data_impl(
+    exec_state& st,
+    std::span<const capy::const_buffer> buffers
+)
 {
-    return impl_->write_some_copy_data(detail::exec_state_access::get_impl(st), buff);
+    return impl_->write_some_copy_data(detail::exec_state_access::get_impl(st), buffers);
 }
 
 capy::io_task<> co_connection::write_copy_done(exec_state& st)

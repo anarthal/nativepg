@@ -9,6 +9,7 @@
 #define NATIVEPG_CO_CONNECTION_HPP
 
 #include <boost/capy/buffers/buffer_param.hpp>
+#include <boost/capy/concept/const_buffer_sequence.hpp>
 #include <boost/capy/concept/executor.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/io/any_stream.hpp>

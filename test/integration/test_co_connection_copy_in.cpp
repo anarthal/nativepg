@@ -9,6 +9,8 @@
 #include <boost/assert/source_location.hpp>
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
+#include <boost/capy/cond.hpp>
+#include <boost/capy/delay.hpp>
 #include <boost/capy/error.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/task.hpp>
@@ -43,6 +45,7 @@ namespace capy = boost::capy;
 using namespace nativepg;
 using namespace nativepg::test;
 using namespace std::string_view_literals;
+using namespace std::chrono_literals;
 
 namespace {
 
@@ -140,6 +143,40 @@ capy::task<> test_server_rejects_copy()
 // The server rejects our data while we're sending it
 capy::task<> test_server_error_mid_copy()
 {
+    // Ensure that we do not keep sending data once we receive an error.
+    // This source keeps spitting data forever.
+    // If we don't stop pulling, the test will fail by timeout.
+    class infinite_source
+    {
+        capy::test::buffer_source source_;
+
+    public:
+        infinite_source()
+        {
+            source_.provide("1\tone\n2\ttwo\tthree\n");  // Malformed row
+        }
+
+        capy::io_task<std::span<capy::const_buffer>> pull(std::span<capy::const_buffer> dest)
+        {
+            while (true)
+            {
+                // If we have something, return it
+                auto [ec, res] = co_await source_.pull(dest);
+                if (ec != capy::cond::eof)
+                    co_return {ec, res};
+
+                // Sleep for a brief period of time, to return to the event loop.
+                // yield does not seem to work here
+                static_cast<void>(co_await capy::delay(1ms));
+
+                // Replenish the data
+                source_.provide("more_data");
+            }
+        }
+
+        void consume(std::size_t n) noexcept { source_.consume(n); }
+    };
+
     // Setup
     auto conn = co_await establish_connection();
 
@@ -148,11 +185,7 @@ capy::task<> test_server_error_mid_copy()
 
     request req;
     req.add_query("COPY copy_in_test FROM STDIN");
-
-    // The second row has an extra column for a table with two of them.
-    // The server rejects it as it parses the stream
-    capy::test::buffer_source source{{}, 8u};  // max 8 bytes per pull
-    source.provide("1\tone\n2\ttwo\textra\n3\tthree\n");
+    infinite_source source;
 
     diagnostics diag;
     auto [ec, rows] = co_await conn.copy_in(req, &source, &diag);

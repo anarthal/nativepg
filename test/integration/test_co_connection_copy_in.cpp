@@ -59,30 +59,6 @@ using boost::describe::operators::operator<<;
 // The error reported by failing_source
 const std::error_code source_error = std::make_error_code(std::errc::io_error);
 
-// A BufferSource that delivers data for a number of pulls, and then fails
-// fuse does not allow injecting individual errors
-class failing_source
-{
-    capy::test::buffer_source source_;
-    int remaining_pulls_{};
-
-public:
-    failing_source(std::string_view data, std::size_t max_pull_size, int pulls_until_error)
-        : source_({}, max_pull_size), remaining_pulls_(pulls_until_error)
-    {
-        source_.provide(data);
-    }
-
-    capy::io_task<std::span<capy::const_buffer>> pull(std::span<capy::const_buffer> dest)
-    {
-        if (--remaining_pulls_ == 0)
-            co_return {source_error, {}};
-        co_return co_await source_.pull(dest);
-    }
-
-    void consume(std::size_t n) noexcept { source_.consume(n); }
-};
-
 // TODO: duplicated
 capy::task<> check_copy_rows(
     co_connection& conn,
@@ -161,37 +137,36 @@ capy::task<> test_server_rejects_copy()
     co_await check_connection_usable(conn);
 }
 
-// TODO: this one
-// // The server rejects our data while we're sending it
-// capy::task<> test_server_error_mid_copy()
-// {
-//     // Setup
-//     auto conn = co_await establish_connection();
+// The server rejects our data while we're sending it
+capy::task<> test_server_error_mid_copy()
+{
+    // Setup
+    auto conn = co_await establish_connection();
 
-//     if (!co_await checked_exec(conn, "CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)"))
-//         co_return;
+    if (!co_await checked_exec(conn, "CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)"))
+        co_return;
 
-//     // The second row has an extra column for a table with two of them.
-//     // The server rejects it as it parses the stream
-//     request req;
-//     req.add_query("COPY copy_in_test FROM STDIN");
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
 
-//     capy::test::buffer_source source{{}, 8u};  // max 8 bytes per pull
-//     source.provide("1\tone\n2\ttwo\textra\n3\tthree\n");
+    // The second row has an extra column for a table with two of them.
+    // The server rejects it as it parses the stream
+    capy::test::buffer_source source{{}, 8u};  // max 8 bytes per pull
+    source.provide("1\tone\n2\ttwo\textra\n3\tthree\n");
 
-//     diagnostics diag;
-//     auto [ec, rows] = co_await conn.copy_in(req, &source, &diag);
+    diagnostics diag;
+    auto [ec, rows] = co_await conn.copy_in(req, &source, &diag);
 
-//     // The server's error is reported
-//     test_cond_eq(ec, sqlstate_cond::bad_copy_file_format);
-//     BOOST_TEST_NOT(diag.message().empty());
+    // The server's error is reported
+    test_cond_eq(ec, sqlstate_cond::bad_copy_file_format);
+    BOOST_TEST_NOT(diag.message().empty());
 
-//     // No data was copied
-//     co_await check_copy_rows(conn, {});
+    // No data was copied
+    co_await check_copy_rows(conn, {});
 
-//     // A rejected copy is not a protocol error
-//     co_await check_connection_usable(conn);
-// }
+    // A rejected copy is not a protocol error
+    co_await check_connection_usable(conn);
+}
 
 // The request runs successfully, but never asks us for data
 capy::task<> test_request_without_copies()
@@ -247,6 +222,26 @@ capy::task<> test_request_with_two_copies()
 // The source fails while we're transferring data
 capy::task<> test_source_error()
 {
+    // A BufferSource that delivers data for a number of pulls, and then fails
+    // fuse does not allow injecting individual errors
+    class failing_source
+    {
+        capy::test::buffer_source source_{{}, 8u};
+        int remaining_pulls_{1};
+
+    public:
+        failing_source() = default;
+
+        capy::io_task<std::span<capy::const_buffer>> pull(std::span<capy::const_buffer> dest)
+        {
+            if (--remaining_pulls_ == 0)
+                co_return {source_error, {}};
+            co_return co_await source_.pull(dest);
+        }
+
+        void consume(std::size_t n) noexcept { source_.consume(n); }
+    };
+
     // Setup
     auto conn = co_await establish_connection();
 
@@ -257,7 +252,7 @@ capy::task<> test_source_error()
     req.add_query("COPY copy_in_test FROM STDIN");
 
     // The first pull succeeds, the second one fails
-    failing_source source{"1\tone\n2\ttwo\n3\tthree\n", 8u, 1u};
+    failing_source source;
 
     diagnostics diag;
     auto [ec, rows] = co_await conn.copy_in(req, &source, &diag);
@@ -281,7 +276,7 @@ int main()
     run_coroutine_test(test_success());
 
     run_coroutine_test(test_server_rejects_copy());
-    // run_coroutine_test(test_server_error_mid_copy());
+    run_coroutine_test(test_server_error_mid_copy());
     run_coroutine_test(test_request_without_copies());
     run_coroutine_test(test_request_with_two_copies());
     run_coroutine_test(test_source_error());

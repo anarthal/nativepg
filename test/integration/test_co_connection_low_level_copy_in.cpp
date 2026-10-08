@@ -45,6 +45,7 @@
 #include "test_utils/printing.hpp"
 #include "test_utils/test_cond_eq.hpp"
 #include "test_utils/test_range_eq.hpp"
+#include "test_utils/test_string_contains.hpp"
 
 // Covers write_some_copy_data, write_copy_done, write_copy_fail
 
@@ -652,10 +653,7 @@ capy::task<> test_copy_fail()
 
     // The server reports an error containing the message that we sent
     test_cond_eq(st.handler_error().code, sqlstate_cond::query_canceled);
-    auto pred = [](std::string_view big, std::string_view small) {
-        return big.find(small) != std::string_view::npos;
-    };
-    BOOST_TEST_WITH(st.handler_error().diag.message(), fail_msg, pred);
+    test_string_contains(st.handler_error().diag.message(), fail_msg);
 
     // The rows we sent before failing were discarded
     co_await check_copy_rows(conn, {});
@@ -706,10 +704,7 @@ capy::task<> test_copy_fail_no_data()
 
     // The server reports an error containing the message that we sent
     test_cond_eq(st.handler_error().code, sqlstate_cond::query_canceled);
-    auto pred = [](std::string_view big, std::string_view small) {
-        return big.find(small) != std::string_view::npos;
-    };
-    BOOST_TEST_WITH(st.handler_error().diag.message(), fail_msg, pred);
+    test_string_contains(st.handler_error().diag.message(), fail_msg);
 
     // No data was copied
     co_await check_copy_rows(conn, {});

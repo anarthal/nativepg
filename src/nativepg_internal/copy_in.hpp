@@ -16,12 +16,15 @@
 #include <boost/capy/when_all.hpp>
 #include <boost/capy/write.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <system_error>
+#include <utility>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
+#include "nativepg/exclusivity.hpp"
 #include "nativepg/exec_state.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
@@ -29,6 +32,7 @@
 #include "nativepg/responses/command_info.hpp"
 #include "nativepg/responses/detail/response_utils.hpp"
 #include "nativepg/responses/response_handler.hpp"
+#include "nativepg/write_status.hpp"
 
 namespace nativepg::detail {
 

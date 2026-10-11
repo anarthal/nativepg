@@ -9,8 +9,6 @@
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/buffer_slice.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
-#include <boost/capy/cond.hpp>
-#include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/io/any_buffer_source.hpp>
 #include <boost/capy/io_task.hpp>
@@ -51,7 +49,6 @@
 #include "nativepg/protocol/sync.hpp"
 #include "nativepg/protocol/terminate.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/response_handler.hpp"
 #include "nativepg/write_status.hpp"
 #include "nativepg_internal/check_request.hpp"
@@ -793,10 +790,6 @@ capy::io_task<> co_connection::exec(const request& req, response_handler_ref han
 
     co_return {final_ec};
 }
-
-namespace {
-
-}  // namespace
 
 capy::io_task<std::uint64_t> co_connection::copy_in(
     const request& req,

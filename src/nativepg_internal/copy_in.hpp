@@ -155,7 +155,7 @@ public:
 };
 
 // Adapts write_some_copy_data into capy::WriteStream
-struct stream_adaptor
+struct copy_in_stream_adaptor
 {
     co_connection* conn_ptr;
     exec_state* st_ptr;
@@ -167,8 +167,7 @@ struct stream_adaptor
     }
 };
 
-// Feeds the server with data from source until the source is exhausted, the server
-// rejects the copy, or the source fails. Terminates the copy in all cases.
+// Runs a single Copy-in operation until termination.
 // Only transport failures are reported: anything else is recorded in copy_ec.
 inline boost::capy::io_task<> run_copy(
     co_connection& conn,
@@ -179,7 +178,7 @@ inline boost::capy::io_task<> run_copy(
 )
 {
     std::array<boost::capy::const_buffer, 16u> pull_storage;
-    stream_adaptor adaptor{&conn, &st};
+    copy_in_stream_adaptor adaptor{&conn, &st};
 
     while (true)
     {
@@ -211,6 +210,7 @@ inline boost::capy::io_task<> run_copy(
 }
 
 // Writer side of copy_in
+// Only transport failures are reported: anything else is recorded in copy_ec.
 inline boost::capy::io_task<> copy_in_writer(
     co_connection& conn,
     exec_state& st,

@@ -53,6 +53,7 @@
 #include "nativepg/write_status.hpp"
 #include "nativepg_internal/check_request.hpp"
 #include "nativepg_internal/copy_in.hpp"
+#include "nativepg_internal/copy_out.hpp"
 #include "nativepg_internal/multiplexer.hpp"
 
 namespace capy = boost::capy;
@@ -798,6 +799,15 @@ capy::io_task<std::uint64_t> co_connection::copy_in(
 )
 {
     return detail::copy_in(*this, req, std::move(source), diag);
+}
+
+capy::io_task<std::uint64_t> co_connection::copy_out(
+    const request& req,
+    capy::any_write_sink sink,
+    diagnostics* diag
+)
+{
+    return detail::copy_out(*this, req, std::move(sink), diag);
 }
 
 capy::io_task<std::size_t> co_connection::write_some_copy_data_impl(

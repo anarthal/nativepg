@@ -61,10 +61,6 @@ namespace container = boost::container;
 
 namespace nativepg {
 
-// write_some_copy_data has write_some semantics, and clamps the input
-// buffer sequence to this number of buffers
-static constexpr std::size_t max_copy_input_buffers = 13u;
-
 struct co_connection::impl
 {
     // Marks a state as having a write operation in flight, so that no two of
@@ -349,9 +345,13 @@ struct co_connection::impl
         std::span<const capy::const_buffer> input_buffs
     )
     {
+        // This has write_some semantics.
+        // We clamp the input buffer sequence to this size.
+        constexpr std::size_t max_input_buffers = 13u;
+
         // Buffer overhead is, at most, 3: 2 frame headers, and one
         // intermediate buffer split into two
-        constexpr std::size_t max_output_buffers = max_copy_input_buffers + 3;
+        constexpr std::size_t max_output_buffers = max_input_buffers + 3;
 
         // The server must have asked us for data. This also implies that our request
         // was written in full, so our frames can't interleave with its payload
@@ -364,8 +364,8 @@ struct co_connection::impl
         writing_guard guard{exec_st};
 
         // Clamp the input sequence
-        if (input_buffs.size() > max_copy_input_buffers)
-            input_buffs = input_buffs.first(max_copy_input_buffers);
+        if (input_buffs.size() > max_input_buffers)
+            input_buffs = input_buffs.first(max_input_buffers);
 
         // Empty buffers are a no-op.
         // Special case required because we might be in the middle of

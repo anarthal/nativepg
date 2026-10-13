@@ -183,7 +183,8 @@ inline boost::capy::io_task<> run_copy(
     std::error_code& copy_ec
 )
 {
-    std::array<boost::capy::const_buffer, 16u> pull_storage;
+    // write_some_copy_data can write 12 buffers in one go
+    std::array<boost::capy::const_buffer, 12u> pull_storage;
     copy_in_stream_adaptor adaptor{&conn, &st};
 
     while (true)

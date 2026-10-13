@@ -316,11 +316,11 @@ capy::task<> test_source_error()
         int remaining_pulls_{1};
 
     public:
-        failing_source() = default;
+        failing_source() { source_.provide("1\tone\n"); }
 
         capy::io_task<std::span<capy::const_buffer>> pull(std::span<capy::const_buffer> dest)
         {
-            if (--remaining_pulls_ == 0)
+            if (remaining_pulls_-- == 0)
                 co_return {source_error, {}};
             co_return co_await source_.pull(dest);
         }

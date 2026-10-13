@@ -415,3 +415,21 @@ and writer in Copy-in mode. If the reader reports that Copy-in mode was entered,
 transitions to `write_status::copy_data`; otherwise, to `write_status::done`:
 
 ![write_status.svg](./write_status.svg)
+
+## In `co_connection`, `copy_in()` takes a `BufferSource` but `copy_out()` takes a `WriteSink`. Why the asymmetry?
+
+There is a general asymmetry in read operations vs. write operations regarding who owns buffer space.
+For write operations, the user owns the buffer (e.g. `request` owns a buffer, `write_some_copy_data`
+operates on a user-supplied buffer). On the other hand, the connection owns the read buffer,
+and read operations get views on it (e.g. all types passed to response handlers are views).
+
+`copy_in()` and `copy_out()` try to minimize copying. With the mentioned asymmetry, we
+arrive to the design we have today:
+
+- If `copy_in()` had taken a `ReadSource`, it would need to allocate internal buffer
+  space, read from the source into this space, and then write the data to the server.
+  This forces a copy. A `BufferSource` moves the buffering responsibility to the user,
+  potentially saving this copy.
+- If `copy_out()` had taken a `BufferSink`, it would need to copy the received bytes
+  into the buffer space handed by the sink. This forces a copy. A `WriteSink`
+  acknowledges that we own the read buffer, and allows zero-copy.

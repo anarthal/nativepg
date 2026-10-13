@@ -5,15 +5,31 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#include <boost/capy/buffers.hpp>
+#include <boost/capy/buffers/buffer_copy.hpp>
+#include <boost/capy/buffers/make_buffer.hpp>
+#include <boost/capy/concept/const_buffer_sequence.hpp>
+#include <boost/capy/concept/write_sink.hpp>
+#include <boost/capy/delay.hpp>
+#include <boost/capy/io_task.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/test/write_sink.hpp>
+#include <boost/capy/when_all.hpp>
 #include <boost/core/lightweight_test.hpp>
+#include <boost/describe/class.hpp>
+#include <boost/describe/operators.hpp>
 
+#include <cstddef>
+#include <cstdint>
+#include <string>
 #include <string_view>
+#include <system_error>
+#include <vector>
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/responses/into.hpp"
 #include "nativepg/sqlstate_cond.hpp"
 #include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
@@ -27,10 +43,25 @@ namespace capy = boost::capy;
 using namespace nativepg;
 using namespace nativepg::test;
 using namespace std::string_view_literals;
+using namespace std::chrono_literals;
 
 namespace {
 
+struct row_string
+{
+    std::string value;
+};
+BOOST_DESCRIBE_STRUCT(row_string, (), (value))
+
+using boost::describe::operators::operator==;
+using boost::describe::operators::operator<<;
+
 constexpr auto create_table_sql = "CREATE TEMPORARY TABLE copy_out_test (id INT, name TEXT)"sv;
+constexpr auto insert_rows_sql = "INSERT INTO copy_out_test VALUES (1, 'one'), (2, 'two'), (3, 'three')"sv;
+
+// The contents that setup_table writes, as the server renders them in COPY's
+// default text format: tab-separated columns, newline-separated rows
+constexpr std::string_view expected_copy_data = "1\tone\n2\ttwo\n3\tthree\n"sv;
 
 // A Copy-out producing data works
 capy::task<> test_success()
@@ -40,7 +71,7 @@ capy::task<> test_success()
 
     request req_setup;
     req_setup.add_query(create_table_sql);
-    req_setup.add_query("INSERT INTO copy_out_test VALUES (1, 'one'), (2, 'two'), (3, 'three')");
+    req_setup.add_query(insert_rows_sql);
     if (!co_await checked_exec(conn, req_setup))
         co_return;
 
@@ -120,6 +151,171 @@ capy::task<> test_server_error()
     co_await check_connection_usable(conn);
 }
 
+// The request may contain non-copy commands before/after the copy
+capy::task<> test_request_with_other_commands()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req_setup;
+    req_setup.add_query(create_table_sql);
+    req_setup.add_query(insert_rows_sql);
+    if (!co_await checked_exec(conn, req_setup))
+        co_return;
+
+    // The copy is pipelined between two statements that produce regular resultsets
+    request req;
+    req.add_query("SELECT 'before' AS value");
+    req.add_query("COPY copy_out_test TO STDOUT");
+    req.add_query("SELECT 'after' AS value");
+
+    capy::test::write_sink sink;
+
+    diagnostics diag;
+    auto [ec, rows] = co_await conn.copy_out(req, &sink, &diag);
+    if (!check_success(ec, diag))
+        co_return;
+
+    // Check
+    BOOST_TEST_EQ(rows, 3u);  // not affected by the surrounding statements
+    BOOST_TEST_EQ(sink.data(), expected_copy_data);
+    BOOST_TEST(sink.eof_called());
+
+    co_await check_connection_usable(conn);
+}
+
+// A sink that returns to the event loop before consuming the buffers it is given.
+// copy_out hands it views into the connection's read buffer, so any other
+// operation that reads while we're suspended would invalidate them
+class yielding_sink
+{
+    std::string data_;
+    bool eof_called_{};
+
+    template <capy::ConstBufferSequence ConstBufferSeq>
+    void append(ConstBufferSeq buffers)
+    {
+        const auto n = capy::buffer_size(buffers);
+        const auto old_size = data_.size();
+        data_.resize(old_size + n);
+        capy::buffer_copy(capy::make_buffer(data_.data() + old_size, n), buffers);
+    }
+
+public:
+    template <capy::ConstBufferSequence ConstBufferSeq>
+    capy::io_task<std::size_t> write(ConstBufferSeq buffers)
+    {
+        // Return to the event loop while still holding buffers
+        static_cast<void>(co_await capy::delay(1ms));
+        append(buffers);
+        co_return {std::error_code(), capy::buffer_size(buffers)};
+    }
+
+    template <capy::ConstBufferSequence ConstBufferSeq>
+    capy::io_task<std::size_t> write_some(ConstBufferSeq buffers)
+    {
+        return write(buffers);
+    }
+
+    template <capy::ConstBufferSequence ConstBufferSeq>
+    capy::io_task<std::size_t> write_eof(ConstBufferSeq buffers)
+    {
+        auto [ec, n] = co_await write(buffers);
+        eof_called_ = true;
+        co_return {ec, n};
+    }
+
+    capy::io_task<> write_eof()
+    {
+        eof_called_ = true;
+        co_return {};
+    }
+
+    std::string_view data() const { return data_; }
+    bool eof_called() const { return eof_called_; }
+};
+static_assert(capy::WriteSink<yielding_sink>);
+
+struct copy_out_result
+{
+    extended_error err;
+    std::uint64_t rows{};
+};
+
+// Runs a copy_out and records its outcome, always completing successfully.
+// Prevents when_all from cancelling the sibling request on error
+capy::io_task<copy_out_result> do_copy_out(co_connection& conn, const request& req, yielding_sink& sink)
+{
+    copy_out_result out;
+    auto [ec, rows] = co_await conn.copy_out(req, &sink, &out.err.diag);
+    out.err.code = ec;
+    out.rows = rows;
+    co_return {{}, out};
+}
+
+// Runs a single exec and records its outcome, always completing successfully
+template <response_handler Handler>
+capy::io_task<extended_error> do_exec(co_connection& conn, const request& req, Handler handler)
+{
+    extended_error out;
+    auto [ec] = co_await conn.exec(req, &handler, &out.diag);
+    out.code = ec;
+    co_return {{}, out};
+}
+
+// A request issued immediately after a copy-out is multiplexed with it, and each
+// operation sees only its own response.
+// This is a regression test: copy_out collects the copy data as views into the
+// connection's read buffer, but read_some_response releases the reader turn
+// before returning for the batch that completes the response. The second request
+// therefore gets to read while the sink is still suspended holding those views,
+// and its response is big enough to force the read buffer to be reallocated,
+// which frees the memory the views point into
+capy::task<> test_multiplexing()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req_setup;
+    req_setup.add_query(create_table_sql);
+    req_setup.add_query(insert_rows_sql);
+    if (!co_await checked_exec(conn, req_setup))
+        co_return;
+
+    request copy_req;
+    copy_req.add_query("COPY copy_out_test TO STDOUT");
+
+    // A single row far bigger than the read buffer, so that reading it
+    // reallocates the buffer rather than reusing it
+    constexpr std::size_t big_value_size = 1000000u;
+    request other_req;
+    other_req.add_query("SELECT repeat('x', $1::int) AS value", static_cast<int>(big_value_size));
+    std::vector<row_string> strings;
+
+    yielding_sink sink;
+
+    // Both requests are handed to the multiplexer before either completes
+    auto [dummy, copy_res, other_res] = co_await capy::when_all(
+        do_copy_out(conn, copy_req, sink),
+        do_exec(conn, other_req, into(strings))
+    );
+
+    // Both complete successfully
+    if (!check_success(copy_res.err) || !check_success(other_res))
+        co_return;
+
+    // The copy data survived the second request reading over the buffer it lived in
+    BOOST_TEST_EQ(copy_res.rows, 3u);
+    BOOST_TEST_EQ(sink.data(), expected_copy_data);
+    BOOST_TEST(sink.eof_called());
+
+    // The second request got its own response
+    if (BOOST_TEST_EQ(strings.size(), 1u))
+        BOOST_TEST_EQ(strings[0].value.size(), big_value_size);
+
+    co_await check_connection_usable(conn);
+}
+
 }  // namespace
 
 int main()
@@ -127,6 +323,8 @@ int main()
     run_coroutine_test(test_success());
     run_coroutine_test(test_success_no_data());
     run_coroutine_test(test_server_error());
+    run_coroutine_test(test_request_with_other_commands());
+    run_coroutine_test(test_multiplexing());
 
     return boost::report_errors();
 }

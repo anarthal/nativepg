@@ -299,7 +299,7 @@ capy::task<> test_request_with_two_copies()
     diagnostics diag;
     auto [ec, rows] = co_await conn.copy_in(req, &source, &diag);
 
-    BOOST_TEST_EQ(ec, std::error_code(client_errc::invalid_copy_in_request));
+    BOOST_TEST_EQ(ec, std::error_code(client_errc::incompatible_response_type));
 
     // The second copy is terminated with a CopyFail, which keeps the connection in sync
     co_await check_connection_usable(conn);

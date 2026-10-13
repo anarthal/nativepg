@@ -302,7 +302,7 @@ capy::task<> test_zero_copies()
     // Run the copy
     auto [ec, rows] = co_await conn.copy_out(req, &sink, &diag);
 
-    // The request itself succeeded, so there is no server-side error to report
+    // The request succeeded, but it's not doing what the user wants
     BOOST_TEST_EQ(ec, std::error_code(client_errc::incompatible_response_type));
     BOOST_TEST(diag.message().empty());
 
@@ -314,8 +314,7 @@ capy::task<> test_zero_copies()
     co_await check_connection_usable(conn);
 }
 
-// The request makes the server enter copy-out mode more than once.
-// Only the first copy is fed to the sink
+// The request makes the server enter copy-out mode more than once
 capy::task<> test_two_copies()
 {
     // Setup
@@ -329,10 +328,8 @@ capy::task<> test_two_copies()
 
     // A single simple query may contain several statements
     request req;
-    req.add_simple_query(
-        "COPY copy_out_test TO STDOUT;"
-        "COPY copy_out_test TO STDOUT"
-    );
+    req.add_query("COPY copy_out_test TO STDOUT");
+    req.add_query("COPY copy_out_test TO STDOUT");
 
     capy::test::write_sink sink;
     diagnostics diag;
@@ -340,16 +337,13 @@ capy::task<> test_two_copies()
     // Run the copy
     auto [ec, rows] = co_await conn.copy_out(req, &sink, &diag);
 
-    // Supporting more than one copy per request would make the data of the
-    // two copies indistinguishable to the sink
+    // The request succeeded, but it's not doing what the user wants
     BOOST_TEST_EQ(ec, std::error_code(client_errc::incompatible_response_type));
     BOOST_TEST_EQ(rows, 0u);
 
-    // The transfer never completed. How much of the first copy reached the sink
-    // depends on how the response is batched, so it's left unspecified
+    // The transfer never completed. How much of the first copy reached the sink is unspecified
     BOOST_TEST_NOT(sink.eof_called());
 
-    // Both copies are read to completion, which keeps the connection in sync
     co_await check_connection_usable(conn);
 }
 
@@ -394,7 +388,7 @@ capy::task<> test_sink_error()
     auto conn = co_await establish_connection();
 
     // Big enough that the response spans several reads, so that failing on the
-    // first write leaves a sizeable part of it unread
+    // first write leaves part unread
     request req;
     req.add_query("COPY (SELECT i, repeat('x', 100) FROM generate_series(1, 5000) i) TO STDOUT");
 
@@ -404,7 +398,7 @@ capy::task<> test_sink_error()
     // Run the copy
     auto [ec, rows] = co_await conn.copy_out(req, &sink, &diag);
 
-    // The sink's error is reported verbatim, and is not a server-side one
+    // The sink's error is reported
     BOOST_TEST_EQ(ec, sink_error);
     BOOST_TEST(diag.message().empty());
 
@@ -412,8 +406,6 @@ capy::task<> test_sink_error()
     BOOST_TEST_EQ(rows, 0u);
     BOOST_TEST_NOT(sink.get().eof_called());
 
-    // Unlike copy_in, we stop reading as soon as the sink fails, rather than
-    // draining the response. Subsequent requests discard what was left unread
     co_await check_connection_usable(conn);
 }
 

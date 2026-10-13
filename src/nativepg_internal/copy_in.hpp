@@ -40,6 +40,7 @@ namespace nativepg::detail {
 enum class copy_in_action
 {
     start_copy,
+    reject_copy,
     finish,
 };
 
@@ -112,7 +113,7 @@ public:
         switch (msg.type())
         {
             case any_request_message::kind::copy_in_response:
-                ch_.send(copy_in_action::start_copy);
+                ch_.send(state_.num_copies_ == 0u ? copy_in_action::start_copy : copy_in_action::reject_copy);
                 ++state_.num_copies_;
                 state_.in_copy_ = true;
                 break;
@@ -230,8 +231,6 @@ inline boost::capy::io_task<> copy_in_writer(
     if (auto [ec] = co_await conn.write_request(st); ec)
         co_return {ec};
 
-    std::size_t num_copies = 0u;
-
     while (true)
     {
         // Wait for the reader to tell us what to do next
@@ -242,20 +241,14 @@ inline boost::capy::io_task<> copy_in_writer(
         switch (act)
         {
             case copy_in_action::start_copy:
-                // The server is asking us for data
-                if (++num_copies > 1u)
-                {
-                    // We only know how to feed a single copy. Terminate this one anyway,
-                    // so the connection is left in sync, and report the problem
-                    if (!copy_ec)
-                        copy_ec = client_errc::invalid_copy_in_request;
-                    if (auto [ec] = co_await conn.write_copy_fail(st, "unexpected COPY ... FROM STDIN"); ec)
-                        co_return {ec};
-                }
-                else if (auto [ec] = co_await run_copy(conn, st, source, handler, copy_ec); ec)
-                {
+                // Send data to the server
+                if (auto [ec] = co_await run_copy(conn, st, source, handler, copy_ec); ec)
                     co_return {ec};
-                }
+                break;
+            case copy_in_action::reject_copy:
+                // We hit Copy-in more than once. Reject the copy
+                if (auto [ec] = co_await conn.write_copy_fail(st, "unexpected COPY ... FROM STDIN"); ec)
+                    co_return {ec};
                 break;
             case copy_in_action::finish: co_return {};
             default: BOOST_ASSERT(false); co_return {};

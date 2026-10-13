@@ -184,55 +184,40 @@ capy::task<> test_request_with_other_commands()
     co_await check_connection_usable(conn);
 }
 
-// A sink that returns to the event loop before consuming the buffers it is given.
-// copy_out hands it views into the connection's read buffer, so any other
-// operation that reads while we're suspended would invalidate them
+// A sink that returns to the event loop before consuming the buffers it is given
 class yielding_sink
 {
-    std::string data_;
-    bool eof_called_{};
-
-    template <capy::ConstBufferSequence ConstBufferSeq>
-    void append(ConstBufferSeq buffers)
-    {
-        const auto n = capy::buffer_size(buffers);
-        const auto old_size = data_.size();
-        data_.resize(old_size + n);
-        capy::buffer_copy(capy::make_buffer(data_.data() + old_size, n), buffers);
-    }
+    capy::test::write_sink sink_;
 
 public:
+    capy::test::write_sink& get() { return sink_; }
+
     template <capy::ConstBufferSequence ConstBufferSeq>
     capy::io_task<std::size_t> write(ConstBufferSeq buffers)
     {
-        // Return to the event loop while still holding buffers
         static_cast<void>(co_await capy::delay(1ms));
-        append(buffers);
-        co_return {std::error_code(), capy::buffer_size(buffers)};
+        co_return co_await sink_.write(std::move(buffers));
     }
 
     template <capy::ConstBufferSequence ConstBufferSeq>
     capy::io_task<std::size_t> write_some(ConstBufferSeq buffers)
     {
-        return write(buffers);
+        static_cast<void>(co_await capy::delay(1ms));
+        co_return co_await sink_.write_some(std::move(buffers));
     }
 
     template <capy::ConstBufferSequence ConstBufferSeq>
     capy::io_task<std::size_t> write_eof(ConstBufferSeq buffers)
     {
-        auto [ec, n] = co_await write(buffers);
-        eof_called_ = true;
-        co_return {ec, n};
+        static_cast<void>(co_await capy::delay(1ms));
+        co_return co_await sink_.write_eof(std::move(buffers));
     }
 
     capy::io_task<> write_eof()
     {
-        eof_called_ = true;
-        co_return {};
+        static_cast<void>(co_await capy::delay(1ms));
+        co_return co_await sink_.write_eof();
     }
-
-    std::string_view data() const { return data_; }
-    bool eof_called() const { return eof_called_; }
 };
 static_assert(capy::WriteSink<yielding_sink>);
 
@@ -306,8 +291,8 @@ capy::task<> test_multiplexing()
 
     // The copy data survived the second request reading over the buffer it lived in
     BOOST_TEST_EQ(copy_res.rows, 3u);
-    BOOST_TEST_EQ(sink.data(), expected_copy_data);
-    BOOST_TEST(sink.eof_called());
+    BOOST_TEST_EQ(sink.get().data(), expected_copy_data);
+    BOOST_TEST(sink.get().eof_called());
 
     // The second request got its own response
     if (BOOST_TEST_EQ(strings.size(), 1u))

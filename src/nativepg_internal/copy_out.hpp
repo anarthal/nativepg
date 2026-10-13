@@ -40,10 +40,7 @@ namespace nativepg::detail {
 // Type used to hold Copy-out buffers
 using copy_out_buffers = boost::container::small_vector<boost::capy::const_buffer, 32u>;
 
-// Response handler used by copy_out. Covers the entire request, so it works with
-// any request shape, and tracks what copy_out needs to know: the copy data produced
-// by the current read batch, how many times the server started a copy, and the
-// number of rows that were copied.
+// Response handler used by copy_out
 class copy_out_handler
 {
     struct
@@ -51,7 +48,6 @@ class copy_out_handler
         std::uint64_t rows_{};
         std::size_t num_copies_{};
         bool in_copy_{};
-        bool collecting_{};
     } state_;
 
     copy_out_buffers* buffs_;
@@ -68,8 +64,7 @@ public:
         if (!may_copy)
             return make_error_code(client_errc::incompatible_response_type);
 
-        state_ = {};
-        buffs_->clear();
+        // No need to clear state, because this handler is never re-used
         return req.messages().size();
     }
 
@@ -78,19 +73,17 @@ public:
         switch (msg.type())
         {
             case any_request_message::kind::copy_out_response:
-                // A request that starts more than one copy is a user error.
-                // We keep draining the response, so the connection stays usable,
-                // but stop handing data to the sink
-                state_.collecting_ = ++state_.num_copies_ == 1u;
+                ++state_.num_copies_;
                 state_.in_copy_ = true;
                 break;
             case any_request_message::kind::copy_data:
-                if (state_.collecting_)
-                {
-                    auto data = msg.get_copy_data().data;
-                    buffs_->emplace_back(data.data(), data.size());
-                }
+            {
+                // If the request triggers several Copy-out's, this hands incorrect
+                // data to the sink. But this is OK because we never signal EOF.
+                auto data = msg.get_copy_data().data;
+                buffs_->emplace_back(data.data(), data.size());
                 break;
+            }
             case any_request_message::kind::command_complete:
                 // The tag that closes a copy carries the number of copied rows
                 // Parsing it is best-effort, as the protocol doesn't make guarantees about its format
@@ -106,11 +99,7 @@ public:
                 break;
             case any_request_message::kind::error_response:
                 detail::store_error(msg.get_error_response(), err);
-
-                // The operation is going to fail, so there is no point
-                // in handing further data to the sink
                 state_.in_copy_ = false;
-                state_.collecting_ = false;
                 break;
             default: break;
         }

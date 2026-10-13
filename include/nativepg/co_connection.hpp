@@ -14,6 +14,7 @@
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/io/any_buffer_source.hpp>
 #include <boost/capy/io/any_stream.hpp>
+#include <boost/capy/io/any_write_sink.hpp>
 #include <boost/capy/io_task.hpp>
 
 #include <concepts>
@@ -116,6 +117,38 @@ public:
     boost::capy::io_task<std::uint64_t> copy_in(
         const request& req,
         boost::capy::any_buffer_source source,
+        diagnostics* diag = nullptr
+    );
+
+    // Runs a request containing a single COPY ... TO STDOUT, transferring the data
+    //   produced by the server to sink.
+    // The request is executed using exclusivity::shared, since Copy-out requires no
+    //   messages from the client. It may run in parallel with other requests.
+    // The request must trigger copy-out exactly once. Otherwise, it
+    //   fails with client_errc::incompatible_response_type.
+    // Data is written to sink as it arrives, and is never inspected - you should
+    //   make sure that the format produced by the statement is the one sink expects.
+    // The request and diagnostics objects must be kept alive until the operation
+    //   completes. If sink is non-owning, the object pointed-to by it should
+    //   be kept alive, too.
+    // On success, sink is finalized by calling write_eof(), and the number of rows
+    //   that the server reports having copied is returned.
+    // On error, sink is never finalized, and may have been handed
+    //   part of the data.
+    // Failure modes:
+    //   - If the server rejects the request or fails while producing the data
+    //     (e.g. the source table doesn't exist), the server's error is reported,
+    //     and diag is populated. The connection is left usable.
+    //   - If sink fails, the error it reported is returned, and reading stops
+    //     immediately. The connection is left usable, but may experience delays,
+    //     as any data produced by the Copy-out operation needs to be discarded.
+    //     This is performed lazily, when the next operation is executed.
+    //   - If the transport fails, the relevant error is returned. The connection
+    //     is left in an unspecified state and should be closed.
+    //   - Cancelling this operation leaves the connection usable.
+    boost::capy::io_task<std::uint64_t> copy_out(
+        const request& req,
+        boost::capy::any_write_sink sink,
         diagnostics* diag = nullptr
     );
 

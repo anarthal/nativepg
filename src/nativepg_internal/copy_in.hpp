@@ -15,6 +15,7 @@
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/capy/write.hpp>
+#include <boost/container/small_vector.hpp>
 
 #include <algorithm>
 #include <array>
@@ -33,9 +34,45 @@
 #include "nativepg/responses/command_info.hpp"
 #include "nativepg/responses/detail/response_utils.hpp"
 #include "nativepg/responses/response_handler.hpp"
-#include "nativepg/write_status.hpp"
 
 namespace nativepg::detail {
+
+enum class copy_in_action
+{
+    start_copy,
+    finish,
+};
+
+class copy_in_channel
+{
+    boost::container::small_vector<copy_in_action, 1u> buff_;
+    boost::capy::async_event evt_;
+
+public:
+    copy_in_channel() = default;
+
+    void send(copy_in_action act)
+    {
+        buff_.push_back(act);
+        evt_.set();
+    }
+
+    boost::capy::io_task<copy_in_action> receive()
+    {
+        // Wait for a value to be present
+        if (auto [ec] = co_await evt_.wait(); ec)
+            co_return {ec, copy_in_action::finish};
+
+        BOOST_ASSERT(!buff_.empty());
+
+        // Take the value
+        auto res = buff_.front();
+        buff_.erase(buff_.begin());
+        if (buff_.empty())
+            evt_.clear();
+        co_return {{}, res};
+    }
+};
 
 // Response handler used by copy_in. Covers the entire request, so it works with
 // any request shape, and tracks what copy_in needs to know: whether the server
@@ -43,15 +80,19 @@ namespace nativepg::detail {
 // the server asked us for data, and the number of rows that were copied.
 class copy_in_handler
 {
-    extended_error err_{};
-    command_info info_{};
-    std::uint64_t rows_{};
-    std::size_t num_copies_{};
-    bool in_copy_{};
-    bool copy_failed_{};
+    struct
+    {
+        extended_error err_{};
+        command_info info_{};
+        std::uint64_t rows_{};
+        std::size_t num_copies_{};
+        bool in_copy_{};
+        bool copy_failed_{};
+    } state_;
+    copy_in_channel& ch_;
 
 public:
-    copy_in_handler() = default;
+    explicit copy_in_handler(copy_in_channel& ch) noexcept : ch_(ch) {}
 
     handler_setup_result setup(const request& req, std::size_t)
     {
@@ -62,8 +103,7 @@ public:
         if (!may_copy)
             return make_error_code(client_errc::incompatible_response_type);
 
-        // TODO: *this = X seems sus
-        *this = copy_in_handler();
+        state_ = {};
         return req.messages().size();
     }
 
@@ -72,17 +112,18 @@ public:
         switch (msg.type())
         {
             case any_request_message::kind::copy_in_response:
-                ++num_copies_;
-                in_copy_ = true;
+                ch_.send(copy_in_action::start_copy);
+                ++state_.num_copies_;
+                state_.in_copy_ = true;
                 break;
             case any_request_message::kind::command_complete:
                 // The tag that closes a copy carries the number of copied rows
-                if (in_copy_)
+                if (state_.in_copy_)
                 {
                     // TODO: can be simplified
-                    detail::from_command_complete(info_, msg.get_command_complete());
-                    rows_ = info_.affected_rows.value_or(0u);
-                    in_copy_ = false;
+                    detail::from_command_complete(state_.info_, msg.get_command_complete());
+                    state_.rows_ = state_.info_.affected_rows.value_or(0u);
+                    state_.in_copy_ = false;
                 }
                 break;
             case any_request_message::kind::error_response:
@@ -91,15 +132,15 @@ public:
                 // Keep our own copy: exec_state::handler_error() may only be
                 // accessed once the entire response has been read, and the writer
                 // needs to know about errors as soon as they arrive
-                if (!err_.code)
-                    err_ = err;
+                if (!state_.err_.code)
+                    state_.err_ = err;
 
                 // Errors raised by other statements of the request (possible when
                 // pipelining) don't require us to stop sending data
-                if (in_copy_)
+                if (state_.in_copy_)
                 {
-                    copy_failed_ = true;
-                    in_copy_ = false;
+                    state_.copy_failed_ = true;
+                    state_.in_copy_ = false;
                 }
                 break;
             default: break;
@@ -107,16 +148,16 @@ public:
     }
 
     // Did the server reject the copy? May be called while the response is being read
-    bool copy_failed() const { return copy_failed_; }
+    bool copy_failed() const { return state_.copy_failed_; }
 
     // How many times did the server ask us for data?
-    std::size_t num_copies() const { return num_copies_; }
+    std::size_t num_copies() const { return state_.num_copies_; }
 
     // Rows reported by the CommandComplete that closed the copy
-    std::uint64_t rows() const { return rows_; }
+    std::uint64_t rows() const { return state_.rows_; }
 
     // The first error that the server reported, if any
-    const extended_error& error() const { return err_; }
+    const extended_error& error() const { return state_.err_; }
 };
 
 // Adapts write_some_copy_data into capy::WriteStream
@@ -181,7 +222,7 @@ inline boost::capy::io_task<> copy_in_writer(
     exec_state& st,
     boost::capy::any_buffer_source& source,
     const copy_in_handler& handler,
-    boost::capy::async_event& reader_progressed,
+    copy_in_channel& channel,
     std::error_code& copy_ec
 )
 {
@@ -193,55 +234,45 @@ inline boost::capy::io_task<> copy_in_writer(
 
     while (true)
     {
-        switch (st.write_phase())
-        {
-            case write_status::done: co_return {};
-            case write_status::waiting_for_reader:
-                // Only the reader can tell whether the server wants data from us.
-                // The event is sticky, so clear it before waiting. There is no
-                // suspension point between the check above and the clear,
-                // so no notification can be missed
-                reader_progressed.clear();
-                if (auto [ec] = co_await reader_progressed.wait(); ec)
-                    co_return {ec};
-                continue;
-            default: break;
-        }
+        // Wait for the reader to tell us what to do next
+        auto [channel_ec, act] = co_await channel.receive();
+        if (channel_ec)
+            co_return {channel_ec};
 
-        // The server is asking us for data
-        if (++num_copies > 1u)
+        switch (act)
         {
-            // We only know how to feed a single copy. Terminate this one anyway,
-            // so the connection is left in sync, and report the problem
-            if (!copy_ec)
-                copy_ec = client_errc::invalid_copy_in_request;
-            if (auto [ec] = co_await conn.write_copy_fail(st, "unexpected COPY ... FROM STDIN"); ec)
-                co_return {ec};
-        }
-        else if (auto [ec] = co_await run_copy(conn, st, source, handler, copy_ec); ec)
-        {
-            co_return {ec};
+            case copy_in_action::start_copy:
+                // The server is asking us for data
+                if (++num_copies > 1u)
+                {
+                    // We only know how to feed a single copy. Terminate this one anyway,
+                    // so the connection is left in sync, and report the problem
+                    if (!copy_ec)
+                        copy_ec = client_errc::invalid_copy_in_request;
+                    if (auto [ec] = co_await conn.write_copy_fail(st, "unexpected COPY ... FROM STDIN"); ec)
+                        co_return {ec};
+                }
+                else if (auto [ec] = co_await run_copy(conn, st, source, handler, copy_ec); ec)
+                {
+                    co_return {ec};
+                }
+                break;
+            case copy_in_action::finish: co_return {};
+            default: BOOST_ASSERT(false); co_return {};
         }
     }
 }
 
 // Reader side of copy_in
-inline boost::capy::io_task<> copy_in_reader(
-    co_connection& conn,
-    exec_state& st,
-    boost::capy::async_event& reader_progressed
-)
+inline boost::capy::io_task<> copy_in_reader(co_connection& conn, exec_state& st, copy_in_channel& channel)
 {
     while (!st.read_done())
     {
-        auto [ec] = co_await conn.read_some_response(st);
-
-        // Let the writer re-evaluate what it should do next
-        reader_progressed.set();
-
-        if (ec)
-            co_return {ec};
+        if (auto [ec] = co_await conn.read_some_response(st); ec)
+            co_return {ec};  // Will cancel the writer
     }
+
+    channel.send(copy_in_action::finish);
 
     co_return {};
 }
@@ -254,7 +285,8 @@ inline boost::capy::io_task<std::uint64_t> copy_in(
 )
 {
     // Setup. Copy operations can't be multiplexed with other requests
-    copy_in_handler handler;
+    copy_in_channel channel;
+    copy_in_handler handler{channel};
     exec_state st;
     if (auto ec = conn.prepare_request(st, req, &handler, exclusivity::exclusive))
         co_return {ec, 0u};
@@ -262,11 +294,10 @@ inline boost::capy::io_task<std::uint64_t> copy_in(
     // Run the reader and the writer in parallel. The writer only reports transport
     // failures, so that a rejected copy doesn't cancel the reader: draining the
     // response is what keeps the connection usable
-    boost::capy::async_event reader_progressed;
     std::error_code copy_ec;
     auto [final_ec, writer_dummy, reader_dummy] = co_await boost::capy::when_all(
-        copy_in_writer(conn, st, source, handler, reader_progressed, copy_ec),
-        copy_in_reader(conn, st, reader_progressed)
+        copy_in_writer(conn, st, source, handler, channel, copy_ec),
+        copy_in_reader(conn, st, channel)
     );
 
     // The connection is left in an unspecified state if this happens

@@ -28,6 +28,7 @@
 #include "test_utils/printing.hpp"
 #include "test_utils/response_handler_utils.hpp"
 #include "test_utils/test_cond_eq.hpp"
+#include "test_utils/test_string_contains.hpp"
 
 // --- Printing ---
 std::ostream& nativepg::operator<<(std::ostream& os, const extended_error& err)
@@ -181,6 +182,21 @@ bool nativepg::test::test_cond_eq(std::error_code ec, std::error_condition cond,
                   << '\n';
         std::cerr << "  Called from " << loc << std::endl;
     }
+    return ok;
+}
+
+bool nativepg::test::test_string_contains(
+    std::string_view big,
+    std::string_view small,
+    boost::source_location loc
+)
+{
+    constexpr auto pred = [](std::string_view lhs, std::string_view rhs) {
+        return lhs.find(rhs) != std::string_view::npos;
+    };
+    bool ok = BOOST_TEST_WITH(big, small, pred);
+    if (!ok)
+        std::cerr << "  Called from " << loc << std::endl;
     return ok;
 }
 

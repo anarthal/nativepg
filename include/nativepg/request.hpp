@@ -110,7 +110,7 @@ public:
     // You may disable autosync and add syncs manually to achieve certain
     // pipeline patterns. This is an advanced feature, don't use it if you
     // don't know what a sync message is.
-    request(bool autosync = true) noexcept : autosync_(autosync) {}
+    explicit request(bool autosync = true) noexcept : autosync_(autosync) {}
 
     bool autosync() const { return autosync_; }
     void set_autosync(bool value) { autosync_ = value; }

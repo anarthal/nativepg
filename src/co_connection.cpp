@@ -10,7 +10,9 @@
 #include <boost/capy/buffers/buffer_slice.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/ex/execution_context.hpp>
+#include <boost/capy/io/any_buffer_source.hpp>
 #include <boost/capy/io_task.hpp>
+#include <boost/capy/when_all.hpp>
 #include <boost/capy/write.hpp>
 #include <boost/container/static_vector.hpp>
 #include <boost/corosio/connect.hpp>
@@ -21,6 +23,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <optional>
 #include <span>
@@ -47,7 +50,9 @@
 #include "nativepg/protocol/terminate.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
+#include "nativepg/write_status.hpp"
 #include "nativepg_internal/check_request.hpp"
+#include "nativepg_internal/copy_in.hpp"
 #include "nativepg_internal/multiplexer.hpp"
 
 namespace capy = boost::capy;
@@ -784,6 +789,15 @@ capy::io_task<> co_connection::exec(const request& req, response_handler_ref han
     );
 
     co_return {final_ec};
+}
+
+capy::io_task<std::uint64_t> co_connection::copy_in(
+    const request& req,
+    capy::any_buffer_source source,
+    diagnostics* diag
+)
+{
+    return detail::copy_in(*this, req, std::move(source), diag);
 }
 
 capy::io_task<std::size_t> co_connection::write_some_copy_data_impl(

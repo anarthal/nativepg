@@ -12,11 +12,13 @@
 #include <boost/capy/concept/const_buffer_sequence.hpp>
 #include <boost/capy/concept/executor.hpp>
 #include <boost/capy/ex/execution_context.hpp>
+#include <boost/capy/io/any_buffer_source.hpp>
 #include <boost/capy/io/any_stream.hpp>
 #include <boost/capy/io_task.hpp>
 
 #include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <span>
@@ -85,6 +87,37 @@ public:
     //   If an error condition is detected after some notifications have been read,
     //   they are returned, and no error is reported.
     boost::capy::io_task<> receive(notification_vector& output);
+
+    // Runs a request containing a single COPY ... FROM STDIN, feeding the server
+    //   with the data produced by source.
+    // The request is executed using exclusivity::exclusive. Requests issued while
+    //   the operation is in-flight will wait until it completes.
+    // The request must trigger copy-in exactly once. Otherwise, it
+    //   fails with client_errc::incompatible_request_type.
+    // source is pulled until it reports EOF, and the obtained data is transferred
+    //   to the server. Data is never inspected - you should make sure that its
+    //   format matches the one expected by the server.
+    // The request and diagnostics objects must be kept alive until the operation
+    //   completes. If source is non-owning, the object pointed-to by it should
+    //   be kept alive, too.
+    // On success, returns the number of rows that the server reports having copied.
+    // Failure modes:
+    //   - If the server rejects the request or the data we send (e.g. the target table
+    //     doesn't exist, or a row has an invalid format), the server's error is reported,
+    //     and diag is populated. Sending data stops as soon as the error is noticed.
+    //     The connection is left usable.
+    //   - If source fails, the transfer is aborted by sending a CopyFail containing
+    //     the error's message, and the error reported by source is returned.
+    //     The connection is left usable.
+    //   - If the transport fails, the relevant error is returned. The connection
+    //     is left in an unspecified state and should be closed.
+    // Cancelling this operation leaves the connection in an unusable state.
+    //   Close the connection if this happens.
+    boost::capy::io_task<std::uint64_t> copy_in(
+        const request& req,
+        boost::capy::any_buffer_source source,
+        diagnostics* diag = nullptr
+    );
 
     // Prepares a request to be executed by the connection.
     // The passed exec_state becomes a handle for the operation that will be executed.

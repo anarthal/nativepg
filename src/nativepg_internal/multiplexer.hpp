@@ -288,4 +288,4 @@ private:
 
 }  // namespace nativepg::detail
 
-#endif  // BOOST_REDIS_MULTIPLEXER_HPP
+#endif

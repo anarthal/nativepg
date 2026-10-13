@@ -19,10 +19,10 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <system_error>
-#include <vector>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
@@ -135,8 +135,7 @@ inline boost::capy::io_task<> copy_out_reader(
     co_connection& conn,
     exec_state& st,
     copy_out_buffers& buffs,
-    boost::capy::any_write_sink& sink,
-    std::vector<unsigned char>& tail
+    boost::capy::any_write_sink& sink
 )
 {
     while (true)
@@ -146,12 +145,23 @@ inline boost::capy::io_task<> copy_out_reader(
         if (auto [ec] = co_await conn.read_some_response(st); ec)
             co_return {ec};
 
-        // We've read the response in full, and no longer hold the reader turn
+        // We've read the response in full, and no longer hold the reader turn.
+        // Because the sink is async, we need to copy the contents of the last
+        // buffers (we no longer hold the read turn, so other requests might invalidate the buffer).
+        // TODO: I don't like this. This is a smell. Probably we should replace
+        //   exclusivity by something like 'manual turns', where the user explicitly
+        //   tells us that we can keep reading/writing.
         if (st.read_done())
         {
-            tail.resize(boost::capy::buffer_size(buffs));
-            boost::capy::buffer_copy(boost::capy::make_buffer(tail), buffs);
-            buffs.clear();
+            auto tail_size = boost::capy::buffer_size(buffs);
+            if (tail_size > 0u)
+            {
+                std::unique_ptr<unsigned char[]> tail_storage{new unsigned char[tail_size]};
+                boost::capy::mutable_buffer tail_buff{tail_storage.get(), tail_size};
+                boost::capy::buffer_copy(tail_buff, buffs);
+                if (auto [ec, bytes] = co_await sink.write(boost::capy::const_buffer(tail_buff)); ec)
+                    co_return {ec};
+            }
             co_return {};
         }
 
@@ -193,10 +203,9 @@ inline boost::capy::io_task<std::uint64_t> copy_out(
     // sequence may deadlock: writing a request bigger than the send buffer can't
     // complete until the server drains it, and the server won't drain it while
     // it's blocked sending copy data that nobody is reading
-    std::vector<unsigned char> tail;
     auto [final_ec, writer_dummy, reader_dummy] = co_await boost::capy::when_all(
         conn.write_request(st),
-        copy_out_reader(conn, st, buffs, sink, tail)
+        copy_out_reader(conn, st, buffs, sink)
     );
 
     // The transport or the sink failed. In the latter case the connection is still
@@ -227,9 +236,6 @@ inline boost::capy::io_task<std::uint64_t> copy_out(
 
     // Deliver the last batch and tell the sink that there is no more data.
     // Only successful transfers get finalized
-    const boost::capy::const_buffer tail_buff{tail.data(), tail.size()};
-    if (auto [ec, bytes] = co_await sink.write(tail_buff); ec)
-        co_return {ec, 0u};
     if (auto [ec] = co_await sink.write_eof(); ec)
         co_return {ec, 0u};
 

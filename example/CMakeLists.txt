@@ -46,6 +46,9 @@ if (NATIVEPG_COROSIO_API)
     add_executable(nativepg_listen_cache listen_cache.cpp)
     target_link_libraries(nativepg_listen_cache PRIVATE nativepg_corosio Boost::json)
 
+    add_executable(nativepg_copy_out copy_out.cpp)
+    target_link_libraries(nativepg_copy_out PRIVATE nativepg_corosio)
+
     add_executable(nativepg_copy_out_low_level copy_out_low_level.cpp)
     target_link_libraries(nativepg_copy_out_low_level PRIVATE nativepg_corosio)
 

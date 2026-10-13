@@ -35,6 +35,7 @@
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
 #include "test_utils/test_cond_eq.hpp"
+#include "test_utils/test_range_eq.hpp"
 #include "test_utils/test_string_contains.hpp"
 
 // Covers co_connection::copy_out
@@ -272,7 +273,7 @@ capy::task<> test_multiplexing()
 
     // A single row far bigger than the read buffer, so that reading it
     // reallocates the buffer rather than reusing it
-    constexpr std::size_t big_value_size = 1000000u;
+    constexpr std::size_t big_value_size = 4096u * 2u;
     request other_req;
     other_req.add_query("SELECT repeat('x', $1::int) AS value", static_cast<int>(big_value_size));
     std::vector<row_string> strings;
@@ -295,8 +296,8 @@ capy::task<> test_multiplexing()
     BOOST_TEST(sink.get().eof_called());
 
     // The second request got its own response
-    if (BOOST_TEST_EQ(strings.size(), 1u))
-        BOOST_TEST_EQ(strings[0].value.size(), big_value_size);
+    const row_string expected[] = {{.value = std::string(big_value_size, 'x')}};
+    test_range_eq(strings, expected);
 
     co_await check_connection_usable(conn);
 }

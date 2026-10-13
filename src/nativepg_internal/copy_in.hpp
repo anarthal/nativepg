@@ -38,13 +38,19 @@
 
 namespace nativepg::detail {
 
+// TODO: I think we should be able to make write_some_copy_data fail
+// if the server rejects our data with an error. This should simplify
+// all this code.
+
+// What should the writer do next?
 enum class copy_in_action
 {
-    start_copy,
-    reject_copy,
-    finish,
+    start_copy,   // Send copy data to the server
+    reject_copy,  // Reject the copy by sending CopyFail
+    finish,       // Exit
 };
 
+// Communicates writer and reader. The reader tells the writer what to do
 class copy_in_channel
 {
     boost::container::small_vector<copy_in_action, 1u> buff_;
@@ -182,9 +188,9 @@ inline boost::capy::io_task<> run_copy(
 
     while (true)
     {
-        // If the server rejected our data, stop as soon as we notice it.
-        // We can't stop any earlier: whatever we handed to write_some_copy_data
-        // has already been framed, and must be transferred before terminating
+        // If the server rejected our data, stop.
+        // This is the only safe place to stop, because we don't want to
+        // leave open frames behind.
         if (handler.copy_failed())
             co_return co_await conn.write_copy_fail(st, "aborted by the client after a server error");
 
@@ -252,6 +258,7 @@ inline boost::capy::io_task<> copy_in_writer(
 // Reader side of copy_in
 inline boost::capy::io_task<> copy_in_reader(co_connection& conn, exec_state& st, copy_in_channel& channel)
 {
+    // This will invoke the handler, which will tell the writer what to do
     while (!st.read_done())
     {
         if (auto [ec] = co_await conn.read_some_response(st); ec)

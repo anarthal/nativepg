@@ -284,6 +284,10 @@ inline boost::capy::io_task<std::uint64_t> copy_in(
     diagnostics* diag
 )
 {
+    // Clear diagnostics
+    if (diag)
+        *diag = diagnostics();
+
     // Setup. Copy operations can't be multiplexed with other requests
     copy_in_channel channel;
     copy_in_handler handler{channel};
@@ -300,24 +304,32 @@ inline boost::capy::io_task<std::uint64_t> copy_in(
         copy_in_reader(conn, st, channel)
     );
 
-    // The connection is left in an unspecified state if this happens
+    // An I/O error happened
     if (final_ec)
         co_return {final_ec, 0u};
 
-    if (diag)
-        *diag = copy_ec ? diagnostics() : handler.error().diag;
+    // Did we have more than one Copy-in?
+    // This causes a handler error (by sending CopyFail),
+    // but we should report this other error, instead
+    if (handler.num_copies() > 1u)
+        co_return {client_errc::invalid_copy_in_request, 0u};
 
-    // The source failed, or the request is not one we can drive. The error that our
-    // CopyFail triggered is an echo of this one, so don't report it instead
+    // Did the source fail? This also causes CopyFail
     if (copy_ec)
         co_return {copy_ec, 0u};
 
-    // The server rejected the request or the data we sent
+    // Did the server report any error?
+    // This includes where the server errors the Copy-in request,
+    // and never enters Copy-in mode
     if (handler.error().code)
+    {
+        if (diag)
+            *diag = handler.error().diag;
         co_return {handler.error().code, 0u};
+    }
 
-    // The request never asked us for data
-    if (handler.num_copies() != 1u)
+    // The request didn't trigger Copy-in
+    if (handler.num_copies() == 0u)
         co_return {client_errc::invalid_copy_in_request, 0u};
 
     co_return {std::error_code(), handler.rows()};

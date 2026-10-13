@@ -37,6 +37,7 @@
 #include "test_utils/test_cond_eq.hpp"
 #include "test_utils/test_range_eq.hpp"
 #include "test_utils/test_string_contains.hpp"
+#include "test_utils/yield.hpp"
 
 // Covers co_connection::copy_out
 
@@ -222,41 +223,10 @@ public:
 };
 static_assert(capy::WriteSink<yielding_sink>);
 
-struct copy_out_result
-{
-    extended_error err;
-    std::uint64_t rows{};
-};
-
-// Runs a copy_out and records its outcome, always completing successfully.
-// Prevents when_all from cancelling the sibling request on error
-capy::io_task<copy_out_result> do_copy_out(co_connection& conn, const request& req, yielding_sink& sink)
-{
-    copy_out_result out;
-    auto [ec, rows] = co_await conn.copy_out(req, &sink, &out.err.diag);
-    out.err.code = ec;
-    out.rows = rows;
-    co_return {{}, out};
-}
-
-// Runs a single exec and records its outcome, always completing successfully
-template <response_handler Handler>
-capy::io_task<extended_error> do_exec(co_connection& conn, const request& req, Handler handler)
-{
-    extended_error out;
-    auto [ec] = co_await conn.exec(req, &handler, &out.diag);
-    out.code = ec;
-    co_return {{}, out};
-}
-
-// A request issued immediately after a copy-out is multiplexed with it, and each
-// operation sees only its own response.
-// This is a regression test: copy_out collects the copy data as views into the
-// connection's read buffer, but read_some_response releases the reader turn
-// before returning for the batch that completes the response. The second request
-// therefore gets to read while the sink is still suspended holding those views,
-// and its response is big enough to force the read buffer to be reallocated,
-// which frees the memory the views point into
+// Regression test: requests multiplexed after a Copy-out don't cause use-after-free.
+// This can happen because sinks are asynchronous. The multiplexer allows subsequent readers
+// immediately after the last RFQ is read. If we are not careful, the next read operation
+// might invalidate data that the sink hasn't consumed yet.
 capy::task<> test_multiplexing()
 {
     // Setup
@@ -268,36 +238,50 @@ capy::task<> test_multiplexing()
     if (!co_await checked_exec(conn, req_setup))
         co_return;
 
-    request copy_req;
-    copy_req.add_query("COPY copy_out_test TO STDOUT");
-
-    // A single row far bigger than the read buffer, so that reading it
-    // reallocates the buffer rather than reusing it
-    constexpr std::size_t big_value_size = 4096u * 2u;
-    request other_req;
-    other_req.add_query("SELECT repeat('x', $1::int) AS value", static_cast<int>(big_value_size));
-    std::vector<row_string> strings;
-
-    yielding_sink sink;
-
     // Both requests are handed to the multiplexer before either completes
-    auto [dummy, copy_res, other_res] = co_await capy::when_all(
-        do_copy_out(conn, copy_req, sink),
-        do_exec(conn, other_req, into(strings))
-    );
+    static_cast<void>(co_await capy::when_all(
+        // Run the Copy-out
+        [&]() -> capy::io_task<> {
+            request req;
+            req.add_query("COPY copy_out_test TO STDOUT");
 
-    // Both complete successfully
-    if (!check_success(copy_res.err) || !check_success(other_res))
-        co_return;
+            yielding_sink sink;
+            diagnostics diag;
 
-    // The copy data survived the second request reading over the buffer it lived in
-    BOOST_TEST_EQ(copy_res.rows, 3u);
-    BOOST_TEST_EQ(sink.get().data(), expected_copy_data);
-    BOOST_TEST(sink.get().eof_called());
+            auto [ec, rows] = co_await conn.copy_out(req, &sink, &diag);
+            if (!check_success(ec, diag))
+                co_return {};
 
-    // The second request got its own response
-    const row_string expected[] = {{.value = std::string(big_value_size, 'x')}};
-    test_range_eq(strings, expected);
+            // The copy data survived the second request reading over the buffer it lived in
+            BOOST_TEST_EQ(rows, 3u);
+            BOOST_TEST_EQ(sink.get().data(), expected_copy_data);
+            BOOST_TEST(sink.get().eof_called());
+
+            co_return {};
+        }(),
+
+        // Run the other request
+        [&]() -> capy::io_task<> {
+            // Ensure we go after the copy
+            co_await yield();
+
+            // A single row far bigger than the read buffer, so that reading it
+            // reallocates the buffer rather than reusing it
+            constexpr std::size_t big_value_size = 4096u * 8u;
+            request req;
+            req.add_query("SELECT repeat('x', $1::int) AS value", static_cast<int>(big_value_size));
+
+            std::vector<row_string> strings;
+
+            if (!co_await checked_exec(conn, req, into(strings)))
+                co_return {};
+
+            const row_string expected[] = {{.value = std::string(big_value_size, 'x')}};
+            test_range_eq(strings, expected);
+
+            co_return {};
+        }()
+    ));
 
     co_await check_connection_usable(conn);
 }

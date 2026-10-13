@@ -16,6 +16,7 @@
 #include <boost/capy/when_all.hpp>
 #include <boost/capy/write.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -54,7 +55,13 @@ public:
 
     handler_setup_result setup(const request& req, std::size_t)
     {
-        // TODO: if there isn't at least one Execute or Query, this should fail
+        // The request should contain at least one Query/Execute
+        const bool may_copy = std::ranges::any_of(req.messages(), [](request_message_type type) {
+            return type == request_message_type::execute || type == request_message_type::query;
+        });
+        if (!may_copy)
+            return make_error_code(client_errc::incompatible_response_type);
+
         // TODO: *this = X seems sus
         *this = copy_in_handler();
         return req.messages().size();

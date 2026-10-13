@@ -230,6 +230,30 @@ capy::task<> test_server_error_mid_copy()
     co_await check_connection_usable(conn);
 }
 
+// The request has no messages that could make the server enter copy-in mode
+capy::task<> test_request_cannot_copy()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    // Only Execute and Query messages can trigger a copy
+    request req;
+    req.add_prepare("SELECT 1", "stmt_copy_in");
+
+    capy::test::buffer_source source;
+    source.provide("1\tone\n");
+
+    diagnostics diag;
+    auto [ec, rows] = co_await conn.copy_in(req, &source, &diag);
+
+    // The request is rejected before anything reaches the server
+    BOOST_TEST_EQ(ec, std::error_code(client_errc::incompatible_response_type));
+    BOOST_TEST(diag.message().empty());
+    BOOST_TEST_EQ(source.available(), 6u);
+
+    co_await check_connection_usable(conn);
+}
+
 // The request runs successfully, but never asks us for data
 capy::task<> test_request_without_copies()
 {
@@ -340,6 +364,7 @@ int main()
 
     run_coroutine_test(test_server_rejects_copy());
     run_coroutine_test(test_server_error_mid_copy());
+    run_coroutine_test(test_request_cannot_copy());
     run_coroutine_test(test_request_without_copies());
     run_coroutine_test(test_request_with_two_copies());
     run_coroutine_test(test_source_error());

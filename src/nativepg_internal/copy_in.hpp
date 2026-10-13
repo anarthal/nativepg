@@ -305,7 +305,7 @@ inline boost::capy::io_task<std::uint64_t> copy_in(
     // This causes a handler error (by sending CopyFail),
     // but we should report this other error, instead
     if (handler.num_copies() > 1u)
-        co_return {client_errc::invalid_copy_in_request, 0u};
+        co_return {client_errc::incompatible_response_type, 0u};
 
     // Did the source fail? This also causes CopyFail
     if (copy_ec)
@@ -323,7 +323,7 @@ inline boost::capy::io_task<std::uint64_t> copy_in(
 
     // The request didn't trigger Copy-in
     if (handler.num_copies() == 0u)
-        co_return {client_errc::invalid_copy_in_request, 0u};
+        co_return {client_errc::incompatible_response_type, 0u};
 
     co_return {std::error_code(), handler.rows()};
 }

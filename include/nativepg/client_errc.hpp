@@ -155,10 +155,6 @@ enum class client_errc : int
     // write_copy_done() was called with an incomplete transfer
     // Call write_some_data() until all the supplied bytes are transferred
     copy_incomplete_transfer,
-
-    // The request passed to copy_in() doesn't trigger exactly one COPY ... FROM STDIN
-    // (it triggered none, or more than one)
-    invalid_copy_in_request,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

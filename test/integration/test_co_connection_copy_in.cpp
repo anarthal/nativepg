@@ -269,7 +269,7 @@ capy::task<> test_request_without_copies()
     diagnostics diag;
     auto [ec, rows] = co_await conn.copy_in(req, &source, &diag);
 
-    BOOST_TEST_EQ(ec, std::error_code(client_errc::invalid_copy_in_request));
+    BOOST_TEST_EQ(ec, std::error_code(client_errc::incompatible_response_type));
     BOOST_TEST(diag.message().empty());
 
     // We never got asked for data, so the source wasn't touched

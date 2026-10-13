@@ -21,6 +21,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <system_error>
 #include <utility>
 
@@ -29,9 +30,9 @@
 #include "nativepg/exclusivity.hpp"
 #include "nativepg/exec_state.hpp"
 #include "nativepg/extended_error.hpp"
+#include "nativepg/protocol/command_complete_tag.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/any_request_message.hpp"
-#include "nativepg/responses/command_info.hpp"
 #include "nativepg/responses/detail/response_utils.hpp"
 #include "nativepg/responses/response_handler.hpp"
 
@@ -83,7 +84,6 @@ class copy_in_handler
 {
     struct
     {
-        command_info info_{};
         std::uint64_t rows_{};
         std::size_t num_copies_{};
         bool in_copy_{};
@@ -118,11 +118,14 @@ public:
                 break;
             case any_request_message::kind::command_complete:
                 // The tag that closes a copy carries the number of copied rows
+                // Parsing it is best-effort, as the protocol doesn't make guarantees about its format
                 if (state_.in_copy_)
                 {
-                    // TODO: can be simplified
-                    detail::from_command_complete(state_.info_, msg.get_command_complete());
-                    state_.rows_ = state_.info_.affected_rows.value_or(0u);
+                    std::optional<std::uint64_t> opt_rows;
+                    static_cast<void>(
+                        protocol::parse_command_complete_tag(msg.get_command_complete().tag, opt_rows)
+                    );
+                    state_.rows_ = opt_rows.value_or(0u);
                     state_.in_copy_ = false;
                 }
                 break;

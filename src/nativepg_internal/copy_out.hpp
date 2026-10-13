@@ -37,9 +37,8 @@
 
 namespace nativepg::detail {
 
-// How many CopyData frames a single read batch is expected to hold
-// before the collection vector needs to allocate
-inline constexpr std::size_t copy_out_inline_buffers = 16u;
+// Type used to hold Copy-out buffers
+using copy_out_buffers = boost::container::small_vector<boost::capy::const_buffer, 32u>;
 
 // Response handler used by copy_out. Covers the entire request, so it works with
 // any request shape, and tracks what copy_out needs to know: the copy data produced
@@ -55,12 +54,10 @@ class copy_out_handler
         bool collecting_{};
     } state_;
 
-    // The payloads seen so far. These are views into the connection's read buffer:
-    // see copy_out_reader for the lifetime rules
-    boost::container::small_vector<boost::capy::const_buffer, copy_out_inline_buffers> buffs_;
+    copy_out_buffers* buffs_;
 
 public:
-    copy_out_handler() = default;
+    copy_out_handler(copy_out_buffers& buffs) noexcept : buffs_(&buffs) {}
 
     handler_setup_result setup(const request& req, std::size_t)
     {
@@ -72,7 +69,7 @@ public:
             return make_error_code(client_errc::incompatible_response_type);
 
         state_ = {};
-        buffs_.clear();
+        buffs_->clear();
         return req.messages().size();
     }
 
@@ -91,7 +88,7 @@ public:
                 if (state_.collecting_)
                 {
                     auto data = msg.get_copy_data().data;
-                    buffs_.emplace_back(data.data(), data.size());
+                    buffs_->emplace_back(data.data(), data.size());
                 }
                 break;
             case any_request_message::kind::command_complete:
@@ -119,12 +116,6 @@ public:
         }
     }
 
-    // The copy data collected since the last call to clear_buffers()
-    std::span<const boost::capy::const_buffer> buffers() const { return {buffs_.data(), buffs_.size()}; }
-
-    // Releases the collected views. Keeps the capacity, so the steady state doesn't allocate
-    void clear_buffers() { buffs_.clear(); }
-
     // How many times did the server start a copy?
     std::size_t num_copies() const { return state_.num_copies_; }
 
@@ -143,7 +134,7 @@ public:
 inline boost::capy::io_task<> copy_out_reader(
     co_connection& conn,
     exec_state& st,
-    copy_out_handler& handler,
+    copy_out_buffers& buffs,
     boost::capy::any_write_sink& sink,
     std::vector<unsigned char>& tail
 )
@@ -158,19 +149,18 @@ inline boost::capy::io_task<> copy_out_reader(
         // We've read the response in full, and no longer hold the reader turn
         if (st.read_done())
         {
-            auto buffs = handler.buffers();
             tail.resize(boost::capy::buffer_size(buffs));
             boost::capy::buffer_copy(boost::capy::make_buffer(tail), buffs);
-            handler.clear_buffers();
+            buffs.clear();
             co_return {};
         }
 
         // Hand the batch to the sink. Writing it completely before reading again
         // is what keeps the views valid. An empty sequence completes immediately,
         // so batches carrying no copy data need no special casing
-        auto [ec, bytes] = co_await sink.write(handler.buffers());
+        auto [ec, bytes] = co_await sink.write(buffs);
         static_cast<void>(bytes);  // write() transfers everything or fails
-        handler.clear_buffers();
+        buffs.clear();
 
         // The protocol offers no way to tell the server to stop sending data,
         // so we just stop reading. Destroying the exec_state hands the leftovers
@@ -193,7 +183,8 @@ inline boost::capy::io_task<std::uint64_t> copy_out(
 
     // Setup. Unlike Copy-in, Copy-out requires no messages from the client,
     // so it doesn't need to lock the connection
-    copy_out_handler handler;
+    copy_out_buffers buffs;
+    copy_out_handler handler(buffs);
     exec_state st;
     if (auto ec = conn.prepare_request(st, req, &handler, exclusivity::shared))
         co_return {ec, 0u};
@@ -205,7 +196,7 @@ inline boost::capy::io_task<std::uint64_t> copy_out(
     std::vector<unsigned char> tail;
     auto [final_ec, writer_dummy, reader_dummy] = co_await boost::capy::when_all(
         conn.write_request(st),
-        copy_out_reader(conn, st, handler, sink, tail)
+        copy_out_reader(conn, st, buffs, sink, tail)
     );
 
     // The transport or the sink failed. In the latter case the connection is still

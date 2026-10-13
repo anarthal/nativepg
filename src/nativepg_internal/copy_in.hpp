@@ -83,7 +83,6 @@ class copy_in_handler
 {
     struct
     {
-        extended_error err_{};
         command_info info_{};
         std::uint64_t rows_{};
         std::size_t num_copies_{};
@@ -130,12 +129,6 @@ public:
             case any_request_message::kind::error_response:
                 detail::store_error(msg.get_error_response(), err);
 
-                // Keep our own copy: exec_state::handler_error() may only be
-                // accessed once the entire response has been read, and the writer
-                // needs to know about errors as soon as they arrive
-                if (!state_.err_.code)
-                    state_.err_ = err;
-
                 // Errors raised by other statements of the request (possible when
                 // pipelining) don't require us to stop sending data
                 if (state_.in_copy_)
@@ -156,9 +149,6 @@ public:
 
     // Rows reported by the CommandComplete that closed the copy
     std::uint64_t rows() const { return state_.rows_; }
-
-    // The first error that the server reported, if any
-    const extended_error& error() const { return state_.err_; }
 };
 
 // Adapts write_some_copy_data into capy::WriteStream
@@ -314,11 +304,11 @@ inline boost::capy::io_task<std::uint64_t> copy_in(
     // Did the server report any error?
     // This includes where the server errors the Copy-in request,
     // and never enters Copy-in mode
-    if (handler.error().code)
+    if (st.handler_error().code)
     {
         if (diag)
-            *diag = handler.error().diag;
-        co_return {handler.error().code, 0u};
+            *diag = st.handler_error().diag;
+        co_return {st.handler_error().code, 0u};
     }
 
     // The request didn't trigger Copy-in

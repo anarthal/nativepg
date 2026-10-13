@@ -123,14 +123,7 @@ public:
     std::uint64_t rows() const { return state_.rows_; }
 };
 
-// Reader side of copy_out. Reads the response, handing the copy data produced
-// by each batch to the sink.
-// The views collected by the handler point into the connection's read buffer.
-// They stay valid for as long as our exec_state holds the reader turn, because
-// nothing else can then read (and thus reallocate the buffer). This holds for every
-// batch except the one that completes the response: read_some_response releases
-// the turn before returning, so that last batch is copied into tail before we
-// suspend, and copy_out delivers it once it knows the transfer succeeded.
+// Reader side of copy_out
 inline boost::capy::io_task<> copy_out_reader(
     co_connection& conn,
     exec_state& st,
@@ -165,18 +158,12 @@ inline boost::capy::io_task<> copy_out_reader(
             co_return {};
         }
 
-        // Hand the batch to the sink. Writing it completely before reading again
-        // is what keeps the views valid. An empty sequence completes immediately,
-        // so batches carrying no copy data need no special casing
-        auto [ec, bytes] = co_await sink.write(buffs);
-        static_cast<void>(bytes);  // write() transfers everything or fails
-        buffs.clear();
-
-        // The protocol offers no way to tell the server to stop sending data,
-        // so we just stop reading. Destroying the exec_state hands the leftovers
-        // to the multiplexer, which keeps the connection usable
-        if (ec)
+        // Hand the batch to the sink. Empty batches are a no-op
+        // No lifetime problems here because we still own the read-side.
+        if (auto [ec, bytes] = co_await sink.write(buffs); ec)
             co_return {ec};
+
+        buffs.clear();
     }
 }
 
@@ -191,34 +178,23 @@ inline boost::capy::io_task<std::uint64_t> copy_out(
     if (diag)
         *diag = diagnostics();
 
-    // Setup. Unlike Copy-in, Copy-out requires no messages from the client,
-    // so it doesn't need to lock the connection
+    // Setup
     copy_out_buffers buffs;
     copy_out_handler handler(buffs);
     exec_state st;
     if (auto ec = conn.prepare_request(st, req, &handler, exclusivity::shared))
         co_return {ec, 0u};
 
-    // Run the reader and the writer in parallel, as exec() does. Running them in
-    // sequence may deadlock: writing a request bigger than the send buffer can't
-    // complete until the server drains it, and the server won't drain it while
-    // it's blocked sending copy data that nobody is reading
+    // Run the reader and the writer in parallel. Running them in
+    // sequence may deadlock for big requests (neither the server not us
+    // read because we are waiting for space in the write buffer).
+    // Reports transport and sink errors.
     auto [final_ec, writer_dummy, reader_dummy] = co_await boost::capy::when_all(
         conn.write_request(st),
         copy_out_reader(conn, st, buffs, sink)
     );
-
-    // The transport or the sink failed. In the latter case the connection is still
-    // usable: whatever the server still owes us is discarded by subsequent requests
     if (final_ec)
         co_return {final_ec, 0u};
-
-    // We've read the response in full, so handler_error() is now legal
-
-    // Did the request start more than one copy?
-    // We only ever fed the sink from the first one
-    if (handler.num_copies() > 1u)
-        co_return {client_errc::incompatible_response_type, 0u};
 
     // Did the server report any error?
     // This includes the case where the server errors the request
@@ -230,12 +206,12 @@ inline boost::capy::io_task<std::uint64_t> copy_out(
         co_return {st.handler_error().code, 0u};
     }
 
-    // The request didn't trigger Copy-out
-    if (handler.num_copies() == 0u)
+    // Did the request start exactly one Copy-out?
+    if (handler.num_copies() != 1u)
         co_return {client_errc::incompatible_response_type, 0u};
 
-    // Deliver the last batch and tell the sink that there is no more data.
-    // Only successful transfers get finalized
+    // Inform the sink that we're done. We do this here
+    // because we want it done on success only.
     if (auto [ec] = co_await sink.write_eof(); ec)
         co_return {ec, 0u};
 

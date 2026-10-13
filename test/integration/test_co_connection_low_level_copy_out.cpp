@@ -32,7 +32,7 @@ using namespace nativepg;
 using namespace nativepg::test;
 using namespace std::string_view_literals;
 
-// Tests that COPY ... TO STDOUT is understood at the protocol level
+// COPY ... TO STDOUT can be used with the low-level interface
 
 namespace {
 
@@ -44,9 +44,7 @@ auto collect_into(std::string& out)
     };
 }
 
-// A COPY ... TO STDOUT is understood at the protocol level: the data reaches
-// the handler and the command tag reports how many rows were copied
-capy::task<> test_copy_out()
+capy::task<> test_success()
 {
     // Setup
     auto conn = co_await establish_connection();
@@ -126,7 +124,7 @@ capy::task<> test_copy_out_error()
 
 int main()
 {
-    run_coroutine_test(test_copy_out());
+    run_coroutine_test(test_success());
     run_coroutine_test(test_copy_out_error());
 
     return boost::report_errors();

@@ -20,12 +20,12 @@
 #include <boost/describe/operators.hpp>
 
 #include <cstddef>
-#include <cstdint>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <vector>
 
+#include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
@@ -97,7 +97,7 @@ capy::task<> test_success()
 }
 
 // A Copy-out producing no rows also works
-capy::task<> test_success_no_data()
+capy::task<> test_no_data()
 {
     // Setup
     auto conn = co_await establish_connection();
@@ -121,35 +121,6 @@ capy::task<> test_success_no_data()
     BOOST_TEST_EQ(sink.data(), std::string_view());
     BOOST_TEST(sink.eof_called());
 
-    co_await check_connection_usable(conn);
-}
-
-// The server rejects the request, so it never enters copy-out mode
-capy::task<> test_server_error()
-{
-    // Setup
-    auto conn = co_await establish_connection();
-
-    // The table doesn't exist
-    request req;
-    req.add_query("COPY copy_out_does_not_exist TO STDOUT");
-
-    capy::test::write_sink sink;
-    diagnostics diag;
-
-    // Run the copy
-    auto [ec, rows] = co_await conn.copy_out(req, &sink, &diag);
-
-    // The server's error is reported
-    test_cond_eq(ec, sqlstate_cond::undefined_table);
-    test_string_contains(diag.message(), "copy_out_does_not_exist");
-
-    // The copy never started, and a failed transfer doesn't finalize the sink
-    BOOST_TEST_EQ(rows, 0u);
-    BOOST_TEST_EQ(sink.data(), std::string_view());
-    BOOST_TEST_NOT(sink.eof_called());
-
-    // A rejected request is not a protocol error
     co_await check_connection_usable(conn);
 }
 
@@ -286,15 +257,179 @@ capy::task<> test_multiplexing()
     co_await check_connection_usable(conn);
 }
 
+// The server rejects the request, so it never enters copy-out mode
+capy::task<> test_server_error()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    // The table doesn't exist
+    request req;
+    req.add_query("COPY copy_out_does_not_exist TO STDOUT");
+
+    capy::test::write_sink sink;
+    diagnostics diag;
+
+    // Run the copy
+    auto [ec, rows] = co_await conn.copy_out(req, &sink, &diag);
+
+    // The server's error is reported
+    test_cond_eq(ec, sqlstate_cond::undefined_table);
+    test_string_contains(diag.message(), "copy_out_does_not_exist");
+
+    // The copy never started, and a failed transfer doesn't finalize the sink
+    BOOST_TEST_EQ(rows, 0u);
+    BOOST_TEST_EQ(sink.data(), std::string_view());
+    BOOST_TEST_NOT(sink.eof_called());
+
+    // A rejected request is not a protocol error
+    co_await check_connection_usable(conn);
+}
+
+// The request runs successfully, but never makes the server enter copy-out mode
+capy::task<> test_zero_copies()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    // A plain query produces a regular resultset, rather than a copy
+    request req;
+    req.add_query("SELECT 'value' AS value");
+
+    capy::test::write_sink sink;
+    diagnostics diag;
+
+    // Run the copy
+    auto [ec, rows] = co_await conn.copy_out(req, &sink, &diag);
+
+    // The request itself succeeded, so there is no server-side error to report
+    BOOST_TEST_EQ(ec, std::error_code(client_errc::incompatible_response_type));
+    BOOST_TEST(diag.message().empty());
+
+    // Nothing was ever transferred
+    BOOST_TEST_EQ(rows, 0u);
+    BOOST_TEST_EQ(sink.data(), std::string_view());
+    BOOST_TEST_NOT(sink.eof_called());
+
+    co_await check_connection_usable(conn);
+}
+
+// The request makes the server enter copy-out mode more than once.
+// Only the first copy is fed to the sink
+capy::task<> test_two_copies()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req_setup;
+    req_setup.add_query(create_table_sql);
+    req_setup.add_query(insert_rows_sql);
+    if (!co_await checked_exec(conn, req_setup))
+        co_return;
+
+    // A single simple query may contain several statements
+    request req;
+    req.add_simple_query(
+        "COPY copy_out_test TO STDOUT;"
+        "COPY copy_out_test TO STDOUT"
+    );
+
+    capy::test::write_sink sink;
+    diagnostics diag;
+
+    // Run the copy
+    auto [ec, rows] = co_await conn.copy_out(req, &sink, &diag);
+
+    // Supporting more than one copy per request would make the data of the
+    // two copies indistinguishable to the sink
+    BOOST_TEST_EQ(ec, std::error_code(client_errc::incompatible_response_type));
+    BOOST_TEST_EQ(rows, 0u);
+
+    // The transfer never completed. How much of the first copy reached the sink
+    // depends on how the response is batched, so it's left unspecified
+    BOOST_TEST_NOT(sink.eof_called());
+
+    // Both copies are read to completion, which keeps the connection in sync
+    co_await check_connection_usable(conn);
+}
+
+// The error reported by failing_sink
+const std::error_code sink_error = std::make_error_code(std::errc::io_error);
+
+// A WriteSink that fails on its first write.
+// fuse does not allow injecting individual errors
+class failing_sink
+{
+    capy::test::write_sink sink_;
+
+public:
+    capy::test::write_sink& get() { return sink_; }
+
+    template <capy::ConstBufferSequence ConstBufferSeq>
+    capy::io_task<std::size_t> write(ConstBufferSeq)
+    {
+        co_return {sink_error, 0u};
+    }
+
+    template <capy::ConstBufferSequence ConstBufferSeq>
+    capy::io_task<std::size_t> write_some(ConstBufferSeq buffers)
+    {
+        return write(std::move(buffers));
+    }
+
+    template <capy::ConstBufferSequence ConstBufferSeq>
+    capy::io_task<std::size_t> write_eof(ConstBufferSeq buffers)
+    {
+        return write(std::move(buffers));
+    }
+
+    capy::io_task<> write_eof() { co_return co_await sink_.write_eof(); }
+};
+static_assert(capy::WriteSink<failing_sink>);
+
+// The sink fails while the server is sending us data
+capy::task<> test_sink_error()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    // Big enough that the response spans several reads, so that failing on the
+    // first write leaves a sizeable part of it unread
+    request req;
+    req.add_query("COPY (SELECT i, repeat('x', 100) FROM generate_series(1, 5000) i) TO STDOUT");
+
+    failing_sink sink;
+    diagnostics diag;
+
+    // Run the copy
+    auto [ec, rows] = co_await conn.copy_out(req, &sink, &diag);
+
+    // The sink's error is reported verbatim, and is not a server-side one
+    BOOST_TEST_EQ(ec, sink_error);
+    BOOST_TEST(diag.message().empty());
+
+    // A failed transfer doesn't finalize the sink
+    BOOST_TEST_EQ(rows, 0u);
+    BOOST_TEST_NOT(sink.get().eof_called());
+
+    // Unlike copy_in, we stop reading as soon as the sink fails, rather than
+    // draining the response. Subsequent requests discard what was left unread
+    co_await check_connection_usable(conn);
+}
+
 }  // namespace
 
 int main()
 {
     run_coroutine_test(test_success());
-    run_coroutine_test(test_success_no_data());
-    run_coroutine_test(test_server_error());
+    run_coroutine_test(test_no_data());
     run_coroutine_test(test_request_with_other_commands());
     run_coroutine_test(test_multiplexing());
+
+    run_coroutine_test(test_server_error());
+    run_coroutine_test(test_zero_copies());
+    run_coroutine_test(test_two_copies());
+    run_coroutine_test(test_sink_error());
 
     return boost::report_errors();
 }

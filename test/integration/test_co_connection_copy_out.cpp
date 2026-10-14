@@ -320,6 +320,35 @@ capy::task<> test_server_error()
     co_await check_connection_usable(conn);
 }
 
+// The server encounters an error while generating the copy data
+capy::task<> test_server_error_mid_copy()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    // Fails after generating lots of rows
+    request req;
+    req.add_query("COPY (SELECT repeat('x', 100), 0 / (1000 - i) FROM generate_series(1, 5000) i) TO STDOUT");
+
+    capy::test::write_sink sink;
+    diagnostics diag;
+
+    // Run the copy
+    auto [ec, rows] = co_await conn.copy_out(req, &sink, &diag);
+
+    // The server's error is reported
+    test_cond_eq(ec, sqlstate_cond::division_by_zero);
+    BOOST_TEST_NOT(diag.message().empty());
+
+    // What data reached the sink is unspecified.
+    // The sink is not finalized.
+    BOOST_TEST_EQ(rows, 0u);
+    BOOST_TEST_NOT(sink.eof_called());
+
+    // A failed copy is not a protocol error
+    co_await check_connection_usable(conn);
+}
+
 // The request runs successfully, but never makes the server enter copy-out mode
 capy::task<> test_zero_copies()
 {
@@ -454,6 +483,7 @@ int main()
     run_coroutine_test(test_multiplexing());
 
     run_coroutine_test(test_server_error());
+    run_coroutine_test(test_server_error_mid_copy());
     run_coroutine_test(test_zero_copies());
     run_coroutine_test(test_two_copies());
     run_coroutine_test(test_sink_error());

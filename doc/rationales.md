@@ -416,34 +416,33 @@ transitions to `write_status::copy_data`; otherwise, to `write_status::done`:
 
 ![write_status.svg](./write_status.svg)
 
-## In `co_connection`, `copy_in()` takes a `BufferSource` but `copy_out()` takes a `WriteSink`. Why the asymmetry?
+## In `co_connection`, `copy_in()` takes a `BufferSource`, but `copy_out()` takes a `WriteSink`. Why the asymmetry?
 
-There is a general asymmetry in read operations vs. write operations regarding who owns buffer space.
+There is a general asymmetry between read and write operations regarding who owns buffer space.
 For write operations, the user owns the buffer (e.g. `request` owns a buffer, `write_some_copy_data`
 operates on a user-supplied buffer). On the other hand, the connection owns the read buffer,
-and read operations get views on it (e.g. all types passed to response handlers are views).
+and read operations get views into it (e.g. all types passed to response handlers are views).
 
-`copy_in()` and `copy_out()` try to minimize copying. Whoever owns the data
-passes views to the consumer. With this in mind, we
-arrive to the design we have today:
+`copy_in()` and `copy_out()` try to minimize copying. Whoever owns the data passes views to the
+consumer. With this in mind, we arrive at the design we have today:
 
 - If `copy_in()` had taken a `ReadSource`, it would need to allocate internal buffer
   space, read from the source into this space, and then write the data to the server.
   In many cases, this forces a copy. A `BufferSource` moves the buffering responsibility to the user,
   potentially saving this copy.
 - If `copy_out()` had taken a `BufferSink`, it would need to copy the received bytes
-  into the buffer space handed by the sink. With the current architecture, this forces a copy.
-  A `WriteSink` acknowledges that we own the read buffer, and allows zero-copy.
+  into the buffer space provided by the sink. With the current architecture, this forces a copy.
+  A `WriteSink` acknowledges that we own the read buffer and allows zero-copy.
 
-_And why does the connection own the read buffer?_ Why not reading `CopyData` messages
+_And why does the connection own the read buffer?_ Why not read `CopyData` messages
 into the buffer space provided by a `BufferSink`?
 
-This is viable but it complicates the implementation a lot because:
+This is viable, but it complicates the implementation a lot because:
 
-- All messages sent by the server have headers, containing length and type.
+- All messages sent by the server have headers containing their length and type.
   These are not part of the data stream and must be removed.
-- A single read can (and usually does) read more than one message.
-  Reading messages in batch is vital for performance because
-  the server sends _many_ small messages (for `CopyData`, usually one per row).
-- Asynchronous messages might interleave `CopyData` messages.
+- A single read can (and usually does) read more than one message. Reading messages in batches
+  is vital for performance because the server sends _many_ small messages
+  (for `CopyData`, usually one per row).
+- Asynchronous messages might be interleaved with `CopyData` messages.
   E.g. a `NotificationResponse` might arrive if we are subscribed to a channel.

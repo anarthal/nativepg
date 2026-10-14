@@ -423,13 +423,27 @@ For write operations, the user owns the buffer (e.g. `request` owns a buffer, `w
 operates on a user-supplied buffer). On the other hand, the connection owns the read buffer,
 and read operations get views on it (e.g. all types passed to response handlers are views).
 
-`copy_in()` and `copy_out()` try to minimize copying. With the mentioned asymmetry, we
+`copy_in()` and `copy_out()` try to minimize copying. Whoever owns the data
+passes views to the consumer. With this in mind, we
 arrive to the design we have today:
 
 - If `copy_in()` had taken a `ReadSource`, it would need to allocate internal buffer
   space, read from the source into this space, and then write the data to the server.
-  This forces a copy. A `BufferSource` moves the buffering responsibility to the user,
+  In many cases, this forces a copy. A `BufferSource` moves the buffering responsibility to the user,
   potentially saving this copy.
 - If `copy_out()` had taken a `BufferSink`, it would need to copy the received bytes
-  into the buffer space handed by the sink. This forces a copy. A `WriteSink`
-  acknowledges that we own the read buffer, and allows zero-copy.
+  into the buffer space handed by the sink. With the current architecture, this forces a copy.
+  A `WriteSink` acknowledges that we own the read buffer, and allows zero-copy.
+
+_And why does the connection own the read buffer?_ Why not reading `CopyData` messages
+into the buffer space provided by a `BufferSink`?
+
+This is viable but it complicates the implementation a lot because:
+
+- All messages sent by the server have headers, containing length and type.
+  These are not part of the data stream and must be removed.
+- A single read can (and usually does) read more than one message.
+  Reading messages in batch is vital for performance because
+  the server sends _many_ small messages (for `CopyData`, usually one per row).
+- Asynchronous messages might interleave `CopyData` messages.
+  E.g. a `NotificationResponse` might arrive if we are subscribed to a channel.

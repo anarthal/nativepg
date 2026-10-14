@@ -9,12 +9,14 @@
 #include <boost/capy/concept/write_sink.hpp>
 #include <boost/capy/ex/immediate.hpp>
 #include <boost/capy/ex/run_async.hpp>
+#include <boost/capy/io_task.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/write.hpp>
 #include <boost/corosio/file_base.hpp>
 #include <boost/corosio/io_context.hpp>
 #include <boost/corosio/stream_file.hpp>
 
+#include <cstddef>
 #include <iostream>
 #include <utility>
 
@@ -42,13 +44,13 @@ public:
     }
 
     template <capy::ConstBufferSequence Buffers>
-    auto write(Buffers&& buffs)
+    capy::io_task<std::size_t> write(Buffers&& buffs)
     {
         return capy::write(file_, std::forward<Buffers>(buffs));
     }
 
     template <capy::ConstBufferSequence Buffers>
-    auto write_eof(Buffers&& buffs)
+    capy::io_task<std::size_t> write_eof(Buffers&& buffs)
     {
         return capy::write(file_, std::forward<Buffers>(buffs));
     }

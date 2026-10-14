@@ -6,8 +6,6 @@
 //
 
 #include <boost/capy/buffers.hpp>
-#include <boost/capy/buffers/buffer_copy.hpp>
-#include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/concept/const_buffer_sequence.hpp>
 #include <boost/capy/concept/write_sink.hpp>
 #include <boost/capy/delay.hpp>
@@ -413,7 +411,7 @@ capy::task<> test_two_copies()
 // The error reported by failing_sink
 const std::error_code sink_error = std::make_error_code(std::errc::io_error);
 
-// A WriteSink that fails on its first write.
+// A WriteSink that fails on every write.
 // fuse does not allow injecting individual errors
 class failing_sink
 {

@@ -10,7 +10,6 @@
 
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/buffer_copy.hpp>
-#include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/io/any_write_sink.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/when_all.hpp>
@@ -43,17 +42,13 @@ using copy_out_buffers = boost::container::small_vector<boost::capy::const_buffe
 // Response handler used by copy_out
 class copy_out_handler
 {
-    struct
-    {
-        std::uint64_t rows_{};
-        std::size_t num_copies_{};
-        bool in_copy_{};
-    } state_;
-
+    std::uint64_t rows_{};
+    std::size_t num_copies_{};
+    bool in_copy_{};
     copy_out_buffers* buffs_;
 
 public:
-    copy_out_handler(copy_out_buffers& buffs) noexcept : buffs_(&buffs) {}
+    explicit copy_out_handler(copy_out_buffers& buffs) noexcept : buffs_(&buffs) {}
 
     handler_setup_result setup(const request& req, std::size_t)
     {
@@ -73,8 +68,8 @@ public:
         switch (msg.type())
         {
             case any_request_message::kind::copy_out_response:
-                ++state_.num_copies_;
-                state_.in_copy_ = true;
+                ++num_copies_;
+                in_copy_ = true;
                 break;
             case any_request_message::kind::copy_data:
             {
@@ -87,29 +82,29 @@ public:
             case any_request_message::kind::command_complete:
                 // The tag that closes a copy carries the number of copied rows
                 // Parsing it is best-effort, as the protocol doesn't make guarantees about its format
-                if (state_.in_copy_)
+                if (in_copy_)
                 {
                     std::optional<std::uint64_t> opt_rows;
                     static_cast<void>(
                         protocol::parse_command_complete_tag(msg.get_command_complete().tag, opt_rows)
                     );
-                    state_.rows_ = opt_rows.value_or(0u);
-                    state_.in_copy_ = false;
+                    rows_ = opt_rows.value_or(0u);
+                    in_copy_ = false;
                 }
                 break;
             case any_request_message::kind::error_response:
                 detail::store_error(msg.get_error_response(), err);
-                state_.in_copy_ = false;
+                in_copy_ = false;
                 break;
             default: break;
         }
     }
 
     // How many times did the server start a copy?
-    std::size_t num_copies() const { return state_.num_copies_; }
+    std::size_t num_copies() const { return num_copies_; }
 
     // Rows reported by the CommandComplete that closed the copy
-    std::uint64_t rows() const { return state_.rows_; }
+    std::uint64_t rows() const { return rows_; }
 };
 
 // Reader side of copy_out
@@ -175,7 +170,7 @@ inline boost::capy::io_task<std::uint64_t> copy_out(
         co_return {ec, 0u};
 
     // Run the reader and the writer in parallel. Running them in
-    // sequence may deadlock for big requests (neither the server not us
+    // sequence may deadlock for big requests (neither the server nor us
     // read because we are waiting for space in the write buffer).
     // Reports transport and sink errors.
     auto [final_ec, writer_dummy, reader_dummy] = co_await boost::capy::when_all(

@@ -94,7 +94,7 @@ public:
     // The request is executed using exclusivity::exclusive. Requests issued while
     //   the operation is in-flight will wait until it completes.
     // The request must trigger copy-in exactly once. Otherwise, it
-    //   fails with client_errc::incompatible_request_type.
+    //   fails with client_errc::incompatible_response_type.
     // source is pulled until it reports EOF, and the obtained data is transferred
     //   to the server. Data is never inspected - you should make sure that its
     //   format matches the one expected by the server.

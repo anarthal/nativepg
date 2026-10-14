@@ -5,25 +5,62 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
+#include <boost/capy/buffers.hpp>
+#include <boost/capy/concept/write_sink.hpp>
+#include <boost/capy/ex/immediate.hpp>
 #include <boost/capy/ex/run_async.hpp>
+#include <boost/capy/io_task.hpp>
 #include <boost/capy/task.hpp>
+#include <boost/capy/write.hpp>
+#include <boost/corosio/file_base.hpp>
 #include <boost/corosio/io_context.hpp>
-#include <boost/describe/class.hpp>
+#include <boost/corosio/stream_file.hpp>
 
+#include <cstddef>
 #include <iostream>
-#include <span>
-#include <vector>
+#include <utility>
 
 #include "nativepg/co_connection.hpp"
-#include "nativepg/exec_state.hpp"
 #include "nativepg/extended_error.hpp"
-#include "nativepg/protocol/copy.hpp"
 #include "nativepg/request.hpp"
-#include "nativepg/responses/copy_out_handler.hpp"
 
 using namespace nativepg;
 namespace capy = boost::capy;
 namespace corosio = boost::corosio;
+
+namespace {
+
+class file_sink
+{
+    corosio::stream_file file_;
+
+public:
+    explicit file_sink(corosio::stream_file f) noexcept : file_(std::move(f)) {}
+
+    template <capy::ConstBufferSequence Buffers>
+    auto write_some(Buffers&& buffs)
+    {
+        return file_.write_some(std::forward<Buffers>(buffs));
+    }
+
+    template <capy::ConstBufferSequence Buffers>
+    capy::io_task<std::size_t> write(Buffers&& buffs)
+    {
+        return capy::write(file_, std::forward<Buffers>(buffs));
+    }
+
+    template <capy::ConstBufferSequence Buffers>
+    capy::io_task<std::size_t> write_eof(Buffers&& buffs)
+    {
+        return capy::write(file_, std::forward<Buffers>(buffs));
+    }
+
+    auto write_eof() { return capy::ready(); }
+};
+
+static_assert(capy::WriteSink<file_sink>);
+
+}  // namespace
 
 static void print_err(const char* prefix, std::error_code err, const diagnostics& diag)
 {
@@ -38,6 +75,13 @@ static capy::task<> co_main()
     // Create a connection
     co_connection conn{co_await capy::this_coro::executor};
     diagnostics diag;
+
+    // Open the file to write to
+    corosio::stream_file file(co_await capy::this_coro::executor);
+    file.open(
+        "/tmp/data.tsv",
+        corosio::file_base::write_only | corosio::file_base::create | corosio::file_base::truncate
+    );
 
     // Connect
     if (auto [ec] = co_await conn.connect(
@@ -55,50 +99,15 @@ static capy::task<> co_main()
     request req;
     req.add_query("COPY myt TO STDOUT");
 
-    // Response
-    std::vector<std::span<const unsigned char>> buffers;
-    auto handler = copy_out_handler([&buffers](std::span<const unsigned char> buff) {
-        buffers.push_back(buff);
-    });
-
-    // Register the request
-    exec_state exec_st;
-    if (auto ec = conn.prepare_request(exec_st, req, &handler))
+    // Run the copy
+    auto [ec, nrows] = co_await conn.copy_out(req, file_sink(std::move(file)), &diag);
+    if (ec)
     {
-        print_err("Error preparing the request", ec, diag);
+        print_err("Error in COPY OUT", ec, diag);
         co_return;
     }
 
-    // Write the request
-    if (auto [ec] = co_await conn.write_request(exec_st); ec)
-    {
-        print_err("Error writing the request", ec, diag);
-        co_return;
-    }
-
-    // Read the response until we are done
-    while (!exec_st.read_done())
-    {
-        if (auto [ec] = co_await conn.read_some_response(exec_st); ec)
-        {
-            print_err("Error reading the response", ec, diag);
-            co_return;
-        }
-
-        for (auto buff : buffers)
-        {
-            std::cout << "<COPY data> ";
-            std::cout.write(reinterpret_cast<const char*>(buff.data()), buff.size());
-        }
-        buffers.clear();
-    }
-
-    // Did the server report any errors?
-    if (exec_st.handler_error().code)
-    {
-        print_err("Handler returned an error", exec_st.handler_error().code, exec_st.handler_error().diag);
-        co_return;
-    }
+    std::cout << "Successfully copied " << nrows << '\n';
 
     // Orderly close the connection.
     // May report a failure if the server is gone.

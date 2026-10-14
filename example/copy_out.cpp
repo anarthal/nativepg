@@ -76,7 +76,10 @@ static capy::task<> co_main()
 
     // Open the file to write to
     corosio::stream_file file(co_await capy::this_coro::executor);
-    file.open("/tmp/data.tsv", corosio::file_base::write_only | corosio::file_base::create);
+    file.open(
+        "/tmp/data.tsv",
+        corosio::file_base::write_only | corosio::file_base::create | corosio::file_base::truncate
+    );
 
     // Connect
     if (auto [ec] = co_await conn.connect(

@@ -149,7 +149,7 @@ inline boost::capy::io_task<> copy_out_reader(
 
         // Hand the batch to the sink. Empty batches are a no-op
         // No lifetime problems here because we still own the read-side.
-        if (auto [ec, bytes] = co_await sink.write(buffs); ec)
+        if (auto [ec, bytes] = co_await sink.write(std::span<const boost::capy::const_buffer>(buffs)); ec)
             co_return {ec};
 
         buffs.clear();

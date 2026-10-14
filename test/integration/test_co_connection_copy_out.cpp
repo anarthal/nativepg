@@ -20,6 +20,7 @@
 #include <boost/describe/operators.hpp>
 
 #include <cstddef>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -119,6 +120,39 @@ capy::task<> test_no_data()
     // The copy succeeded, and copied nothing
     BOOST_TEST_EQ(rows, 0u);
     BOOST_TEST_EQ(sink.data(), std::string_view());
+    BOOST_TEST(sink.eof_called());
+
+    co_await check_connection_usable(conn);
+}
+
+// A Copy-out generating enough data to span multiple reads works
+capy::task<> test_big_data()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    // Big enough that the response spans several reads, so that failing on the
+    // first write leaves part unread
+    request req;
+    req.add_query("COPY (SELECT i, repeat('x', 100) FROM generate_series(1, 5000) i) TO STDOUT");
+
+    capy::test::write_sink sink;
+    diagnostics diag;
+
+    // Run the copy
+    auto [ec, rows] = co_await conn.copy_out(req, &sink, &diag);
+    if (!check_success(ec, diag))
+        co_return;
+
+    // Expected output
+    const std::string single_value(100, 'x');
+    std::ostringstream expected;
+    for (int i = 1; i <= 5000; ++i)
+        expected << i << '\t' << single_value << '\n';
+
+    // The copy succeeded
+    BOOST_TEST_EQ(rows, 5000u);
+    BOOST_TEST_EQ(sink.data(), expected.view());
     BOOST_TEST(sink.eof_called());
 
     co_await check_connection_usable(conn);
@@ -415,6 +449,7 @@ int main()
 {
     run_coroutine_test(test_success());
     run_coroutine_test(test_no_data());
+    run_coroutine_test(test_big_data());
     run_coroutine_test(test_request_with_other_commands());
     run_coroutine_test(test_multiplexing());
 

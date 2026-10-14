@@ -98,11 +98,14 @@ static capy::task<> co_main()
     req.add_query("COPY myt TO STDOUT");
 
     // Run the copy
-    if (auto [ec, nrows] = co_await conn.copy_out(req, file_sink(std::move(file)), &diag); ec)
+    auto [ec, nrows] = co_await conn.copy_out(req, file_sink(std::move(file)), &diag);
+    if (ec)
     {
         print_err("Error in COPY OUT", ec, diag);
         co_return;
     }
+
+    std::cout << "Successfully copied " << nrows << '\n';
 
     // Orderly close the connection.
     // May report a failure if the server is gone.

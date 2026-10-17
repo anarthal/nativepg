@@ -902,10 +902,6 @@ capy::io_task<> co_connection::write_copy_fail(exec_state& st, std::string_view 
     return impl_->write_copy_finished(detail::exec_state_access::get_impl(st), false, message);
 }
 
-capy::io_task<> co_connection::read_some_messages() { return impl_->read_some_messages(); }
-
-capy::any_stream& co_connection::stream() { return impl_->stream; }
-
 protocol::connection_state& co_connection::state() { return impl_->st; }
 
 std::optional<bool> co_connection::standard_conforming_strings() const

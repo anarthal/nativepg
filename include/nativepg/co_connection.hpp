@@ -298,12 +298,8 @@ public:
     // TODO: make this const extended_error&
     std::error_code last_error() const noexcept;
 
-    // Reads until there is at least one message in the read buffer.
-    // Access messages with state().read_buffer
-    boost::capy::io_task<> read_some_messages();
-
-    // TODO: I don't like this
-    boost::capy::any_stream& stream();
+    // TODO: this should be removed but is now used within the tests.
+    //   Remove once we have accessors for backend PID
     protocol::connection_state& state();
 
     // Values reported via ParameterStatus

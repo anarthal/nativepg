@@ -78,7 +78,6 @@ public:
 
     // TODO: I hate this. This can't be cleared in stop() because
     // there might be a pending stream write pointing to these bytes
-    // TODO: call this
     void clear_write_bytes() { pending_write_.clear(); }
 
     // Gets a buffer containing leftover bytes from previous execs
@@ -321,7 +320,7 @@ private:
     void on_receiver_exit()
     {
         // If we were reading, we're no longer doing it, so notify any pending readers
-        if (receiver_reading_)
+        if (receiver_reading_ && !stopped_)
             notify_next_reader();
         receiver_reading_ = false;
     }

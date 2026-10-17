@@ -228,7 +228,7 @@ struct co_connection::impl
         {
             if (!final_ec)
                 final_ec = ec;
-            st.reset_gucs();
+            st.reset_tracked();
         }
         else
         {

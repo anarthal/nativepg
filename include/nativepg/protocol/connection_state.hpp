@@ -44,7 +44,7 @@ struct connection_state
     // Updates GUCs as required
     void update_tracked(const any_backend_message& msg);
 
-    void reset_gucs()
+    void reset_tracked()
     {
         standard_conforming_strings.reset();
         client_encoding.reset();
@@ -56,7 +56,7 @@ struct connection_state
     {
         write_buffer.clear();
         read_buffer.reset();
-        reset_gucs();
+        reset_tracked();
         // shared_diag are transient by nature
     }
 };

@@ -10,6 +10,7 @@
 
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
+#include <boost/capy/error.hpp>
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/async_mutex.hpp>
 #include <boost/capy/io/any_stream.hpp>
@@ -30,6 +31,7 @@
 #include "nativepg/detail/exec_state_impl.hpp"
 #include "nativepg/exclusivity.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/responses/any_request_message.hpp"
 
 // TODO: impl notes
 // TODO: encapsulation here is completely broken. This needs a refactor when we write its unit tests
@@ -44,8 +46,34 @@ public:
         receive_evt_.set();  // tasks start empty
     }
 
-    // TODO: this should have a proper reset to call on connection establishment.
-    // If leftovers happen after a connection is severed, they are never cleaned up.
+    void stop()
+    {
+        // Mark ourselves as stopped
+        stopped_ = true;
+
+        // Remove all pending tasks and mark them as dead
+        active_tasks_.clear_and_dispose([](exec_state_impl& exec_st) {
+            exec_st.abandoned = true;
+            exec_st.mpx = nullptr;
+            exec_st.evt.set();
+        });
+
+        // Wake the receiver, if any
+        receive_evt_.set();
+
+        // If anyone was holding the write mutex, unlock it.
+        // Because we're stopped, successive enter() attempts will fail.
+        // TODO: I don't like this. Reading the impl this should work,
+        //   but I don't think you're supposed to unlock from a coro != than the one that locked.
+        if (write_mtx_.is_locked())
+            write_mtx_.unlock();
+    }
+
+    void restart()
+    {
+        BOOST_ASSERT(active_tasks_.empty());
+        stopped_ = false;
+    }
 
     // Gets a buffer containing leftover bytes from previous execs
     // that should be written before our request
@@ -121,6 +149,8 @@ public:
         // Wait for our turn to write
         if (auto [ec] = co_await write_mtx_.lock(); ec)
             co_return {ec};
+        if (stopped_)
+            co_return {boost::capy::error::canceled};
 
         // We now hold the write mutex and owe an exit report
         exec_st.writer_st = exec_state_impl::writer_status::locked;
@@ -188,6 +218,8 @@ public:
         // Wait for our turn
         if (auto [ec] = co_await receive_evt_.wait(); ec)
             co_return {ec, {}};
+        if (stopped_)
+            co_return {boost::capy::error::canceled, {}};
 
         // Reset the event, so further notifications aren't lost
         receive_evt_.clear();
@@ -224,6 +256,9 @@ private:
     // Should be set when there are new notifications
     // or the receiver can attempt to read
     boost::capy::async_event receive_evt_;
+
+    // Are we stopped? Prevents further tasks from entering the multiplexer
+    bool stopped_{};
 
     static inline std::size_t count_rfqs(const request& req)
     {

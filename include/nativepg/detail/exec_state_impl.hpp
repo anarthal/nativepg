@@ -72,6 +72,10 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
     // Did the reader report its exit?
     bool reader_done{};
 
+    // TODO: do we need this?
+    // Set if the operation was canceled due to a fatal error in the connection
+    bool abandoned{};
+
     // How many bytes of our request's payload reached the server.
     // A write that fails half-way leaves this at the resume point
     std::size_t bytes_written{};

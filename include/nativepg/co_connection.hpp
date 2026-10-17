@@ -298,13 +298,13 @@ public:
     // TODO: make this const extended_error&
     std::error_code last_error() const noexcept;
 
-    // TODO: this should be removed but is now used within the tests.
-    //   Remove once we have accessors for backend PID
-    protocol::connection_state& state();
-
     // Values reported via ParameterStatus
     std::optional<bool> standard_conforming_strings() const;
     std::optional<encoding> client_encoding() const;
+
+    // TODO: this should be removed but is now used within the tests.
+    //   Remove once we have accessors for backend PID
+    protocol::connection_state& state();
 
 private:
     boost::capy::io_task<std::size_t> write_some_copy_data_impl(

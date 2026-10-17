@@ -52,10 +52,10 @@ public:
         stopped_ = true;
 
         // Remove all pending tasks and mark them as dead
-        active_tasks_.clear_and_dispose([](exec_state_impl& exec_st) {
-            exec_st.abandoned = true;
-            exec_st.mpx = nullptr;
-            exec_st.evt.set();
+        active_tasks_.clear_and_dispose([](exec_state_impl* exec_st) {
+            exec_st->abandoned = true;
+            exec_st->mpx = nullptr;
+            exec_st->evt.set();
         });
 
         // Wake the receiver, if any

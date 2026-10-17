@@ -9,6 +9,7 @@
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/buffer_slice.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
+#include <boost/capy/cond.hpp>
 #include <boost/capy/error.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/io/any_buffer_source.hpp>
@@ -64,6 +65,8 @@ namespace container = boost::container;
 using nativepg::detail::connection_status;
 
 namespace nativepg {
+
+static bool is_fatal(std::error_code ec) { return ec && ec != capy::cond::canceled; }
 
 struct co_connection::impl
 {
@@ -304,7 +307,11 @@ struct co_connection::impl
         // interleave its bytes with our half-written one. The caller may retry,
         // and destroying the exec_state hands the leftovers to the next writer
         if (ec)
+        {
+            if (is_fatal(ec))
+                on_fatal_error(ec);
             co_return {ec};
+        }
 
         // We wrote the request in full. Release the write side
         mpx_.report_writer_exit(exec_st);
@@ -337,7 +344,7 @@ struct co_connection::impl
         // Wait for our turn (this is a no-op if it's out turn already)
         if (auto [ec] = co_await exec_st.evt.wait(); ec)
             co_return {ec};
-        if (exec_st.abandoned)
+        if (exec_st.abandoned || status_ != connection_status::connected)
             co_return {boost::capy::error::canceled};  // TODO: != code
 
         // Read one batch of messages (this is a no-op if we have cached messages)
@@ -368,7 +375,8 @@ struct co_connection::impl
                 }
                 else
                 {
-                    // TODO: this is a fatal error and should be recorded as such
+                    // This is a fatal error
+                    on_fatal_error(res.ec);
                     co_return {res.ec};
                 }
             }
@@ -415,9 +423,11 @@ struct co_connection::impl
                     // other requests might end up being intercalated between copy data
                     if (exec_st.excl != exclusivity::exclusive)
                     {
-                        // TODO: this is a fatal error
+                        // This is fatal
+                        constexpr auto err = client_errc::requires_exclusive;
                         st.read_buffer.consume(consumed);
-                        co_return {client_errc::requires_exclusive};
+                        on_fatal_error(err);
+                        co_return {err};
                     }
 
                     // Record the fact that we're now in CopyIn mode
@@ -430,8 +440,8 @@ struct co_connection::impl
                 else if (fsm_ec != client_errc::needs_more)
                 {
                     // There has been a severe protocol violation (unrecoverable)
-                    // TODO: flag this internally
                     st.read_buffer.consume(consumed);
+                    on_fatal_error(fsm_ec);
                     co_return {fsm_ec};
                 }
             }
@@ -573,6 +583,9 @@ struct co_connection::impl
             retval = prev_payload_size + payload_size;
         }
 
+        if (is_fatal(ec))
+            on_fatal_error(ec);
+
         co_return {ec, retval};
     }
 
@@ -617,9 +630,9 @@ struct co_connection::impl
         auto [ec, bytes] = co_await capy::write(stream, capy::make_buffer(st.write_buffer));
         if (ec)
         {
-            // TODO: an incomplete transfer here is fatal. Mark the connection
-            // as dead when we have the functionality
+            // An incomplete transfer here is fatal
             // TODO: do we want resumability here, too?
+            on_fatal_error(ec);
             co_return {ec};
         }
 
@@ -706,8 +719,7 @@ struct co_connection::impl
             auto bytes = st.read_buffer.committed_area();
             auto res = protocol::parse_message(bytes.subspan(consumed));
 
-            // Check for errors and end of input.
-            // Errors here are irrecoverable.
+            // Check for errors and end of input
             if (res.ec)
             {
                 st.read_buffer.consume(consumed);
@@ -726,6 +738,8 @@ struct co_connection::impl
                 }
                 else
                 {
+                    // There has been a protocol violation
+                    on_fatal_error(res.ec);
                     co_return {res.ec};
                 }
             }
@@ -762,9 +776,16 @@ struct co_connection::impl
                         // For safety, check that there is an actual reader.
                         // The multiplexer structure makes sure this should be the case.
                         // This prevents busy spinning in case of de-synchronization
-                        auto final_ec = mpx_.has_exec_readers() ? std::error_code()
-                                                                : client_errc::unexpected_message;
-                        co_return {final_ec};
+                        if (mpx_.has_exec_readers())
+                        {
+                            co_return {};
+                        }
+                        else
+                        {
+                            constexpr auto err = client_errc::unexpected_message;
+                            on_fatal_error(err);
+                            co_return {err};
+                        }
                     }
             }
         }
@@ -787,7 +808,11 @@ struct co_connection::impl
 
             // Check for errors
             if (ec)
+            {
+                if (is_fatal(ec))
+                    on_fatal_error(ec);
                 co_return {ec};
+            }
 
             // Commit the data we were handed in
             st.read_buffer.commit(bytes);
@@ -926,8 +951,11 @@ void detail::exec_state_impl::reset()
 
     // Release whatever we still hold in the multiplexer.
     // Being linked is what tells us that enter() succeeded
-    if (is_prepared() && is_linked())
+    if (is_prepared() && is_linked() && !abandoned)
     {
+        // Abandoning during Copy-in is not recoverable
+        // TODO: we don't seem to be able to report this with the current architecture
+
         // The writer may still hold the write mutex
         if (writer_st == writer_status::locked)
             mpx->report_writer_exit(*this);
@@ -946,6 +974,7 @@ void detail::exec_state_impl::reset()
     bytes_written = 0u;
     pending_rfqs = 0u;
     read_rfqs = 0u;
+    abandoned = false;
     evt.clear();
     fsm.reset();
 }

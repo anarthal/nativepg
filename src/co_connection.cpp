@@ -70,15 +70,15 @@ static bool is_fatal(std::error_code ec) { return ec && ec != capy::cond::cancel
 
 struct co_connection::impl
 {
-    // Marks a state as having a write operation in flight, so that no two of
-    // write_request/write_some_copy_data/write_copy_done/write_copy_fail overlap
-    struct writing_guard
+    // Marks a state flag as true while the guard is alive.
+    // Used by any op that needs 'already_running' detection
+    struct running_guard
     {
-        detail::exec_state_impl* st;
-        explicit writing_guard(detail::exec_state_impl& s) noexcept : st(&s) { st->writing = true; }
-        writing_guard(const writing_guard&) = delete;
-        writing_guard& operator=(const writing_guard&) = delete;
-        ~writing_guard() { st->writing = false; }
+        bool* running;
+        explicit running_guard(bool& val) noexcept : running(&val) { *running = true; }
+        running_guard(const running_guard&) = delete;
+        running_guard& operator=(const running_guard&) = delete;
+        ~running_guard() { *running = false; }
     };
 
     corosio::resolver resolv;
@@ -89,6 +89,7 @@ struct co_connection::impl
     notification_vector exec_notifications_;
     bool receiver_running_{};
     detail::connection_status status_{detail::connection_status::initial};
+    bool connect_shutdown_running_{};
     std::error_code last_error;
 
     void reset()
@@ -137,34 +138,16 @@ struct co_connection::impl
     {
         using protocol::detail::connect_fsm;
 
-        // State check
-        switch (status_)
-        {
-            // Forbid parallel connects/shutdowns
-            case connection_status::connecting:
-            case connection_status::shutting_down: co_return {client_errc::already_running};
-            case connection_status::connected:
-                co_return {client_errc::invalid_state};  // TODO: already_connected would be better?
-            default: break;
-        }
+        // connect can't be run while the connection is healthy
+        if (status_ == connection_status::connected)
+            co_return {client_errc::invalid_state};  // TODO: already_connected would be better?
+
+        // Can't be run in parallel with another connect/shutdown
+        if (connect_shutdown_running_)
+            co_return {client_errc::already_running};
 
         // We're now connecting
-        struct state_guard
-        {
-            co_connection::impl* self;
-            explicit state_guard(co_connection::impl& s) noexcept : self(&s)
-            {
-                s.status_ = connection_status::connecting;
-            }
-            state_guard(const writing_guard&) = delete;
-            state_guard& operator=(const writing_guard&) = delete;
-            ~state_guard()
-            {
-                if (self)
-                    self->status_ = connection_status::initial;
-            }
-            void disarm() { self = nullptr; }
-        } guard{*this};
+        running_guard guard{connect_shutdown_running_};
 
         // TODO: we need a way to properly reset on fatal errors
 
@@ -203,14 +186,15 @@ struct co_connection::impl
                 }
                 case connect_fsm::result_type::done:
                 {
+                    // Store (and potentially cleanup) the last error.
+                    // initial makes more sense than fatal_error for diagnostics
+                    //   ("you didn't call connect()" is more accurate than "a fatal error happened")
+                    last_error = res.error();
+                    status_ = res.error() ? connection_status::initial : connection_status::connected;
+
+                    // Done
                     if (diag)
                         *diag = st.shared_diag;
-                    last_error = res.error();
-                    if (!res.error())
-                    {
-                        status_ = connection_status::connected;
-                        guard.disarm();
-                    }
                     co_return {res.error()};
                 }
                 default: BOOST_ASSERT(false); co_return {};
@@ -277,7 +261,7 @@ struct co_connection::impl
         // Only one write operation per state may be in flight
         if (exec_st.writing)
             co_return {client_errc::already_running};
-        writing_guard guard{exec_st};
+        running_guard guard{exec_st.writing};
 
         // Wait for our turn to write and register what we are doing in the queue.
         // When resuming a partially written request we still hold both, so skip this
@@ -483,7 +467,7 @@ struct co_connection::impl
         // Only one write operation per state may be in flight
         if (exec_st.writing)
             co_return {client_errc::already_running, 0u};
-        writing_guard guard{exec_st};
+        running_guard guard{exec_st.writing};
 
         // Clamp the input sequence
         if (input_buffs.size() > max_input_buffers)
@@ -604,7 +588,7 @@ struct co_connection::impl
         // Only one write operation per state may be in flight
         if (exec_st.writing)
             co_return {client_errc::already_running};
-        writing_guard guard{exec_st};
+        running_guard guard{exec_st.writing};
 
         // If there are missing bytes to transfer, that's an error
         if (exec_st.copy_in.frame_num_bytes > 0u)
@@ -651,14 +635,7 @@ struct co_connection::impl
         // Verify that no two receivers run in parallel
         if (receiver_running_)
             co_return {client_errc::already_running};
-        receiver_running_ = true;
-
-        // Release the slot however we leave this function
-        struct receiver_guard
-        {
-            impl* self;
-            ~receiver_guard() { self->receiver_running_ = false; }
-        } receiver_running_guard{this};
+        running_guard receiver_running_guard{receiver_running_};
 
         // We own the output from this point on
         output.clear();

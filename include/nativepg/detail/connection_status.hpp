@@ -15,14 +15,8 @@ enum class connection_status
     // We haven't ever connected or have shut down correctly
     initial,
 
-    // We are in the process of establishing the connection
-    connecting,
-
     // We are now connected and can run exec(), receive() and friends
     connected,
-
-    // We are now in the process of terminating the connection cleanly
-    shutting_down,
 
     // We got an error. Like initial, but we use it to improve diagnostics
     fatal_error,

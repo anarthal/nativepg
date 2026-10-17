@@ -32,7 +32,6 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
-#include "nativepg/detail/connection_status.hpp"
 #include "nativepg/detail/exec_state_impl.hpp"
 #include "nativepg/encoding.hpp"
 #include "nativepg/exclusivity.hpp"
@@ -57,7 +56,6 @@
 
 namespace capy = boost::capy;
 namespace container = boost::container;
-using nativepg::detail::connection_status;
 
 namespace nativepg {
 
@@ -81,21 +79,17 @@ struct co_connection::impl
     detail::multiplexer mpx_;  // TODO: clean up this?
     notification_vector exec_notifications_;
     bool receiver_running_{};
-    detail::connection_status status_{detail::connection_status::initial};
+    bool is_connected_{};
     bool connect_shutdown_running_{};
-    std::error_code last_error;
+    std::error_code last_error_;
 
     // TODO: this works until we implement TLS, then it'd need to be a coroutine
     void on_fatal_error(std::error_code ec)
     {
-        // TODO: is this OK?
-        if (status_ == connection_status::connected)
-        {
-            last_error = ec;
-            status_ = connection_status::fatal_error;
-            mpx_.stop();
-            stream_.close();
-        }
+        last_error_ = ec;
+        is_connected_ = false;
+        mpx_.stop();
+        stream_.close();
     }
 
     explicit impl(capy::execution_context& ctx) : stream_(ctx) {}
@@ -105,8 +99,8 @@ struct co_connection::impl
         using protocol::detail::connect_fsm;
 
         // connect can't be run while the connection is healthy
-        if (status_ == connection_status::connected)
-            co_return {client_errc::invalid_state};  // TODO: already_connected would be better?
+        if (is_connected_)
+            co_return {client_errc::already_connected};
 
         // Can't be run in parallel with another connect/shutdown
         if (connect_shutdown_running_)
@@ -129,8 +123,8 @@ struct co_connection::impl
 
         // We can forget about pending operations now - they don't need anything
         // from us anymore. Clean up the remaining data
-        status_ = connection_status::initial;
-        last_error.clear();
+        is_connected_ = false;
+        last_error_.clear();
         exec_notifications_.clear();
         st.reset();
         mpx_.clear_write_bytes();
@@ -170,11 +164,9 @@ struct co_connection::impl
                 }
                 case connect_fsm::result_type::done:
                 {
-                    // Store (and potentially cleanup) the last error.
-                    // initial makes more sense than fatal_error for diagnostics
-                    //   ("you didn't call connect()" is more accurate than "a fatal error happened")
-                    last_error = res.error();
-                    status_ = res.error() ? connection_status::initial : connection_status::connected;
+                    // Update the connection status
+                    last_error_ = res.error();
+                    is_connected_ = !res.error();
 
                     // Done
                     if (diag)
@@ -199,11 +191,11 @@ struct co_connection::impl
         // is locked, we might have a write in-progress or be in the middle of a frame.
         // In these cases, skip the graceful shutdown
         // Terminate only makes sense if the connection is healthy
-        bool should_send_terminate = status_ == connection_status::connected && !mpx_.is_write_locked();
+        bool should_send_terminate = is_connected_ && !mpx_.is_write_locked();
 
         // Prevent any more requests from being accepted.
         // This avoid someone else acquiring the write mutex while we write the Terminate.
-        status_ = connection_status::initial;
+        is_connected_ = false;
         mpx_.stop();
 
         // Send the terminate
@@ -238,7 +230,7 @@ struct co_connection::impl
         }
 
         // These are safe anyway
-        last_error.clear();
+        last_error_.clear();
         exec_notifications_.clear();
 
         co_return {final_ec};
@@ -274,7 +266,7 @@ struct co_connection::impl
             co_return {std::make_error_code(std::errc::operation_canceled)};
 
         // The connection must be healthy
-        if (status_ != connection_status::connected)
+        if (!is_connected_)
             co_return {client_errc::not_connected};
 
         // Only one write operation per state may be in flight
@@ -335,7 +327,7 @@ struct co_connection::impl
             co_return {std::make_error_code(std::errc::operation_canceled)};
 
         // The connection must be healthy
-        if (status_ != connection_status::connected)
+        if (!is_connected_)
             co_return {client_errc::not_connected};
 
         // Only one reader per state may be in flight
@@ -656,9 +648,9 @@ struct co_connection::impl
 
     boost::capy::io_task<> receive(notification_vector& output)
     {
-        // State check. TODO: != code
-        if (status_ != connection_status::connected)
-            co_return {client_errc::invalid_state};
+        // State check
+        if (!is_connected_)
+            co_return {client_errc::not_connected};
 
         // Verify that no two receivers run in parallel
         if (receiver_running_)
@@ -939,10 +931,7 @@ std::optional<bool> co_connection::standard_conforming_strings() const
 
 std::optional<encoding> co_connection::client_encoding() const { return impl_->st.client_encoding; }
 
-bool co_connection::is_connected() const noexcept
-{
-    return impl_->status_ == detail::connection_status::connected;
-}
+bool co_connection::is_connected() const noexcept { return impl_->is_connected_; }
 
 // TODO: do we want another cpp for this?
 void detail::exec_state_impl::reset()

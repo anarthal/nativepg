@@ -9,6 +9,7 @@
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/buffer_slice.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
+#include <boost/capy/error.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/io/any_buffer_source.hpp>
 #include <boost/capy/io_task.hpp>
@@ -35,6 +36,7 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
+#include "nativepg/detail/connection_status.hpp"
 #include "nativepg/detail/exec_state_impl.hpp"
 #include "nativepg/encoding.hpp"
 #include "nativepg/exclusivity.hpp"
@@ -59,6 +61,7 @@
 namespace capy = boost::capy;
 namespace corosio = boost::corosio;
 namespace container = boost::container;
+using nativepg::detail::connection_status;
 
 namespace nativepg {
 
@@ -82,6 +85,8 @@ struct co_connection::impl
     detail::multiplexer mpx_;  // TODO: clean up this?
     notification_vector exec_notifications_;
     bool receiver_running_{};
+    detail::connection_status status_{detail::connection_status::initial};
+    std::error_code last_error;
 
     void reset()
     {
@@ -89,6 +94,20 @@ struct co_connection::impl
         // For now we keep both, as this is specific to co_connection, but the ideal
         // is having just one
         exec_notifications_.clear();
+        last_error.clear();
+    }
+
+    // TODO: this works until we implement TLS, then it'd need to be a coroutine
+    void on_fatal_error(std::error_code ec)
+    {
+        // TODO: is this OK?
+        if (status_ == connection_status::connected)
+        {
+            last_error = ec;
+            status_ = connection_status::fatal_error;
+            mpx_.stop();
+            sock.close();
+        }
     }
 
     explicit impl(capy::execution_context& ctx) : resolv(ctx), sock(ctx) {}
@@ -111,6 +130,91 @@ struct co_connection::impl
         co_return {};
     }
 
+    capy::io_task<> connect(connect_params params, diagnostics* diag)
+    {
+        using protocol::detail::connect_fsm;
+
+        // State check
+        switch (status_)
+        {
+            // Forbid parallel connects/shutdowns
+            case connection_status::connecting:
+            case connection_status::shutting_down: co_return {client_errc::already_running};
+            case connection_status::connected:
+                co_return {client_errc::invalid_state};  // TODO: already_connected would be better?
+            default: break;
+        }
+
+        // We're now connecting
+        struct state_guard
+        {
+            co_connection::impl* self;
+            explicit state_guard(co_connection::impl& s) noexcept : self(&s)
+            {
+                s.status_ = connection_status::connecting;
+            }
+            state_guard(const writing_guard&) = delete;
+            state_guard& operator=(const writing_guard&) = delete;
+            ~state_guard()
+            {
+                if (self)
+                    self->status_ = connection_status::initial;
+            }
+            void disarm() { self = nullptr; }
+        } guard{*this};
+
+        // TODO: we need a way to properly reset on fatal errors
+
+        // Initialize
+        reset();
+        connect_fsm fsm_(params);
+        auto res = fsm_.resume(st, {}, 0u);
+
+        while (true)
+        {
+            switch (res.type())
+            {
+                case connect_fsm::result_type::write:
+                {
+                    auto [ec, bytes] = co_await capy::write(sock, capy::make_buffer(res.write_data()));
+                    res = fsm_.resume(st, ec, bytes);
+                    break;
+                }
+                case connect_fsm::result_type::read:
+                {
+                    auto [ec, bytes] = co_await sock.read_some(capy::make_buffer(res.read_buffer()));
+                    res = fsm_.resume(st, ec, bytes);
+                    break;
+                }
+                case connect_fsm::result_type::connect:
+                {
+                    auto [ec] = co_await physical_connect(params);
+                    res = fsm_.resume(st, ec, 0u);
+                    break;
+                }
+                case connect_fsm::result_type::close:
+                {
+                    sock.close();
+                    res = fsm_.resume(st, {}, 0u);
+                    break;
+                }
+                case connect_fsm::result_type::done:
+                {
+                    if (diag)
+                        *diag = st.shared_diag;
+                    last_error = res.error();
+                    if (!res.error())
+                    {
+                        status_ = connection_status::connected;
+                        guard.disarm();
+                    }
+                    co_return {res.error()};
+                }
+                default: BOOST_ASSERT(false); co_return {};
+            }
+        }
+    }
+
     capy::io_task<> shutdown()
     {
         // TODO: we should probably have some state checks
@@ -118,6 +222,7 @@ struct co_connection::impl
         // TODO: an error here shouldn't prevent the function from closing the transport
         //       (the error should not happen, to begin with)
         // TODO: this is bypassing the multiplexer and it should't
+        // TODO: this is ignoring connection_status and it shouldn't
         // Serialize the terminate request
         st.write_buffer.clear();
         if (auto ec = protocol::serialize(protocol::terminate{}, st.write_buffer))
@@ -162,7 +267,8 @@ struct co_connection::impl
         using writer_status = detail::exec_state_impl::writer_status;
 
         // We must have been prepared, and must still have something to write
-        if (!exec_st.is_prepared() || exec_st.payload_written())
+        // The connection must be healthy. TODO: I think this should return other codes
+        if (!exec_st.is_prepared() || exec_st.payload_written() || status_ != connection_status::connected)
             co_return {client_errc::invalid_state};
 
         // Only one write operation per state may be in flight
@@ -211,7 +317,9 @@ struct co_connection::impl
     {
         // We must have been prepared, and must still have something to read
         // This function is allowed in CopyIn mode
-        if (!exec_st.is_prepared() || exec_st.read_done())
+        // TODO: proper error for status
+        if (!exec_st.is_prepared() || exec_st.read_done() || status_ != connection_status::connected ||
+            exec_st.abandoned)
             co_return {client_errc::invalid_state};
 
         // Only one reader per state may be in flight
@@ -229,6 +337,8 @@ struct co_connection::impl
         // Wait for our turn (this is a no-op if it's out turn already)
         if (auto [ec] = co_await exec_st.evt.wait(); ec)
             co_return {ec};
+        if (exec_st.abandoned)
+            co_return {boost::capy::error::canceled};  // TODO: != code
 
         // Read one batch of messages (this is a no-op if we have cached messages)
         if (auto [ec] = co_await read_some_messages(); ec)
@@ -356,7 +466,8 @@ struct co_connection::impl
 
         // The server must have asked us for data. This also implies that our request
         // was written in full, so our frames can't interleave with its payload
-        if (exec_st.phase() != write_status::copy_data)
+        if (exec_st.phase() != write_status::copy_data || status_ != connection_status::connected ||
+            exec_st.abandoned)
             co_return {client_errc::invalid_state, 0u};
 
         // Only one write operation per state may be in flight
@@ -473,7 +584,8 @@ struct co_connection::impl
     {
         // The server must have asked us for data. This also implies that our request
         // was written in full, so our terminator can't interleave with its payload
-        if (exec_st.phase() != write_status::copy_data)
+        if (exec_st.phase() != write_status::copy_data || status_ != connection_status::connected ||
+            exec_st.abandoned)
             co_return {client_errc::invalid_state};
 
         // Only one write operation per state may be in flight
@@ -519,6 +631,10 @@ struct co_connection::impl
 
     boost::capy::io_task<> receive(notification_vector& output)
     {
+        // State check. TODO: != code
+        if (status_ != connection_status::connected)
+            co_return {client_errc::invalid_state};
+
         // Verify that no two receivers run in parallel
         if (receiver_running_)
             co_return {client_errc::already_running};
@@ -689,53 +805,9 @@ co_connection::~co_connection() = default;
 
 // TODO: I'd prefer having connect_params be a view
 // const references here may cause dangling parameters
-// TODO: proper reset
 capy::io_task<> co_connection::connect(connect_params params, diagnostics* diag)
 {
-    using protocol::detail::connect_fsm;
-
-    // Initialize
-    impl_->reset();
-    connect_fsm fsm_(params);
-    auto res = fsm_.resume(impl_->st, {}, 0u);
-
-    while (true)
-    {
-        switch (res.type())
-        {
-            case connect_fsm::result_type::write:
-            {
-                auto [ec, bytes] = co_await capy::write(impl_->sock, capy::make_buffer(res.write_data()));
-                res = fsm_.resume(impl_->st, ec, bytes);
-                break;
-            }
-            case connect_fsm::result_type::read:
-            {
-                auto [ec, bytes] = co_await impl_->sock.read_some(capy::make_buffer(res.read_buffer()));
-                res = fsm_.resume(impl_->st, ec, bytes);
-                break;
-            }
-            case connect_fsm::result_type::connect:
-            {
-                auto [ec] = co_await impl_->physical_connect(params);
-                res = fsm_.resume(impl_->st, ec, 0u);
-                break;
-            }
-            case connect_fsm::result_type::close:
-            {
-                impl_->sock.close();  // this can't fail in Corosio
-                res = fsm_.resume(impl_->st, {}, 0u);
-                break;
-            }
-            case connect_fsm::result_type::done:
-            {
-                if (diag)
-                    *diag = impl_->st.shared_diag;
-                co_return {res.error()};
-            }
-            default: BOOST_ASSERT(false); co_return {};
-        }
-    }
+    return impl_->connect(std::move(params), diag);
 }
 
 capy::io_task<> co_connection::shutdown() { return impl_->shutdown(); }
@@ -840,6 +912,11 @@ std::optional<bool> co_connection::standard_conforming_strings() const
 }
 
 std::optional<encoding> co_connection::client_encoding() const { return impl_->st.client_encoding; }
+
+bool co_connection::is_connected() const noexcept
+{
+    return impl_->status_ == detail::connection_status::connected;
+}
 
 // TODO: do we want another cpp for this?
 void detail::exec_state_impl::reset()

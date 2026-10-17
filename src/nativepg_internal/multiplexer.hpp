@@ -75,6 +75,11 @@ public:
         stopped_ = false;
     }
 
+    // TODO: I hate this. This can't be cleared in stop() because
+    // there might be a pending stream write pointing to these bytes
+    // TODO: call this
+    void clear_write_bytes() { pending_write_.clear(); }
+
     // Gets a buffer containing leftover bytes from previous execs
     // that should be written before our request
     std::span<const unsigned char> previous_write_bytes() const { return pending_write_; }
@@ -83,6 +88,9 @@ public:
     // from previously abandoned requests, and the rest to st's own request.
     void on_bytes_written(exec_state_impl& st, std::size_t bytes_written)
     {
+        if (st.abandoned)
+            return;
+
         BOOST_ASSERT(st.writer_st == exec_state_impl::writer_status::locked);
 
         // Did we manage to write any leftover bytes from previous execs?
@@ -109,6 +117,9 @@ public:
     // Exceptions here are rare, so we'll handle this later.
     void report_writer_exit(exec_state_impl& st)
     {
+        if (st.abandoned)
+            return;
+
         BOOST_ASSERT(st.writer_st == exec_state_impl::writer_status::locked);
 
         // Subsequent execs need to send whatever we didn't
@@ -135,6 +146,8 @@ public:
     // Reports that the reader has exited with a fatal failure
     void report_reader_exit(exec_state_impl& st)
     {
+        if (st.abandoned)
+            return;
         st.reader_done = true;
         if (st.payload_written())
             on_both_exited(st);

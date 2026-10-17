@@ -76,7 +76,7 @@ struct co_connection::impl
 
     detail::pg_stream stream_;
     protocol::connection_state st{};
-    detail::multiplexer mpx_;  // TODO: clean up this?
+    detail::multiplexer mpx_;
     notification_vector exec_notifications_;
     bool receiver_running_{};
     bool is_connected_{};

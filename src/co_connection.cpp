@@ -266,9 +266,16 @@ struct co_connection::impl
         using writer_status = detail::exec_state_impl::writer_status;
 
         // We must have been prepared, and must still have something to write
-        // The connection must be healthy. TODO: I think this should return other codes
-        if (!exec_st.is_prepared() || exec_st.payload_written() || status_ != connection_status::connected)
+        if (!exec_st.is_prepared() || exec_st.payload_written())
             co_return {client_errc::invalid_state};
+
+        // Abandoned translates into canceled
+        if (exec_st.abandoned)
+            co_return {std::make_error_code(std::errc::operation_canceled)};
+
+        // The connection must be healthy
+        if (status_ != connection_status::connected)
+            co_return {client_errc::not_connected};
 
         // Only one write operation per state may be in flight
         if (exec_st.writing)
@@ -320,28 +327,31 @@ struct co_connection::impl
     {
         // We must have been prepared, and must still have something to read
         // This function is allowed in CopyIn mode
-        // TODO: proper error for status
-        if (!exec_st.is_prepared() || exec_st.read_done() || status_ != connection_status::connected ||
-            exec_st.abandoned)
+        if (!exec_st.is_prepared() || exec_st.read_done())
             co_return {client_errc::invalid_state};
+
+        // Abandoned translates into canceled
+        if (exec_st.abandoned)
+            co_return {std::make_error_code(std::errc::operation_canceled)};
+
+        // The connection must be healthy
+        if (status_ != connection_status::connected)
+            co_return {client_errc::not_connected};
 
         // Only one reader per state may be in flight
         if (exec_st.reading)
             co_return {client_errc::already_running};
-        exec_st.reading = true;
-        struct reading_guard
-        {
-            detail::exec_state_impl* st;
-            ~reading_guard() { st->reading = false; }
-        } guard{&exec_st};
+        running_guard guard{exec_st.reading};
 
         auto& fsm = *exec_st.fsm;
 
         // Wait for our turn (this is a no-op if it's out turn already)
         if (auto [ec] = co_await exec_st.evt.wait(); ec)
             co_return {ec};
-        if (exec_st.abandoned || status_ != connection_status::connected)
-            co_return {boost::capy::error::canceled};  // TODO: != code
+
+        // Abandoned translates into canceled
+        if (exec_st.abandoned)
+            co_return {std::make_error_code(std::errc::operation_canceled)};
 
         // Read one batch of messages (this is a no-op if we have cached messages)
         if (auto [ec] = co_await read_some_messages(); ec)
@@ -472,9 +482,12 @@ struct co_connection::impl
 
         // The server must have asked us for data. This also implies that our request
         // was written in full, so our frames can't interleave with its payload
-        if (exec_st.phase() != write_status::copy_data || status_ != connection_status::connected ||
-            exec_st.abandoned)
+        if (exec_st.phase() != write_status::copy_data)
             co_return {client_errc::invalid_state, 0u};
+
+        // If the connection becomes unhealthy after writing the request, we go to abandoned
+        if (exec_st.abandoned)
+            co_return {std::make_error_code(std::errc::operation_canceled), 0u};
 
         // Only one write operation per state may be in flight
         if (exec_st.writing)
@@ -593,9 +606,12 @@ struct co_connection::impl
     {
         // The server must have asked us for data. This also implies that our request
         // was written in full, so our terminator can't interleave with its payload
-        if (exec_st.phase() != write_status::copy_data || status_ != connection_status::connected ||
-            exec_st.abandoned)
+        if (exec_st.phase() != write_status::copy_data)
             co_return {client_errc::invalid_state};
+
+        // If the connection becomes unhealthy after writing the request, we go to abandoned
+        if (exec_st.abandoned)
+            co_return {std::make_error_code(std::errc::operation_canceled)};
 
         // Only one write operation per state may be in flight
         if (exec_st.writing)

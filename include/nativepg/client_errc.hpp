@@ -155,6 +155,11 @@ enum class client_errc : int
     // write_copy_done() was called with an incomplete transfer
     // Call write_some_data() until all the supplied bytes are transferred
     copy_incomplete_transfer,
+
+    // The operation requires an established connection.
+    // Call connect() before invoking this function.
+    // Can happen after a fatal error is encountered by the connection.
+    not_connected,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

@@ -10,6 +10,8 @@
 #include <boost/capy/task.hpp>
 #include <boost/core/lightweight_test.hpp>
 
+#include <system_error>
+
 #include "nativepg/co_connection.hpp"
 #include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
@@ -24,26 +26,31 @@ using namespace nativepg::test;
 
 namespace {
 
-// connect processes the GUCs that the server reports during startup
-capy::task<> test_gucs()
+// Sunny-day case
+capy::task<> test_success()
 {
     // Setup
     diagnostics diag;
     co_connection conn{co_await capy::this_coro::executor};
+    BOOST_TEST_NOT(conn.is_connected());
 
     // Connect
     if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
         co_return;
 
-    // Check
+    // The GUCs sent by the server were updated
     test_opt_eq(conn.client_encoding(), encoding::utf8);
+
+    // We are now connected
+    BOOST_TEST(conn.is_connected());
+    BOOST_TEST_EQ(conn.last_error(), std::error_code());
 }
 
 }  // namespace
 
 int main()
 {
-    run_coroutine_test(test_gucs());
+    run_coroutine_test(test_success());
 
     return boost::report_errors();
 }

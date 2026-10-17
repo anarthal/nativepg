@@ -9,6 +9,7 @@
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/buffer_slice.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
+#include <boost/capy/error.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/ex/run.hpp>
 #include <boost/capy/io/any_buffer_source.hpp>
@@ -185,7 +186,11 @@ struct co_connection::impl
         // of our own. The former is required to keep the connection healthy.
         // Most of the time, the 1st buffer is empty, and Corosio coalesces this to a
         // non-vectored write, for all backends.
-        // The write runs with an empty stop token: if the token is tripped while a write
+        // If we were cancelled before sending anything, honor it right away
+        if ((co_await boost::capy::this_coro::stop_token).stop_requested())
+            co_return {boost::capy::make_error_code(boost::capy::error::canceled)};
+
+        // Once started, the write runs with an empty stop token: if the token is tripped while a write
         // completes, Corosio reports 0 bytes written even though the data reached the server,
         // which would desynchronize the connection. Accurate accounting matters more here.
         auto [ec, bytes_written] = co_await boost::capy::run(std::stop_token{})(boost::capy::write(
@@ -427,8 +432,15 @@ struct co_connection::impl
             output_buffs.insert(output_buffs.end(), capy::begin(data), capy::end(data));
         }
 
-        // Write the thing
-        auto [ec, bytes] = co_await stream.write_some(std::span(output_buffs));
+        // Write the thing. As in write_request, Corosio drops the byte count if the token is
+        // tripped while the write completes, so once started the write is uncancellable
+        if ((co_await capy::this_coro::stop_token).stop_requested())
+            co_return {capy::make_error_code(capy::error::canceled), 0u};
+        auto [ec, bytes] = co_await capy::run(std::stop_token{})(
+            [](capy::any_stream& s, std::span<const capy::const_buffer> bufs) -> capy::io_task<std::size_t> {
+                co_return co_await s.write_some(bufs);
+            }(stream, std::span<const capy::const_buffer>(output_buffs))
+        );
         std::size_t retval = 0u;
 
         if (bytes <= prev_header_size)

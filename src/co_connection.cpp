@@ -17,10 +17,6 @@
 #include <boost/capy/when_all.hpp>
 #include <boost/capy/write.hpp>
 #include <boost/container/static_vector.hpp>
-#include <boost/corosio/connect.hpp>
-#include <boost/corosio/resolver.hpp>
-#include <boost/corosio/socket_option.hpp>
-#include <boost/corosio/tcp_socket.hpp>
 
 #include <algorithm>
 #include <array>
@@ -29,7 +25,6 @@
 #include <limits>
 #include <optional>
 #include <span>
-#include <string>
 #include <string_view>
 #include <system_error>
 #include <utility>
@@ -58,9 +53,9 @@
 #include "nativepg_internal/copy_in.hpp"
 #include "nativepg_internal/copy_out.hpp"
 #include "nativepg_internal/multiplexer.hpp"
+#include "nativepg_internal/pg_stream.hpp"
 
 namespace capy = boost::capy;
-namespace corosio = boost::corosio;
 namespace container = boost::container;
 using nativepg::detail::connection_status;
 
@@ -81,25 +76,14 @@ struct co_connection::impl
         ~running_guard() { *running = false; }
     };
 
-    corosio::resolver resolv;
-    corosio::tcp_socket sock;
+    detail::pg_stream stream_;
     protocol::connection_state st{};
-    capy::any_stream stream{&sock};
     detail::multiplexer mpx_;  // TODO: clean up this?
     notification_vector exec_notifications_;
     bool receiver_running_{};
     detail::connection_status status_{detail::connection_status::initial};
     bool connect_shutdown_running_{};
     std::error_code last_error;
-
-    void reset()
-    {
-        // TODO: this somehow conflicts with connection_state::reset()
-        // For now we keep both, as this is specific to co_connection, but the ideal
-        // is having just one
-        exec_notifications_.clear();
-        last_error.clear();
-    }
 
     // TODO: this works until we implement TLS, then it'd need to be a coroutine
     void on_fatal_error(std::error_code ec)
@@ -110,29 +94,11 @@ struct co_connection::impl
             last_error = ec;
             status_ = connection_status::fatal_error;
             mpx_.stop();
-            sock.close();
+            stream_.close();
         }
     }
 
-    explicit impl(capy::execution_context& ctx) : resolv(ctx), sock(ctx) {}
-
-    capy::io_task<> physical_connect(const connect_params& params)
-    {
-        auto [ec, endpoints] = co_await resolv.resolve(params.hostname, std::to_string(params.port));
-        if (ec)
-            co_return {ec};
-
-        auto [ec2, ep] = co_await boost::corosio::connect(sock, endpoints);
-        if (ec2)
-            co_return {ec2};
-
-        // Disable Nagle's algorithm.
-        // Must be done after async_connect because it re-opens the socket
-        // for every candidate endpoint, discarding options.
-        sock.set_option(corosio::socket_option::no_delay(true));
-
-        co_return {};
-    }
+    explicit impl(capy::execution_context& ctx) : stream_(ctx) {}
 
     capy::io_task<> connect(connect_params params, diagnostics* diag)
     {
@@ -149,10 +115,28 @@ struct co_connection::impl
         // We're now connecting
         running_guard guard{connect_shutdown_running_};
 
-        // TODO: we need a way to properly reset on fatal errors
+        // Unblock anything currently outstanding.
+        // These operations will complete immediately with an error after we yield.
+        mpx_.stop();
+        stream_.close();
+
+        // Wait for any pending stream operation to finish.
+        // Avoids the risk of calling stream reads/writes concurrently,
+        // and avoids use-after-free errors with write_some
+        // accessing bytes that we free during cleanup.
+        if (auto [ec] = co_await stream_.join(); ec)
+            co_return {ec};
+
+        // We can forget about pending operations now - they don't need anything
+        // from us anymore. Clean up the remaining data
+        status_ = connection_status::initial;
+        last_error.clear();
+        exec_notifications_.clear();
+        st.reset();
+        mpx_.clear_write_bytes();
+        mpx_.restart();
 
         // Initialize
-        reset();
         connect_fsm fsm_(params);
         auto res = fsm_.resume(st, {}, 0u);
 
@@ -162,25 +146,25 @@ struct co_connection::impl
             {
                 case connect_fsm::result_type::write:
                 {
-                    auto [ec, bytes] = co_await capy::write(sock, capy::make_buffer(res.write_data()));
+                    auto [ec, bytes] = co_await capy::write(stream_, capy::make_buffer(res.write_data()));
                     res = fsm_.resume(st, ec, bytes);
                     break;
                 }
                 case connect_fsm::result_type::read:
                 {
-                    auto [ec, bytes] = co_await sock.read_some(capy::make_buffer(res.read_buffer()));
+                    auto [ec, bytes] = co_await stream_.read_some(capy::make_buffer(res.read_buffer()));
                     res = fsm_.resume(st, ec, bytes);
                     break;
                 }
                 case connect_fsm::result_type::connect:
                 {
-                    auto [ec] = co_await physical_connect(params);
+                    auto [ec] = co_await stream_.connect(params);
                     res = fsm_.resume(st, ec, 0u);
                     break;
                 }
                 case connect_fsm::result_type::close:
                 {
-                    sock.close();
+                    stream_.close();
                     res = fsm_.resume(st, {}, 0u);
                     break;
                 }
@@ -216,7 +200,7 @@ struct co_connection::impl
             co_return {ec};
 
         // Write it
-        auto [write_ec, bytes] = co_await capy::write(stream, capy::make_buffer(st.write_buffer));
+        auto [write_ec, bytes] = co_await capy::write(stream_, capy::make_buffer(st.write_buffer));
 
         // GUCs should be reported as unknown for unestablished connections
         st.reset_gucs();
@@ -227,7 +211,7 @@ struct co_connection::impl
         // both close() and shutdown(SHUT_RDWR) will send a RST if there is pending
         // data in the read buffer (e.g. a pending NotificationResponse),
         // and a FIN otherwise. Should't be a big deal.
-        sock.close();
+        stream_.close();
 
         co_return {write_ec};
     }
@@ -277,7 +261,7 @@ struct co_connection::impl
         // Most of the time, the 1st buffer is empty, and Corosio coalesces this to a
         // non-vectored write, for all backends.
         auto [ec, bytes_written] = co_await boost::capy::write(
-            stream,
+            stream_,
             std::array<boost::capy::const_buffer, 2u>{
                 boost::capy::make_buffer(mpx_.previous_write_bytes()),
                 boost::capy::make_buffer(exec_st.remaining_payload())
@@ -528,7 +512,7 @@ struct co_connection::impl
         }
 
         // Write the thing
-        auto [ec, bytes] = co_await stream.write_some(std::span(output_buffs));
+        auto [ec, bytes] = co_await stream_.write_some(std::span(output_buffs));
         std::size_t retval = 0u;
 
         if (bytes <= prev_header_size)
@@ -611,7 +595,7 @@ struct co_connection::impl
         }
 
         // Send this to the server
-        auto [ec, bytes] = co_await capy::write(stream, capy::make_buffer(st.write_buffer));
+        auto [ec, bytes] = co_await capy::write(stream_, capy::make_buffer(st.write_buffer));
         if (ec)
         {
             // An incomplete transfer here is fatal
@@ -781,7 +765,7 @@ struct co_connection::impl
             st.read_buffer.prepare(missing_bytes);
 
             // Read some data
-            auto [ec, bytes] = co_await stream.read_some(capy::make_buffer(st.read_buffer.prepared_area()));
+            auto [ec, bytes] = co_await stream_.read_some(capy::make_buffer(st.read_buffer.prepared_area()));
 
             // Check for errors
             if (ec)

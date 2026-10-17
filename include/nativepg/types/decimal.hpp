@@ -27,8 +27,10 @@
 #include <string_view>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 #include "nativepg/client_errc.hpp"
+#include "nativepg/detail/numeric_encoding.hpp"
 #include "nativepg/field_view.hpp"
 
 namespace nativepg::types {
@@ -145,6 +147,77 @@ std::error_code parse_binary_decimal(const field_view& from, T& to)
     to = std::move(result);
 
     return {};
+}
+
+namespace detail {
+
+// Converts a finite decimal to its shortest text representation. Doesn't allocate
+template <class T>
+std::error_code decimal_to_chars(const T& value, char* first, char* last, char*& end)
+{
+    const auto res = boost::decimal::to_chars(first, last, value);
+    if (res.ec != std::errc{})
+        return client_errc::value_too_big;
+    end = res.ptr;
+    return {};
+}
+
+template <class T>
+bool classify_decimal(const T& value, nativepg::detail::numeric_special& kind)
+{
+    if (boost::decimal::isnan(value))
+    {
+        kind = nativepg::detail::numeric_special::nan;
+        return true;
+    }
+    if (boost::decimal::isinf(value))
+    {
+        kind = boost::decimal::signbit(value) ? nativepg::detail::numeric_special::neg_inf
+                                              : nativepg::detail::numeric_special::pos_inf;
+        return true;
+    }
+    return false;
+}
+
+}  // namespace detail
+
+template <class T>
+    requires std::same_as<T, boost::decimal::decimal32_t> || std::same_as<T, boost::decimal::decimal64_t> ||
+             std::same_as<T, boost::decimal::decimal128_t>
+std::error_code serialize_text_decimal(const T& value, std::vector<unsigned char>& to)
+{
+    nativepg::detail::numeric_special kind{};
+    if (detail::classify_decimal(value, kind))
+    {
+        nativepg::detail::serialize_text_numeric_special(kind, to);
+        return {};
+    }
+
+    char buffer[128];
+    char* end = nullptr;
+    if (auto ec = detail::decimal_to_chars(value, buffer, buffer + sizeof(buffer), end))
+        return ec;
+    to.insert(to.end(), buffer, end);
+    return {};
+}
+
+template <class T>
+    requires std::same_as<T, boost::decimal::decimal32_t> || std::same_as<T, boost::decimal::decimal64_t> ||
+             std::same_as<T, boost::decimal::decimal128_t>
+std::error_code serialize_binary_decimal(const T& value, std::vector<unsigned char>& to)
+{
+    nativepg::detail::numeric_special kind{};
+    if (detail::classify_decimal(value, kind))
+        return nativepg::detail::serialize_binary_numeric_special(kind, to);
+
+    char buffer[128];
+    char* end = nullptr;
+    if (auto ec = detail::decimal_to_chars(value, buffer, buffer + sizeof(buffer), end))
+        return ec;
+    return nativepg::detail::serialize_binary_numeric_digits(
+        std::string_view(buffer, static_cast<std::size_t>(end - buffer)),
+        to
+    );
 }
 
 }  // namespace nativepg::types

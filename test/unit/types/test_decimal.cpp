@@ -15,6 +15,7 @@
 #include <sstream>
 #include <string>
 #include <system_error>
+#include <vector>
 
 #include "nativepg/field_traits.hpp"
 #include "nativepg/types/decimal.hpp"
@@ -215,6 +216,83 @@ void test_parse_text_decimal_precision_loss()
     BOOST_TEST_EQ(out_val, bd::decimal32_t{str});
 }
 
+//
+// Serialization
+//
+template <class T>
+std::vector<unsigned char> serialize_decimal(const T& v, protocol::format_code code)
+{
+    std::vector<unsigned char> to{0xde, 0xad};  // Verify that we append rather than overwrite
+    BOOST_TEST_EQ(field_serialize(v, code, to), std::error_code());
+    return std::vector<unsigned char>(to.begin() + 2, to.end());
+}
+
+template <class T>
+void test_serialize_decimal_binary_exact()
+{
+    using bytes = std::vector<unsigned char>;
+    BOOST_TEST(
+        serialize_decimal(T(bd::decimal128_t("12345.6789")), protocol::format_code::binary) ==
+        (bytes{0x00, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x04, 0x00, 0x01, 0x09, 0x29, 0x1a, 0x85})
+    );
+    BOOST_TEST(
+        serialize_decimal(T(-100), protocol::format_code::binary) ==
+        (bytes{0x00, 0x01, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x64})
+    );
+    BOOST_TEST(
+        serialize_decimal(T(0), protocol::format_code::binary) ==
+        (bytes{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
+    );
+    BOOST_TEST(
+        serialize_decimal(std::numeric_limits<T>::quiet_NaN(), protocol::format_code::binary) ==
+        (bytes{0x00, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00, 0x00})
+    );
+    BOOST_TEST(
+        serialize_decimal(std::numeric_limits<T>::infinity(), protocol::format_code::binary) ==
+        (bytes{0x00, 0x00, 0x00, 0x00, 0xd0, 0x00, 0x00, 0x00})
+    );
+    BOOST_TEST(
+        serialize_decimal(-std::numeric_limits<T>::infinity(), protocol::format_code::binary) ==
+        (bytes{0x00, 0x00, 0x00, 0x00, 0xf0, 0x00, 0x00, 0x00})
+    );
+}
+
+template <class T>
+void test_serialize_decimal_text_special()
+{
+    auto str = [](const T& v) {
+        const auto b = serialize_decimal(v, protocol::format_code::text);
+        return std::string(b.begin(), b.end());
+    };
+    BOOST_TEST_EQ(str(std::numeric_limits<T>::quiet_NaN()), "NaN");
+    BOOST_TEST_EQ(str(std::numeric_limits<T>::infinity()), "Infinity");
+    BOOST_TEST_EQ(str(-std::numeric_limits<T>::infinity()), "-Infinity");
+}
+
+template <class T>
+void test_serialize_decimal_roundtrip()
+{
+    for (const char* str : {"0", "1", "-1", "12345.6789", "0.0001", "-250.75", "100000"})
+    {
+        for (auto code : {protocol::format_code::text, protocol::format_code::binary})
+        {
+            const T in{bd::decimal128_t(str)};
+            const auto wire = serialize_decimal(in, code);
+            T out{};
+            const auto ec = code == protocol::format_code::binary
+                                ? types::parse_binary_decimal(field_view(wire), out)
+                                : types::parse_text_decimal(field_view(wire), out);
+            BOOST_TEST_EQ(ec, std::error_code());
+            BOOST_TEST_EQ(out, in);
+        }
+    }
+}
+
+static_assert(serializable_field<bd::decimal32_t>);
+static_assert(serializable_field<bd::decimal64_t>);
+static_assert(serializable_field<bd::decimal128_t>);
+static_assert(field_serialize_oid<bd::decimal64_t> == 1700);
+
 }  // namespace
 
 int main()
@@ -312,6 +390,13 @@ int main()
     test_field_parse_binary_decimal_unexpected_null_error();
     test_field_parse_text_decimal_success();
     test_field_parse_binary_decimal_success();
+
+    test_serialize_decimal_binary_exact<bd::decimal64_t>();
+    test_serialize_decimal_binary_exact<bd::decimal128_t>();
+    test_serialize_decimal_text_special<bd::decimal64_t>();
+    test_serialize_decimal_text_special<bd::decimal128_t>();
+    test_serialize_decimal_roundtrip<bd::decimal64_t>();
+    test_serialize_decimal_roundtrip<bd::decimal128_t>();
 
     return boost::report_errors();
 };

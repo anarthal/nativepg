@@ -86,10 +86,14 @@ struct co_connection::impl
     // TODO: this works until we implement TLS, then it'd need to be a coroutine
     void on_fatal_error(std::error_code ec)
     {
-        last_error_ = ec;
-        is_connected_ = false;
-        mpx_.stop();
-        stream_.close();
+        // Guarantees first-error-wins semantics
+        if (!is_connected_)
+        {
+            last_error_ = ec;
+            is_connected_ = false;
+            mpx_.stop();
+            stream_.close();
+        }
     }
 
     explicit impl(capy::execution_context& ctx) : stream_(ctx) {}
@@ -119,7 +123,10 @@ struct co_connection::impl
         // and avoids use-after-free errors with write_some
         // accessing bytes that we free during cleanup.
         if (auto [ec] = co_await stream_.join(); ec)
+        {
+            last_error_ = ec;
             co_return {ec};
+        }
 
         // We can forget about pending operations now - they don't need anything
         // from us anymore. Clean up the remaining data

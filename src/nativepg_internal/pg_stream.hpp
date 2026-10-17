@@ -33,7 +33,10 @@ class pg_stream
     boost::capy::async_event all_finished_;
 
 public:
-    explicit pg_stream(boost::capy::execution_context& ctx) : sock_(ctx), resolv_(ctx) {}
+    explicit pg_stream(boost::capy::execution_context& ctx) : sock_(ctx), resolv_(ctx)
+    {
+        all_finished_.set();  // no ops in-flight when the stream is created
+    }
 
     // TODO: this is fine but it's overhead per-stream-op.
     // Optimizable? I.e. leaf awaitable?

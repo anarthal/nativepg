@@ -54,7 +54,6 @@ public:
         // Remove all pending tasks and mark them as dead
         active_tasks_.clear_and_dispose([](exec_state_impl* exec_st) {
             exec_st->abandoned = true;
-            exec_st->mpx = nullptr;
             exec_st->evt.set();
         });
 
@@ -164,7 +163,7 @@ public:
         // Wait for our turn to write
         if (auto [ec] = co_await write_mtx_.lock(); ec)
             co_return {ec};
-        if (stopped_)
+        if (stopped_)  // TODO: this is bad
             co_return {boost::capy::error::canceled};
 
         // We now hold the write mutex and owe an exit report

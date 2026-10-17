@@ -198,11 +198,11 @@ struct co_connection::impl
         // Can we send the Terminate message? If the write-side of the multiplexer
         // is locked, we might have a write in-progress or be in the middle of a frame.
         // In these cases, skip the graceful shutdown
-        bool should_send_terminate = !mpx_.is_write_locked();
+        // Terminate only makes sense if the connection is healthy
+        bool should_send_terminate = status_ == connection_status::connected && !mpx_.is_write_locked();
 
         // Prevent any more requests from being accepted.
         // This avoid someone else acquiring the write mutex while we write the Terminate.
-        // TODO: this is assuming status connected for now
         status_ = connection_status::initial;
         mpx_.stop();
 

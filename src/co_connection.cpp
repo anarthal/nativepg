@@ -89,7 +89,7 @@ struct co_connection::impl
     void on_fatal_error(std::error_code ec)
     {
         // Guarantees first-error-wins semantics
-        if (!is_connected_)
+        if (is_connected_)
         {
             last_error_ = ec;
             is_connected_ = false;
@@ -136,7 +136,7 @@ struct co_connection::impl
         last_error_.clear();
         exec_notifications_.clear();
         st.reset();
-        mpx_.clear_write_bytes();
+        st.shared_diag = {};
         mpx_.restart();
 
         // Initialize
@@ -235,7 +235,7 @@ struct co_connection::impl
         else
         {
             st.reset();
-            mpx_.clear_write_bytes();
+            mpx_.restart();
         }
 
         // These are safe anyway
@@ -956,6 +956,8 @@ std::optional<bool> co_connection::standard_conforming_strings() const
 std::optional<encoding> co_connection::client_encoding() const { return impl_->st.client_encoding; }
 
 bool co_connection::is_connected() const noexcept { return impl_->is_connected_; }
+
+std::error_code co_connection::last_error() const noexcept { return impl_->last_error_; }
 
 // TODO: do we want another cpp for this?
 void detail::exec_state_impl::reset()

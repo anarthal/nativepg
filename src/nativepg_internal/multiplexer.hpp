@@ -71,14 +71,16 @@ public:
     void restart()
     {
         BOOST_ASSERT(active_tasks_.empty());
+        trailing_rfqs_ = 0u;
+        receiver_reading_ = false;
         stopped_ = false;
+
+        // TODO: I hate this. This can't be cleared in stop() because
+        // there might be a pending stream write pointing to these bytes
+        pending_write_.clear();
     }
 
     bool is_write_locked() const { return write_mtx_.is_locked(); }
-
-    // TODO: I hate this. This can't be cleared in stop() because
-    // there might be a pending stream write pointing to these bytes
-    void clear_write_bytes() { pending_write_.clear(); }
 
     // Gets a buffer containing leftover bytes from previous execs
     // that should be written before our request

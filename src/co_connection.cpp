@@ -10,6 +10,7 @@
 #include <boost/capy/buffers/buffer_slice.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/ex/execution_context.hpp>
+#include <boost/capy/ex/run.hpp>
 #include <boost/capy/io/any_buffer_source.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/when_all.hpp>
@@ -27,6 +28,7 @@
 #include <limits>
 #include <optional>
 #include <span>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -183,13 +185,16 @@ struct co_connection::impl
         // of our own. The former is required to keep the connection healthy.
         // Most of the time, the 1st buffer is empty, and Corosio coalesces this to a
         // non-vectored write, for all backends.
-        auto [ec, bytes_written] = co_await boost::capy::write(
+        // The write runs with an empty stop token: if the token is tripped while a write
+        // completes, Corosio reports 0 bytes written even though the data reached the server,
+        // which would desynchronize the connection. Accurate accounting matters more here.
+        auto [ec, bytes_written] = co_await boost::capy::run(std::stop_token{})(boost::capy::write(
             stream,
             std::array<boost::capy::const_buffer, 2u>{
                 boost::capy::make_buffer(mpx_.previous_write_bytes()),
                 boost::capy::make_buffer(exec_st.remaining_payload())
             }
-        );
+        ));
 
         // Record what made it to the server, so a retry resumes where we left off
         mpx_.on_bytes_written(exec_st, bytes_written);

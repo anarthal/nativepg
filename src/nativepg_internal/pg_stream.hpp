@@ -10,16 +10,12 @@
 
 #include <boost/assert.hpp>
 #include <boost/capy/buffers.hpp>
-#include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/execution_context.hpp>
-#include <boost/capy/ex/executor_ref.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/corosio/connect.hpp>
 #include <boost/corosio/resolver.hpp>
 #include <boost/corosio/socket_option.hpp>
 #include <boost/corosio/tcp_socket.hpp>
-
-#include <cstddef>
 
 #include "nativepg/connect_params.hpp"
 
@@ -29,41 +25,20 @@ class pg_stream
 {
     boost::corosio::tcp_socket sock_;
     boost::corosio::resolver resolv_;
-    bool write_running_{}, read_running_{};
-    boost::capy::async_event all_finished_;
 
 public:
-    explicit pg_stream(boost::capy::execution_context& ctx) : sock_(ctx), resolv_(ctx)
-    {
-        all_finished_.set();  // no ops in-flight when the stream is created
-    }
+    explicit pg_stream(boost::capy::execution_context& ctx) : sock_(ctx), resolv_(ctx) {}
 
-    // TODO: this is fine but it's overhead per-stream-op.
-    // Optimizable? I.e. leaf awaitable?
     template <boost::capy::ConstBufferSequence Buffers>
-    boost::capy::io_task<std::size_t> write_some(Buffers&& buffs)
+    auto write_some(Buffers&& buffs)
     {
-        BOOST_ASSERT(!write_running_);
-        write_running_ = true;  // TODO: we could use some RAII
-        all_finished_.clear();
-        auto res = co_await sock_.write_some(std::forward<Buffers>(buffs));
-        write_running_ = false;
-        if (!read_running_)
-            all_finished_.set();
-        co_return res;
+        return sock_.write_some(std::forward<Buffers>(buffs));
     }
 
     template <boost::capy::MutableBufferSequence Buffers>
-    boost::capy::io_task<std::size_t> read_some(Buffers&& buffs)
+    auto read_some(Buffers&& buffs)
     {
-        BOOST_ASSERT(!read_running_);
-        read_running_ = true;  // TODO: we could use some RAII
-        all_finished_.clear();
-        auto res = co_await sock_.read_some(std::forward<Buffers>(buffs));
-        read_running_ = false;
-        if (!write_running_)
-            all_finished_.set();
-        co_return res;
+        return sock_.read_some(std::forward<Buffers>(buffs));
     }
 
     boost::capy::io_task<> connect(const connect_params& params)
@@ -93,9 +68,6 @@ public:
         // and a FIN otherwise. Should't be a big deal.
         sock_.close();
     }
-
-    // Waits until all pending reads and writes complete
-    auto join() { return all_finished_.wait(); }
 };
 
 }  // namespace nativepg::detail

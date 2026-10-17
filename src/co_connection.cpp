@@ -52,6 +52,7 @@
 #include "nativepg_internal/copy_in.hpp"
 #include "nativepg_internal/copy_out.hpp"
 #include "nativepg_internal/multiplexer.hpp"
+#include "nativepg_internal/op_counter.hpp"
 #include "nativepg_internal/pg_stream.hpp"
 
 namespace capy = boost::capy;
@@ -75,6 +76,7 @@ struct co_connection::impl
     };
 
     detail::pg_stream stream_;
+    detail::op_counter pending_ops_;
     protocol::connection_state st{};
     detail::multiplexer mpx_;
     notification_vector exec_notifications_;
@@ -118,11 +120,11 @@ struct co_connection::impl
         mpx_.stop();
         stream_.close();
 
-        // Wait for any pending stream operation to finish.
+        // Wait for pending operations to finish.
         // Avoids the risk of calling stream reads/writes concurrently,
         // and avoids use-after-free errors with write_some
         // accessing bytes that we free during cleanup.
-        if (auto [ec] = co_await stream_.join(); ec)
+        if (auto [ec] = co_await pending_ops_.wait(); ec)
         {
             last_error_ = ec;
             co_return {ec};
@@ -222,9 +224,9 @@ struct co_connection::impl
         // Close the underlying transport anyway
         stream_.close();
 
-        // Wait for any pending stream operation to finish.
+        // Wait for any pending operations to finish.
         // As with connect, this is required before clearing buffers.
-        if (auto [ec] = co_await stream_.join(); ec)
+        if (auto [ec] = co_await pending_ops_.wait(); ec)
         {
             if (!final_ec)
                 final_ec = ec;
@@ -280,6 +282,9 @@ struct co_connection::impl
         if (exec_st.writing)
             co_return {client_errc::already_running};
         running_guard guard{exec_st.writing};
+
+        // In-flight operation accounting
+        auto in_flight_guard = pending_ops_.scoped_notify_start();
 
         // Wait for our turn to write and register what we are doing in the queue.
         // When resuming a partially written request we still hold both, so skip this
@@ -341,6 +346,9 @@ struct co_connection::impl
         if (exec_st.reading)
             co_return {client_errc::already_running};
         running_guard guard{exec_st.reading};
+
+        // In-flight operation accounting
+        auto in_flight_guard = pending_ops_.scoped_notify_start();
 
         auto& fsm = *exec_st.fsm;
 
@@ -493,6 +501,9 @@ struct co_connection::impl
             co_return {client_errc::already_running, 0u};
         running_guard guard{exec_st.writing};
 
+        // In-flight operation accounting
+        auto in_flight_guard = pending_ops_.scoped_notify_start();
+
         // Clamp the input sequence
         if (input_buffs.size() > max_input_buffers)
             input_buffs = input_buffs.first(max_input_buffers);
@@ -621,6 +632,9 @@ struct co_connection::impl
         if (exec_st.copy_in.frame_num_bytes > 0u)
             co_return {client_errc::copy_incomplete_transfer};
 
+        // In-flight operation accounting
+        auto in_flight_guard = pending_ops_.scoped_notify_start();
+
         // Compose the message to send. This is:
         //  CopyDone if we were successful
         //  CopyError if we failed
@@ -663,6 +677,9 @@ struct co_connection::impl
         if (receiver_running_)
             co_return {client_errc::already_running};
         running_guard receiver_running_guard{receiver_running_};
+
+        // In-flight operation accounting
+        auto in_flight_guard = pending_ops_.scoped_notify_start();
 
         // We own the output from this point on
         output.clear();

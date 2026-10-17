@@ -24,6 +24,7 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <system_error>
 
 #include "nativepg/connect_params.hpp"
 #include "nativepg/encoding.hpp"
@@ -280,6 +281,22 @@ public:
     // Requires st.write_phase() == write_status::copy_data.
     //   Otherwise, finishes with client_errc::invalid_state.
     boost::capy::io_task<> write_copy_fail(exec_state& st, std::string_view error_message);
+
+    // Is the connection established? Returns true after
+    // a successful call to connect() completes,
+    // and until one of the following happens:
+    //   - shutdown() initiates
+    //   - One of the functions requiring server interaction (e.g. exec(), receive())
+    //     detects a fatal error (e.g. network failure, protocol violation).
+    bool is_connected() const noexcept;
+
+    // Returns the last error encountered by the connection.
+    //   - After a call to connect() completes with a failure, returns its error
+    //   - After a successful connect() completes, returns empty
+    //   - After any other function that requires server interaction encounters
+    //     a fatal error, returns the encountered error.
+    // TODO: make this const extended_error&
+    std::error_code last_error() const noexcept;
 
     // Reads until there is at least one message in the read buffer.
     // Access messages with state().read_buffer

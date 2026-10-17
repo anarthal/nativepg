@@ -48,14 +48,14 @@ struct connection_state
     {
         standard_conforming_strings.reset();
         client_encoding.reset();
+        backend_process_id = {};
+        backend_secret_key = {};
     }
 
     void reset()
     {
         write_buffer.clear();
         read_buffer.reset();
-        backend_process_id = {};
-        backend_secret_key = {};
         reset_gucs();
         // shared_diag are transient by nature
     }

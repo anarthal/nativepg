@@ -188,32 +188,60 @@ struct co_connection::impl
 
     capy::io_task<> shutdown()
     {
-        // TODO: we should probably have some state checks
-        // TODO: we could really serialize to a fixed storage block, this is known size
-        // TODO: an error here shouldn't prevent the function from closing the transport
-        //       (the error should not happen, to begin with)
-        // TODO: this is bypassing the multiplexer and it should't
-        // TODO: this is ignoring connection_status and it shouldn't
-        // Serialize the terminate request
-        st.write_buffer.clear();
-        if (auto ec = protocol::serialize(protocol::terminate{}, st.write_buffer))
-            co_return {ec};
+        // Shutdown can't run in parallel with connect() or other shutdown()
+        if (connect_shutdown_running_)
+            co_return {client_errc::already_running};
+        running_guard guard{connect_shutdown_running_};
 
-        // Write it
-        auto [write_ec, bytes] = co_await capy::write(stream_, capy::make_buffer(st.write_buffer));
+        std::error_code final_ec;
 
-        // GUCs should be reported as unknown for unestablished connections
-        st.reset_gucs();
+        // Can we send the Terminate message? If the write-side of the multiplexer
+        // is locked, we might have a write in-progress or be in the middle of a frame.
+        // In these cases, skip the graceful shutdown
+        bool should_send_terminate = !mpx_.is_write_locked();
 
-        // Close the underlying transport anyway.
-        // No tcp_socket::shutdown() here to match what libpq does.
-        // At least on Linux, it does nothing:
-        // both close() and shutdown(SHUT_RDWR) will send a RST if there is pending
-        // data in the read buffer (e.g. a pending NotificationResponse),
-        // and a FIN otherwise. Should't be a big deal.
+        // Prevent any more requests from being accepted.
+        // This avoid someone else acquiring the write mutex while we write the Terminate.
+        // TODO: this is assuming status connected for now
+        status_ = connection_status::initial;
+        mpx_.stop();
+
+        // Send the terminate
+        if (should_send_terminate)
+        {
+            st.write_buffer.clear();
+            [[maybe_unused]] auto ec = protocol::serialize(protocol::terminate{}, st.write_buffer);
+            // TODO: not ideal, this shouldn't be allowed to fail in 1st place.
+            // This is fixed size, could be constexpr
+            BOOST_ASSERT(!ec);
+
+            // TODO: what do we do with write_ec?
+            auto [write_ec, bytes] = co_await capy::write(stream_, capy::make_buffer(st.write_buffer));
+            final_ec = write_ec;
+        }
+
+        // Close the underlying transport anyway
         stream_.close();
 
-        co_return {write_ec};
+        // Wait for any pending stream operation to finish.
+        // As with connect, this is required before clearing buffers.
+        if (auto [ec] = co_await stream_.join(); ec)
+        {
+            if (!final_ec)
+                final_ec = ec;
+            st.reset_gucs();
+        }
+        else
+        {
+            st.reset();
+            mpx_.clear_write_bytes();
+        }
+
+        // These are safe anyway
+        last_error.clear();
+        exec_notifications_.clear();
+
+        co_return {final_ec};
     }
 
     std::error_code prepare_request(

@@ -75,6 +75,8 @@ public:
         stopped_ = false;
     }
 
+    bool is_write_locked() const { return write_mtx_.is_locked(); }
+
     // TODO: I hate this. This can't be cleared in stop() because
     // there might be a pending stream write pointing to these bytes
     // TODO: call this

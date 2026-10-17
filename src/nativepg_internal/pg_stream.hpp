@@ -81,7 +81,15 @@ public:
         co_return {};
     }
 
-    void close() { sock_.close(); }
+    void close()
+    {
+        // No tcp_socket::shutdown() here to match what libpq does.
+        // At least on Linux, it does nothing:
+        // both close() and shutdown(SHUT_RDWR) will send a RST if there is pending
+        // data in the read buffer (e.g. a pending NotificationResponse),
+        // and a FIN otherwise. Should't be a big deal.
+        sock_.close();
+    }
 
     // Waits until all pending reads and writes complete
     auto join() { return all_finished_.wait(); }

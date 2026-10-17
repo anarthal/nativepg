@@ -9,10 +9,12 @@
 #define NATIVEPG_TYPES_JSON_HPP
 
 #include <boost/json/parse.hpp>
+#include <boost/json/serializer.hpp>
 #include <boost/json/value.hpp>
-#include <system_error>
 
 #include <string_view>
+#include <system_error>
+#include <vector>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/field_view.hpp"
@@ -36,6 +38,33 @@ inline std::error_code parse_binary_jsonb(const field_view& from, boost::json::v
     if (bytes.empty() || bytes[0] != 1)
         return client_errc::protocol_value_error;
     return parse_json(std::string_view{reinterpret_cast<const char*>(bytes.data() + 1), bytes.size() - 1}, to);
+}
+
+// Appends the JSON text of a value. Writes through a stack buffer, avoiding an intermediate string
+inline void serialize_json_text(const boost::json::value& value, std::vector<unsigned char>& to)
+{
+    boost::json::serializer sr;
+    sr.reset(&value);
+    char buffer[512];
+    while (!sr.done())
+    {
+        const auto chunk = sr.read(buffer, sizeof(buffer));
+        to.insert(to.end(), chunk.begin(), chunk.end());
+    }
+}
+
+inline std::error_code serialize_text_json(const boost::json::value& value, std::vector<unsigned char>& to)
+{
+    serialize_json_text(value, to);
+    return {};
+}
+
+// JSONB (BINARY): the version byte, followed by the JSON text
+inline std::error_code serialize_binary_jsonb(const boost::json::value& value, std::vector<unsigned char>& to)
+{
+    to.push_back(1);
+    serialize_json_text(value, to);
+    return {};
 }
 
 }  // namespace nativepg::types

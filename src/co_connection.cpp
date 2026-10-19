@@ -688,7 +688,6 @@ struct detail::co_connection_impl
         auto [ec] = co_await wait_for_notifications(output);
 
         // If we managed to read any, report success.
-        // TODO: if this was a fatal error, we should mark the connection as failed
         if (!output.empty())
             ec.clear();
 

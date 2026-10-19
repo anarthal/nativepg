@@ -72,7 +72,6 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
     // Did the reader report its exit?
     bool reader_done{};
 
-    // TODO: do we need this?
     // Set if the operation was canceled due to a fatal error in the connection
     bool abandoned{};
 

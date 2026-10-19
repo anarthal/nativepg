@@ -48,6 +48,7 @@ public:
     // Has the operation been abandoned? Abandonment happens when
     // a connection is shutdown or becomes unhealthy after an exec_state
     // has started one related operation, but hasn't completed yet.
+    // reset() or destroy the exec_state.
     bool is_abandoned() const { return impl_.abandoned; }
 
     // Cannot be used while any associated read/write operations are in-progress.

@@ -260,8 +260,8 @@ public:
     //   (framing overhead not included).
     //   As with WriteStream::write_some(), this may be less than buffer_size(buffers) even on
     //   success, so call this function repeatedly until the entire sequence has been consumed.
-    // If this function finishes with an error, it may be called again to try to resume the
-    //   transfer. This is useful in the presence of cancellations and timeouts.
+    // If this function finishes with an ec == capy::cond::canceled,
+    //   it may be called again to try to resume the transfer.
     // Once buffers have been handed to this function, they need to be fully written
     //   (by repeatedly calling write_some_copy_data) before the transfer can be finished
     //   with write_copy_done or write_copy_fail. In other words, you cannot "withdraw"
@@ -294,7 +294,7 @@ public:
     // If this function finishes with an error, the terminator may have been written partially.
     //   Retrying is not supported: the connection should be considered unusable.
     // If the server detects an error in the data (e.g. a row with an invalid format),
-    //   it will send an error that can be read with read_some_messages.
+    //   it will send an error that can be read with read_some_response.
     //   You should still call write_copy_done or write_copy_fail to terminate the copy
     //   operation, even after reading the error, as this function performs
     //   protocol-level bookkeeping required to keep the connection in sync.
@@ -317,7 +317,7 @@ public:
     //   Otherwise, finishes with client_errc::copy_incomplete_transfer, and the copy may
     //   still be completed by sending the missing bytes.
     // If the server detects an error in the data (e.g. a row with an invalid format),
-    //   it will send an error that can be read with read_some_messages.
+    //   it will send an error that can be read with read_some_response.
     //   You should still call write_copy_done or write_copy_fail to terminate the copy
     //   operation, even after reading the error, as this function performs
     //   protocol-level bookkeeping required to keep the connection in sync.

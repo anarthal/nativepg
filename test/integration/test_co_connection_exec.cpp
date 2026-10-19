@@ -626,7 +626,49 @@ capy::task<> test_shutdown_interrupts_exec()
     // Recall that when_all launches things in order
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::io_task<> {
-            // Blocked on the lock when the shutdown kicks in
+            // Blocked forever
+            auto [ec] = co_await conn.exec(req, check());
+            test_cond_eq(ec, capy::cond::canceled);
+            co_return {};
+        }(),
+        [&]() -> capy::io_task<> {
+            // Starts once the exec is in flight
+            co_await yield();
+            check_success(co_await conn.shutdown());
+            co_return {};
+        }()
+    ));
+
+    // The connection is down
+    BOOST_TEST_NOT(conn.is_connected());
+}
+
+// Regression check: shutdown() with several pending exec()'s is OK
+capy::task<> test_shutdown_interrupts_several_execs()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    // A request that can't complete by its own
+    request req;
+    req.add_query("SELECT pg_sleep(9999)");
+
+    // None of the requests will complete until shutdown() arrives
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::io_task<> {
+            // The request is blocked forever
+            auto [ec] = co_await conn.exec(req, check());
+            test_cond_eq(ec, capy::cond::canceled);
+            co_return {};
+        }(),
+        [&]() -> capy::io_task<> {
+            // Blocked after the first one
+            auto [ec] = co_await conn.exec(req, check());
+            test_cond_eq(ec, capy::cond::canceled);
+            co_return {};
+        }(),
+        [&]() -> capy::io_task<> {
+            // Blocked after the first one
             auto [ec] = co_await conn.exec(req, check());
             test_cond_eq(ec, capy::cond::canceled);
             co_return {};
@@ -664,6 +706,7 @@ int main()
 
     run_coroutine_test(test_not_connected());
     run_coroutine_test(test_shutdown_interrupts_exec());
+    run_coroutine_test(test_shutdown_interrupts_several_execs());
 
     return boost::report_errors();
 }

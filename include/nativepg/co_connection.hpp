@@ -39,10 +39,13 @@ namespace nativepg {
 class exec_state;
 class notification_vector;
 
+namespace detail {
+struct co_connection_impl;
+}
+
 class co_connection
 {
-    struct impl;
-    std::unique_ptr<impl> impl_;
+    std::unique_ptr<detail::co_connection_impl> impl_;
 
 public:
     explicit co_connection(boost::capy::execution_context& ctx);

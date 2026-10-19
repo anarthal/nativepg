@@ -1047,7 +1047,7 @@ capy::task<> test_reset_during_copy_in()
 
     // Fatal error
     BOOST_TEST_NOT(conn.is_connected());
-    BOOST_TEST_EQ(conn.last_error(), std::error_code(client_errc::already_connected));  // TODO
+    BOOST_TEST_EQ(conn.last_error(), std::error_code(client_errc::copy_incomplete_transfer));
 }
 
 //

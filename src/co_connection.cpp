@@ -62,7 +62,7 @@ namespace nativepg {
 
 static bool is_fatal(std::error_code ec) { return ec && ec != capy::cond::canceled; }
 
-struct co_connection::impl
+struct detail::co_connection_impl
 {
     // Marks a state flag as true while the guard is alive.
     // Used by any op that needs 'already_running' detection
@@ -98,7 +98,7 @@ struct co_connection::impl
         }
     }
 
-    explicit impl(capy::execution_context& ctx) : stream_(ctx) {}
+    explicit co_connection_impl(capy::execution_context& ctx) : stream_(ctx) {}
 
     capy::io_task<> connect(connect_params params, diagnostics* diag)
     {
@@ -257,7 +257,7 @@ struct co_connection::impl
             return ec;
 
         // Set the state up. This cleans up any leftover from previous operations
-        detail::exec_state_access::get_impl(exec_st).setup(mpx_, req, handler, excl);
+        detail::exec_state_access::get_impl(exec_st).setup(*this, req, handler, excl);
         return std::error_code();
     }
 
@@ -841,7 +841,10 @@ struct co_connection::impl
     }
 };
 
-co_connection::co_connection(capy::execution_context& ctx) : impl_(std::make_unique<impl>(ctx)) {}
+co_connection::co_connection(capy::execution_context& ctx)
+    : impl_(std::make_unique<detail::co_connection_impl>(ctx))
+{
+}
 
 co_connection::co_connection(co_connection&&) noexcept = default;
 
@@ -959,7 +962,6 @@ bool co_connection::is_connected() const noexcept { return impl_->is_connected_;
 
 std::error_code co_connection::last_error() const noexcept { return impl_->last_error_; }
 
-// TODO: do we want another cpp for this?
 void detail::exec_state_impl::reset()
 {
     BOOST_ASSERT(!writing);
@@ -969,20 +971,26 @@ void detail::exec_state_impl::reset()
     // Being linked is what tells us that enter() succeeded
     if (is_prepared() && is_linked() && !abandoned)
     {
-        // Abandoning during Copy-in is not recoverable
-        // TODO: we don't seem to be able to report this with the current architecture
+        if (copy_in.active)
+        {
+            // Abandoning during Copy-in is not recoverable.
+            // This already unlinks and cleans everything up.
+            conn->on_fatal_error(client_errc::copy_incomplete_transfer);
+        }
+        else
+        {
+            // The writer may still hold the write mutex
+            if (writer_st == writer_status::locked)
+                conn->mpx_.report_writer_exit(*this);
 
-        // The writer may still hold the write mutex
-        if (writer_st == writer_status::locked)
-            mpx->report_writer_exit(*this);
-
-        // The reader may still owe an exit report
-        if (!reader_done)
-            mpx->report_reader_exit(*this);
+            // The reader may still owe an exit report
+            if (!reader_done)
+                conn->mpx_.report_reader_exit(*this);
+        }
     }
     BOOST_ASSERT(!is_linked());
 
-    mpx = nullptr;
+    conn = nullptr;
     excl = exclusivity::shared;
     writer_st = writer_status::initial;
     reader_done = false;
@@ -996,7 +1004,7 @@ void detail::exec_state_impl::reset()
 }
 
 void detail::exec_state_impl::setup(
-    multiplexer& mpx_ref,
+    co_connection_impl& conn_ref,
     const request& req,
     response_handler_ref handler,
     exclusivity new_excl
@@ -1005,7 +1013,7 @@ void detail::exec_state_impl::setup(
     // Clean up any leftover from previous operations
     reset();
 
-    mpx = &mpx_ref;
+    conn = &conn_ref;
     excl = new_excl;
     fsm.emplace(&req, handler);
 }

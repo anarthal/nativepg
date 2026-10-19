@@ -23,7 +23,7 @@
 
 namespace nativepg::detail {
 
-class multiplexer;
+struct co_connection_impl;
 
 struct copy_in_state
 {
@@ -60,8 +60,8 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
         done,
     };
 
-    // The multiplexer we're registered with, or nullptr if we were never set up
-    multiplexer* mpx{};
+    // The connection we're registered with, or nullptr if we were never set up
+    co_connection_impl* conn{};
 
     // Is the operation exclusive?
     exclusivity excl{exclusivity::shared};
@@ -105,7 +105,7 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
     std::optional<protocol::read_response_fsm> fsm;
 
     // Did the user call prepare_request()?
-    bool is_prepared() const { return mpx != nullptr; }
+    bool is_prepared() const { return conn != nullptr; }
 
     // Did the writer finish sending the request's payload and report its exit?
     // This is write-mutex accounting, and is not the user-facing notion of
@@ -142,7 +142,7 @@ struct exec_state_impl : boost::intrusive::list_base_hook<>
 
     // Cleans up any leftover from a previous operation and prepares for a new one.
     // The request and the handler must outlive the operation.
-    void setup(multiplexer& mpx, const request& req, response_handler_ref handler, exclusivity excl);
+    void setup(co_connection_impl& conn, const request& req, response_handler_ref handler, exclusivity excl);
 
     const request& get_request() const { return fsm->get_request(); }
     std::span<const unsigned char> remaining_payload() const

@@ -34,6 +34,7 @@
 #include "nativepg/responses/response.hpp"
 #include "nativepg/responses/response_handler.hpp"
 #include "nativepg/responses/resultset_callback.hpp"
+#include "test_utils/ci_server.hpp"
 #include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
@@ -658,6 +659,94 @@ capy::task<> test_receive_already_running()
     co_await check_connection_usable(conn);
 }
 
+//
+// Connection status
+//
+
+// receive() requires an established connection
+capy::task<> test_receive_not_connected()
+{
+    // Setup: a connection that was never established
+    co_connection conn{co_await capy::this_coro::executor};
+
+    notification_vector notifs;
+    auto [ec] = co_await conn.receive(notifs);
+    BOOST_TEST_EQ(ec, std::error_code(client_errc::not_connected));
+}
+
+// A shutdown() cancels any receive() that is in flight
+capy::task<> test_receive_canceled_by_shutdown()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+    if (!co_await checked_exec(conn, "LISTEN \"test_receive_shutdown\""))
+        co_return;
+
+    // Recall that when_all launches things in order, so the receive() is
+    // already waiting for notifications when the shutdown starts
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::io_task<> {
+            notification_vector notifs;
+            auto [ec] = co_await conn.receive(notifs);
+            test_cond_eq(ec, capy::cond::canceled);
+            BOOST_TEST(notifs.empty());
+            co_return {};
+        }(),
+
+        [&]() -> capy::io_task<> {
+            check_success(co_await conn.shutdown());
+            co_return {};
+        }()
+    ));
+
+    // The connection is down
+    BOOST_TEST_NOT(conn.is_connected());
+}
+
+// Notifications cached by the previous sessions are discarded on reconnection
+capy::task<> test_reconnect_clears_cached_notifications()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+    diagnostics diag;
+
+    // Receive a notification that won't be delivered
+    request req_notify;
+    req_notify.add_query("LISTEN \"test_receive_reconnect\"");
+    req_notify.add_query("NOTIFY test_receive_reconnect, 'old session'");
+    req_notify.add_query("SELECT 1");
+    if (!co_await checked_exec(conn, req_notify))
+        co_return;
+
+    // Re-establish the connection
+    if (!check_success(co_await conn.shutdown()))
+        co_return;
+    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
+        co_return;
+
+    // Deliver another notification. This one will get read
+    request req_notify2;
+    req_notify2.add_query("LISTEN \"test_receive_reconnect\"");
+    req_notify2.add_query("NOTIFY test_receive_reconnect, 'new session'");
+    req_notify2.add_query("SELECT 1");
+    if (!co_await checked_exec(conn, req_notify2))
+        co_return;
+
+    // Only the notification raised during the new session is delivered
+    notification_vector notifs;
+    if (!check_success(co_await conn.receive(notifs)))
+        co_return;
+    const protocol::notification_response expected[] = {
+        {.process_id = conn.state().backend_process_id,
+         .channel_name = "test_receive_reconnect",
+         .payload = "new session"}
+    };
+    test_range_eq(notifs, expected);
+
+    // The connection is left in a usable state
+    co_await check_connection_usable(conn);
+}
+
 }  // namespace
 
 int main()
@@ -676,6 +765,10 @@ int main()
     run_coroutine_test(test_receive_reads_exec_leftovers());
     run_coroutine_test(test_gucs());
     run_coroutine_test(test_receive_already_running());
+
+    run_coroutine_test(test_receive_not_connected());
+    run_coroutine_test(test_receive_canceled_by_shutdown());
+    run_coroutine_test(test_reconnect_clears_cached_notifications());
 
     return boost::report_errors();
 }

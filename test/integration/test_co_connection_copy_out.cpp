@@ -7,11 +7,9 @@
 
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/concept/const_buffer_sequence.hpp>
-#include <boost/capy/concept/write_sink.hpp>
 #include <boost/capy/delay.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/task.hpp>
-#include <boost/capy/test/write_sink.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/core/lightweight_test.hpp>
 #include <boost/describe/class.hpp>
@@ -24,6 +22,8 @@
 #include <system_error>
 #include <vector>
 
+#include "nativepg/capy-stub/concept/write_sink.hpp"
+#include "nativepg/capy-stub/test/write_sink.hpp"
 #include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"

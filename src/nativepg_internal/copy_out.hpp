@@ -10,7 +10,6 @@
 
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/buffer_copy.hpp>
-#include <boost/capy/io/any_write_sink.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/container/small_vector.hpp>
@@ -23,6 +22,7 @@
 #include <span>
 #include <system_error>
 
+#include "nativepg/capy-stub/io/any_write_sink.hpp"
 #include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/exclusivity.hpp"

@@ -6,7 +6,6 @@
 //
 
 #include <boost/capy/buffers.hpp>
-#include <boost/capy/concept/write_sink.hpp>
 #include <boost/capy/ex/immediate.hpp>
 #include <boost/capy/ex/run_async.hpp>
 #include <boost/capy/io_task.hpp>
@@ -20,6 +19,7 @@
 #include <iostream>
 #include <utility>
 
+#include "nativepg/capy-stub/concept/write_sink.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"

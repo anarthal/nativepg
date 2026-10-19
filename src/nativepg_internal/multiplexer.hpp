@@ -71,6 +71,7 @@ public:
     void restart()
     {
         BOOST_ASSERT(active_tasks_.empty());
+        BOOST_ASSERT(!write_mtx_.is_locked());
         trailing_rfqs_ = 0u;
         receiver_reading_ = false;
         stopped_ = false;
@@ -161,11 +162,14 @@ public:
     {
         BOOST_ASSERT(!exec_st.is_linked());
 
-        // Wait for our turn to write
+        // Wait for our turn to write. A stop here counts as a failure to acquire the mutex
         if (auto [ec] = co_await write_mtx_.lock(); ec)
             co_return {ec};
-        if (stopped_)  // TODO: this is bad
+        if (stopped_)
+        {
+            write_mtx_.unlock();
             co_return {boost::capy::error::canceled};
+        }
 
         // We now hold the write mutex and owe an exit report
         exec_st.writer_st = exec_state_impl::writer_status::locked;

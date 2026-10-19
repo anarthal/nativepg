@@ -10,6 +10,7 @@
 
 #include <boost/assert.hpp>
 #include <boost/capy/ex/async_event.hpp>
+#include <boost/capy/io_task.hpp>
 
 #include <cstddef>
 #include <memory>
@@ -58,8 +59,16 @@ public:
             done_.set();
     }
 
-    // Waits until all operations have finished
-    auto wait() { return done_.wait(); }
+    // Waits until all operations have finished.
+    boost::capy::io_task<> wait()
+    {
+        // async_event::set() posts, so the count might change
+        // while the event loop schedules us. This loop guards against this
+        while (count_ > 0u)
+            if (auto [ec] = co_await done_.wait(); ec)
+                co_return {ec};
+        co_return {};
+    }
 };
 
 }  // namespace nativepg::detail

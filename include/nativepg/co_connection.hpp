@@ -12,9 +12,7 @@
 #include <boost/capy/concept/const_buffer_sequence.hpp>
 #include <boost/capy/concept/executor.hpp>
 #include <boost/capy/ex/execution_context.hpp>
-#include <boost/capy/io/any_buffer_source.hpp>
 #include <boost/capy/io/any_stream.hpp>
-#include <boost/capy/io/any_write_sink.hpp>
 #include <boost/capy/io_task.hpp>
 
 #include <concepts>
@@ -26,6 +24,8 @@
 #include <string_view>
 #include <system_error>
 
+#include "nativepg/capy-stub/io/any_buffer_source.hpp"
+#include "nativepg/capy-stub/io/any_write_sink.hpp"
 #include "nativepg/connect_params.hpp"
 #include "nativepg/encoding.hpp"
 #include "nativepg/exclusivity.hpp"

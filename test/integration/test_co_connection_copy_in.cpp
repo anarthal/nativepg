@@ -14,7 +14,6 @@
 #include <boost/capy/error.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/task.hpp>
-#include <boost/capy/test/buffer_source.hpp>
 #include <boost/core/lightweight_test.hpp>
 #include <boost/describe/class.hpp>
 #include <boost/describe/operators.hpp>
@@ -26,6 +25,7 @@
 #include <system_error>
 #include <vector>
 
+#include "nativepg/capy-stub/test/buffer_source.hpp"
 #include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"

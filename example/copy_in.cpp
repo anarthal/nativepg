@@ -8,7 +8,6 @@
 #include <boost/assert.hpp>
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
-#include <boost/capy/concept/buffer_source.hpp>
 #include <boost/capy/concept/executor.hpp>
 #include <boost/capy/cond.hpp>
 #include <boost/capy/error.hpp>
@@ -34,6 +33,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "nativepg/capy-stub/concept/buffer_source.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"

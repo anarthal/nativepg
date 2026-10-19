@@ -8,7 +8,6 @@
 #ifndef NATIVEPG_PG_STREAM_HPP
 #define NATIVEPG_PG_STREAM_HPP
 
-#include <boost/assert.hpp>
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/io_task.hpp>
@@ -16,6 +15,9 @@
 #include <boost/corosio/resolver.hpp>
 #include <boost/corosio/socket_option.hpp>
 #include <boost/corosio/tcp_socket.hpp>
+
+#include <string>
+#include <utility>
 
 #include "nativepg/connect_params.hpp"
 

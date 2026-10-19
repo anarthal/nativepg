@@ -272,7 +272,7 @@ struct detail::co_connection_impl
 
         // Abandoned translates into canceled
         if (exec_st.abandoned)
-            co_return {std::make_error_code(std::errc::operation_canceled)};
+            co_return {capy::error::canceled};
 
         // The connection must be healthy
         if (!is_connected_)
@@ -336,7 +336,7 @@ struct detail::co_connection_impl
 
         // Abandoned translates into canceled
         if (exec_st.abandoned)
-            co_return {std::make_error_code(std::errc::operation_canceled)};
+            co_return {capy::error::canceled};
 
         // The connection must be healthy
         if (!is_connected_)
@@ -358,7 +358,7 @@ struct detail::co_connection_impl
 
         // Abandoned translates into canceled
         if (exec_st.abandoned)
-            co_return {std::make_error_code(std::errc::operation_canceled)};
+            co_return {capy::error::canceled};
 
         // Read one batch of messages (this is a no-op if we have cached messages)
         if (auto [ec] = co_await read_some_messages(); ec)
@@ -494,7 +494,7 @@ struct detail::co_connection_impl
 
         // If the connection becomes unhealthy after writing the request, we go to abandoned
         if (exec_st.abandoned)
-            co_return {std::make_error_code(std::errc::operation_canceled), 0u};
+            co_return {capy::error::canceled, 0u};
 
         // Only one write operation per state may be in flight
         if (exec_st.writing)
@@ -621,7 +621,7 @@ struct detail::co_connection_impl
 
         // If the connection becomes unhealthy after writing the request, we go to abandoned
         if (exec_st.abandoned)
-            co_return {std::make_error_code(std::errc::operation_canceled)};
+            co_return {capy::error::canceled};
 
         // Only one write operation per state may be in flight
         if (exec_st.writing)

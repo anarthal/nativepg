@@ -37,6 +37,7 @@
 #include "nativepg/responses/check.hpp"
 #include "nativepg/responses/error_into.hpp"
 #include "nativepg/responses/into.hpp"
+#include "nativepg/responses/response_handler.hpp"
 #include "nativepg/sqlstate_cond.hpp"
 #include "nativepg/write_status.hpp"
 #include "test_utils/co_connection_utils.hpp"
@@ -1234,6 +1235,51 @@ capy::task<> test_already_running()
     co_await check_connection_usable(conn);
 }
 
+// write_some_copy_data, write_copy_done and write_copy_error
+// fail for an abandoned exec_state
+capy::task<> test_abandoned()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+    check handler;
+
+    exec_state st;
+
+    if (!co_await checked_exec(conn, "CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)"))
+        co_return;
+
+    // Trigger Copy-in
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    if (!check_success(co_await read_until_copy_data(conn, st)))
+        co_return;
+
+    // Abandon the state
+    if (!check_success(co_await conn.shutdown()))
+        co_return;
+    check_status(
+        st,
+        {.is_prepared = true,
+         .write_phase = write_status::copy_data,
+         .reader_done = false,
+         .is_abandoned = true}
+    );
+
+    // The functions fail
+    auto [ec1] = co_await conn.write_copy_done(st);
+    test_cond_eq(ec1, capy::cond::canceled);
+
+    auto [ec2] = co_await conn.write_copy_done(st);
+    test_cond_eq(ec2, capy::cond::canceled);
+
+    auto [ec3] = co_await conn.write_copy_fail(st, "error");
+    test_cond_eq(ec3, capy::cond::canceled);
+}
+
 }  // namespace
 
 int main()
@@ -1267,6 +1313,7 @@ int main()
     run_coroutine_test(test_not_in_copy_data());
     run_coroutine_test(test_already_done());
     run_coroutine_test(test_already_running());
+    run_coroutine_test(test_abandoned());
 
     return boost::report_errors();
 }

@@ -884,7 +884,10 @@ capy::task<> do_test_copy_in_not_last(
     // The connection is unusable
     check_status(
         st,
-        {.is_prepared = true, .write_phase = write_status::waiting_for_reader, .reader_done = false},
+        {.is_prepared = true,
+         .write_phase = write_status::waiting_for_reader,
+         .reader_done = false,
+         .is_abandoned = true},
         loc
     );
 }

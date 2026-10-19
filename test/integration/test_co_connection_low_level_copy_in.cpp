@@ -844,7 +844,82 @@ capy::task<> test_cancel_retry_copy_data()
     co_await check_connection_usable(conn);
 }
 
-// TODO: cancelling write_copy_done/write_copy_fail is fatal
+// Errors in the copy terminators are fatal
+capy::task<> test_cancel_copy_done()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    if (!co_await checked_exec(conn, "CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)"))
+        co_return;
+
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    if (!check_success(co_await read_until_copy_data(conn, st)))
+        co_return;
+
+    // write_copy_done will get cancelled
+    std::stop_source stop_src;
+    stop_src.request_stop();
+    auto [ec] = co_await capy::run(stop_src.get_token())(conn.write_copy_done(st));
+    test_cond_eq(ec, capy::cond::canceled);
+
+    // The connection is now unusable
+    check_status(
+        st,
+        {.is_prepared = true,
+         .write_phase = write_status::copy_data,
+         .reader_done = false,
+         .is_abandoned = true}
+    );
+    BOOST_TEST_NOT(conn.is_connected());
+    test_cond_eq(conn.last_error(), capy::cond::canceled);
+}
+
+capy::task<> test_cancel_copy_fail()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    if (!co_await checked_exec(conn, "CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)"))
+        co_return;
+
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    if (!check_success(co_await read_until_copy_data(conn, st)))
+        co_return;
+
+    // write_copy_fail will get cancelled
+    std::stop_source stop_src;
+    stop_src.request_stop();
+    auto [ec] = co_await capy::run(stop_src.get_token())(conn.write_copy_fail(st, "cancelled"));
+    test_cond_eq(ec, capy::cond::canceled);
+
+    // This is a fatal error
+    check_status(
+        st,
+        {.is_prepared = true,
+         .write_phase = write_status::copy_data,
+         .reader_done = false,
+         .is_abandoned = true}
+    );
+    BOOST_TEST_NOT(conn.is_connected());
+    test_cond_eq(conn.last_error(), capy::cond::canceled);
+}
 
 // A COPY ... FROM STDIN must be the last thing in its request (fatal error)
 capy::task<> do_test_copy_in_not_last(
@@ -943,6 +1018,36 @@ capy::task<> test_copy_in_not_exclusive()
     // The connection is not usable
     BOOST_TEST_NOT(conn.is_connected());
     BOOST_TEST_EQ(conn.last_error(), std::error_code(client_errc::requires_exclusive));
+}
+
+// Abandoning an operation while the server is waiting for copy data is fatal
+capy::task<> test_reset_during_copy_in()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    if (!co_await checked_exec(conn, "CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)"))
+        co_return;
+
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    if (!check_success(co_await read_until_copy_data(conn, st)))
+        co_return;
+    check_status(st, {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false});
+
+    // Abandon the operation before it finishes
+    st.reset();
+
+    // Fatal error
+    BOOST_TEST_NOT(conn.is_connected());
+    BOOST_TEST_EQ(conn.last_error(), std::error_code(client_errc::already_connected));  // TODO
 }
 
 //
@@ -1149,10 +1254,13 @@ int main()
     run_coroutine_test(test_server_error_mid_transfer());
 
     run_coroutine_test(test_cancel_retry_copy_data());
+    run_coroutine_test(test_cancel_copy_done());
+    run_coroutine_test(test_cancel_copy_fail());
 
     run_coroutine_test(test_copy_in_not_last_extended_protocol());
     run_coroutine_test(test_copy_in_not_last_simple_query_protocol());
     run_coroutine_test(test_copy_in_not_exclusive());
+    run_coroutine_test(test_reset_during_copy_in());
 
     run_coroutine_test(test_not_prepared());
     run_coroutine_test(test_request_not_written());

@@ -890,6 +890,10 @@ capy::task<> do_test_copy_in_not_last(
          .is_abandoned = true},
         loc
     );
+    bool ok = BOOST_TEST_NOT(conn.is_connected());
+    ok &= BOOST_TEST_EQ(conn.last_error(), std::error_code(client_errc::copy_in_not_last));
+    if (!ok)
+        std::cerr << "  Called from " << loc << std::endl;
 }
 
 capy::task<> test_copy_in_not_last_extended_protocol()
@@ -937,6 +941,8 @@ capy::task<> test_copy_in_not_exclusive()
     BOOST_TEST_EQ(ec, std::error_code(client_errc::requires_exclusive));
 
     // The connection is not usable
+    BOOST_TEST_NOT(conn.is_connected());
+    BOOST_TEST_EQ(conn.last_error(), std::error_code(client_errc::requires_exclusive));
 }
 
 //

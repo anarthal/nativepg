@@ -10,7 +10,6 @@
 #include <boost/capy/buffers/buffer_slice.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/ex/execution_context.hpp>
-#include <boost/capy/io/any_buffer_source.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/capy/write.hpp>
@@ -32,6 +31,7 @@
 #include <system_error>
 #include <utility>
 
+#include "nativepg/capy-stub/io/any_buffer_source.hpp"
 #include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"

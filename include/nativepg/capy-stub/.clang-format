@@ -1,0 +1,5 @@
+# These headers are verbatim copies of Capy headers deleted upstream.
+# Keep them token-for-token so they can be dropped without a diff.
+# https://github.com/cppalliance/capy/issues/393
+DisableFormat: true
+SortIncludes: Never

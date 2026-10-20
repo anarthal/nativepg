@@ -335,6 +335,36 @@ capy::task<> test_get_connection_before_run()
     ));
 }
 
+// The pool works with zero timeouts, which disable the
+// relevant timer rather than expiring immediately
+capy::task<> test_zero_timeouts()
+{
+    auto params = create_pool_params(1);  // max_size 1, so we force a reset
+    params.connect_timeout = 0s;
+    params.ping_timeout = 0s;
+    params.ping_interval = 0s;
+    co_connection_pool pool{co_await capy::this_coro::executor, std::move(params)};
+
+    co_await with_pool_running(pool, [&]() -> capy::task<> {
+        // Get a connection and use it
+        auto [ec, conn] = co_await pool.get_connection();
+        if (!check_success(ec))
+            co_return;
+        if (!BOOST_TEST(conn.valid()))
+            co_return;
+        co_await check_connection_usable(conn.get());
+
+        // Returning it makes the connection usable again
+        conn.return_without_reset();
+        auto [ec2, conn2] = co_await pool.get_connection();
+        if (!check_success(ec2))
+            co_return;
+        if (!BOOST_TEST(conn2.valid()))
+            co_return;
+        co_await check_connection_usable(conn2.get());
+    }());
+}
+
 // Any get_connection pending when run() is cancelled fails
 capy::task<> test_get_connection_during_run_cancel()
 {
@@ -420,36 +450,6 @@ capy::task<> test_cancel_get_connection()
     }());
 }
 
-// // Spotcheck: the pool works with zero timeouts, which disable the
-// // relevant timer rather than expiring immediately
-// capy::task<> test_zero_timeouts()
-// {
-//     auto params = create_pool_params(1);  // max_size 1, so we force a reset
-//     params.connect_timeout = 0s;
-//     params.ping_timeout = 0s;
-//     params.ping_interval = 0s;
-
-//     co_await with_pool(std::move(params), [](co_connection_pool& pool) -> capy::task<> {
-//         // Get a connection and use it
-//         {
-//             auto [ec, conn] = co_await pool.get_connection();
-//             if (!check_success(ec))
-//                 co_return;
-//             if (!BOOST_TEST(conn.valid()))
-//                 co_return;
-//             co_await check_connection_usable(conn.get());
-//         }
-
-//         // Returning it goes through a reset, and the connection can be used again
-//         auto [ec2, conn2] = co_await pool.get_connection();
-//         if (!check_success(ec2))
-//             co_return;
-//         if (!BOOST_TEST(conn2.valid()))
-//             co_return;
-//         co_await check_connection_usable(conn2.get());
-//     });
-// }
-
 // // Spotcheck: constructing a pool with invalid params throws
 // capy::task<> test_invalid_params()
 // {
@@ -499,11 +499,11 @@ int main()
     run_coroutine_test(test_connections_created_if_requests_gt_pending());
     run_coroutine_test(test_connection_upper_limit());
     run_coroutine_test(test_get_connection_before_run());
+    run_coroutine_test(test_zero_timeouts());
 
     run_coroutine_test(test_get_connection_during_run_cancel());
     run_coroutine_test(test_get_connection_after_run_cancel());
     run_coroutine_test(test_cancel_get_connection());
-    // run_coroutine_test(test_zero_timeouts());
     // run_coroutine_test(test_invalid_params());
 
     return boost::report_errors();

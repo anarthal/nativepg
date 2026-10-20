@@ -8,7 +8,6 @@
 #ifndef NATIVEPG_CONNECTION_NODE_HPP
 #define NATIVEPG_CONNECTION_NODE_HPP
 
-#include <boost/capy/ex/async_condition.hpp>
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/ex/this_coro.hpp>

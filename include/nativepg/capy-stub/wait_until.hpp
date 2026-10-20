@@ -11,7 +11,7 @@
 #define BOOST_CAPY_WAIT_UNTIL_HPP
 
 #include <boost/capy/detail/config.hpp>
-#include <boost/capy/ex/async_condition.hpp>
+#include "nativepg/capy-stub/ex/async_condition.hpp"
 #include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
 

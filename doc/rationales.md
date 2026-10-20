@@ -446,3 +446,47 @@ This is viable, but it complicates the implementation a lot because:
   (for `CopyData`, usually one per row).
 - Asynchronous messages might be interleaved with `CopyData` messages.
   E.g. a `NotificationResponse` might arrive if we are subscribed to a channel.
+
+## Why does `co_connection` attempt to detect fatal errors?
+
+First and foremost, for security. Some fatal errors imply that the client and
+server have become de-synchronized. For example, if we received a message type
+that is not legal in the current state, something has gone extremely wrong.
+Maybe we had a bug in multiplexing. Insisting on using the connection opens
+the door for attackers to exploit the problem.
+
+Second, connection pools need to know if connections are healthy when
+returned. Because they don't have access to what the user did with the connection,
+having `is_connected()` tells them whether they should re-establish the connection or not.
+`last_error()` aids with logging.
+
+## Why `is_connected()` and not a status enum?
+
+Early designs distinguished between `not_connected` and `fatal_error` status.
+But both of them resulted in the same diagnostics. `fatal_error` is equivalent to
+`!is_connected() && !!last_error()`, so we kept it simple.
+
+## Why does `exec_state` need an abandoned status?
+
+Consider a query being executing using an `exec_state` and its associated functions.
+The request has been written, but part of the response hasn't arrived yet.
+At this point, a fatal error is encountered (or `shutdown()` is called).
+The rest of the response is not going to arrive. The operation can't
+continue, even after the connection is re-established.
+
+The user might inadvertently try to `read_some_response` again on the
+`exec_state`. We need a way to tell them that the operation is dead
+and not going to come back. It's not enough to cancel the current in-flight
+operation. Any successive operations on this `exec_state` should also fail.
+
+## Why are all network errors, except for cancellation, fatal?
+
+At the moment, we operate on a defined subset of stream types.
+For these, network errors other than cancellation are 'final'.
+Meaning that further attempts to transfer bytes are not expected to make progress.
+
+EOF is treated as a regular fatal error because the server,
+under normal operation, shouldn't close the connection by itself.
+This would only happen if the server is shutting down or
+we have committed a severe protocol violation. Both of them
+make the connection unhealthy, and are thus fatal.

@@ -17,29 +17,23 @@
 #include <boost/capy/when_any.hpp>
 #include <boost/core/lightweight_test.hpp>
 #include <boost/corosio/timeout.hpp>
-#include <boost/describe/class.hpp>
-#include <boost/describe/operators.hpp>
 
 #include <chrono>
 #include <cstddef>
 #include <stdexcept>
 #include <stop_token>
-#include <string>
 #include <string_view>
 #include <utility>
-#include <vector>
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_connection_pool.hpp"
 #include "nativepg/protocol/connection_state.hpp"
-#include "nativepg/request.hpp"
-#include "nativepg/responses/check.hpp"
-#include "nativepg/responses/into.hpp"
 #include "test_utils/ci_server.hpp"
 #include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
 #include "test_utils/test_cond_eq.hpp"
+#include "test_utils/test_opt_eq.hpp"
 #include "test_utils/test_string_contains.hpp"
 #include "test_utils/yield.hpp"
 
@@ -48,18 +42,8 @@ namespace corosio = boost::corosio;
 using namespace nativepg;
 using namespace nativepg::test;
 using namespace std::chrono_literals;
-using namespace std::string_view_literals;
 
 namespace {
-
-struct row_string
-{
-    std::string value;
-};
-BOOST_DESCRIBE_STRUCT(row_string, (), (value))
-
-using boost::describe::operators::operator==;
-using boost::describe::operators::operator<<;
 
 pool_params create_pool_params(std::size_t max_size = 151)
 {
@@ -85,39 +69,6 @@ capy::task<> with_pool_running(co_connection_pool& pool, capy::task<> body)
             co_return {};
         }()
     ));
-}
-
-// --- Telling connections apart and inspecting session state ---
-
-// Postgres accepts arbitrary settings under a prefix, so we can leave a mark
-// on a session and look for it after the connection has gone back to the pool
-capy::task<bool> set_session_var(
-    co_connection& conn,
-    std::string_view value,
-    boost::source_location loc = BOOST_CURRENT_LOCATION
-)
-{
-    request req;
-    req.add_simple_query(std::string("SET nativepg.pool_get_connection_var = '") + std::string(value) + "'");
-    co_return co_await checked_exec(conn, req, check(), loc);
-}
-
-// Returns "<unset>" if the variable was never set in this session
-capy::task<std::string> get_session_var(
-    co_connection& conn,
-    boost::source_location loc = BOOST_CURRENT_LOCATION
-)
-{
-    request req;
-    req.add_query(
-        "SELECT coalesce(current_setting('nativepg.pool_get_connection_var', true), '<unset>') AS value"
-    );
-    std::vector<row_string> rows;
-    if (!co_await checked_exec(conn, req, into(rows), loc))
-        co_return "<exec failed>";
-    if (!BOOST_TEST_EQ(rows.size(), 1u))
-        co_return "<unexpected resultset>";
-    co_return rows[0].value;
 }
 
 // --- Tests ---
@@ -150,7 +101,7 @@ capy::task<> test_return_connection()
         BOOST_TEST_EQ(conn2->state().backend_process_id, pid);
 
         // No reset has been issued, so our mark is still there
-        BOOST_TEST_EQ(co_await get_session_var(conn2.get()), "abc"sv);
+        test_opt_eq(co_await get_session_var(conn2.get()), "abc");
     }());
 }
 
@@ -184,7 +135,7 @@ capy::task<> test_pooled_connection_destructor()
         BOOST_TEST_EQ(conn->state().backend_process_id, pid);
 
         // No reset has been issued, so our mark is still there
-        BOOST_TEST_EQ(co_await get_session_var(conn.get()), "abc"sv);
+        test_opt_eq(co_await get_session_var(conn.get()), "abc");
     }());
 }
 

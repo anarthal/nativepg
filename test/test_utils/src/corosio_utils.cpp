@@ -18,8 +18,12 @@
 #include <cstdlib>
 #include <exception>
 #include <iostream>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
@@ -37,8 +41,18 @@ struct row_int
 };
 BOOST_DESCRIBE_STRUCT(row_int, (), (value))
 
+struct row_nullable_string
+{
+    std::optional<std::string> value;
+};
+BOOST_DESCRIBE_STRUCT(row_nullable_string, (), (value))
+
 using boost::describe::operators::operator==;
 using boost::describe::operators::operator<<;
+
+// The name is shared by every test that uses these helpers.
+// OK because the setting is session-local
+constexpr std::string_view session_var_name = "nativepg.test_var";
 
 }  // namespace
 
@@ -113,4 +127,32 @@ boost::capy::task<bool> nativepg::test::check_connection_usable(
     if (!co_await checked_exec(conn, req, into(ints), loc))
         co_return false;
     co_return test_range_eq(ints, std::vector<row_int>{{.value = 1234}}, loc);
+}
+
+std::string nativepg::test::set_session_var_query(std::string_view value)
+{
+    return std::string("SET ").append(session_var_name).append(" = '").append(value).append("'");
+}
+
+boost::capy::task<std::optional<std::string>> nativepg::test::get_session_var(
+    co_connection& conn,
+    boost::source_location loc
+)
+{
+    // The second argument makes current_setting return NULL, rather than failing,
+    // when the variable was never set in this session
+    request req;
+    req.add_query(
+        std::string("SELECT current_setting('").append(session_var_name).append("', true) AS value")
+    );
+
+    std::vector<row_nullable_string> rows;
+    if (!co_await checked_exec(conn, req, into(rows), loc))
+        co_return std::nullopt;
+    if (!BOOST_TEST_EQ(rows.size(), 1u))
+    {
+        std::cerr << "  Called from " << loc << std::endl;
+        co_return std::nullopt;
+    }
+    co_return std::move(rows[0].value);
 }

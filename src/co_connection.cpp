@@ -12,7 +12,8 @@
 #include <boost/capy/cond.hpp>
 #include <boost/capy/error.hpp>
 #include <boost/capy/ex/execution_context.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/capy/write.hpp>
 #include <boost/container/static_vector.hpp>
@@ -100,7 +101,7 @@ struct detail::co_connection_impl
 
     explicit co_connection_impl(capy::execution_context& ctx) : stream_(ctx) {}
 
-    capy::io_task<> connect(connect_params params, diagnostics* diag)
+    capy::task<capy::results<>> connect(connect_params params, diagnostics* diag)
     {
         using protocol::detail::connect_fsm;
 
@@ -187,7 +188,7 @@ struct detail::co_connection_impl
         }
     }
 
-    capy::io_task<> shutdown()
+    capy::task<capy::results<>> shutdown()
     {
         // Shutdown can't run in parallel with connect() or other shutdown()
         if (connect_shutdown_running_)
@@ -262,7 +263,7 @@ struct detail::co_connection_impl
     }
 
     // This is the writer side of exec
-    boost::capy::io_task<> write_request(detail::exec_state_impl& exec_st)
+    capy::task<capy::results<>> write_request(detail::exec_state_impl& exec_st)
     {
         using writer_status = detail::exec_state_impl::writer_status;
 
@@ -299,11 +300,11 @@ struct detail::co_connection_impl
         // of our own. The former is required to keep the connection healthy.
         // Most of the time, the 1st buffer is empty, and Corosio coalesces this to a
         // non-vectored write, for all backends.
-        auto [ec, bytes_written] = co_await boost::capy::write(
+        auto [ec, bytes_written] = co_await capy::write(
             stream_,
-            std::array<boost::capy::const_buffer, 2u>{
-                boost::capy::make_buffer(mpx_.previous_write_bytes()),
-                boost::capy::make_buffer(exec_st.remaining_payload())
+            std::array<capy::const_buffer, 2u>{
+                capy::make_buffer(mpx_.previous_write_bytes()),
+                capy::make_buffer(exec_st.remaining_payload())
             }
         );
 
@@ -327,7 +328,7 @@ struct detail::co_connection_impl
         co_return {};
     }
 
-    boost::capy::io_task<> read_some_response(detail::exec_state_impl& exec_st)
+    capy::task<capy::results<>> read_some_response(detail::exec_state_impl& exec_st)
     {
         // We must have been prepared, and must still have something to read
         // This function is allowed in CopyIn mode
@@ -474,7 +475,7 @@ struct detail::co_connection_impl
         return res;
     }
 
-    capy::io_task<std::size_t> write_some_copy_data(
+    capy::task<capy::results<std::size_t>> write_some_copy_data(
         detail::exec_state_impl& exec_st,
         std::span<const capy::const_buffer> input_buffs
     )
@@ -511,7 +512,7 @@ struct detail::co_connection_impl
         // Empty buffers are a no-op.
         // Special case required because we might be in the middle of
         // transferring a frame header
-        const std::size_t buff_size = boost::capy::buffer_size(input_buffs);
+        const std::size_t buff_size = capy::buffer_size(input_buffs);
         if (buff_size == 0u)
             co_return {};
 
@@ -549,8 +550,7 @@ struct detail::co_connection_impl
         if (prev_payload_size > 0u)
         {
             auto prev_payload = capy::buffer_slice(input_buffs, 0u, prev_payload_size);
-            auto data = prev_payload.data();
-            output_buffs.insert(output_buffs.end(), capy::begin(data), capy::end(data));
+            output_buffs.insert(output_buffs.end(), capy::begin(prev_payload), capy::end(prev_payload));
         }
 
         if (payload_size > 0u)
@@ -558,8 +558,7 @@ struct detail::co_connection_impl
             frame_header = make_copy_data_header(payload_size);
             output_buffs.push_back(capy::make_buffer(frame_header));
             auto payload = capy::buffer_slice(input_buffs, prev_payload_size, payload_size);
-            auto data = payload.data();
-            output_buffs.insert(output_buffs.end(), capy::begin(data), capy::end(data));
+            output_buffs.insert(output_buffs.end(), capy::begin(payload), capy::end(payload));
         }
 
         // Write the thing
@@ -608,7 +607,7 @@ struct detail::co_connection_impl
         co_return {ec, retval};
     }
 
-    boost::capy::io_task<> write_copy_finished(
+    capy::task<capy::results<>> write_copy_finished(
         detail::exec_state_impl& exec_st,
         bool success,
         std::string_view error_message
@@ -667,7 +666,7 @@ struct detail::co_connection_impl
         co_return {};
     }
 
-    boost::capy::io_task<> receive(notification_vector& output)
+    capy::task<capy::results<>> receive(notification_vector& output)
     {
         // State check
         if (!is_connected_)
@@ -694,7 +693,7 @@ struct detail::co_connection_impl
         co_return {ec};
     }
 
-    boost::capy::io_task<> wait_for_notifications(notification_vector& output)
+    capy::task<capy::results<>> wait_for_notifications(notification_vector& output)
     {
         while (true)
         {
@@ -726,7 +725,7 @@ struct detail::co_connection_impl
         }
     }
 
-    boost::capy::io_task<> receive_read(
+    capy::task<capy::results<>> receive_read(
         detail::multiplexer::receive_guard& guard,
         notification_vector& output
     )
@@ -811,7 +810,7 @@ struct detail::co_connection_impl
         }
     }
 
-    capy::io_task<> read_some_messages()
+    capy::task<capy::results<>> read_some_messages()
     {
         while (true)
         {
@@ -855,14 +854,17 @@ co_connection::~co_connection() = default;
 
 // TODO: I'd prefer having connect_params be a view
 // const references here may cause dangling parameters
-capy::io_task<> co_connection::connect(connect_params params, diagnostics* diag)
+capy::task<capy::results<>> co_connection::connect(connect_params params, diagnostics* diag)
 {
     return impl_->connect(std::move(params), diag);
 }
 
-capy::io_task<> co_connection::shutdown() { return impl_->shutdown(); }
+capy::task<capy::results<>> co_connection::shutdown() { return impl_->shutdown(); }
 
-capy::io_task<> co_connection::receive(notification_vector& output) { return impl_->receive(output); }
+capy::task<capy::results<>> co_connection::receive(notification_vector& output)
+{
+    return impl_->receive(output);
+}
 
 std::error_code co_connection::prepare_request(
     exec_state& exec_st,
@@ -874,17 +876,17 @@ std::error_code co_connection::prepare_request(
     return impl_->prepare_request(exec_st, req, handler, excl);
 }
 
-boost::capy::io_task<> co_connection::write_request(exec_state& st)
+capy::task<capy::results<>> co_connection::write_request(exec_state& st)
 {
     return impl_->write_request(detail::exec_state_access::get_impl(st));
 }
 
-boost::capy::io_task<> co_connection::read_some_response(exec_state& st)
+capy::task<capy::results<>> co_connection::read_some_response(exec_state& st)
 {
     return impl_->read_some_response(detail::exec_state_access::get_impl(st));
 }
 
-static capy::io_task<> read_response(co_connection& conn, exec_state& exec_st, diagnostics* diag)
+static capy::task<capy::results<>> read_response(co_connection& conn, exec_state& exec_st, diagnostics* diag)
 {
     while (!exec_st.read_done())
     {
@@ -898,7 +900,11 @@ static capy::io_task<> read_response(co_connection& conn, exec_state& exec_st, d
     co_return {handler_err.code};
 }
 
-capy::io_task<> co_connection::exec(const request& req, response_handler_ref handler, diagnostics* diag)
+capy::task<capy::results<>> co_connection::exec(
+    const request& req,
+    response_handler_ref handler,
+    diagnostics* diag
+)
 {
     // Setup
     exec_state exec_st;
@@ -906,7 +912,7 @@ capy::io_task<> co_connection::exec(const request& req, response_handler_ref han
         co_return {ec};
 
     // Run the reader and writer tasks in parallel
-    auto [final_ec, writer_dummy, reader_dummy] = co_await boost::capy::when_all(
+    auto [final_ec, writer_dummy, reader_dummy] = co_await capy::when_all(
         write_request(exec_st),
         read_response(*this, exec_st, diag)
     );
@@ -914,7 +920,7 @@ capy::io_task<> co_connection::exec(const request& req, response_handler_ref han
     co_return {final_ec};
 }
 
-capy::io_task<std::uint64_t> co_connection::copy_in(
+capy::task<capy::results<std::uint64_t>> co_connection::copy_in(
     const request& req,
     capy::any_buffer_source source,
     diagnostics* diag
@@ -923,7 +929,7 @@ capy::io_task<std::uint64_t> co_connection::copy_in(
     return detail::copy_in(*this, req, std::move(source), diag);
 }
 
-capy::io_task<std::uint64_t> co_connection::copy_out(
+capy::task<capy::results<std::uint64_t>> co_connection::copy_out(
     const request& req,
     capy::any_write_sink sink,
     diagnostics* diag
@@ -932,7 +938,7 @@ capy::io_task<std::uint64_t> co_connection::copy_out(
     return detail::copy_out(*this, req, std::move(sink), diag);
 }
 
-capy::io_task<std::size_t> co_connection::write_some_copy_data_impl(
+capy::task<capy::results<std::size_t>> co_connection::write_some_copy_data_impl(
     exec_state& st,
     std::span<const capy::const_buffer> buffers
 )
@@ -940,12 +946,12 @@ capy::io_task<std::size_t> co_connection::write_some_copy_data_impl(
     return impl_->write_some_copy_data(detail::exec_state_access::get_impl(st), buffers);
 }
 
-capy::io_task<> co_connection::write_copy_done(exec_state& st)
+capy::task<capy::results<>> co_connection::write_copy_done(exec_state& st)
 {
     return impl_->write_copy_finished(detail::exec_state_access::get_impl(st), true, {});
 }
 
-capy::io_task<> co_connection::write_copy_fail(exec_state& st, std::string_view message)
+capy::task<capy::results<>> co_connection::write_copy_fail(exec_state& st, std::string_view message)
 {
     return impl_->write_copy_finished(detail::exec_state_access::get_impl(st), false, message);
 }

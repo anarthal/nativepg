@@ -333,55 +333,20 @@ capy::task<> test_get_connection_before_run()
     ));
 }
 
-// // Cancelling makes run() return, even with a connection still checked out
-// capy::task<> test_cancel_run()
-// {
-//     co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params()};
-//     std::stop_source cancel_pool;
+// Any get_connection happening after run() is cancelled fails
+capy::task<> test_get_connection_after_run_cancel()
+{
+    co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params()};
 
-//     // Declared after the pool so it's destroyed first: returning a connection
-//     // touches the node, which the pool owns
-//     pooled_connection held{};
+    // Run the pool but exit immediately
+    auto [ec] = co_await corosio::timeout(pool.run(), 1ms);
+    test_cond_eq(ec, capy::cond::timeout);
 
-//     static_cast<void>(co_await capy::when_all(
-//         [&]() -> capy::task<capy::results<>> {
-//             auto [ec] = co_await capy::run(cancel_pool.get_token())(pool.run());
-//             test_cond_eq(ec, capy::cond::canceled);
-//             co_return {};
-//         }(),
-
-//         [&]() -> capy::task<capy::results<>> {
-//             // Hold on to a connection while the pool is cancelled
-//             auto [ec, conn] = co_await pool.get_connection();
-//             if (check_success(ec) && BOOST_TEST(conn.valid()))
-//                 held = std::move(conn);
-//             cancel_pool.request_stop();
-//             co_return {};
-//         }()
-//     ));
-
-//     // Cancelling again does nothing
-//     cancel_pool.request_stop();
-// }
-
-// // If the pool is cancelled before run() is awaited, the cancellation still has effect
-// capy::task<> test_cancel_before_run()
-// {
-//     co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params()};
-//     std::stop_source cancel_pool;
-
-//     // Cancel before running
-//     cancel_pool.request_stop();
-
-//     // run() tears down whatever it created and returns
-//     auto [ec] = co_await capy::run(cancel_pool.get_token())(pool.run());
-//     test_cond_eq(ec, capy::cond::canceled);
-
-//     // The pool is cancelled, so requests fail
-//     auto [ec2, conn] = co_await pool.get_connection();
-//     test_cond_eq(ec2, capy::cond::canceled);
-//     BOOST_TEST_NOT(conn.valid());
-// }
+    // Subsequent get_connection's fail
+    auto [ec2, conn] = co_await pool.get_connection();
+    test_cond_eq(ec2, capy::cond::canceled);
+    BOOST_TEST_NOT(conn.valid());
+}
 
 // // Cancelling the pool makes outstanding get_connection requests fail,
 // // and further ones fail immediately
@@ -506,7 +471,7 @@ int main()
     run_coroutine_test(test_connection_upper_limit());
     run_coroutine_test(test_get_connection_before_run());
 
-    // run_coroutine_test(test_cancel_run());
+    run_coroutine_test(test_get_connection_after_run_cancel());
     // run_coroutine_test(test_cancel_before_run());
     // run_coroutine_test(test_cancel_get_connection());
     // run_coroutine_test(test_zero_timeouts());

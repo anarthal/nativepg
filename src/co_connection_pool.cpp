@@ -5,7 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 
 #include <memory>
 #include <utility>
@@ -26,9 +27,9 @@ co_connection_pool& co_connection_pool::operator=(co_connection_pool&&) noexcept
 
 co_connection_pool::~co_connection_pool() = default;
 
-boost::capy::io_task<> co_connection_pool::run() { return impl_->run(); }
+boost::capy::task<boost::capy::results<>> co_connection_pool::run() { return impl_->run(); }
 
-boost::capy::io_task<pooled_connection> co_connection_pool::get_connection()
+boost::capy::task<boost::capy::results<pooled_connection>> co_connection_pool::get_connection()
 {
     return impl_->get_connection();
 }

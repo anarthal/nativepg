@@ -10,8 +10,7 @@
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/run.hpp>
 #include <boost/capy/ex/this_coro.hpp>
-#include <boost/capy/io_result.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/core/lightweight_test.hpp>
@@ -208,13 +207,13 @@ capy::task<> test_connect_while_connect()
     // Recall that when_all launches things in order, so the first connect
     // is in-flight by the time the second one runs
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             diagnostics diag;
             check_success(co_await conn.connect(default_connect_params(), &diag), diag);
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             auto [ec] = co_await conn.connect(default_connect_params());
             BOOST_TEST_EQ(ec, std::error_code(client_errc::already_running));
             co_return {};
@@ -234,11 +233,11 @@ capy::task<> test_connect_while_shutdown()
 
     // Recall that when_all launches things in order
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             check_success(co_await conn.shutdown());
             co_return {};
         }(),
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             auto [ec] = co_await conn.connect(default_connect_params());
             BOOST_TEST_EQ(ec, make_error_code(client_errc::already_running));
             co_return {};

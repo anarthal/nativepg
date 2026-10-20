@@ -10,11 +10,11 @@
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/cond.hpp>
-#include <boost/capy/delay.hpp>
 #include <boost/capy/error.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/core/lightweight_test.hpp>
+#include <boost/corosio/delay.hpp>
 #include <boost/describe/class.hpp>
 #include <boost/describe/operators.hpp>
 
@@ -42,6 +42,7 @@
 // Covers co_connection::copy_in
 
 namespace capy = boost::capy;
+namespace corosio = boost::corosio;
 using namespace nativepg;
 using namespace nativepg::test;
 using namespace std::string_view_literals;
@@ -185,7 +186,7 @@ capy::task<> test_server_error_mid_copy()
             source_.provide("1\tone\n2\ttwo\tthree\n");  // Malformed row
         }
 
-        capy::io_task<std::span<capy::const_buffer>> pull(std::span<capy::const_buffer> dest)
+        capy::task<capy::results<std::span<capy::const_buffer>>> pull(std::span<capy::const_buffer> dest)
         {
             while (true)
             {
@@ -196,7 +197,7 @@ capy::task<> test_server_error_mid_copy()
 
                 // Sleep for a brief period of time, to return to the event loop.
                 // yield does not seem to work here
-                static_cast<void>(co_await capy::delay(1ms));
+                static_cast<void>(co_await corosio::delay(1ms));
 
                 // Replenish the data
                 source_.provide("more_data");
@@ -318,7 +319,7 @@ capy::task<> test_source_error()
     public:
         failing_source() { source_.provide("1\tone\n"); }
 
-        capy::io_task<std::span<capy::const_buffer>> pull(std::span<capy::const_buffer> dest)
+        capy::task<capy::results<std::span<capy::const_buffer>>> pull(std::span<capy::const_buffer> dest)
         {
             if (remaining_pulls_-- == 0)
                 co_return {source_error, {}};

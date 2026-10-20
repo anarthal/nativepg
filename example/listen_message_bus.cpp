@@ -6,15 +6,15 @@
 //
 
 #include <boost/capy/cond.hpp>
-#include <boost/capy/delay.hpp>
 #include <boost/capy/ex/run.hpp>
 #include <boost/capy/ex/run_async.hpp>
 #include <boost/capy/ex/this_coro.hpp>
 #include <boost/capy/task.hpp>
-#include <boost/capy/timeout.hpp>
 #include <boost/capy/when_any.hpp>
+#include <boost/corosio/delay.hpp>
 #include <boost/corosio/io_context.hpp>
 #include <boost/corosio/signal_set.hpp>
+#include <boost/corosio/timeout.hpp>
 
 #include <csignal>
 #include <iostream>
@@ -48,7 +48,7 @@ static void print_err(const char* prefix, std::error_code err, const diagnostics
     std::cout << '\n';
 }
 
-static capy::io_task<> read_notifications(co_connection& conn)
+static capy::task<capy::results<>> read_notifications(co_connection& conn)
 {
     // Re-used across iterations, so reading notifications doesn't allocate
     notification_vector notifications;
@@ -68,7 +68,7 @@ static capy::io_task<> read_notifications(co_connection& conn)
     }
 }
 
-static capy::io_task<> run_listener()
+static capy::task<capy::results<>> run_listener()
 {
     // Create a connection
     co_connection conn{co_await capy::this_coro::executor};
@@ -96,7 +96,7 @@ static capy::io_task<> run_listener()
 
             // Wait for some time before retrying.
             // Note: this will be a no-op if stop has already been requested.
-            static_cast<void>(co_await capy::delay(1s));
+            static_cast<void>(co_await corosio::delay(1s));
 
             // Try again
             continue;
@@ -122,14 +122,18 @@ static capy::io_task<> run_listener()
     // Closing the connection may require I/O, and we want it to happen even
     // if we were requested cancel, so we use run with an empty stop_token.
     // Set a timeout to avoid hanging indefinitely
-    static_cast<void>(co_await capy::run(std::stop_token())(capy::timeout(conn.shutdown(), 3s)));
+    // corosio::timeout produces a plain awaitable, while capy::run requires a
+    // ContextRunnable, so we wrap the awaitable in a task.
+    co_await capy::run(std::stop_token())([&conn]() -> capy::task<> {
+        static_cast<void>(co_await corosio::timeout(conn.shutdown(), 3s));
+    }());
 
     // Done
     co_return {};
 }
 
 // Waits for Ctrl+C (or SIGTERM)
-static capy::io_task<> wait_for_signals()
+static capy::task<capy::results<>> wait_for_signals()
 {
     corosio::signal_set signals{(co_await capy::this_coro::executor).context(), SIGINT, SIGTERM};
     auto [ec, signum] = co_await signals.wait();

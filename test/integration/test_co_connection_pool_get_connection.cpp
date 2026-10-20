@@ -406,6 +406,7 @@ capy::task<> test_cancel_get_connection()
         // Try to get a connection on a stopped source.
         // This might succeed if there are available connections (but there aren't at this point)
         std::stop_source src;
+        src.request_stop();
         auto [ec2, conn2] = co_await capy::run(src.get_token())(pool.get_connection());
         test_cond_eq(ec2, capy::cond::canceled);
         BOOST_TEST_NOT(conn2.valid());

@@ -7,6 +7,8 @@
 
 #include <boost/assert/source_location.hpp>
 #include <boost/capy/cond.hpp>
+#include <boost/capy/error.hpp>
+#include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/run.hpp>
 #include <boost/capy/ex/this_coro.hpp>
 #include <boost/capy/results.hpp>
@@ -333,6 +335,47 @@ capy::task<> test_get_connection_before_run()
     ));
 }
 
+// Any get_connection pending when run() is cancelled fails
+capy::task<> test_get_connection_during_run_cancel()
+{
+    co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params(1)};
+
+    std::stop_source run_stop_src;
+    capy::async_event finished;
+
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::task<capy::results<>> {
+            auto [ec] = co_await capy::run(run_stop_src.get_token())(pool.run());
+            test_cond_eq(ec, capy::cond::canceled);
+            co_return {};
+        }(),
+        [&]() -> capy::task<capy::results<>> {
+            // Get a connection
+            auto [ec, conn] = co_await pool.get_connection();
+            if (!check_success(ec) || !BOOST_TEST(conn.valid()))
+                co_return {};
+
+            // At this point, run is in-progress, and the other get_connection is waiting
+            // (because we hold the only connection). Cancel run
+            run_stop_src.request_stop();
+
+            // Keep hold of the connection, to ensure that the other task finishes by cancellation
+            check_success(co_await finished.wait());
+            co_return {};
+        }(),
+        [&]() -> capy::task<capy::results<>> {
+            // Try to get a connection. This should fail because run is canceled
+            auto [ec, conn] = co_await pool.get_connection();
+            test_cond_eq(ec, capy::cond::canceled);
+            BOOST_TEST_NOT(conn.valid());
+
+            // Inform other tasks that we're done
+            finished.set();
+            co_return {};
+        }()
+    ));
+}
+
 // Any get_connection happening after run() is cancelled fails
 capy::task<> test_get_connection_after_run_cancel()
 {
@@ -471,6 +514,7 @@ int main()
     run_coroutine_test(test_connection_upper_limit());
     run_coroutine_test(test_get_connection_before_run());
 
+    run_coroutine_test(test_get_connection_during_run_cancel());
     run_coroutine_test(test_get_connection_after_run_cancel());
     // run_coroutine_test(test_cancel_before_run());
     // run_coroutine_test(test_cancel_get_connection());

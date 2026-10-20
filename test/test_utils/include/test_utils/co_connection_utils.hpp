@@ -83,14 +83,11 @@ boost::capy::task<bool> check_connection_usable(
 std::string set_session_var_query(std::string_view value);
 
 // Sets the session variable, failing the test if the query errors
-inline boost::capy::task<bool> set_session_var(
+boost::capy::task<bool> set_session_var(
     co_connection& conn,
     std::string_view value,
     boost::source_location loc = BOOST_CURRENT_LOCATION
-)
-{
-    return checked_exec(conn, set_session_var_query(value), loc);
-}
+);
 
 // Reads the session variable back. Returns an empty optional if it was never set
 boost::capy::task<std::optional<std::string>> get_session_var(

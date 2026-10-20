@@ -134,6 +134,15 @@ std::string nativepg::test::set_session_var_query(std::string_view value)
     return std::string("SET ").append(session_var_name).append(" = '").append(value).append("'");
 }
 
+boost::capy::task<bool> nativepg::test::set_session_var(
+    co_connection& conn,
+    std::string_view value,
+    boost::source_location loc
+)
+{
+    co_return co_await checked_exec(conn, set_session_var_query(value), loc);
+}
+
 boost::capy::task<std::optional<std::string>> nativepg::test::get_session_var(
     co_connection& conn,
     boost::source_location loc

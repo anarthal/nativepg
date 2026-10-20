@@ -190,11 +190,13 @@ public:
             //   - Other tasks might 'steal' the connection that caused the notify while resume
             //   - The pool might shutdown while we resume
             //   - A shutdown notifies us, but doesn't cause an error.
-            if (auto [ec] = co_await shared_st_.idle_connections_cv.wait(); ec)
-                co_return {ec, pooled_connection()};
+            auto [ec] = co_await shared_st_.idle_connections_cv.wait();
 
             // Record that we're no longer pending
             exit_request_pending();
+
+            if (ec)
+                co_return {ec, pooled_connection()};
         }
     }
 };

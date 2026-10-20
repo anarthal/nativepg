@@ -10,7 +10,8 @@
 
 #include <boost/capy/concept/executor.hpp>
 #include <boost/capy/ex/execution_context.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 #include <boost/compat/function_ref.hpp>
 
 #include <chrono>
@@ -120,9 +121,9 @@ public:
 
     bool valid() const noexcept { return impl_.get() != nullptr; }
 
-    boost::capy::io_task<> run();
+    boost::capy::task<boost::capy::results<>> run();
 
-    boost::capy::io_task<pooled_connection> get_connection();
+    boost::capy::task<boost::capy::results<pooled_connection>> get_connection();
 };
 
 }  // namespace nativepg

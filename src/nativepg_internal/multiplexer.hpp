@@ -14,7 +14,7 @@
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/async_mutex.hpp>
 #include <boost/capy/io/any_stream.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/capy/when_any.hpp>
@@ -158,7 +158,7 @@ public:
 
     // Registers a task within the multiplexer and waits for the writer's turn.
     // The state and its request must be kept alive until the state is reset
-    boost::capy::io_task<> enter(exec_state_impl& exec_st)
+    boost::capy::task<boost::capy::results<>> enter(exec_state_impl& exec_st)
     {
         BOOST_ASSERT(!exec_st.is_linked());
 
@@ -232,13 +232,13 @@ public:
     };
 
     // TODO: do we want this as an awaitable instead?
-    boost::capy::io_task<receive_guard> enter_receive()
+    boost::capy::task<boost::capy::results<receive_guard>> enter_receive()
     {
         // Wait for our turn
         if (auto [ec] = co_await receive_evt_.wait(); ec)
-            co_return {ec, {}};
+            co_return {ec, receive_guard{}};
         if (stopped_)
-            co_return {boost::capy::error::canceled, {}};
+            co_return {boost::capy::error::canceled, receive_guard{}};
 
         // Reset the event, so further notifications aren't lost
         receive_evt_.clear();
@@ -248,7 +248,7 @@ public:
         receiver_reading_ = active_tasks_.empty();
 
         // Done
-        co_return {{}, receive_guard{*this}};
+        co_return {std::error_code(), receive_guard{*this}};
     }
 
     void notify_receiver() { receive_evt_.set(); }

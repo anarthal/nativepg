@@ -44,19 +44,19 @@ struct connection_state
     // Updates GUCs as required
     void update_tracked(const any_backend_message& msg);
 
-    void reset_gucs()
+    void reset_tracked()
     {
         standard_conforming_strings.reset();
         client_encoding.reset();
+        backend_process_id = {};
+        backend_secret_key = {};
     }
 
     void reset()
     {
         write_buffer.clear();
         read_buffer.reset();
-        backend_process_id = {};
-        backend_secret_key = {};
-        reset_gucs();
+        reset_tracked();
         // shared_diag are transient by nature
     }
 };

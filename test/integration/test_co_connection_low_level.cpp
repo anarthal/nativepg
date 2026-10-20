@@ -8,6 +8,7 @@
 #include <boost/capy/cond.hpp>
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/run.hpp>
+#include <boost/capy/ex/this_coro.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
@@ -1285,6 +1286,76 @@ capy::task<> test_read_already_done()
     co_await check_connection_usable(conn);
 }
 
+// write_request requires an established connection
+capy::task<> test_write_not_connected()
+{
+    // Setup
+    co_connection conn{co_await capy::this_coro::executor};
+
+    // Prepare
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+        co_return;
+
+    // Writing fails
+    auto [ec] = co_await conn.write_request(st);
+    BOOST_TEST_EQ(ec, std::error_code(client_errc::not_connected));
+    check_status(st, {.is_prepared = true, .write_phase = write_status::request, .reader_done = false});
+}
+
+// read_some_response requires an established connection
+capy::task<> test_read_not_connected()
+{
+    // Setup
+    co_connection conn{co_await capy::this_coro::executor};
+
+    // Prepare
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+        co_return;
+
+    // Reading fails fails
+    auto [ec] = co_await conn.read_some_response(st);
+    BOOST_TEST_EQ(ec, std::error_code(client_errc::not_connected));
+    check_status(st, {.is_prepared = true, .write_phase = write_status::request, .reader_done = false});
+}
+
+// read_some_request fails for abandoned states
+capy::task<> test_read_abandoned()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    check handler;
+
+    // Produce an abandoned state
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    if (!check_success(co_await conn.shutdown()))
+        co_return;
+    check_status(
+        st,
+        {.is_prepared = true, .write_phase = write_status::done, .reader_done = false, .is_abandoned = true}
+    );
+
+    // Reading fails
+    auto [ec] = co_await conn.read_some_response(st);
+    test_cond_eq(ec, capy::cond::canceled);
+}
+
 }  // namespace
 
 int main()
@@ -1321,6 +1392,9 @@ int main()
     run_coroutine_test(test_read_not_prepared());
     run_coroutine_test(test_read_already_running());
     run_coroutine_test(test_read_already_done());
+    run_coroutine_test(test_write_not_connected());
+    run_coroutine_test(test_read_not_connected());
+    run_coroutine_test(test_read_abandoned());
 
     return boost::report_errors();
 }

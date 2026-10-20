@@ -209,6 +209,7 @@ void nativepg::test::check_status(
     bool ok = BOOST_TEST_EQ(exec_st.is_prepared(), expected.is_prepared);
     ok &= BOOST_TEST_EQ(exec_st.write_phase(), expected.write_phase);
     ok &= BOOST_TEST_EQ(exec_st.read_done(), expected.reader_done);
+    ok &= BOOST_TEST_EQ(exec_st.is_abandoned(), expected.is_abandoned);
 
     if (!ok)
         std::cerr << "  Called from " << loc << std::endl;

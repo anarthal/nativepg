@@ -22,6 +22,7 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <system_error>
 
 #include "nativepg/capy-stub/io/any_buffer_source.hpp"
 #include "nativepg/capy-stub/io/any_write_sink.hpp"
@@ -38,10 +39,13 @@ namespace nativepg {
 class exec_state;
 class notification_vector;
 
+namespace detail {
+struct co_connection_impl;
+}
+
 class co_connection
 {
-    struct impl;
-    std::unique_ptr<impl> impl_;
+    std::unique_ptr<detail::co_connection_impl> impl_;
 
 public:
     explicit co_connection(boost::capy::execution_context& ctx);
@@ -58,11 +62,35 @@ public:
     co_connection& operator=(co_connection&&) noexcept;
     co_connection& operator=(const co_connection&) = delete;
 
+    // Destroys the connection. If any operation is in-flight, the behavior is undefined.
     ~co_connection();
 
+    // Establishes a connection to the server.
+    // After a successful completion, is_connected() == true, and last_error() is empty.
+    // After a completion with an error, is_connected() == false, and last_error() contains
+    //   the error that caused the failure.
+    // Can be called after shutdown(), to re-use the connection.
+    // Can be called after a fatal error has been encountered (and thus is_connected() == false),
+    //   even if shutdown() is not called first.
+    // Failure modes:
+    //   - If the connection is already established (is_connected() == true), fails with already_connected.
+    //   - If another connect() or a shutdown() is outstanding, fails with already_running.
     boost::capy::io_task<> connect(connect_params params, diagnostics* diag = nullptr);
 
-    // Closes the connection (PQfinish)
+    // Closes the connection (PQfinish).
+    // This is a coroutine because shutting down requires communication with the server
+    //   (sending a Terminate message, and invoking TLS shutdown, if applicable).
+    // The behavior depends on the connection's state:
+    //   - If it's established, no other operation is in-flight, and no exec_state
+    //     has been started but not finished, performs a clean shutdown: sends a Terminate
+    //     message and closes the underlying transport.
+    //   - Otherwise, it skips the Terminate message, and just closes the transport.
+    // Any in-flight operation finishes with an ec == capy::cond::canceled.
+    // exec_state's that haven't been run until completion are marked as abandoned,
+    //   with successive operations on them returning ec == capy::cond::canceled.
+    // If an error is encountered while attempting the clean shutdown, returns it.
+    // In any case, after this function completes, is_connected() == false,
+    //   and last_error() is empty.
     boost::capy::io_task<> shutdown();
 
     boost::capy::io_task<> exec(
@@ -87,6 +115,11 @@ public:
     // If at least one notification is read, returns a non-empty error code.
     //   If an error condition is detected after some notifications have been read,
     //   they are returned, and no error is reported.
+    // If notifications arrive during a session but are not read with receive(),
+    //   and then a re-connection happens (e.g. shutdown + connect),
+    //   cached notifications are discarded.
+    // Failure modes:
+    //   - If the connection hasn't been established, fails with not_connected.
     boost::capy::io_task<> receive(notification_vector& output);
 
     // Runs a request containing a single COPY ... FROM STDIN, feeding the server
@@ -110,6 +143,7 @@ public:
     //   - If source fails, the transfer is aborted by sending a CopyFail containing
     //     the error's message, and the error reported by source is returned.
     //     The connection is left usable.
+    //   - If the connection hasn't been established, fails with not_connected.
     //   - If the transport fails, the relevant error is returned. The connection
     //     is left in an unspecified state and should be closed.
     // Cancelling this operation leaves the connection in an unusable state.
@@ -143,6 +177,7 @@ public:
     //     immediately. The connection is left usable, but may experience delays,
     //     as any data produced by the Copy-out operation needs to be discarded.
     //     This is performed lazily, when the next operation is executed.
+    //   - If the connection hasn't been established, fails with not_connected.
     //   - If the transport fails, the relevant error is returned. The connection
     //     is left in an unspecified state and should be closed.
     //   - Cancelling this operation leaves the connection usable.
@@ -184,11 +219,15 @@ public:
     // If this function finishes with an error, the number of transferred bytes
     //   is stored internally within st. Subsequent write_request calls are allowed.
     //   This allows to resume writing after a cancellation, for example.
-    // Only one writer function (write_request, write_some_copy_data, write_copy_done or
-    //   write_copy_fail) for a given exec_state may be in-flight at a time.
-    //   Attempting to launch another fails with client_errc::already_running.
-    // Requires st.is_prepared() && st.write_phase() == write_status::request.
-    //   Otherwise, finishes with client_errc::invalid_state.
+    // Failure modes:
+    //   - Only one writer function (write_request, write_some_copy_data, write_copy_done or
+    //     write_copy_fail) for a given exec_state may be in-flight at a time.
+    //     Attempting to launch another fails with client_errc::already_running.
+    //   - Requires st.is_prepared() && st.write_phase() == write_status::request.
+    //     Otherwise, finishes with client_errc::invalid_state.
+    //   - If the connection hasn't been established, fails with not_connected.
+    //   - If the exec_state has been abandoned (e.g. because the connection died),
+    //     fails with ec == capy::cond::canceled.
     boost::capy::io_task<> write_request(exec_state& st);
 
     // Reads part of the response generated by the server and invokes the response handler.
@@ -199,14 +238,18 @@ public:
     // If this function finishes with an error (including one matching capy::cond::canceled),
     //   you might call this function again to try to make more progress. The exec_state is updated
     //   as required to track progress.
-    // Only one instance of read_some_response for a given exec_state is allowed
-    //   to be in-flight at a time. Attempting to launch another fails with client_errc::already_running.
-    // Requires st.is_prepared() && !st.read_done().
-    //   Otherwise, finishes with client_errc::invalid_state.
     // This function is fully independent from the writer functions. You are responsible
     //   for calling write_request(), write_some_copy_data(), write_copy_done() or write_copy_fail()
     //   until st.write_phase() == write_status::done.
     //   A failure in any of the writer functions won't cancel read_some_response(), to allow re-trying.
+    // Failure modes:
+    //   - Only one instance of read_some_response for a given exec_state is allowed
+    //     to be in-flight at a time. Attempting to launch another fails with client_errc::already_running.
+    //   - Requires st.is_prepared() && !st.read_done().
+    //     Otherwise, finishes with client_errc::invalid_state.
+    //   - If the connection hasn't been established, fails with not_connected.
+    //   - If the exec_state has been abandoned (e.g. because the connection died),
+    //     fails with ec == capy::cond::canceled.
     boost::capy::io_task<> read_some_response(exec_state& st);
 
     // Sends the contents of buffers to the server as copy data.
@@ -217,19 +260,22 @@ public:
     //   (framing overhead not included).
     //   As with WriteStream::write_some(), this may be less than buffer_size(buffers) even on
     //   success, so call this function repeatedly until the entire sequence has been consumed.
-    // If this function finishes with an error, it may be called again to try to resume the
-    //   transfer. This is useful in the presence of cancellations and timeouts.
+    // If this function finishes with an ec == capy::cond::canceled,
+    //   it may be called again to try to resume the transfer.
     // Once buffers have been handed to this function, they need to be fully written
     //   (by repeatedly calling write_some_copy_data) before the transfer can be finished
     //   with write_copy_done or write_copy_fail. In other words, you cannot "withdraw"
     //   bytes that were handed to this function, even if they were not reported as written.
     //   This is because CopyData messages have a length prefix, written before anything else.
-    //   Alternatively, you can abandon the exec_state and re-open the connection.
-    // Only one writer function (write_request, write_some_copy_data, write_copy_done or
-    //   write_copy_fail) for a given exec_state may be in-flight at a time.
-    //   Attempting to launch another fails with client_errc::already_running.
-    // Requires st.write_phase() == write_status::copy_data.
-    //   Otherwise, finishes with client_errc::invalid_state.
+    //   Alternatively, you can reset() or destroy the exec_state and re-open the connection.
+    // Failure modes:
+    //   - Only one writer function (write_request, write_some_copy_data, write_copy_done or
+    //     write_copy_fail) for a given exec_state may be in-flight at a time.
+    //     Attempting to launch another fails with client_errc::already_running.
+    //   - Requires st.write_phase() == write_status::copy_data.
+    //     Otherwise, finishes with client_errc::invalid_state.
+    //   - If the exec_state has been abandoned (e.g. because the connection died),
+    //     fails with ec == capy::cond::canceled.
     template <boost::capy::ConstBufferSequence ConstBufferSeq>
     boost::capy::io_task<std::size_t> write_some_copy_data(exec_state& st, ConstBufferSeq buffers)
     {
@@ -248,15 +294,18 @@ public:
     // If this function finishes with an error, the terminator may have been written partially.
     //   Retrying is not supported: the connection should be considered unusable.
     // If the server detects an error in the data (e.g. a row with an invalid format),
-    //   it will send an error that can be read with read_some_messages.
+    //   it will send an error that can be read with read_some_response.
     //   You should still call write_copy_done or write_copy_fail to terminate the copy
     //   operation, even after reading the error, as this function performs
     //   protocol-level bookkeeping required to keep the connection in sync.
-    // Only one writer function (write_request, write_some_copy_data, write_copy_done or
-    //   write_copy_fail) for a given exec_state may be in-flight at a time.
-    //   Attempting to launch another fails with client_errc::already_running.
-    // Requires st.write_phase() == write_status::copy_data.
-    //   Otherwise, finishes with client_errc::invalid_state.
+    // Failure modes:
+    //   - Only one writer function (write_request, write_some_copy_data, write_copy_done or
+    //     write_copy_fail) for a given exec_state may be in-flight at a time.
+    //     Attempting to launch another fails with client_errc::already_running.
+    //   - Requires st.write_phase() == write_status::copy_data.
+    //     Otherwise, finishes with client_errc::invalid_state.
+    //   - If the exec_state has been abandoned (e.g. because the connection died),
+    //     fails with ec == capy::cond::canceled.
     boost::capy::io_task<> write_copy_done(exec_state& st);
 
     // Aborts the copy, making the server discard everything we sent for it (CopyFail).
@@ -268,30 +317,46 @@ public:
     //   Otherwise, finishes with client_errc::copy_incomplete_transfer, and the copy may
     //   still be completed by sending the missing bytes.
     // If the server detects an error in the data (e.g. a row with an invalid format),
-    //   it will send an error that can be read with read_some_messages.
+    //   it will send an error that can be read with read_some_response.
     //   You should still call write_copy_done or write_copy_fail to terminate the copy
     //   operation, even after reading the error, as this function performs
     //   protocol-level bookkeeping required to keep the connection in sync.
     // If this function finishes with an error, the terminator may have been written partially.
     //   Retrying is not supported: the connection should be considered unusable.
-    // Only one writer function (write_request, write_some_copy_data, write_copy_done or
-    //   write_copy_fail) for a given exec_state may be in-flight at a time.
-    //   Attempting to launch another fails with client_errc::already_running.
-    // Requires st.write_phase() == write_status::copy_data.
-    //   Otherwise, finishes with client_errc::invalid_state.
+    // Failure modes:
+    //   - Only one writer function (write_request, write_some_copy_data, write_copy_done or
+    //     write_copy_fail) for a given exec_state may be in-flight at a time.
+    //     Attempting to launch another fails with client_errc::already_running.
+    //   - Requires st.write_phase() == write_status::copy_data.
+    //     Otherwise, finishes with client_errc::invalid_state.
+    //   - If the exec_state has been abandoned (e.g. because the connection died),
+    //     fails with ec == capy::cond::canceled.
     boost::capy::io_task<> write_copy_fail(exec_state& st, std::string_view error_message);
 
-    // Reads until there is at least one message in the read buffer.
-    // Access messages with state().read_buffer
-    boost::capy::io_task<> read_some_messages();
+    // Is the connection established? Returns true after
+    // a successful call to connect() completes,
+    // and until one of the following happens:
+    //   - shutdown() initiates
+    //   - One of the functions requiring server interaction (e.g. exec(), receive())
+    //     detects a fatal error (e.g. network failure, protocol violation).
+    bool is_connected() const noexcept;
 
-    // TODO: I don't like this
-    boost::capy::any_stream& stream();
-    protocol::connection_state& state();
+    // Returns the last error encountered by the connection.
+    //   - After a call to connect() completes with a failure, returns its error
+    //   - After a successful connect() completes, returns empty
+    //   - After shutdown() is initiated, returns empty
+    //   - After any other function that requires server interaction encounters
+    //     a fatal error, returns the encountered error.
+    // TODO: make this const extended_error&
+    std::error_code last_error() const noexcept;
 
     // Values reported via ParameterStatus
     std::optional<bool> standard_conforming_strings() const;
     std::optional<encoding> client_encoding() const;
+
+    // TODO: this should be removed but is now used within the tests.
+    //   Remove once we have accessors for backend PID
+    protocol::connection_state& state();
 
 private:
     boost::capy::io_task<std::size_t> write_some_copy_data_impl(

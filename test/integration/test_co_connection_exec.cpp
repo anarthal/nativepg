@@ -11,6 +11,7 @@
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/immediate.hpp>
 #include <boost/capy/ex/run.hpp>
+#include <boost/capy/ex/this_coro.hpp>
 #include <boost/capy/io_task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/core/lightweight_test.hpp>
@@ -39,6 +40,7 @@
 #include "test_utils/test_cond_eq.hpp"
 #include "test_utils/test_opt_eq.hpp"
 #include "test_utils/test_range_eq.hpp"
+#include "test_utils/yield.hpp"
 
 namespace capy = boost::capy;
 using namespace nativepg;
@@ -592,6 +594,97 @@ capy::task<> test_cancel_while_waiting_middle()
     co_await check_connection_usable(conn);
 }
 
+// exec() requires an established connection
+capy::task<> test_not_connected()
+{
+    // Setup
+    co_connection conn{co_await capy::this_coro::executor};
+    BOOST_TEST_NOT(conn.is_connected());
+
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    std::vector<row_int> ints;
+
+    // The request never reaches the network
+    diagnostics diag;
+    auto [ec] = co_await conn.exec(req, into(ints), &diag);
+    BOOST_TEST_EQ(ec, std::error_code(client_errc::not_connected));
+    BOOST_TEST_EQ(diag, diagnostics());
+    test_range_eq(ints, std::vector<row_int>{});
+}
+
+// A shutdown() interrupts any exec() that is in flight
+capy::task<> test_shutdown_interrupts_exec()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    // A request that can't complete by its own
+    request req;
+    req.add_query("SELECT pg_sleep(9999)");
+
+    // Recall that when_all launches things in order
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::io_task<> {
+            // Blocked forever
+            auto [ec] = co_await conn.exec(req, check());
+            test_cond_eq(ec, capy::cond::canceled);
+            co_return {};
+        }(),
+        [&]() -> capy::io_task<> {
+            // Starts once the exec is in flight
+            co_await yield();
+            check_success(co_await conn.shutdown());
+            co_return {};
+        }()
+    ));
+
+    // The connection is down
+    BOOST_TEST_NOT(conn.is_connected());
+}
+
+// Regression check: shutdown() with several pending exec()'s is OK
+capy::task<> test_shutdown_interrupts_several_execs()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    // A request that can't complete by its own
+    request req;
+    req.add_query("SELECT pg_sleep(9999)");
+
+    // None of the requests will complete until shutdown() arrives
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::io_task<> {
+            // The request is blocked forever
+            auto [ec] = co_await conn.exec(req, check());
+            test_cond_eq(ec, capy::cond::canceled);
+            co_return {};
+        }(),
+        [&]() -> capy::io_task<> {
+            // Blocked after the first one
+            auto [ec] = co_await conn.exec(req, check());
+            test_cond_eq(ec, capy::cond::canceled);
+            co_return {};
+        }(),
+        [&]() -> capy::io_task<> {
+            // Blocked after the first one
+            auto [ec] = co_await conn.exec(req, check());
+            test_cond_eq(ec, capy::cond::canceled);
+            co_return {};
+        }(),
+        [&]() -> capy::io_task<> {
+            // Starts once the exec is in flight
+            co_await yield();
+            check_success(co_await conn.shutdown());
+            co_return {};
+        }()
+    ));
+
+    // The connection is down
+    BOOST_TEST_NOT(conn.is_connected());
+}
+
 }  // namespace
 
 int main()
@@ -600,14 +693,20 @@ int main()
     run_coroutine_test(test_gucs());
     run_coroutine_test(test_multiplexing_2());
     run_coroutine_test(test_multiplexing_3());
+
     run_coroutine_test(test_handler_error());
     run_coroutine_test(test_setup_request_error());
+
     run_coroutine_test(test_cancel_single());
     run_coroutine_test(test_cancel_partial_response());
     run_coroutine_test(test_cancel_single_with_queued());
     run_coroutine_test(test_cancel_partial_response_with_queued());
     run_coroutine_test(test_cancel_while_waiting());
     run_coroutine_test(test_cancel_while_waiting_middle());
+
+    run_coroutine_test(test_not_connected());
+    run_coroutine_test(test_shutdown_interrupts_exec());
+    run_coroutine_test(test_shutdown_interrupts_several_execs());
 
     return boost::report_errors();
 }

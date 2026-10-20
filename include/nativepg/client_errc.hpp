@@ -152,9 +152,20 @@ enum class client_errc : int
     // Specify exclusivity::exclusive in prepare_request
     requires_exclusive,
 
-    // write_copy_done() was called with an incomplete transfer
-    // Call write_some_data() until all the supplied bytes are transferred
+    // An operation that triggered Copy-in hasn't been properly completed.
+    // Might happen if write_copy_done() is called before all bytes passed to
+    //   write_some_data() are transferred, in the presence of partial writes.
+    // Or if an operation that triggers Copy-in is abandoned before completion.
     copy_incomplete_transfer,
+
+    // The operation requires an established connection.
+    // Call connect() before invoking this function.
+    // Can happen after a fatal error is encountered by the connection.
+    not_connected,
+
+    // The connection is already connected.
+    // Don't call connect() on an established connection.
+    already_connected,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

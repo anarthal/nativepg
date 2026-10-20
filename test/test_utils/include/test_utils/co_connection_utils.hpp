@@ -10,6 +10,8 @@
 
 #include <boost/capy/task.hpp>
 
+#include <optional>
+#include <string>
 #include <string_view>
 
 #include "nativepg/co_connection.hpp"
@@ -68,7 +70,27 @@ inline boost::capy::task<bool> checked_exec(
 }
 
 // Runs a plain request and checks it produces its own response (detects de-syncs)
-boost::capy::task<void> check_connection_usable(
+boost::capy::task<bool> check_connection_usable(
+    co_connection& conn,
+    boost::source_location loc = BOOST_CURRENT_LOCATION
+);
+
+// Postgres accepts settings under an arbitrary prefix, and keeps them for as long
+// as the session lives. We use them to mark sessions.
+
+// The SQL that set_session_var runs. Exposed for tests that need to drive the
+// request themselves, rather than just executing it
+std::string set_session_var_query(std::string_view value);
+
+// Sets the session variable, failing the test if the query errors
+boost::capy::task<bool> set_session_var(
+    co_connection& conn,
+    std::string_view value,
+    boost::source_location loc = BOOST_CURRENT_LOCATION
+);
+
+// Reads the session variable back. Returns an empty optional if it was never set
+boost::capy::task<std::optional<std::string>> get_session_var(
     co_connection& conn,
     boost::source_location loc = BOOST_CURRENT_LOCATION
 );

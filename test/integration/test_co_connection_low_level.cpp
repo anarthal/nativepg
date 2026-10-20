@@ -18,6 +18,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -862,12 +863,8 @@ capy::task<> test_reset_prepared()
 
     // Setting a session-scoped variable leaves a trace we can look for
     request req;
-    req.add_query("SET SESSION nativepg.query_run = 'yes'");
+    req.add_query(set_session_var_query("yes"));
     check handler;
-
-    // current_setting will return NULL if the variable is not there
-    request req_check;
-    req_check.add_query("SELECT coalesce(current_setting('nativepg.query_run', true), 'no') AS value");
 
     exec_state st;
     if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
@@ -878,10 +875,7 @@ capy::task<> test_reset_prepared()
     check_status(st, {.is_prepared = false, .write_phase = write_status::request, .reader_done = false});
 
     // The statement never made it to the server, so the variable isn't there
-    std::vector<row_string> rows;
-    if (!co_await checked_exec(conn, req_check, into(rows)))
-        co_return;
-    test_range_eq(rows, std::vector<row_string>{{.value = "no"}});
+    test_opt_eq(co_await get_session_var(conn), std::nullopt);
 }
 
 // Resetting after writing, without reading anything, leaves a response that

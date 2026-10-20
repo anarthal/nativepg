@@ -43,7 +43,7 @@ struct pool_params
 
 class pooled_connection
 {
-    detail::connection_node* node_;
+    detail::connection_node* node_{};
 
     pooled_connection(detail::connection_node& node) noexcept : node_(&node) {}
 

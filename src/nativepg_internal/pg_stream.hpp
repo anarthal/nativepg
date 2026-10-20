@@ -10,7 +10,8 @@
 
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/ex/execution_context.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 #include <boost/corosio/connect.hpp>
 #include <boost/corosio/resolver.hpp>
 #include <boost/corosio/socket_option.hpp>
@@ -43,7 +44,7 @@ public:
         return sock_.read_some(std::forward<Buffers>(buffs));
     }
 
-    boost::capy::io_task<> connect(const connect_params& params)
+    boost::capy::task<boost::capy::results<>> connect(const connect_params& params)
     {
         auto [ec, endpoints] = co_await resolv_.resolve(params.hostname, std::to_string(params.port));
         if (ec)

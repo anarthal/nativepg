@@ -69,54 +69,7 @@ pool_params create_pool_params(std::size_t max_size = 151)
     };
 }
 
-// --- Running a pool in the background ---
-
-// The pool has no cancel() function: run() keeps going until its stop token
-// fires. Requesting the stop from a destructor means that a body that bails
-// out early (or throws) still lets run() - and thus the test - finish.
-struct stop_on_exit
-{
-    std::stop_source* src;
-    ~stop_on_exit() { src->request_stop(); }
-};
-
-enum class start_order
-{
-    // The usual case: the pool is already running when the body starts
-    run_first,
-
-    // The body gets to issue its requests before run() starts
-    body_first,
-};
-
-// Runs body(pool) with pool.run() active in the background, then cancels the
-// pool and waits for run() to finish. body must return capy::task<>.
-template <class BodyFn>
-capy::task<> with_pool(pool_params params, BodyFn body, start_order order = start_order::run_first)
-{
-    co_connection_pool pool{co_await capy::this_coro::executor, std::move(params)};
-    std::stop_source cancel_pool;
-
-    auto run_pool = [&]() -> capy::task<capy::results<>> {
-        // run() reports the cancellation that terminated it
-        auto [ec] = co_await capy::run(cancel_pool.get_token())(pool.run());
-        test_cond_eq(ec, capy::cond::canceled);
-        co_return {};
-    };
-
-    auto run_body = [&]() -> capy::task<capy::results<>> {
-        stop_on_exit guard{&cancel_pool};
-        co_await body(pool);
-        co_return {};
-    };
-
-    // Recall that when_all launches its children in order
-    if (order == start_order::run_first)
-        static_cast<void>(co_await capy::when_all(run_pool(), run_body()));
-    else
-        static_cast<void>(co_await capy::when_all(run_body(), run_pool()));
-}
-
+// Utility to run a test that requires a running pool
 capy::task<> with_pool_running(co_connection_pool& pool, capy::task<> body)
 {
     static_cast<void>(co_await capy::when_any(
@@ -127,6 +80,7 @@ capy::task<> with_pool_running(co_connection_pool& pool, capy::task<> body)
             co_return {};
         }(),
         [&]() -> capy::task<capy::results<>> {
+            // Run the test
             co_await std::move(body);
             co_return {};
         }()
@@ -134,11 +88,6 @@ capy::task<> with_pool_running(co_connection_pool& pool, capy::task<> body)
 }
 
 // --- Telling connections apart and inspecting session state ---
-
-// Every backend serving us has a distinct process id, which the connection
-// learns during startup. It's the cheapest way to check whether two
-// pooled_connection's are backed by the same session.
-std::int32_t backend_pid(pooled_connection& conn) { return conn.get().state().backend_process_id; }
 
 // Postgres accepts arbitrary settings under a prefix, so we can leave a mark
 // on a session and look for it after the connection has gone back to the pool
@@ -283,9 +232,9 @@ capy::task<> test_connections_created_if_requests_gt_pending()
             co_return;
 
         // They should be different connections
-        BOOST_TEST_NE(backend_pid(conn1), backend_pid(conn2));
-        BOOST_TEST_NE(backend_pid(conn1), backend_pid(conn3));
-        BOOST_TEST_NE(backend_pid(conn2), backend_pid(conn3));
+        BOOST_TEST_NE(conn1->state().backend_process_id, conn2->state().backend_process_id);
+        BOOST_TEST_NE(conn1->state().backend_process_id, conn3->state().backend_process_id);
+        BOOST_TEST_NE(conn2->state().backend_process_id, conn3->state().backend_process_id);
     }());
 }
 
@@ -323,7 +272,7 @@ capy::task<> test_get_connection_before_run()
                 co_return {};
 
             // They're different connections
-            BOOST_TEST_NE(backend_pid(conn1), backend_pid(conn2));
+            BOOST_TEST_NE(conn1->state().backend_process_id, conn2->state().backend_process_id);
             co_return {};
         }(),
         [&]() -> capy::task<capy::results<>> {

@@ -68,7 +68,7 @@ inline boost::capy::task<bool> checked_exec(
 }
 
 // Runs a plain request and checks it produces its own response (detects de-syncs)
-boost::capy::task<void> check_connection_usable(
+boost::capy::task<bool> check_connection_usable(
     co_connection& conn,
     boost::source_location loc = BOOST_CURRENT_LOCATION
 );

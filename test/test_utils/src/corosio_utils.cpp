@@ -102,7 +102,7 @@ boost::capy::task<bool> nativepg::test::checked_exec(
     co_return check_success(ec, diag, loc);
 }
 
-boost::capy::task<void> nativepg::test::check_connection_usable(
+boost::capy::task<bool> nativepg::test::check_connection_usable(
     co_connection& conn,
     boost::source_location loc
 )
@@ -110,6 +110,7 @@ boost::capy::task<void> nativepg::test::check_connection_usable(
     request req;
     req.add_query("SELECT $1 AS value", 1234);
     std::vector<row_int> ints;
-    if (co_await checked_exec(conn, req, into(ints), loc))
-        test_range_eq(ints, std::vector<row_int>{{.value = 1234}}, loc);
+    if (!co_await checked_exec(conn, req, into(ints), loc))
+        co_return false;
+    co_return test_range_eq(ints, std::vector<row_int>{{.value = 1234}}, loc);
 }

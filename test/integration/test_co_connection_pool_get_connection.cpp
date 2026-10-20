@@ -450,44 +450,43 @@ capy::task<> test_cancel_get_connection()
     }());
 }
 
-// // Spotcheck: constructing a pool with invalid params throws
-// capy::task<> test_invalid_params()
-// {
-//     auto ex = co_await capy::this_coro::executor;
+// Spotcheck: constructing a pool with invalid params throws
+capy::task<> test_invalid_params()
+{
+    auto ex = co_await capy::this_coro::executor;
 
-//     auto check_throws = [ex](pool_params params, std::string_view expected_msg) {
-//         try
-//         {
-//             static_cast<void>(co_connection_pool(ex, std::move(params)));
-//             BOOST_ERROR("Expected std::invalid_argument, but no exception was thrown");
-//         }
-//         catch (const std::invalid_argument& exc)
-//         {
-//             test_string_contains(exc.what(), expected_msg);
-//         }
-//     };
+    auto check_throws = [ex](pool_params params, std::string_view expected_msg) {
+        try
+        {
+            static_cast<void>(co_connection_pool(ex, std::move(params)));
+            BOOST_ERROR("Expected std::invalid_argument, but no exception was thrown");
+        }
+        catch (const std::invalid_argument& exc)
+        {
+            test_string_contains(exc.what(), expected_msg);
+        }
+    };
 
-//     check_throws({.transport = {}, .max_size = 0}, "pool_params::max_size must be greater than zero");
-//     check_throws(
-//         {.transport = {}, .initial_size = 4, .max_size = 2},
-//         "pool_params::max_size must be greater than pool_params::initial_size"
-//     );
-//     check_throws(
-//         {.transport = {}, .connect_timeout = -1s},
-//         "pool_params::connect_timeout must not be negative"
-//     );
-//     check_throws(
-//         {.transport = {}, .retry_interval = 0s},
-//         "pool_params::retry_interval must be greater than zero"
-//     );
-//     check_throws(
-//         {.transport = {}, .retry_interval = -1s},
-//         "pool_params::retry_interval must be greater than zero"
-//     );
-//     check_throws({.transport = {}, .ping_interval = -1s}, "pool_params::ping_interval must not be
-//     negative"); check_throws({.transport = {}, .ping_timeout = -1s}, "pool_params::ping_timeout must not be
-//     negative");
-// }
+    check_throws({.transport = {}, .max_size = 0}, "pool_params::max_size must be greater than zero");
+    check_throws(
+        {.transport = {}, .initial_size = 4, .max_size = 2},
+        "pool_params::max_size must be greater than pool_params::initial_size"
+    );
+    check_throws(
+        {.transport = {}, .connect_timeout = -1s},
+        "pool_params::connect_timeout must not be negative"
+    );
+    check_throws(
+        {.transport = {}, .retry_interval = 0s},
+        "pool_params::retry_interval must be greater than zero"
+    );
+    check_throws(
+        {.transport = {}, .retry_interval = -1s},
+        "pool_params::retry_interval must be greater than zero"
+    );
+    check_throws({.transport = {}, .ping_interval = -1s}, "pool_params::ping_interval must not be negative");
+    check_throws({.transport = {}, .ping_timeout = -1s}, "pool_params::ping_timeout must not be negative");
+}
 
 }  // namespace
 
@@ -504,7 +503,7 @@ int main()
     run_coroutine_test(test_get_connection_during_run_cancel());
     run_coroutine_test(test_get_connection_after_run_cancel());
     run_coroutine_test(test_cancel_get_connection());
-    // run_coroutine_test(test_invalid_params());
+    run_coroutine_test(test_invalid_params());
 
     return boost::report_errors();
 }

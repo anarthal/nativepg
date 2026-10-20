@@ -46,8 +46,7 @@ target_include_directories(nativepg PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 if (NATIVEPG_COROSIO_API)
     add_library(nativepg_corosio
         src/co_connection.cpp
-        # TODO: bring this back once we have async_condition
-        # src/co_connection_pool.cpp 
+        src/co_connection_pool.cpp 
     )
     target_link_libraries(nativepg_corosio PUBLIC
         nativepg

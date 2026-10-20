@@ -8,6 +8,7 @@
 #ifndef NATIVEPG_CONNECTION_NODE_HPP
 #define NATIVEPG_CONNECTION_NODE_HPP
 
+#include <boost/capy/ex/async_condition.hpp>
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/ex/this_coro.hpp>
@@ -15,7 +16,6 @@
 #include <boost/capy/task.hpp>
 #include <boost/corosio/delay.hpp>
 #include <boost/corosio/timeout.hpp>
-#include <boost/corosio/timer.hpp>
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive/list_hook.hpp>
 
@@ -23,6 +23,7 @@
 #include <system_error>
 #include <utility>
 
+#include "nativepg/capy-stub/ex/async_condition.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_connection_pool.hpp"
 #include "nativepg/protocol/sync.hpp"
@@ -41,7 +42,7 @@ struct conn_shared_state
     boost::intrusive::list<Node> idle_list;
 
     // Condition variable to wait for idle connections
-    boost::corosio::timer idle_connections_cv;  // TODO: this is not the best primitive
+    boost::capy::async_condition idle_connections_cv;
 
     // The number of pending connections (currently getting ready).
     // Required to compute how many connections we should create at any given point in time.
@@ -64,10 +65,6 @@ struct conn_shared_state
         if (--num_running_connections == 0u)
             conns_finished_cv.set();
     }
-    explicit conn_shared_state(boost::capy::execution_context& ctx)
-        : idle_connections_cv(ctx, (std::chrono::steady_clock::time_point::max)())
-    {
-    }
 };
 
 // The templated type is never exposed to the user. We template
@@ -87,7 +84,7 @@ class connection_node : public boost::intrusive::list_base_hook<>,
     void entering_idle()
     {
         shared_st_->idle_list.push_back(*this);
-        shared_st_->idle_connections_cv.cancel_one();
+        shared_st_->idle_connections_cv.notify_one();
     }
     void exiting_idle() { shared_st_->idle_list.erase(shared_st_->idle_list.iterator_to(*this)); }
     void entering_pending() { ++shared_st_->num_pending_connections; }

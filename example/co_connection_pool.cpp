@@ -31,10 +31,9 @@
 
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <boost/capy/ex/run_async.hpp>
-#include <boost/capy/io_task.hpp>
 #include <boost/capy/read.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
-#include <boost/capy/timeout.hpp>
 #include <boost/capy/write.hpp>
 #include <boost/corosio/endpoint.hpp>
 #include <boost/corosio/io_context.hpp>
@@ -42,6 +41,7 @@
 #include <boost/corosio/signal_set.hpp>
 #include <boost/corosio/tcp_server.hpp>
 #include <boost/corosio/tcp_socket.hpp>
+#include <boost/corosio/timeout.hpp>
 #include <boost/describe/class.hpp>
 #include <boost/endian/conversion.hpp>
 
@@ -75,11 +75,14 @@ BOOST_DESCRIBE_STRUCT(employee, (), (first_name, last_name))
 
 // Encapsulates the database access logic.
 // Given an employee_id, retrieves the employee details to be sent to the client.
-static capy::io_task<std::string> get_employee_details(co_connection_pool& pool, std::int64_t employee_id)
+static capy::task<capy::results<std::string>> get_employee_details(
+    co_connection_pool& pool,
+    std::int64_t employee_id
+)
 {
     // Get a connection from the pool, with a timeout. pooled_connection grants
     // exclusive access to the connection until destroyed.
-    auto [ec_get, pconn] = co_await capy::timeout(pool.get_connection(), 20s);
+    auto [ec_get, pconn] = co_await corosio::timeout(pool.get_connection(), 20s);
     if (ec_get)
         co_return {ec_get, {}};
 
@@ -94,8 +97,8 @@ static capy::io_task<std::string> get_employee_details(co_connection_pool& pool,
         co_return {ec_exec, {}};
 
     if (rows.empty())
-        co_return {{}, std::string{"NOT_FOUND"}};
-    co_return {{}, rows[0].first_name + ' ' + rows[0].last_name};
+        co_return {std::error_code(), std::string{"NOT_FOUND"}};
+    co_return {std::error_code(), rows[0].first_name + ' ' + rows[0].last_name};
 }
 
 // Handles a session

@@ -827,6 +827,8 @@ struct detail::co_connection_impl
             auto [ec, bytes] = co_await stream_.read_some(capy::make_buffer(st.read_buffer.prepared_area()));
 
             // Check for errors
+            // TODO: we are discarding the read bytes unconditionally on error.
+            // The bytes might contain a more useful explanation on what failed (i.e. an ErrorMessage)
             if (ec)
             {
                 if (is_fatal(ec))

@@ -28,8 +28,8 @@
 #include <boost/capy/buffers/buffer_copy.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <coroutine>
-#include <boost/capy/ex/io_env.hpp>
-#include <boost/capy/io_result.hpp>
+#include <boost/capy/ex/await_context.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/capy/error.hpp>
 #include <boost/capy/test/fuse.hpp>
 
@@ -190,25 +190,25 @@ public:
             bool await_ready() const noexcept { return false; }
 
             // The operation completes synchronously, but await_suspend is
-            // the only place io_env is delivered (the promise's
+            // the only place await_context is delivered (the promise's
             // transform_awaiter forwards it here). Returning false means
             // the coroutine does not actually suspend; it resumes
-            // immediately, having observed the stop token. See io_env,
-            // IoAwaitable.
+            // immediately, having observed the stop token. See await_context,
+            // ContextAwaitable.
             bool
             await_suspend(
                 std::coroutine_handle<>,
-                io_env const* env) noexcept
+                await_context const* env) noexcept
             {
                 canceled_ = env->stop_token.stop_requested();
                 return false;
             }
 
-            io_result<std::size_t>
+            results<std::size_t>
             await_resume()
             {
                 if(buffer_empty(buffers_))
-                    return {{}, 0};
+                    return {std::error_code(), 0};
 
                 if(canceled_)
                     return {error::canceled, 0};
@@ -232,7 +232,7 @@ public:
                     return {ec, 0};
                 }
 
-                return {{}, n};
+                return {std::error_code(), n};
             }
         };
         return awaitable{this, buffers};
@@ -282,13 +282,13 @@ public:
             bool
             await_suspend(
                 std::coroutine_handle<>,
-                io_env const* env) noexcept
+                await_context const* env) noexcept
             {
                 canceled_ = env->stop_token.stop_requested();
                 return false;
             }
 
-            io_result<std::size_t>
+            results<std::size_t>
             await_resume()
             {
                 if(canceled_)
@@ -300,7 +300,7 @@ public:
 
                 std::size_t n = buffer_size(buffers_);
                 if(n == 0)
-                    return {{}, 0};
+                    return {std::error_code(), 0};
 
                 std::size_t const old_size = self_->data_.size();
                 self_->data_.resize(old_size + n);
@@ -311,7 +311,7 @@ public:
                 if(ec)
                     return {ec, n};
 
-                return {{}, n};
+                return {std::error_code(), n};
             }
         };
         return awaitable{this, buffers};
@@ -367,13 +367,13 @@ public:
             bool
             await_suspend(
                 std::coroutine_handle<>,
-                io_env const* env) noexcept
+                await_context const* env) noexcept
             {
                 canceled_ = env->stop_token.stop_requested();
                 return false;
             }
 
-            io_result<std::size_t>
+            results<std::size_t>
             await_resume()
             {
                 if(canceled_)
@@ -398,7 +398,7 @@ public:
 
                 self_->eof_called_ = true;
 
-                return {{}, n};
+                return {std::error_code(), n};
             }
         };
         return awaitable{this, buffers};
@@ -447,13 +447,13 @@ public:
             bool
             await_suspend(
                 std::coroutine_handle<>,
-                io_env const* env) noexcept
+                await_context const* env) noexcept
             {
                 canceled_ = env->stop_token.stop_requested();
                 return false;
             }
 
-            io_result<>
+            results<>
             await_resume()
             {
                 if(canceled_)

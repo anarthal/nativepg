@@ -28,12 +28,13 @@
 #include <boost/capy/buffers/buffer_copy.hpp>
 #include <boost/capy/buffers/buffer_param.hpp>
 #include "nativepg/capy-stub/concept/buffer_source.hpp"
-#include <boost/capy/concept/io_awaitable.hpp>
+#include <boost/capy/concept/context_awaitable.hpp>
 #include "nativepg/capy-stub/concept/read_source.hpp"
 #include <boost/capy/error.hpp>
-#include <boost/capy/ex/io_env.hpp>
-#include <boost/capy/io_result.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/ex/await_context.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 
 #include <concepts>
 #include <coroutine>
@@ -277,7 +278,7 @@ public:
         @see pull, consume
     */
     template<MutableBufferSequence MB>
-    io_task<std::size_t>
+    task<results<std::size_t>>
     read_some(MB buffers);
 
     /** Read data into a mutable buffer sequence.
@@ -301,7 +302,7 @@ public:
         @see pull, consume
     */
     template<MutableBufferSequence MB>
-    io_task<std::size_t>
+    task<results<std::size_t>>
     read(MB buffers);
 
 protected:
@@ -344,21 +345,21 @@ private:
     read_(std::span<mutable_buffer const> buffers);
 };
 
-/** Type-erased ops for awaitables that await-return `io_result<std::span<const_buffer>>`. */
+/** Type-erased ops for awaitables that await-return `results<std::span<const_buffer>>`. */
 struct any_buffer_source::awaitable_ops
 {
     bool (*await_ready)(void*);
-    std::coroutine_handle<> (*await_suspend)(void*, std::coroutine_handle<>, io_env const*);
-    io_result<std::span<const_buffer>> (*await_resume)(void*);
+    std::coroutine_handle<> (*await_suspend)(void*, std::coroutine_handle<>, await_context const*);
+    results<std::span<const_buffer>> (*await_resume)(void*);
     void (*destroy)(void*) noexcept;
 };
 
-/** Type-erased ops for awaitables that await-return `io_result<std::size_t>`. */
+/** Type-erased ops for awaitables that await-return `results<std::size_t>`. */
 struct any_buffer_source::read_awaitable_ops
 {
     bool (*await_ready)(void*);
-    std::coroutine_handle<> (*await_suspend)(void*, std::coroutine_handle<>, io_env const*);
-    io_result<std::size_t> (*await_resume)(void*);
+    std::coroutine_handle<> (*await_suspend)(void*, std::coroutine_handle<>, await_context const*);
+    results<std::size_t> (*await_resume)(void*);
     void (*destroy)(void*) noexcept;
 };
 
@@ -416,7 +417,7 @@ struct any_buffer_source::vtable_for_impl
             +[](void* p) {
                 return static_cast<PullAwaitable*>(p)->await_ready();
             },
-            +[](void* p, std::coroutine_handle<> h, io_env const* env) {
+            +[](void* p, std::coroutine_handle<> h, await_context const* env) {
                 return detail::call_await_suspend(
                     static_cast<PullAwaitable*>(p), h, env);
             },
@@ -446,7 +447,7 @@ struct any_buffer_source::vtable_for_impl
             +[](void* p) {
                 return static_cast<Aw*>(p)->await_ready();
             },
-            +[](void* p, std::coroutine_handle<> h, io_env const* env) {
+            +[](void* p, std::coroutine_handle<> h, await_context const* env) {
                 return detail::call_await_suspend(
                     static_cast<Aw*>(p), h, env);
             },
@@ -476,7 +477,7 @@ struct any_buffer_source::vtable_for_impl
             +[](void* p) {
                 return static_cast<Aw*>(p)->await_ready();
             },
-            +[](void* p, std::coroutine_handle<> h, io_env const* env) {
+            +[](void* p, std::coroutine_handle<> h, await_context const* env) {
                 return detail::call_await_suspend(
                     static_cast<Aw*>(p), h, env);
             },
@@ -643,13 +644,13 @@ any_buffer_source::pull(std::span<const_buffer> dest)
         }
 
         std::coroutine_handle<>
-        await_suspend(std::coroutine_handle<> h, io_env const* env)
+        await_suspend(std::coroutine_handle<> h, await_context const* env)
         {
             return self_->active_ops_->await_suspend(
                 self_->cached_awaitable_, h, env);
         }
 
-        io_result<std::span<const_buffer>>
+        results<std::span<const_buffer>>
         await_resume()
         {
             struct guard {
@@ -682,7 +683,7 @@ any_buffer_source::read_some_(
         }
 
         std::coroutine_handle<>
-        await_suspend(std::coroutine_handle<> h, io_env const* env)
+        await_suspend(std::coroutine_handle<> h, await_context const* env)
         {
             self_->active_read_ops_ =
                 self_->vt_->construct_read_some_awaitable(
@@ -698,7 +699,7 @@ any_buffer_source::read_some_(
                 self_->cached_awaitable_, h, env);
         }
 
-        io_result<std::size_t>
+        results<std::size_t>
         await_resume()
         {
             struct guard {
@@ -732,7 +733,7 @@ any_buffer_source::read_(
         }
 
         std::coroutine_handle<>
-        await_suspend(std::coroutine_handle<> h, io_env const* env)
+        await_suspend(std::coroutine_handle<> h, await_context const* env)
         {
             self_->active_read_ops_ =
                 self_->vt_->construct_read_awaitable(
@@ -748,7 +749,7 @@ any_buffer_source::read_(
                 self_->cached_awaitable_, h, env);
         }
 
-        io_result<std::size_t>
+        results<std::size_t>
         await_resume()
         {
             struct guard {
@@ -767,13 +768,13 @@ any_buffer_source::read_(
 }
 
 template<MutableBufferSequence MB>
-io_task<std::size_t>
+task<results<std::size_t>>
 any_buffer_source::read_some(MB buffers)
 {
     buffer_param<MB> bp(buffers);
     auto dest = bp.data();
     if(dest.empty())
-        co_return {{}, 0};
+        co_return {std::error_code(), 0};
 
     // Native ReadSource path
     if(vt_->construct_read_some_awaitable)
@@ -787,11 +788,11 @@ any_buffer_source::read_some(MB buffers)
 
     auto n = buffer_copy(dest, bufs);
     consume(n);
-    co_return {{}, n};
+    co_return {std::error_code(), n};
 }
 
 template<MutableBufferSequence MB>
-io_task<std::size_t>
+task<results<std::size_t>>
 any_buffer_source::read(MB buffers)
 {
     buffer_param<MB> bp(buffers);
@@ -812,7 +813,7 @@ any_buffer_source::read(MB buffers)
                 co_return {ec, total};
             bp.consume(n);
         }
-        co_return {{}, total};
+        co_return {std::error_code(), total};
     }
 
     // Synthesized path: pull + buffer_copy + consume
@@ -834,7 +835,7 @@ any_buffer_source::read(MB buffers)
         bp.consume(n);
     }
 
-    co_return {{}, total};
+    co_return {std::error_code(), total};
 }
 
 static_assert(BufferSource<any_buffer_source>);

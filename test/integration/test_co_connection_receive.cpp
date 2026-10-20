@@ -10,7 +10,7 @@
 #include <boost/capy/ex/immediate.hpp>
 #include <boost/capy/ex/run.hpp>
 #include <boost/capy/ex/this_coro.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/core/lightweight_test.hpp>
@@ -221,7 +221,7 @@ capy::task<> test_receive_before_any_exec()
     // Recall that when_all launches things in order, so the receive() below starts
     // on a connection where no request has run yet
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Takes the reader on an idle connection, then has to hand it over to
             // the LISTEN below and wait until the notification arrives
             notification_vector notifs;
@@ -237,7 +237,7 @@ capy::task<> test_receive_before_any_exec()
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Subscribe only now, with the receive() already in flight
             co_await checked_exec(conn, request().add_query("LISTEN \"test_before_any_exec\""));
 
@@ -280,7 +280,7 @@ capy::task<> test_receive_during_exec_handover()
 
     // Recall that when_all launches things in order
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Owns the reader until the lock is released
             row_int row{};
             auto cb = [&](row_int r) {
@@ -294,7 +294,7 @@ capy::task<> test_receive_during_exec_handover()
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Wait for exec to be in progress
             check_success(co_await select_finished.wait());
 
@@ -312,7 +312,7 @@ capy::task<> test_receive_during_exec_handover()
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Once exec is blocked on the lock, unlock, so things make progress
             check_success(co_await select_finished.wait());
             check_success(co_await locker.shutdown());
@@ -359,12 +359,12 @@ capy::task<> test_receive_during_exec_gets_notifications()
 
     // Recall that when_all launches things in order
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             co_await checked_exec(conn, req_exec);
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Retrieve the notifications
             notification_vector notifs;
             if (check_success(co_await conn.receive(notifs)))
@@ -407,7 +407,7 @@ capy::task<> test_exec_starts_during_receive()
     // when_all launches things in order, so the receive() runs first and takes
     // the reader before the exec below registers itself
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Owns the reader until the exec's first response message arrives
             notification_vector notifs;
             if (check_success(co_await conn.receive(notifs)))
@@ -422,7 +422,7 @@ capy::task<> test_exec_starts_during_receive()
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // exec() should't be blocked by the ongoing receive().
             // If it is, we don't raise the notification in the following
             // line, and the test fails by timeout.
@@ -455,7 +455,7 @@ capy::task<> test_cancel_immediately()
 
     // Run a receive() that gets cancelled immediately
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             notification_vector notifs;
             auto [ec] = co_await conn.receive(notifs);
             test_cond_eq(ec, capy::cond::canceled);
@@ -512,7 +512,7 @@ capy::task<> test_receive_reads_exec_leftovers()
 
     // Recall that when_all launches things in order
     static_cast<void>(co_await capy::when_all(
-        capy::run(stop_src.get_token())([&]() -> capy::io_task<> {
+        capy::run(stop_src.get_token())([&]() -> capy::task<capy::results<>> {
             // Cancelled while blocked on the lock
             row_int row{};
             auto cb = [&](row_int r) {
@@ -527,7 +527,7 @@ capy::task<> test_receive_reads_exec_leftovers()
             co_return {};
         }()),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Becomes the reader once the exec is gone, and has to consume what
             // the server still owes for it before it can see the notification
             notification_vector notifs;
@@ -543,7 +543,7 @@ capy::task<> test_receive_reads_exec_leftovers()
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Cancel the exec once part of its response has been read
             check_success(co_await select_finished.wait());
             stop_src.request_stop();
@@ -624,7 +624,7 @@ capy::task<> test_receive_already_running()
 
     // Recall that when_all launches things in order
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Takes the receiver slot and waits for notifications
             notification_vector notifs;
             if (check_success(co_await conn.receive(notifs)))
@@ -639,7 +639,7 @@ capy::task<> test_receive_already_running()
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // The slot is taken, so this one fails without touching the connection
             notification_vector notifs;
             auto [ec] = co_await conn.receive(notifs);
@@ -685,7 +685,7 @@ capy::task<> test_receive_canceled_by_shutdown()
     // Recall that when_all launches things in order, so the receive() is
     // already waiting for notifications when the shutdown starts
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             notification_vector notifs;
             auto [ec] = co_await conn.receive(notifs);
             test_cond_eq(ec, capy::cond::canceled);
@@ -693,7 +693,7 @@ capy::task<> test_receive_canceled_by_shutdown()
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             check_success(co_await conn.shutdown());
             co_return {};
         }()

@@ -37,7 +37,7 @@
 #include <boost/capy/ex/executor_ref.hpp>
 #include <boost/capy/ex/run_async.hpp>
 #include <boost/capy/ex/this_coro.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/corosio/io_context.hpp>
@@ -79,7 +79,7 @@ struct bench_state
 
 // Runs nqueries queries serially, taking the mutex around each one, and folds
 // each exec() latency into the shared accumulator.
-capy::io_task<> dedicated_session(bench_state& st, std::int64_t session_id)
+capy::task<capy::results<>> dedicated_session(bench_state& st, std::int64_t session_id)
 {
     // Serializing the request once and reusing it keeps request composition
     // out of the measurement.
@@ -110,7 +110,7 @@ capy::io_task<> dedicated_session(bench_state& st, std::int64_t session_id)
 
 // Same as above, but without the mutex: concurrent exec() calls on a single
 // connection are well-defined, and get pipelined.
-capy::io_task<> multiplexed_session(bench_state& st, std::int64_t session_id)
+capy::task<capy::results<>> multiplexed_session(bench_state& st, std::int64_t session_id)
 {
     request req;
     req.add_query(query, session_id);
@@ -130,7 +130,7 @@ capy::io_task<> multiplexed_session(bench_state& st, std::int64_t session_id)
     co_return {};
 }
 
-using session_fn = capy::io_task<> (*)(bench_state&, std::int64_t);
+using session_fn = capy::task<capy::results<>> (*)(bench_state&, std::int64_t);
 
 capy::task<> run_case(const connect_params& params, const char* name, session_fn make_session)
 {
@@ -148,7 +148,7 @@ capy::task<> run_case(const connect_params& params, const char* name, session_fn
         die("warmup", ec);
 
     // Tasks are lazy: none of these run until when_all awaits them
-    std::vector<capy::io_task<>> sessions;
+    std::vector<capy::task<capy::results<>>> sessions;
     sessions.reserve(nsess);
     for (int i = 0; i < nsess; ++i)
         sessions.push_back(make_session(st, i));

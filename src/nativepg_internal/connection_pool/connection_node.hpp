@@ -8,13 +8,13 @@
 #ifndef NATIVEPG_CONNECTION_NODE_HPP
 #define NATIVEPG_CONNECTION_NODE_HPP
 
-#include <boost/capy/delay.hpp>
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/ex/this_coro.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
-#include <boost/capy/timeout.hpp>
+#include <boost/corosio/delay.hpp>
+#include <boost/corosio/timeout.hpp>
 #include <boost/corosio/timer.hpp>
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive/list_hook.hpp>
@@ -93,14 +93,14 @@ class connection_node : public boost::intrusive::list_base_hook<>,
     void entering_pending() { ++shared_st_->num_pending_connections; }
     void exiting_pending() { --shared_st_->num_pending_connections; }
 
-    boost::capy::io_task<> run_with_timeout(
-        boost::capy::io_task<> task,
+    boost::capy::task<boost::capy::results<>> run_with_timeout(
+        boost::capy::task<boost::capy::results<>> task,
         std::chrono::steady_clock::duration dur
     )
     {
         if (dur.count() > 0)
         {
-            co_return co_await boost::capy::timeout(std::move(task), dur);
+            co_return co_await boost::corosio::timeout(std::move(task), dur);
         }
         else
         {
@@ -121,7 +121,7 @@ public:
         ping_req_.add(protocol::sync{});
     }
 
-    boost::capy::io_task<> run()
+    boost::capy::task<boost::capy::results<>> run()
     {
         // We've just started
         shared_st_->on_connection_start();
@@ -152,7 +152,7 @@ public:
                 }
                 case next_connection_action::sleep_connect_failed:
                 {
-                    auto [ec] = co_await boost::capy::delay(params_->retry_interval);
+                    auto [ec] = co_await boost::corosio::delay(params_->retry_interval);
                     last_act_ = resume(ec, collection_state::none);
                     break;
                 }
@@ -184,7 +184,7 @@ public:
                 }
                 case next_connection_action::idle_wait:
                 {
-                    auto [ec] = params_->ping_interval.count() > 0 ? co_await boost::capy::timeout(
+                    auto [ec] = params_->ping_interval.count() > 0 ? co_await boost::corosio::timeout(
                                                                          collection_ev_.wait(),
                                                                          params_->ping_interval
                                                                      )

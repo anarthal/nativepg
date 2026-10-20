@@ -11,13 +11,13 @@
 #include <boost/capy/cond.hpp>
 #include <boost/capy/error.hpp>
 #include <boost/capy/ex/async_event.hpp>
+#include <boost/capy/ex/await_context.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/ex/executor_ref.hpp>
-#include <boost/capy/ex/io_env.hpp>
 #include <boost/capy/ex/run.hpp>
 #include <boost/capy/ex/run_async.hpp>
 #include <boost/capy/ex/this_coro.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_any.hpp>
 
@@ -53,7 +53,7 @@ class co_connection_pool_impl
     // This should be safe as long as we ensure that the parent task (pool run)
     // doesn't finish until all connection tasks terminate.
     // We don't propagate the stop_token because ordering of cleanup callbacks is important
-    void create_connection(const boost::capy::io_env* env)
+    void create_connection(const boost::capy::await_context* env)
     {
         all_conns_.emplace_back(env->executor.context(), &params_, shared_st_);
         boost::capy::run_async(env->executor, env->frame_allocator)(
@@ -62,7 +62,7 @@ class co_connection_pool_impl
     }
 
     // Create and run connections as required by the current config and state
-    void create_connections(const boost::capy::io_env* env)
+    void create_connections(const boost::capy::await_context* env)
     {
         // Calculate how many we should create
         std::size_t n = num_connections_to_create(
@@ -118,7 +118,7 @@ public:
         check_pool_params(params_);
     }
 
-    boost::capy::io_task<> run()
+    boost::capy::task<boost::capy::results<>> run()
     {
         // Check that we're not running and set the state adequately
         BOOST_ASSERT(state_ == state_t::initial);
@@ -169,7 +169,7 @@ public:
         co_return {boost::capy::error::canceled};
     }
 
-    boost::capy::io_task<pooled_connection> get_connection()
+    boost::capy::task<boost::capy::results<pooled_connection>> get_connection()
     {
         // If the pool is cancelled, the operation must fail even if there are available connections
         if (state_ == state_t::cancelled)
@@ -177,7 +177,7 @@ public:
 
         // Try to get a connection
         if (auto* node = try_get_connection())
-            co_return {{}, pooled_connection(*node)};
+            co_return {std::error_code(), pooled_connection(*node)};
 
         // No luck, we need to wait.
         // This loop guards us against possible race conditions
@@ -204,7 +204,7 @@ public:
             // When a connection becomes idle, only one task is awakened. We must
             // use the connection - otherwise, other tasks waiting won't be notified.
             if (auto* node = try_get_connection())
-                co_return {{}, pooled_connection(*node)};
+                co_return {std::error_code(), pooled_connection(*node)};
 
             // Check for cancellations
             if (tok.stop_requested())

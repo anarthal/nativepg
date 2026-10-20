@@ -10,7 +10,8 @@
 
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/buffer_copy.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/container/small_vector.hpp>
 
@@ -108,7 +109,7 @@ public:
 };
 
 // Reader side of copy_out
-inline boost::capy::io_task<> copy_out_reader(
+inline boost::capy::task<boost::capy::results<>> copy_out_reader(
     co_connection& conn,
     exec_state& st,
     copy_out_buffers& buffs,
@@ -151,7 +152,7 @@ inline boost::capy::io_task<> copy_out_reader(
     }
 }
 
-inline boost::capy::io_task<std::uint64_t> copy_out(
+inline boost::capy::task<boost::capy::results<std::uint64_t>> copy_out(
     co_connection& conn,
     const request& req,
     boost::capy::any_write_sink sink,

@@ -12,7 +12,7 @@
 #include <boost/capy/error.hpp>
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/run.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/core/lightweight_test.hpp>
@@ -68,7 +68,7 @@ using boost::describe::operators::operator==;
 using boost::describe::operators::operator<<;
 
 // Sends the entire buffer as copy data, in as many calls as it takes
-capy::io_task<> write_all_copy_data(co_connection& conn, exec_state& st, std::string_view buff)
+capy::task<capy::results<>> write_all_copy_data(co_connection& conn, exec_state& st, std::string_view buff)
 {
     while (!buff.empty())
     {
@@ -81,7 +81,7 @@ capy::io_task<> write_all_copy_data(co_connection& conn, exec_state& st, std::st
 }
 
 // Reads until st.write_phase() is copy_data
-capy::io_task<> read_until_copy_data(co_connection& conn, exec_state& st)
+capy::task<capy::results<>> read_until_copy_data(co_connection& conn, exec_state& st)
 {
     while (st.write_phase() == write_status::waiting_for_reader)
     {
@@ -92,7 +92,7 @@ capy::io_task<> read_until_copy_data(co_connection& conn, exec_state& st)
     co_return {};
 }
 
-capy::io_task<> read_until_done(co_connection& conn, exec_state& st)
+capy::task<capy::results<>> read_until_done(co_connection& conn, exec_state& st)
 {
     while (!st.read_done())
     {
@@ -398,7 +398,7 @@ capy::task<> test_success_buffer_sequence()
     for (std::size_t transferred = 0u; transferred < total_size;)
     {
         auto slc = capy::buffer_slice(seq, transferred);
-        auto [ec, bytes] = co_await conn.write_some_copy_data(st, slc.data());
+        auto [ec, bytes] = co_await conn.write_some_copy_data(st, slc);
         if (!BOOST_TEST_EQ(ec, std::error_code()))
             co_return;
         transferred += bytes;
@@ -556,7 +556,7 @@ capy::task<> test_success_parallel()
     capy::async_event copy_in_received;
 
     auto [ec, writer_dummy, reader_dummy] = co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Writer. Write the request
             if (!check_success(co_await conn.write_request(st)))
                 co_return {capy::error::canceled};
@@ -576,7 +576,7 @@ capy::task<> test_success_parallel()
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Reader. Needs to notify the writer to start writing copy data
             while (!st.read_done())
             {
@@ -1013,7 +1013,7 @@ capy::task<> test_copy_in_not_exclusive()
     // The reader receives CopyInResponse and fails
     std::error_code ec;
     while (!ec && !st.read_done())
-        ec = (co_await conn.read_some_response(st)).ec;
+        std::tie(ec) = co_await conn.read_some_response(st);
     BOOST_TEST_EQ(ec, std::error_code(client_errc::requires_exclusive));
 
     // The connection is not usable
@@ -1196,28 +1196,28 @@ capy::task<> test_already_running()
         co_return;
 
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Takes the write side
             auto [ec, bytes] = co_await conn.write_some_copy_data(st, capy::make_buffer("1\tone\n"sv));
             check_success(ec);
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Launched while the first one is still in flight
             auto [ec, bytes] = co_await conn.write_some_copy_data(st, capy::make_buffer("abc"sv));
             BOOST_TEST_EQ(ec, std::error_code(client_errc::already_running));
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Launched while the first one is still in flight
             auto [ec] = co_await conn.write_copy_done(st);
             BOOST_TEST_EQ(ec, std::error_code(client_errc::already_running));
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Launched while the first one is still in flight
             auto [ec] = co_await conn.write_copy_fail(st, "message");
             BOOST_TEST_EQ(ec, std::error_code(client_errc::already_running));

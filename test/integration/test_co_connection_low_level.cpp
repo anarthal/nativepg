@@ -9,7 +9,7 @@
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/run.hpp>
 #include <boost/capy/ex/this_coro.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/core/lightweight_test.hpp>
@@ -150,7 +150,7 @@ capy::task<> test_success_exclusive()
         co_return;
 
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Even if the next writer starts first, it will have to queue
             if (!check_success(co_await conn.write_request(st2)))
                 co_return {};
@@ -164,7 +164,7 @@ capy::task<> test_success_exclusive()
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Reading to completion is what releases the write side
             while (!st.read_done())
             {
@@ -409,7 +409,7 @@ capy::task<> test_read_before_write()
         co_return;
 
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             while (!st.read_done())
             {
                 if (!check_success(co_await conn.read_some_response(st)))
@@ -418,7 +418,7 @@ capy::task<> test_read_before_write()
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Just in case
             co_await yield();
 
@@ -523,13 +523,13 @@ capy::task<> test_retry_read_after_cancel()
 
     // Cancel a read that is waiting for the rest of the response
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             auto [ec] = co_await conn.read_some_response(st);
             test_cond_eq(ec, capy::cond::canceled);
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             co_await yield();  // let the reader start
             co_return {std::make_error_code(std::errc::io_error)};
         }()
@@ -581,14 +581,14 @@ capy::task<> test_exec_before()
     exec_state st;
 
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Execute the query. Will acquire ownership first and block on the lock
             response handler{into(exec_rows), check_execute()};
             check_success(co_await conn.exec(req_exec, &handler));
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Ensure exec() goes first
             co_await yield();
 
@@ -662,12 +662,12 @@ capy::task<> test_exec_after()
 
     // Start an exec() that will queue, and unlock the reader
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             check_success(co_await conn.exec(req_exec, into(exec_rows)));
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             co_await yield();  // Just in case
 
             // Unblock the reader
@@ -711,13 +711,13 @@ capy::task<> test_receive_before()
     notification_vector notifs;
 
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Takes the read side, since nothing else is running
             check_success(co_await conn.receive(notifs));
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Ensure receive() goes first
             co_await yield();
 
@@ -793,13 +793,13 @@ capy::task<> test_receive_after()
     bool receive_finished = false;
 
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             check_success(co_await conn.receive(notifs));
             receive_finished = true;
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             co_await yield();  // let the receive() start
 
             // We still own the read side, so the receive() can't have read anything
@@ -1084,13 +1084,13 @@ capy::task<> test_write_already_running()
         co_return;
 
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Writes successfully
             check_success(co_await conn.write_request(st));
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Launched after the first write
             auto [ec] = co_await conn.write_request(st);
             BOOST_TEST_EQ(ec, make_error_code(client_errc::already_running));
@@ -1227,7 +1227,7 @@ capy::task<> test_read_already_running()
 
     // Reading further will block
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // This one will block and succeed
             while (!st.read_done())
             {
@@ -1237,7 +1237,7 @@ capy::task<> test_read_already_running()
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             co_await yield();  // let the read start
 
             // A second read on the same state is rejected

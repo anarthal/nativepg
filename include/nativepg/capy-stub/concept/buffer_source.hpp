@@ -26,7 +26,7 @@
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/cond.hpp>
 #include <boost/capy/concept/decomposes_to.hpp>
-#include <boost/capy/concept/io_awaitable.hpp>
+#include <boost/capy/concept/context_awaitable.hpp>
 
 #include <cstddef>
 #include <span>
@@ -52,7 +52,7 @@ namespace capy {
 
     @li `T` must provide a `pull` member function accepting a
         `std::span<const_buffer>` for output
-    @li The return type must satisfy @ref IoAwaitable
+    @li The return type must satisfy @ref ContextAwaitable
     @li The awaitable must decompose to `(error_code,std::span<const_buffer>)`
         via structured bindings
     @li `T` must provide a `consume` member function accepting a byte count
@@ -84,7 +84,7 @@ namespace capy {
     @par Conforming Signatures
 
     @code
-    some_io_awaitable<io_result<std::span<const_buffer>>>
+    some_io_awaitable<results<std::span<const_buffer>>>
     pull( std::span<const_buffer> dest );
 
     void consume( std::size_t n ) noexcept;
@@ -94,7 +94,7 @@ namespace capy {
 
     @code
     template<BufferSource Source, WriteStream Stream>
-    io_task<std::size_t> transfer( Source& source, Stream& stream )
+    task<results<std::size_t>> transfer( Source& source, Stream& stream )
     {
         const_buffer arr[16];
         std::size_t total = 0;
@@ -102,7 +102,7 @@ namespace capy {
         {
             auto [ec, bufs] = co_await source.pull( arr );
             if( ec == cond::eof )
-                co_return {{}, total};
+                co_return {std::error_code(), total};
             if( ec )
                 co_return {ec, total};
             auto [write_ec, n] = co_await stream.write_some( bufs );
@@ -114,13 +114,13 @@ namespace capy {
     }
     @endcode
 
-    @see IoAwaitable, WriteSink, awaitable_decomposes_to
+    @see ContextAwaitable, WriteSink, awaitable_decomposes_to
 */
 template<typename T>
 concept BufferSource =
     requires(T& src, std::span<const_buffer> dest, std::size_t n)
     {
-        { src.pull(dest) } -> IoAwaitable;
+        { src.pull(dest) } -> ContextAwaitable;
         requires awaitable_decomposes_to<
             decltype(src.pull(dest)),
             std::error_code, std::span<const_buffer>>;

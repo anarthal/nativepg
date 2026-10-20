@@ -28,14 +28,15 @@ add_executable(nativepg_datetime_example types/datetime.cpp)
 target_link_libraries(nativepg_datetime_example PRIVATE nativepg)
 
 add_executable(nativepg_json_example types/json.cpp)
-target_link_libraries(nativepg_json_example PRIVATE nativepg)
+target_link_libraries(nativepg_json_example PRIVATE nativepg Boost::json)
 
 if (NATIVEPG_COROSIO_API)
     add_executable(nativepg_co_connection co_connection.cpp)
     target_link_libraries(nativepg_co_connection PRIVATE nativepg_corosio)
 
-    add_executable(nativepg_co_connection_pool co_connection_pool.cpp)
-    target_link_libraries(nativepg_co_connection_pool PRIVATE nativepg_corosio)
+    # TODO: bring this back once we have async_condition
+    # add_executable(nativepg_co_connection_pool co_connection_pool.cpp)
+    # target_link_libraries(nativepg_co_connection_pool PRIVATE nativepg_corosio)
 
     add_executable(nativepg_prepared_statements prepared_statements.cpp)
     target_link_libraries(nativepg_prepared_statements PRIVATE nativepg_corosio)

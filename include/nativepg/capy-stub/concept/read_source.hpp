@@ -25,7 +25,7 @@
 #include <boost/capy/detail/config.hpp>
 #include <boost/capy/concept/buffer_archetype.hpp>
 #include <boost/capy/concept/decomposes_to.hpp>
-#include <boost/capy/concept/io_awaitable.hpp>
+#include <boost/capy/concept/context_awaitable.hpp>
 #include <boost/capy/concept/read_stream.hpp>
 #include <system_error>
 
@@ -53,7 +53,7 @@ namespace capy {
     @li `T` must satisfy @ref ReadStream (provides `read_some`)
     @li `T` must provide a `read` member function template accepting
         any @ref MutableBufferSequence
-    @li The return type of `read` must satisfy @ref IoAwaitable
+    @li The return type of `read` must satisfy @ref ContextAwaitable
     @li The awaitable must decompose to `(error_code, std::size_t)`
         via structured bindings
 
@@ -99,10 +99,10 @@ namespace capy {
 
     @code
     template< MutableBufferSequence MB >
-    IoAwaitable auto read_some( MB buffers );   // inherited from ReadStream
+    ContextAwaitable auto read_some( MB buffers );   // inherited from ReadStream
 
     template< MutableBufferSequence MB >
-    IoAwaitable auto read( MB buffers );
+    ContextAwaitable auto read( MB buffers );
     @endcode
 
     @warning **Coroutine Buffer Lifetime**: When implementing coroutine
@@ -128,7 +128,7 @@ namespace capy {
     }
     @endcode
 
-    @see ReadStream, IoAwaitable, MutableBufferSequence,
+    @see ReadStream, ContextAwaitable, MutableBufferSequence,
         awaitable_decomposes_to
 */
 template<typename T>
@@ -136,7 +136,7 @@ concept ReadSource =
     ReadStream<T> &&
     requires(T& source, mutable_buffer_archetype buffers)
     {
-        { source.read(buffers) } -> IoAwaitable;
+        { source.read(buffers) } -> ContextAwaitable;
         requires awaitable_decomposes_to<
             decltype(source.read(buffers)),
             std::error_code, std::size_t>;

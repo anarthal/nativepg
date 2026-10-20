@@ -7,11 +7,11 @@
 
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/concept/const_buffer_sequence.hpp>
-#include <boost/capy/delay.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/core/lightweight_test.hpp>
+#include <boost/corosio/delay.hpp>
 #include <boost/describe/class.hpp>
 #include <boost/describe/operators.hpp>
 
@@ -41,6 +41,7 @@
 // Covers co_connection::copy_out
 
 namespace capy = boost::capy;
+namespace corosio = boost::corosio;
 using namespace nativepg;
 using namespace nativepg::test;
 using namespace std::string_view_literals;
@@ -198,29 +199,29 @@ public:
     capy::test::write_sink& get() { return sink_; }
 
     template <capy::ConstBufferSequence ConstBufferSeq>
-    capy::io_task<std::size_t> write(ConstBufferSeq buffers)
+    capy::task<capy::results<std::size_t>> write(ConstBufferSeq buffers)
     {
-        static_cast<void>(co_await capy::delay(1ms));
+        static_cast<void>(co_await corosio::delay(1ms));
         co_return co_await sink_.write(std::move(buffers));
     }
 
     template <capy::ConstBufferSequence ConstBufferSeq>
-    capy::io_task<std::size_t> write_some(ConstBufferSeq buffers)
+    capy::task<capy::results<std::size_t>> write_some(ConstBufferSeq buffers)
     {
-        static_cast<void>(co_await capy::delay(1ms));
+        static_cast<void>(co_await corosio::delay(1ms));
         co_return co_await sink_.write_some(std::move(buffers));
     }
 
     template <capy::ConstBufferSequence ConstBufferSeq>
-    capy::io_task<std::size_t> write_eof(ConstBufferSeq buffers)
+    capy::task<capy::results<std::size_t>> write_eof(ConstBufferSeq buffers)
     {
-        static_cast<void>(co_await capy::delay(1ms));
+        static_cast<void>(co_await corosio::delay(1ms));
         co_return co_await sink_.write_eof(std::move(buffers));
     }
 
-    capy::io_task<> write_eof()
+    capy::task<capy::results<>> write_eof()
     {
-        static_cast<void>(co_await capy::delay(1ms));
+        static_cast<void>(co_await corosio::delay(1ms));
         co_return co_await sink_.write_eof();
     }
 };
@@ -244,7 +245,7 @@ capy::task<> test_multiplexing()
     // Both requests are handed to the multiplexer before either completes
     static_cast<void>(co_await capy::when_all(
         // Run the Copy-out
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             request req;
             req.add_query("COPY copy_out_test TO STDOUT");
 
@@ -264,7 +265,7 @@ capy::task<> test_multiplexing()
         }(),
 
         // Run the other request
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Ensure we go after the copy
             co_await yield();
 
@@ -421,24 +422,24 @@ public:
     capy::test::write_sink& get() { return sink_; }
 
     template <capy::ConstBufferSequence ConstBufferSeq>
-    capy::io_task<std::size_t> write(ConstBufferSeq)
+    capy::task<capy::results<std::size_t>> write(ConstBufferSeq)
     {
         co_return {sink_error, 0u};
     }
 
     template <capy::ConstBufferSequence ConstBufferSeq>
-    capy::io_task<std::size_t> write_some(ConstBufferSeq buffers)
+    capy::task<capy::results<std::size_t>> write_some(ConstBufferSeq buffers)
     {
         return write(std::move(buffers));
     }
 
     template <capy::ConstBufferSequence ConstBufferSeq>
-    capy::io_task<std::size_t> write_eof(ConstBufferSeq buffers)
+    capy::task<capy::results<std::size_t>> write_eof(ConstBufferSeq buffers)
     {
         return write(std::move(buffers));
     }
 
-    capy::io_task<> write_eof() { co_return co_await sink_.write_eof(); }
+    capy::task<capy::results<>> write_eof() { co_return co_await sink_.write_eof(); }
 };
 static_assert(capy::WriteSink<failing_sink>);
 

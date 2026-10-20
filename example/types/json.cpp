@@ -12,7 +12,6 @@
 #include <boost/asio/this_coro.hpp>
 #include <boost/describe/class.hpp>
 #include <boost/json/serialize.hpp>
-#include <boost/json/src.hpp>  // inline header-only implementation (or link against Boost.JSON)
 
 #include <chrono>
 #include <exception>

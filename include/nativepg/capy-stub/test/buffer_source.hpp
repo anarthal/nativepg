@@ -28,8 +28,8 @@
 #include <boost/capy/buffers/make_buffer.hpp>
 #include <coroutine>
 #include <boost/capy/error.hpp>
-#include <boost/capy/ex/io_env.hpp>
-#include <boost/capy/io_result.hpp>
+#include <boost/capy/ex/await_context.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/capy/test/fuse.hpp>
 
 #include <algorithm>
@@ -173,21 +173,21 @@ public:
             bool await_ready() const noexcept { return false; }
 
             // The operation completes synchronously, but await_suspend is
-            // the only place io_env is delivered (the promise's
+            // the only place await_context is delivered (the promise's
             // transform_awaiter forwards it here). Returning false means
             // the coroutine does not actually suspend; it resumes
-            // immediately, having observed the stop token. See io_env,
-            // IoAwaitable.
+            // immediately, having observed the stop token. See await_context,
+            // ContextAwaitable.
             bool
             await_suspend(
                 std::coroutine_handle<>,
-                io_env const* env) noexcept
+                await_context const* env) noexcept
             {
                 canceled_ = env->stop_token.stop_requested();
                 return false;
             }
 
-            io_result<std::span<const_buffer>>
+            results<std::span<const_buffer>>
             await_resume()
             {
                 if(canceled_)
@@ -204,14 +204,14 @@ public:
                 std::size_t to_return = (std::min)(avail, self_->max_pull_size_);
 
                 if(dest_.empty())
-                    return {{}, {}};
+                    return {std::error_code(), {}};
 
                 // Fill a single buffer descriptor
                 dest_[0] = make_buffer(
                     self_->data_.data() + self_->pos_,
                     to_return);
 
-                return {{}, dest_.first(1)};
+                return {std::error_code(), dest_.first(1)};
             }
         };
         return awaitable{this, dest};

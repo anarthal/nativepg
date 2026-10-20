@@ -10,7 +10,8 @@
 
 #include <boost/assert.hpp>
 #include <boost/capy/ex/async_event.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 
 #include <cstddef>
 #include <memory>
@@ -60,7 +61,7 @@ public:
     }
 
     // Waits until all operations have finished.
-    boost::capy::io_task<> wait()
+    boost::capy::task<boost::capy::results<>> wait()
     {
         // async_event::set() posts, so the count might change
         // while the event loop schedules us. This loop guards against this

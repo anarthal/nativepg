@@ -9,10 +9,10 @@
 #define NATIVEPG_TEST_TEST_UTILS_COROSIO_UTILS_HPP
 
 #include <boost/assert/source_location.hpp>
-#include <boost/capy/io_result.hpp>
 #include <boost/capy/task.hpp>
 
 #include <system_error>
+#include <tuple>
 
 #include "nativepg/extended_error.hpp"
 
@@ -29,18 +29,21 @@ bool check_success(
     boost::source_location loc = BOOST_CURRENT_LOCATION
 );
 
-inline bool check_success(boost::capy::io_result<> res, boost::source_location loc = BOOST_CURRENT_LOCATION)
+inline bool check_success(
+    std::tuple<std::error_code> res,
+    boost::source_location loc = BOOST_CURRENT_LOCATION
+)
 {
-    return check_success(res.ec, {}, loc);
+    return check_success(std::get<0>(res), {}, loc);
 }
 
 inline bool check_success(
-    boost::capy::io_result<> res,
+    std::tuple<std::error_code> res,
     const diagnostics& diag,
     boost::source_location loc = BOOST_CURRENT_LOCATION
 )
 {
-    return check_success(res.ec, diag, loc);
+    return check_success(std::get<0>(res), diag, loc);
 }
 
 inline bool check_success(const extended_error& err, boost::source_location loc = BOOST_CURRENT_LOCATION)

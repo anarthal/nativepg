@@ -8,7 +8,7 @@
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/ex/immediate.hpp>
 #include <boost/capy/ex/run_async.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/write.hpp>
 #include <boost/corosio/file_base.hpp>
@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <iostream>
+#include <system_error>
 #include <utility>
 
 #include "nativepg/capy-stub/concept/write_sink.hpp"
@@ -44,13 +45,13 @@ public:
     }
 
     template <capy::ConstBufferSequence Buffers>
-    capy::io_task<std::size_t> write(Buffers&& buffs)
+    capy::task<capy::results<std::size_t>> write(Buffers&& buffs)
     {
         return capy::write(file_, std::forward<Buffers>(buffs));
     }
 
     template <capy::ConstBufferSequence Buffers>
-    capy::io_task<std::size_t> write_eof(Buffers&& buffs)
+    capy::task<capy::results<std::size_t>> write_eof(Buffers&& buffs)
     {
         return capy::write(file_, std::forward<Buffers>(buffs));
     }
@@ -78,10 +79,13 @@ static capy::task<> co_main()
 
     // Open the file to write to
     corosio::stream_file file(co_await capy::this_coro::executor);
-    file.open(
-        "/tmp/data.tsv",
-        corosio::file_base::write_only | corosio::file_base::create | corosio::file_base::truncate
-    );
+    if (auto ec = file.open(
+            "/tmp/data.tsv",
+            corosio::file_base::write_only | corosio::file_base::create | corosio::file_base::truncate
+        ))
+    {
+        throw std::system_error(ec);
+    }
 
     // Connect
     if (auto [ec] = co_await conn.connect(

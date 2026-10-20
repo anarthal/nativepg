@@ -112,8 +112,8 @@ class co_connection_pool_impl
     }
 
 public:
-    co_connection_pool_impl(boost::capy::execution_context& ctx, pool_params&& params)
-        : params_(std::move(params)), shared_st_(ctx)
+    co_connection_pool_impl(boost::capy::execution_context&, pool_params&& params)
+        : params_(std::move(params))
     {
         check_pool_params(params_);
     }
@@ -151,8 +151,8 @@ public:
         // Deliver the cancel notification to the child tasks
         cancel_ev_.set();
 
-        // Prevent any further waits in with_connection, since no more connection will be available
-        shared_st_.idle_connections_cv.expires_at((std::chrono::steady_clock::time_point::min)());
+        // Unblock any further waits in get_connection
+        shared_st_.idle_connections_cv.notify_all();
 
         // Wait for all connection tasks to exit. We need to replace the stop token so this has any effect.
         // Skip this if there is no connection to wait for
@@ -171,52 +171,32 @@ public:
 
     boost::capy::task<boost::capy::results<pooled_connection>> get_connection()
     {
-        // If the pool is cancelled, the operation must fail even if there are available connections
-        if (state_ == state_t::cancelled)
-            co_return {boost::capy::error::canceled, {}};
-
-        // Try to get a connection
-        if (auto* node = try_get_connection())
-            co_return {std::error_code(), pooled_connection(*node)};
-
-        // No luck, we need to wait.
-        // This loop guards us against possible race conditions
-        // between waiting on the pending request timer and getting the
-        // connection
-        auto tok = co_await boost::capy::this_coro::stop_token;
         while (true)
         {
-            // No luck. Record that we're waiting for a connection.
-            enter_request_pending();
-
-            // Wait to be notified, or until a cancellation happens
-            auto [ec] = co_await shared_st_.idle_connections_cv.wait();
-            static_cast<void>(ec);  // will always be a cancellation
-
-            // Record that we're no longer pending
-            exit_request_pending();
-
-            // If the pool is cancelled, the operation must fail even if there are available connections
+            // If the pool is cancelled, the operation must fail, even if there are available connections
             if (state_ == state_t::cancelled)
-                co_return {boost::capy::error::canceled, {}};
+                co_return {boost::capy::error::canceled, pooled_connection{}};
 
-            // Try again. We need to try to satisfy the request even if we were cancelled.
-            // When a connection becomes idle, only one task is awakened. We must
-            // use the connection - otherwise, other tasks waiting won't be notified.
+            // Try to get a connection
             if (auto* node = try_get_connection())
                 co_return {std::error_code(), pooled_connection(*node)};
 
-            // Check for cancellations
-            if (tok.stop_requested())
-                co_return {boost::capy::error::canceled, {}};
+            // No luck. Record that we're waiting for a connection.
+            enter_request_pending();
+
+            // Wait to be notified, or until a cancellation happens.
+            // Cancellation yields an error here.
+            // The loop exists because async_condition posts when notifying, so
+            //   - Other tasks might 'steal' the connection that caused the notify while resume
+            //   - The pool might shutdown while we resume
+            //   - A shutdown notifies us, but doesn't cause an error.
+            if (auto [ec] = co_await shared_st_.idle_connections_cv.wait(); ec)
+                co_return {ec, pooled_connection()};
+
+            // Record that we're no longer pending
+            exit_request_pending();
         }
     }
-
-    // std::list<node_type>& nodes() noexcept { return all_conns_; }
-    // shared_state_type& shared_state() noexcept { return shared_st_; }
-    // internal_pool_params& params() noexcept { return params_; }
-    // asio::any_io_executor connection_ex() noexcept { return conn_ex_; }
-    // const pipeline_request& reset_pipeline_request() const { return reset_pipeline_req_; }
 };
 
 }  // namespace nativepg::detail

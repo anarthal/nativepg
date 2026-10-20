@@ -131,7 +131,6 @@ static capy::task<> handle_session(corosio::tcp_socket& sock, co_connection_pool
 
     // Cleanly close the connection. tcp_server will re-initialize the
     // socket on the next accept dispatched to this worker.
-    sock.shutdown(corosio::shutdown_both);
     sock.close();
     co_return;
 }

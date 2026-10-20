@@ -5,9 +5,7 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include <boost/assert/source_location.hpp>
 #include <boost/capy/cond.hpp>
-#include <boost/capy/error.hpp>
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/run.hpp>
 #include <boost/capy/ex/this_coro.hpp>
@@ -239,7 +237,7 @@ capy::task<> test_get_connection_before_run()
 // relevant timer rather than expiring immediately
 capy::task<> test_zero_timeouts()
 {
-    auto params = create_pool_params(1);  // max_size 1, so we force a reset
+    auto params = create_pool_params(1);  // max_size 1
     params.connect_timeout = 0s;
     params.ping_timeout = 0s;
     params.ping_interval = 0s;

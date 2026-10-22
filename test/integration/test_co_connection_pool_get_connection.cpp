@@ -89,7 +89,7 @@ capy::task<> test_return_connection()
             co_return;
 
         // Return the connection
-        conn.return_connection();
+        conn.return_without_reset();
         BOOST_TEST_NOT(conn.valid());
 
         // Get the same connection again
@@ -253,7 +253,7 @@ capy::task<> test_zero_timeouts()
         co_await check_connection_usable(conn.get());
 
         // Returning it makes the connection usable again
-        conn.return_connection();
+        conn.return_without_reset();
         auto [ec2, conn2] = co_await pool.get_connection();
         if (!check_success(ec2))
             co_return;
@@ -340,7 +340,7 @@ capy::task<> test_cancel_get_connection()
         BOOST_TEST_NOT(conn2.valid());
 
         // A cancellation doesn't cause problems: other requests can succeed
-        conn1.return_connection();
+        conn1.return_without_reset();
         std::tie(ec1, conn1) = co_await pool.get_connection();
         if (!check_success(ec1) || !BOOST_TEST(conn1.valid()))
             co_return;

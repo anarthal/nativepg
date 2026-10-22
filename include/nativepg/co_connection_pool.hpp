@@ -84,7 +84,7 @@ public:
 
     const co_connection* operator->() const noexcept { return &get(); }
 
-    void return_connection() noexcept
+    void return_without_reset() noexcept
     {
         BOOST_ASSERT(valid());
         detail::return_connection(*node_, false);

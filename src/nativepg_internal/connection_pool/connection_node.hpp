@@ -157,10 +157,14 @@ public:
                     //   We may run DISCARD ALL to clean up evth. except transaction blocks:
                     //      CLOSE ALL: cursors
                     //      SET SESSION AUTHORIZATION DEFAULT: if you were superuser and impersonated someone
-                    //      else RESET ALL: if you changed parameters DEALLOCATE ALL: if you used explicit
-                    //      PREPARE (you shouldn't) UNLISTEN *: if you were using this connection to SELECT
-                    //      pg_advisory_unlock_all(): locks DISCARD PLANS: cached execution plans DISCARD
-                    //      TEMP: temporary tables DISCARD SEQUENCES: sequences
+                    //        else
+                    //      RESET ALL: if you changed parameters
+                    //      DEALLOCATE ALL: if you used explicit PREPARE (you shouldn't)
+                    //      UNLISTEN *: if you were using this connection to listen
+                    //      SELECT pg_advisory_unlock_all(): locks
+                    //      DISCARD PLANS: cached execution plans
+                    //      DISCARD TEMP: temporary tables
+                    //      DISCARD SEQUENCES: sequences
                     //   If we are within a failed transaction, we could try to detect it
                     //   by storing this info upon receiving ready_for_query and running a rollback
                     // For now we do nothing, but this should change.

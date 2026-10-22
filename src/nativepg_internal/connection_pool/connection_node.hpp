@@ -29,6 +29,7 @@
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
 #include "nativepg_internal/connection_pool/sansio_connection_node.hpp"
+#include "nativepg_internal/op_counter.hpp"
 
 namespace nativepg::detail {
 
@@ -51,19 +52,8 @@ struct conn_shared_state
     // Required to compute how many connections we should create at any given point in time.
     std::size_t num_pending_requests{0};
 
-    // The number of running connections, to track when they exit
-    std::size_t num_running_connections{0};
-
-    // Condition variable to wait for all connections to exit
-    boost::capy::async_event conns_finished_cv;
-
-    void on_connection_start() { ++num_running_connections; }
-
-    void on_connection_finish()
-    {
-        if (--num_running_connections == 0u)
-            conns_finished_cv.set();
-    }
+    // Tracks running connections, so run() can wait for them
+    op_counter running_connections_counter;
 };
 
 // The templated type is never exposed to the user. We template
@@ -119,8 +109,8 @@ public:
 
     boost::capy::task<boost::capy::results<>> run()
     {
-        // We've just started
-        shared_st_->on_connection_start();
+        // Allow run() track how many of us are outstanding
+        auto guard = shared_st_->running_connections_counter.scoped_notify_start();
 
         // Invoke the sans-io algorithm
         auto last_act_ = resume(std::error_code(), collection_state::none);
@@ -130,7 +120,6 @@ public:
             // Check for cancellations. TODO: this is error-prone, consider using a stop callback?
             if ((co_await boost::capy::this_coro::stop_token).stop_requested())
             {
-                shared_st_->on_connection_finish();
                 co_return {};
             }
 
@@ -193,7 +182,6 @@ public:
                 }
                 case next_connection_action::none:
                 {
-                    shared_st_->on_connection_finish();
                     co_return {};
                 }
                 default: BOOST_ASSERT(false);  // LCOV_EXCL_LINE

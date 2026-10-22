@@ -155,15 +155,10 @@ public:
         shared_st_.idle_connections_cv.notify_all();
 
         // Wait for all connection tasks to exit. We need to replace the stop token so this has any effect.
-        // Skip this if there is no connection to wait for
-        if (!all_conns_.empty())
-        {
-            co_await boost::capy::run(std::stop_token())([this]() -> boost::capy::task<> {
-                auto [ec2] = co_await shared_st_.conns_finished_cv.wait();
-                BOOST_ASSERT(!ec2);
-                static_cast<void>(ec2);
-            }());
-        }
+        [[maybe_unused]] auto [ec2] = co_await boost::capy::run(std::stop_token())(
+            shared_st_.running_connections_counter.wait()
+        );
+        BOOST_ASSERT(!ec2);
 
         // Done
         co_return {boost::capy::error::canceled};

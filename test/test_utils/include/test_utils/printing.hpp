@@ -35,6 +35,9 @@ namespace protocol {
 struct notification_response;
 std::ostream& operator<<(std::ostream& os, const notification_response&);
 
+enum class transaction_status : unsigned char;
+std::ostream& operator<<(std::ostream& os, transaction_status);
+
 }  // namespace protocol
 
 }  // namespace nativepg

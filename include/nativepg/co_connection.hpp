@@ -32,6 +32,7 @@
 #include "nativepg/exclusivity.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
+#include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
 
@@ -365,6 +366,18 @@ public:
     // Values reported via ParameterStatus
     std::optional<bool> standard_conforming_strings() const;
     std::optional<encoding> client_encoding() const;
+
+    // The transaction status reported by the last ReadyForQuery message we read.
+    // Potential uses include deciding when to issue a ROLLBACK for session re-use.
+    // The value is authoritative only when no exec operation is in flight.
+    //   Requests that were written but whose response hasn't been read yet may
+    //   have already changed the backend's status. If you pipeline requests
+    //   (or run exec() operations in parallel), read this after all of them complete.
+    // If the connection hasn't been established yet (i.e. `is_connected() == false`),
+    //   returns transaction_status::idle.
+    // Copy-in and copy-out don't produce a ReadyForQuery until the copy is
+    //   terminated, so the value stays at the pre-copy status for their duration.
+    protocol::transaction_status txn_status() const noexcept;
 
     // TODO: this should be removed but is now used within the tests.
     //   Remove once we have accessors for backend PID

@@ -19,6 +19,7 @@
 #include "nativepg/exec_state.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/async.hpp"
+#include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/command_info.hpp"
 #include "nativepg/responses/response_handler.hpp"
@@ -161,6 +162,22 @@ static const char* to_string(nativepg::write_status v)
 }
 
 std::ostream& nativepg::operator<<(std::ostream& os, write_status v) { return os << to_string(v); }
+
+static const char* to_string(nativepg::protocol::transaction_status v)
+{
+    switch (v)
+    {
+        case nativepg::protocol::transaction_status::idle: return "idle";
+        case nativepg::protocol::transaction_status::in_transaction: return "in_transaction";
+        case nativepg::protocol::transaction_status::failed: return "failed";
+        default: return "<unknown transaction_status>";
+    }
+}
+
+std::ostream& nativepg::protocol::operator<<(std::ostream& os, transaction_status v)
+{
+    return os << to_string(v);
+}
 
 // --- CI server ---
 static std::string safe_getenv(const char* name, const char* default_value)

@@ -39,7 +39,7 @@ struct connection_state
     std::optional<bool> standard_conforming_strings{};
     std::optional<encoding> client_encoding{};
 
-    // Reported by the last ReadyForQuery we read. Empty if we haven't read one yet
+    // Reported by the last ReadyForQuery we read
     transaction_status txn_status{transaction_status::idle};
 
     // TODO: this is safe for now, but is there any case where it may not be?

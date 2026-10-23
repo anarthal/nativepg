@@ -971,10 +971,7 @@ std::optional<bool> co_connection::standard_conforming_strings() const
 
 std::optional<encoding> co_connection::client_encoding() const { return impl_->st.client_encoding; }
 
-std::optional<protocol::transaction_status> co_connection::txn_status() const noexcept
-{
-    return impl_->is_connected_ ? impl_->st.txn_status : std::optional<protocol::transaction_status>();
-}
+protocol::transaction_status co_connection::txn_status() const noexcept { return impl_->st.txn_status; }
 
 bool co_connection::is_connected() const noexcept { return impl_->is_connected_; }
 

@@ -369,14 +369,15 @@ public:
 
     // The transaction status reported by the last ReadyForQuery message we read.
     // Potential uses include deciding when to issue a ROLLBACK for session re-use.
-    // Returns an empty optional if `is_connected() == false`.
     // The value is authoritative only when no exec operation is in flight.
     //   Requests that were written but whose response hasn't been read yet may
     //   have already changed the backend's status. If you pipeline requests
     //   (or run exec() operations in parallel), read this after all of them complete.
+    // If the connection hasn't been established yet (i.e. `is_connected() == false`),
+    //   returns transaction_status::idle.
     // Copy-in and copy-out don't produce a ReadyForQuery until the copy is
     //   terminated, so the value stays at the pre-copy status for their duration.
-    std::optional<protocol::transaction_status> txn_status() const noexcept;
+    protocol::transaction_status txn_status() const noexcept;
 
     // TODO: this should be removed but is now used within the tests.
     //   Remove once we have accessors for backend PID

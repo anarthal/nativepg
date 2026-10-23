@@ -22,7 +22,6 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
-#include <system_error>
 #include <utility>
 
 #include "nativepg/capy-stub/ex/async_condition.hpp"

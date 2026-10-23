@@ -162,10 +162,6 @@ enum class client_errc : int
     // Call connect() before invoking this function.
     // Can happen after a fatal error is encountered by the connection.
     not_connected,
-
-    // The connection is already connected.
-    // Don't call connect() on an established connection.
-    already_connected,
 };
 
 /// Creates an \ref error_code from a \ref client_errc.

@@ -193,15 +193,15 @@ public:
             // We've succeeded and are now idle
             entering_idle();
 
-            while (true)
+            while (!tok.stop_requested())
             {
                 // Wait until either it's time to ping, or we're notified for a collection.
                 // Note that the idle => in-use transition is performed outside this coro in mark_as_in_use()
-                auto [ec] = co_await run_with_timeout(collection_waker_.wait(), params_->ping_interval);
+                static_cast<void>(
+                    co_await run_with_timeout(collection_waker_.wait(), params_->ping_interval)
+                );
 
-                if (ec == boost::capy::cond::canceled)
-                    co_return {};
-                else if (is_idle())
+                if (is_idle())
                 {
                     // We're still idle after the wait. Time to ping.
                     // We shouldn't hand this connection to the user until the ping finishes
@@ -214,16 +214,19 @@ public:
 
                     // Ping succeeded. We're idle again
                     entering_idle();
+                    continue;
                 }
-                else if (collection_state_ == collection_state::none)
+
+                // Check the collection status
+                const auto col_st = collection_state_.exchange(collection_state::none);
+                if (col_st == collection_state::none)
                 {
                     // The user is still using the connection. Go back to waiting
                     continue;
                 }
-                else if (collection_state_ == collection_state::needs_collect)
+                else if (col_st == collection_state::needs_collect)
                 {
                     // The user said we don't need a reset. Mark it as idle and keep going
-                    collection_state_ = collection_state::none;
                     exiting_in_use();
                     entering_idle();
                     continue;
@@ -231,8 +234,7 @@ public:
                 else
                 {
                     // The user has finished with the connection but requested a reset
-                    BOOST_ASSERT(collection_state_ == collection_state::needs_collect_with_reset);
-                    collection_state_ = collection_state::none;
+                    BOOST_ASSERT(col_st == collection_state::needs_collect_with_reset);
                     exiting_in_use();
                     if (auto [ec] = co_await run_with_timeout(reset_connection(), params_->ping_timeout); ec)
                     {

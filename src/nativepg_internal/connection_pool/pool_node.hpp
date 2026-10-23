@@ -29,7 +29,6 @@
 #include "nativepg/protocol/sync.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
-#include "nativepg_internal/op_counter.hpp"
 
 namespace nativepg::detail {
 
@@ -65,9 +64,6 @@ struct pool_shared_state
     // The number of async_get_connection ops that are waiting for a connection to become available.
     // Required to compute how many connections we should create at any given point in time.
     std::size_t num_pending_requests{0};
-
-    // Tracks running connections, so run() can wait for them
-    op_counter running_connections_counter;
 };
 
 template <class Awaitable>
@@ -169,10 +165,6 @@ public:
     boost::capy::task<boost::capy::results<>> run()
     {
         const auto tok = co_await boost::capy::this_coro::stop_token;
-
-        // Allow run() track how many of us are outstanding
-        // TODO: this shouldn't really be here, but in capy::async_run()'s callback
-        auto guard = shared_st_->running_connections_counter.scoped_notify_start();
 
         // We're now pending.
         // TODO: there is a race condition between create_connection() and running this that can cause

@@ -30,6 +30,7 @@
 #include "nativepg/co_connection_pool.hpp"
 #include "nativepg_internal/connection_pool/check_pool_params.hpp"
 #include "nativepg_internal/connection_pool/pool_node.hpp"
+#include "nativepg_internal/op_counter.hpp"
 
 namespace nativepg::detail {
 
@@ -80,6 +81,13 @@ class co_connection_pool_impl
     pool_shared_state<pool_node> shared_st_;
     boost::capy::async_event cancel_ev_;
     boost::capy::async_event connections_needed_;
+    op_counter running_connections_counter_;
+
+    boost::capy::task<> run_one(pool_node& node)
+    {
+        auto guard = running_connections_counter_.scoped_notify_start();
+        static_cast<void>(co_await boost::capy::when_any(node.run(), cancel_ev_.wait()));
+    }
 
     // Create and run one connection
     // This should be safe as long as we ensure that the parent task (pool run)
@@ -88,9 +96,7 @@ class co_connection_pool_impl
     void create_connection(const boost::capy::await_context* env)
     {
         all_conns_.emplace_back(env->executor.context(), &params_, shared_st_);
-        boost::capy::run_async(env->executor, env->frame_allocator)(
-            boost::capy::when_any(all_conns_.back().run(), cancel_ev_.wait())
-        );
+        boost::capy::run_async(env->executor, env->frame_allocator)(run_one(all_conns_.back()));
     }
 
     // Create and run connections as required by the current config and state
@@ -188,7 +194,7 @@ public:
 
         // Wait for all connection tasks to exit. We need to replace the stop token so this has any effect.
         [[maybe_unused]] auto [ec2] = co_await boost::capy::run(std::stop_token())(
-            shared_st_.running_connections_counter.wait()
+            running_connections_counter_.wait()
         );
         BOOST_ASSERT(!ec2);
 

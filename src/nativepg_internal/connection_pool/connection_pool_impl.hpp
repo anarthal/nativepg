@@ -46,7 +46,7 @@ inline std::size_t num_connections_to_create(
 {
     BOOST_ASSERT(initial_size <= max_size);
     BOOST_ASSERT(current_connections <= max_size);
-    BOOST_ASSERT(pending_connections <= current_connections);  // TODO: I think that this assert can fire
+    BOOST_ASSERT(pending_connections <= current_connections);
 
     // We aim to have one pending connection per pending request.
     // When these connections successfully connect, they will fulfill the pending requests.

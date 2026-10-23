@@ -22,6 +22,7 @@
 #include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
+#include "nativepg/responses/resultset_callback.hpp"
 #include "nativepg/sqlstate_cond.hpp"
 #include "test_utils/ci_server.hpp"
 #include "test_utils/co_connection_utils.hpp"
@@ -184,10 +185,19 @@ capy::task<> test_exec_reads_leftovers()
     // Sanity check: we haven't read anything yet, so the BEGIN is invisible to us
     BOOST_TEST_EQ(conn.txn_status(), transaction_status::idle);
 
-    // Executing another request needs to skip previous responses.
-    // The txn status update is correctly picked.
-    if (!co_await checked_exec(conn, "SELECT 42"))
+    // Executing another request needs to skip the previous response. The row
+    // arrives after the leftover ReadyForQuery and before our own, so this is
+    // the only point where the leftover's effect is visible
+    auto observed = transaction_status::idle;
+    auto cb = [&](row_int) { observed = conn.txn_status(); };
+
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    if (!co_await checked_exec(conn, req, resultset_callback<row_int>(cb)))
         co_return;
+    BOOST_TEST_EQ(observed, transaction_status::in_transaction);
+
+    // Our own ReadyForQuery says the same: we're still inside the block
     BOOST_TEST_EQ(conn.txn_status(), transaction_status::in_transaction);
 
     co_await check_connection_usable(conn);

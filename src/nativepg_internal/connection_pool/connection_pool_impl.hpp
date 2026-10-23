@@ -40,13 +40,16 @@ inline std::size_t num_connections_to_create(
     std::size_t initial_size,         // config
     std::size_t max_size,             // config
     std::size_t current_connections,  // the number of connections in the pool, in any state
-    std::size_t pending_connections,  // the number of connections in the pool in pending state
+    std::size_t in_use_connections,   // the number of connections in the pool handed to the user
     std::size_t pending_requests      // the current number of async_get_connection requests that are waiting
 )
 {
     BOOST_ASSERT(initial_size <= max_size);
     BOOST_ASSERT(current_connections <= max_size);
-    BOOST_ASSERT(pending_connections <= current_connections);
+    BOOST_ASSERT(in_use_connections <= current_connections);
+
+    // Number of connections that are getting ready (in the process of being connected, reset, ...)
+    const std::size_t pending_connections = current_connections - in_use_connections;
 
     // We aim to have one pending connection per pending request.
     // When these connections successfully connect, they will fulfill the pending requests.
@@ -111,7 +114,7 @@ class co_connection_pool_impl
             params_.initial_size,
             params_.max_size,
             all_conns_.size(),
-            shared_st_.num_pending_connections,
+            shared_st_.num_in_use_connections,
             num_pending_requests_
         );
 

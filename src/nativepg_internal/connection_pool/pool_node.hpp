@@ -20,15 +20,16 @@
 #include <boost/intrusive/list_hook.hpp>
 
 #include <chrono>
+#include <cstddef>
 #include <system_error>
 #include <utility>
 
 #include "nativepg/capy-stub/ex/async_condition.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_connection_pool.hpp"
-#include "nativepg/protocol/sync.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
+#include "nativepg_internal/op_counter.hpp"
 
 namespace nativepg::detail {
 
@@ -57,9 +58,9 @@ struct pool_shared_state
     // Condition variable to wait for idle connections
     boost::capy::async_condition idle_connections_cv;
 
-    // The number of pending connections (currently getting ready).
+    // The number of connection that are currently in-use (have been handed by get_connection)
     // Required to compute how many connections we should create at any given point in time.
-    std::size_t num_pending_connections{0};
+    std::size_t num_in_use_connections{0u};
 };
 
 template <class Awaitable>
@@ -90,12 +91,17 @@ class pool_node : public boost::intrusive::list_base_hook<>
 
     void entering_idle()
     {
+        BOOST_ASSERT(!is_idle());
         shared_st_->idle_list.push_back(*this);
         shared_st_->idle_connections_cv.notify_one();
     }
-    void exiting_idle() { shared_st_->idle_list.erase(shared_st_->idle_list.iterator_to(*this)); }
-    void entering_pending() { ++shared_st_->num_pending_connections; }
-    void exiting_pending() { --shared_st_->num_pending_connections; }
+    void exiting_idle()
+    {
+        BOOST_ASSERT(is_idle());
+        shared_st_->idle_list.erase(shared_st_->idle_list.iterator_to(*this));
+    }
+    void entering_in_use() { ++shared_st_->num_in_use_connections; }
+    void exiting_in_use() { --shared_st_->num_in_use_connections; }
 
     bool is_idle() const { return is_linked(); }
 
@@ -146,10 +152,14 @@ public:
     {
         // There is no explicit PING command, but sending a sync will cause
         // the server to answer with ready_for_query
-        ping_req_.add(protocol::sync{});
+        ping_req_.add_sync();
     }
 
-    void mark_as_in_use() noexcept { exiting_idle(); }
+    void mark_as_in_use() noexcept
+    {
+        exiting_idle();
+        entering_in_use();
+    }
 
     void mark_as_collectable(bool should_reset)
     {
@@ -161,11 +171,6 @@ public:
     boost::capy::task<boost::capy::results<>> run()
     {
         const auto tok = co_await boost::capy::this_coro::stop_token;
-
-        // We're now pending.
-        // TODO: there is a race condition between create_connection() and running this that can cause
-        //    more connections to be created than required.
-        entering_pending();
 
         while (!tok.stop_requested())
         {
@@ -182,7 +187,6 @@ public:
             }
 
             // We've succeeded and are now idle
-            exiting_pending();
             entering_idle();
 
             while (true)
@@ -196,9 +200,9 @@ public:
                     co_return {};
                 else if (is_idle())
                 {
-                    // We're still idle after the wait. Time to ping
+                    // We're still idle after the wait. Time to ping.
+                    // We shouldn't hand this connection to the user until the ping finishes
                     exiting_idle();
-                    entering_pending();
                     if (auto [ec] = co_await do_ping(); ec)
                     {
                         // Ping failed. Reconnect
@@ -206,7 +210,6 @@ public:
                     }
 
                     // Ping succeeded. We're idle again
-                    exiting_pending();
                     entering_idle();
                 }
                 else if (collection_state_ == collection_state::none)
@@ -217,15 +220,17 @@ public:
                 else if (collection_state_ == collection_state::needs_collect)
                 {
                     // The user said we don't need a reset. Mark it as idle and keep going
-                    entering_idle();
                     collection_state_ = collection_state::none;
+                    exiting_in_use();
+                    entering_idle();
                     continue;
                 }
                 else
                 {
                     // The user has finished with the connection but requested a reset
                     BOOST_ASSERT(collection_state_ == collection_state::needs_collect_with_reset);
-                    entering_pending();
+                    collection_state_ = collection_state::none;
+                    exiting_in_use();
                     if (auto [ec] = co_await run_with_timeout(reset_connection(), params_->ping_timeout); ec)
                     {
                         // Reset failed. Reconnect
@@ -233,7 +238,6 @@ public:
                     }
 
                     // Reset successful, back to idle
-                    exiting_pending();
                     entering_idle();
                     continue;
                 }

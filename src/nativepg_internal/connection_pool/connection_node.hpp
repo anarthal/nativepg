@@ -47,10 +47,10 @@ enum class collection_state
     needs_collect_with_reset
 };
 
-// State shared between connection tasks
+// State shared between pool tasks
 // TODO: logging
 template <class Node>
-struct conn_shared_state
+struct pool_shared_state
 {
     // The list of connections that are currently idle. Non-owning.
     boost::intrusive::list<Node> idle_list;
@@ -86,13 +86,11 @@ boost::capy::task<boost::capy::results<>> run_with_timeout(
     }
 }
 
-// The templated type is never exposed to the user. We template
-// so tests can inject mocks.
-class connection_node : public boost::intrusive::list_base_hook<>
+class pool_node : public boost::intrusive::list_base_hook<>
 {
     const pool_params* params_;
     request ping_req_;
-    conn_shared_state<connection_node>* shared_st_;
+    pool_shared_state<pool_node>* shared_st_;
     co_connection conn_;
     boost::capy::async_event collection_ev_;  // Notifications about collections
     collection_state collection_state_{collection_state::none};
@@ -147,10 +145,10 @@ class connection_node : public boost::intrusive::list_base_hook<>
     }
 
 public:
-    connection_node(
+    pool_node(
         boost::capy::execution_context& ctx,
         const pool_params* params,
-        conn_shared_state<connection_node>& shared_st
+        pool_shared_state<pool_node>& shared_st
     )
         : params_(params), shared_st_(&shared_st), conn_(ctx)
     {

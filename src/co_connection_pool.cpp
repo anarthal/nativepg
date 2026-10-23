@@ -34,9 +34,6 @@ boost::capy::task<boost::capy::results<pooled_connection>> co_connection_pool::g
     return impl_->get_connection();
 }
 
-void detail::return_connection(connection_node& node, bool should_reset)
-{
-    node.mark_as_collectable(should_reset);
-}
+void detail::return_connection(pool_node& node, bool should_reset) { node.mark_as_collectable(should_reset); }
 
-co_connection& detail::get_connection(connection_node& node) { return node.connection(); }
+co_connection& detail::get_connection(pool_node& node) { return node.connection(); }

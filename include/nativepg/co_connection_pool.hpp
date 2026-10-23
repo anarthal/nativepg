@@ -24,10 +24,10 @@
 namespace nativepg {
 
 namespace detail {
-class connection_node;
+class pool_node;
 class co_connection_pool_impl;
-void return_connection(connection_node&, bool should_reset);
-co_connection& get_connection(connection_node&);
+void return_connection(pool_node&, bool should_reset);
+co_connection& get_connection(pool_node&);
 }  // namespace detail
 
 struct pool_params
@@ -43,9 +43,9 @@ struct pool_params
 
 class pooled_connection
 {
-    detail::connection_node* node_{};
+    detail::pool_node* node_{};
 
-    pooled_connection(detail::connection_node& node) noexcept : node_(&node) {}
+    pooled_connection(detail::pool_node& node) noexcept : node_(&node) {}
 
     friend class detail::co_connection_pool_impl;
 

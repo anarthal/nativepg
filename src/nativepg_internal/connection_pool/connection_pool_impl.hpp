@@ -76,8 +76,8 @@ class co_connection_pool_impl
 
     pool_params params_;
     state_t state_{state_t::initial};
-    std::list<connection_node> all_conns_;
-    conn_shared_state<connection_node> shared_st_;
+    std::list<pool_node> all_conns_;
+    pool_shared_state<pool_node> shared_st_;
     boost::capy::async_event cancel_ev_;
     boost::capy::async_event connections_needed_;
 
@@ -129,7 +129,7 @@ class co_connection_pool_impl
         --shared_st_.num_pending_requests;
     }
 
-    connection_node* try_get_connection()
+    pool_node* try_get_connection()
     {
         if (!shared_st_.idle_list.empty())
         {

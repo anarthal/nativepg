@@ -13,8 +13,8 @@
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_connection_pool.hpp"
-#include "nativepg_internal/connection_pool/connection_node.hpp"
 #include "nativepg_internal/connection_pool/connection_pool_impl.hpp"
+#include "nativepg_internal/connection_pool/pool_node.hpp"
 
 using namespace nativepg;
 

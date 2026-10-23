@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_CONNECTION_NODE_HPP
-#define NATIVEPG_CONNECTION_NODE_HPP
+#ifndef NATIVEPG_POOL_NODE_HPP
+#define NATIVEPG_POOL_NODE_HPP
 
 #include <boost/capy/cond.hpp>
 #include <boost/capy/ex/async_event.hpp>

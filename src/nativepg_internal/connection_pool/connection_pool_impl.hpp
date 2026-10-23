@@ -29,7 +29,7 @@
 
 #include "nativepg/co_connection_pool.hpp"
 #include "nativepg_internal/connection_pool/check_pool_params.hpp"
-#include "nativepg_internal/connection_pool/connection_node.hpp"
+#include "nativepg_internal/connection_pool/pool_node.hpp"
 
 namespace nativepg::detail {
 

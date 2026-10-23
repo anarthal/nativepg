@@ -29,10 +29,23 @@
 #include "nativepg/protocol/sync.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
-#include "nativepg_internal/connection_pool/sansio_connection_node.hpp"
 #include "nativepg_internal/op_counter.hpp"
 
 namespace nativepg::detail {
+
+// A collection_state represents the possibility that a connection
+// that was in_use was returned by the user
+enum class collection_state
+{
+    // Connection wasn't returned
+    none,
+
+    // Connection was returned and needs reset
+    needs_collect,
+
+    // Connection was returned and doesn't need reset
+    needs_collect_with_reset
+};
 
 // State shared between connection tasks
 // TODO: logging
@@ -75,8 +88,7 @@ boost::capy::task<boost::capy::results<>> run_with_timeout(
 
 // The templated type is never exposed to the user. We template
 // so tests can inject mocks.
-class connection_node : public boost::intrusive::list_base_hook<>,
-                        public sansio_connection_node<connection_node>
+class connection_node : public boost::intrusive::list_base_hook<>
 {
     const pool_params* params_;
     request ping_req_;
@@ -86,8 +98,6 @@ class connection_node : public boost::intrusive::list_base_hook<>,
     collection_state collection_state_{collection_state::none};
     check check_handler;
 
-    // Hooks for sansio_connection_node
-    friend class sansio_connection_node<connection_node>;
     void entering_idle()
     {
         shared_st_->idle_list.push_back(*this);

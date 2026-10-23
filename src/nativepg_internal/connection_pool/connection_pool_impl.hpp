@@ -8,6 +8,7 @@
 #ifndef NATIVEPG_CONNECTION_POOL_IMPL_HPP
 #define NATIVEPG_CONNECTION_POOL_IMPL_HPP
 
+#include <boost/assert.hpp>
 #include <boost/capy/cond.hpp>
 #include <boost/capy/error.hpp>
 #include <boost/capy/ex/async_event.hpp>
@@ -21,7 +22,7 @@
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_any.hpp>
 
-#include <chrono>
+#include <algorithm>
 #include <cstddef>
 #include <list>
 #include <stop_token>
@@ -29,9 +30,40 @@
 #include "nativepg/co_connection_pool.hpp"
 #include "nativepg_internal/connection_pool/check_pool_params.hpp"
 #include "nativepg_internal/connection_pool/connection_node.hpp"
-#include "nativepg_internal/connection_pool/sansio_connection_node.hpp"
 
 namespace nativepg::detail {
+
+// Given config params and the current state, computes the number
+// of connections that the pool should create at any given point in time
+inline std::size_t num_connections_to_create(
+    std::size_t initial_size,         // config
+    std::size_t max_size,             // config
+    std::size_t current_connections,  // the number of connections in the pool, in any state
+    std::size_t pending_connections,  // the number of connections in the pool in pending state
+    std::size_t pending_requests      // the current number of async_get_connection requests that are waiting
+)
+{
+    BOOST_ASSERT(initial_size <= max_size);
+    BOOST_ASSERT(current_connections <= max_size);
+    BOOST_ASSERT(pending_connections <= current_connections);
+
+    // We aim to have one pending connection per pending request.
+    // When these connections successfully connect, they will fulfill the pending requests.
+    std::size_t required_by_requests = pending_requests > pending_connections
+                                           ? static_cast<std::size_t>(pending_requests - pending_connections)
+                                           : 0u;
+
+    // We should always have at least min_connections.
+    // This might not be the case if the pool is just starting.
+    std::size_t required_by_min = current_connections < initial_size
+                                      ? static_cast<std::size_t>(initial_size - current_connections)
+                                      : 0u;
+
+    // We can't excess max_connections. This is the room for new connections that we have
+    std::size_t room = static_cast<std::size_t>(max_size - current_connections);
+
+    return (std::min)((std::max)(required_by_requests, required_by_min), room);
+}
 
 class co_connection_pool_impl
 {

@@ -9,7 +9,7 @@
 #define NATIVEPG_POOL_NODE_HPP
 
 #include <boost/capy/cond.hpp>
-#include <boost/capy/ex/async_event.hpp>
+#include <boost/capy/ex/async_waker.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/ex/this_coro.hpp>
 #include <boost/capy/results.hpp>
@@ -19,6 +19,7 @@
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive/list_hook.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <system_error>
@@ -79,14 +80,15 @@ boost::capy::task<boost::capy::results<>> run_with_timeout(
     }
 }
 
+// TODO: recover thread-safety tests
 class pool_node : public boost::intrusive::list_base_hook<>
 {
     const pool_params* params_;
     request ping_req_;
     pool_shared_state<pool_node>* shared_st_;
     co_connection conn_;
-    boost::capy::async_event collection_ev_;  // Notifications about collections
-    collection_state collection_state_{collection_state::none};
+    boost::capy::async_waker collection_waker_;  // Notifications about collections
+    std::atomic<collection_state> collection_state_{collection_state::none};
     check check_handler;
 
     void entering_idle()
@@ -161,11 +163,13 @@ public:
         entering_in_use();
     }
 
+    // Thread-safe
     void mark_as_collectable(bool should_reset)
     {
-        collection_state_ = should_reset ? collection_state::needs_collect_with_reset
-                                         : collection_state::needs_collect;
-        collection_ev_.set();
+        collection_state_.store(
+            should_reset ? collection_state::needs_collect_with_reset : collection_state::needs_collect
+        );
+        collection_waker_.wake();
     }
 
     boost::capy::task<boost::capy::results<>> run()
@@ -193,8 +197,7 @@ public:
             {
                 // Wait until either it's time to ping, or we're notified for a collection.
                 // Note that the idle => in-use transition is performed outside this coro in mark_as_in_use()
-                auto [ec] = co_await run_with_timeout(collection_ev_.wait(), params_->ping_interval);
-                collection_ev_.clear();
+                auto [ec] = co_await run_with_timeout(collection_waker_.wait(), params_->ping_interval);
 
                 if (ec == boost::capy::cond::canceled)
                     co_return {};

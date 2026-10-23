@@ -499,13 +499,13 @@ After the read side is shut down, the connection is dead.
 
 ## For an established connection, `connect()` replaces the session instead of failing. Why?
 
-It simplifies code dealing with re-connection. Consider a health-check
+It simplifies code dealing with reconnection. Consider a health check
 implemented as a trivial query. If executing it fails, the server is probably gone.
-But what if the server answers with an error? Naive re-connection code
-may react to this situation by calling `connect()` again.
-If we make `connect()` fail for established sessions, this would be a bug.
+But the server may also have answered with an error, leaving the session healthy.
+Naive reconnection code reacts to both cases by calling `connect()` again.
+If we made `connect()` fail for established sessions, that would be a bug.
 
-Implementing this semantic requires no extra code because `connect()` already
-needs to deal with potential leftovers left by fatal error situations.
-The error-if-connected semantic can be trivially implemented on top
-of `connect()` and `is_connected()`, a good sign.
+Implementing these semantics requires no extra code, because `connect()` already
+needs to deal with the leftovers that fatal errors may leave behind.
+The error-if-connected semantics can be trivially implemented on top
+of `connect()` and `is_connected()`, which is a good sign.

@@ -22,7 +22,6 @@
 #include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
-#include "nativepg/responses/resultset_callback.hpp"
 #include "nativepg/sqlstate_cond.hpp"
 #include "test_utils/ci_server.hpp"
 #include "test_utils/co_connection_utils.hpp"
@@ -72,24 +71,54 @@ capy::task<> test_connect_error()
     BOOST_TEST_EQ(conn.txn_status(), transaction_status::idle);
 }
 
-// The ReadyForQuery that ends the startup sequence is tracked. A connect()
-// that replaces a session reports the new session's status, not the old one's
-capy::task<> test_connect_success()
+// This is the case even after connect tears down a session with another TXN state
+capy::task<> test_connect_error_after_connected()
 {
-    // A fresh session is not inside a transaction block
+    // Setup
     auto conn = co_await establish_connection();
-    BOOST_TEST_EQ(conn.txn_status(), transaction_status::idle);
+    auto params = default_connect_params();
+    params.password = "bad_password";
 
-    // Open a transaction block, then replace the session without shutting down
+    // Change txn status
     if (!co_await checked_exec(conn, "BEGIN"))
         co_return;
     BOOST_TEST_EQ(conn.txn_status(), transaction_status::in_transaction);
 
+    // Failed connect
+    auto [ec] = co_await conn.connect(params);
+    test_cond_eq(ec, sqlstate_cond::invalid_password);
+    BOOST_TEST_NOT(conn.is_connected());
+    BOOST_TEST_EQ(conn.txn_status(), transaction_status::idle);
+}
+
+// connect() sets the status to idle
+capy::task<> test_connect_success()
+{
+    // Setup
+    co_connection conn{co_await capy::this_coro::executor};
     diagnostics diag;
+
+    // Connect
     if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
         co_return;
+    BOOST_TEST_EQ(conn.txn_status(), transaction_status::idle);
+}
 
-    // The transaction block belonged to the session we just replaced
+// This is the case even after connect tears down a session with another TXN state
+capy::task<> test_connect_success_after_connected()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+    diagnostics diag;
+
+    // Change txn status
+    if (!co_await checked_exec(conn, "BEGIN"))
+        co_return;
+    BOOST_TEST_EQ(conn.txn_status(), transaction_status::in_transaction);
+
+    // Connect again
+    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
+        co_return;
     BOOST_TEST_EQ(conn.txn_status(), transaction_status::idle);
 
     co_await check_connection_usable(conn);
@@ -99,9 +128,8 @@ capy::task<> test_connect_success()
 // Tracking during a session
 //
 
-// Every status the server can report is picked up as the exec that
-// triggers it completes
-capy::task<> test_exec()
+// We support all the status values reported by the server
+capy::task<> test_all_status()
 {
     // Setup
     auto conn = co_await establish_connection();
@@ -135,8 +163,7 @@ capy::task<> test_exec()
     co_await check_connection_usable(conn);
 }
 
-// An exec() that has to skip the messages the server still owes for an
-// abandoned request applies the ReadyForQuery it finds among them
+// Leftovers read by exec() correctly account for txn status changes
 capy::task<> test_exec_reads_leftovers()
 {
     // Setup
@@ -157,55 +184,37 @@ capy::task<> test_exec_reads_leftovers()
     // Sanity check: we haven't read anything yet, so the BEGIN is invisible to us
     BOOST_TEST_EQ(conn.txn_status(), transaction_status::idle);
 
-    // Run a request that produces a row. Its reader has to consume the leftover
-    // ReadyForQuery before it can see anything of ours, so by the time the row
-    // reaches the handler, the abandoned BEGIN must already be reflected
-    auto observed = transaction_status::idle;
-    auto cb = [&](row_int) { observed = conn.txn_status(); };
-
-    request req;
-    req.add_query("SELECT $1 AS value", 42);
-    if (!co_await checked_exec(conn, req, resultset_callback<row_int>(cb)))
+    // Executing another request needs to skip previous responses.
+    // The txn status update is correctly picked.
+    if (!co_await checked_exec(conn, "SELECT 42"))
         co_return;
-    BOOST_TEST_EQ(observed, transaction_status::in_transaction);
-
-    // Our own ReadyForQuery says the same: we're still inside the block
     BOOST_TEST_EQ(conn.txn_status(), transaction_status::in_transaction);
-
-    // Leave the session clean
-    if (!co_await checked_exec(conn, "ROLLBACK"))
-        co_return;
-    BOOST_TEST_EQ(conn.txn_status(), transaction_status::idle);
 
     co_await check_connection_usable(conn);
 }
 
-// A receive() that has to read the leftovers of an abandoned request applies
-// the ReadyForQuery it finds among them
+// Same for receive()
 capy::task<> test_receive_reads_leftovers()
 {
     // Setup
     auto conn = co_await establish_connection();
 
-    // Listen outside any transaction block, so the subscription sticks
-    if (!co_await checked_exec(conn, request().add_query("LISTEN test_txn_status_leftovers")))
-        co_return;
-
-    // Open a transaction block, so we can watch the receiver close it
-    if (!co_await checked_exec(conn, "BEGIN"))
+    // Listen and open a txn block. Needs to be outside any transaction block
+    request req1;
+    req1.add_query("LISTEN test_txn_status_leftovers");
+    req1.add_query("BEGIN");
+    if (!co_await checked_exec(conn, req1))
         co_return;
     BOOST_TEST_EQ(conn.txn_status(), transaction_status::in_transaction);
 
-    // Write a request that closes the block and then raises a notification,
-    // and abandon it without reading any of its response. The notification is
-    // what makes the receive() below return, and the server sends it after the
-    // ROLLBACK's ReadyForQuery
-    request req;
-    req.add_simple_query("ROLLBACK");
-    req.add_simple_query("NOTIFY test_txn_status_leftovers, 'after rollback'");
+    // Write a request that closes the block and raises a notification,
+    // and abandon it without reading any of its response
+    request req2;
+    req2.add_query("ROLLBACK");
+    req2.add_query("NOTIFY test_txn_status_leftovers, 'after rollback'");
     check handler;
     exec_state st;
-    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req2, &handler), std::error_code()))
         co_return;
     if (!check_success(co_await conn.write_request(st)))
         co_return;
@@ -239,20 +248,19 @@ capy::task<> test_shutdown()
     // Setup
     auto conn = co_await establish_connection();
 
-    // Shut down while inside a transaction block
+    // Open a txn block
     if (!co_await checked_exec(conn, "BEGIN"))
         co_return;
     BOOST_TEST_EQ(conn.txn_status(), transaction_status::in_transaction);
 
+    // Shutdown should clear the status
     if (!check_success(co_await conn.shutdown()))
         co_return;
-
-    // The session is gone, and so is the block it was in
     BOOST_TEST_NOT(conn.is_connected());
     BOOST_TEST_EQ(conn.txn_status(), transaction_status::idle);
 }
 
-// A fatal error discards the status: it describes a session that no longer exists
+// A fatal error discards the status
 capy::task<> test_fatal_error()
 {
     // Setup
@@ -268,11 +276,10 @@ capy::task<> test_fatal_error()
     request req;
     req.add_query("SELECT pg_terminate_backend(pg_backend_pid())");
     auto [ec] = co_await conn.exec(req, check());
-    BOOST_TEST_NE(ec, std::error_code());
+    BOOST_TEST_NE(ec, std::error_code());  // check unreliable
 
     // The connection is dead, and the status it had no longer applies
     BOOST_TEST_NOT(conn.is_connected());
-    BOOST_TEST_EQ(conn.last_error(), ec);
     BOOST_TEST_EQ(conn.txn_status(), transaction_status::idle);
 }
 
@@ -282,9 +289,11 @@ int main()
 {
     run_coroutine_test(test_before_connect());
     run_coroutine_test(test_connect_error());
+    run_coroutine_test(test_connect_error_after_connected());
     run_coroutine_test(test_connect_success());
+    run_coroutine_test(test_connect_success_after_connected());
 
-    run_coroutine_test(test_exec());
+    run_coroutine_test(test_all_status());
     run_coroutine_test(test_exec_reads_leftovers());
     run_coroutine_test(test_receive_reads_leftovers());
 

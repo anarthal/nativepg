@@ -15,6 +15,9 @@
 #include <boost/capy/when_all.hpp>
 #include <boost/core/lightweight_test.hpp>
 
+#include <cstdint>
+#include <optional>
+#include <string>
 #include <system_error>
 
 #include "nativepg/client_errc.hpp"
@@ -177,23 +180,105 @@ capy::task<> test_connect_removes_leftovers()
     co_await check_connection_usable(conn);
 }
 
-// connect() on an established connection fails and leaves it untouched
-capy::task<> test_already_connected()
+// connect() on an established connection replaces the session
+capy::task<> test_connect_while_connected()
 {
     // Setup
     auto conn = co_await establish_connection();
     const auto old_pid = conn.state().backend_process_id;
 
-    // Connecting again is an error
-    diagnostics diag;
-    auto [ec] = co_await conn.connect(default_connect_params(), &diag);
-    BOOST_TEST_EQ(ec, make_error_code(client_errc::already_connected));
-    BOOST_TEST_EQ(diag, diagnostics());
+    // Mark the session, so we can tell whether it survived
+    if (!co_await set_session_var(conn, "old_session"))
+        co_return;
 
-    // The existing session is still there and works
+    // Connect again, without shutting down first
+    diagnostics diag;
+    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
+        co_return;
+
+    // We're in a brand new session, and the old one is gone
     BOOST_TEST(conn.is_connected());
     BOOST_TEST_EQ(conn.last_error(), std::error_code());
-    BOOST_TEST_EQ(conn.state().backend_process_id, old_pid);
+    BOOST_TEST_NE(conn.state().backend_process_id, old_pid);
+    test_opt_eq(co_await get_session_var(conn), std::optional<std::string>());
+
+    co_await check_connection_usable(conn);
+}
+
+// connect() on an established connection cancels operations in flight
+capy::task<> test_connect_while_connected_cancels_ops()
+{
+    // The request blocks on an advisory lock that another session holds, so its
+    // response is guaranteed to still be pending when we reconnect.
+    // We avoid pg_sleep because it causes brittle tests and increases runtime.
+    constexpr std::int64_t lock_id = 31;
+
+    // Setup
+    auto conn = co_await establish_connection(), locker = co_await establish_connection();
+    if (!co_await checked_exec(locker, request().add_query("SELECT pg_advisory_lock($1)", lock_id)))
+        co_return;
+
+    // Write a request in full, so the only thing left in flight is its read
+    request req;
+    req.add_query("SELECT pg_advisory_lock($1)", lock_id);
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+
+    // Recall that when_all launches things in order, so the read is in-flight
+    // by the time connect() runs
+    diagnostics diag;
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::task<capy::results<>> {
+            auto [ec] = co_await conn.read_some_response(st);
+            test_cond_eq(ec, capy::cond::canceled);
+            co_return {};
+        }(),
+
+        [&]() -> capy::task<capy::results<>> {
+            check_success(co_await conn.connect(default_connect_params(), &diag), diag);
+            co_return {};
+        }()
+    ));
+
+    // The replacement session is healthy
+    BOOST_TEST(conn.is_connected());
+    BOOST_TEST_EQ(conn.last_error(), std::error_code());
+    co_await check_connection_usable(conn);
+
+    // Release the lock, so the backend serving the old session stops waiting on it
+    if (!check_success(co_await locker.shutdown()))
+        co_return;
+}
+
+// A connect() that fails on an established connection leaves it closed,
+// rather than restoring the session it replaced
+capy::task<> test_connect_while_connected_failure()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    // Connect again, with credentials that the server won't accept
+    auto params = default_connect_params();
+    params.password = "bad_password";
+
+    diagnostics diag;
+    auto [ec] = co_await conn.connect(params, &diag);
+    test_cond_eq(ec, sqlstate_cond::invalid_password);
+
+    // The old session is gone, and the failure was recorded
+    BOOST_TEST_NOT(conn.is_connected());
+    BOOST_TEST_EQ(conn.last_error(), ec);
+
+    // The connection can still be re-established
+    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
+        co_return;
+    BOOST_TEST(conn.is_connected());
+    BOOST_TEST_EQ(conn.last_error(), std::error_code());
 
     co_await check_connection_usable(conn);
 }
@@ -261,7 +346,11 @@ int main()
     run_coroutine_test(test_connect_after_shutdown());
     run_coroutine_test(test_connect_after_fatal_error());
     run_coroutine_test(test_connect_removes_leftovers());
-    run_coroutine_test(test_already_connected());
+
+    run_coroutine_test(test_connect_while_connected());
+    run_coroutine_test(test_connect_while_connected_cancels_ops());
+    run_coroutine_test(test_connect_while_connected_failure());
+
     run_coroutine_test(test_connect_while_connect());
     run_coroutine_test(test_connect_while_shutdown());
 

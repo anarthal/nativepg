@@ -8,6 +8,7 @@
 #ifndef NATIVEPG_CONNECTION_NODE_HPP
 #define NATIVEPG_CONNECTION_NODE_HPP
 
+#include <boost/capy/cond.hpp>
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/ex/this_coro.hpp>
@@ -56,6 +57,22 @@ struct conn_shared_state
     op_counter running_connections_counter;
 };
 
+template <class Awaitable>
+boost::capy::task<boost::capy::results<>> run_with_timeout(
+    Awaitable aw,
+    std::chrono::steady_clock::duration dur
+)
+{
+    if (dur.count() > 0)
+    {
+        co_return co_await boost::corosio::timeout(std::move(aw), dur);
+    }
+    else
+    {
+        co_return co_await std::move(aw);
+    }
+}
+
 // The templated type is never exposed to the user. We template
 // so tests can inject mocks.
 class connection_node : public boost::intrusive::list_base_hook<>,
@@ -67,6 +84,7 @@ class connection_node : public boost::intrusive::list_base_hook<>,
     co_connection conn_;
     boost::capy::async_event collection_ev_;  // Notifications about collections
     collection_state collection_state_{collection_state::none};
+    check check_handler;
 
     // Hooks for sansio_connection_node
     friend class sansio_connection_node<connection_node>;
@@ -79,19 +97,43 @@ class connection_node : public boost::intrusive::list_base_hook<>,
     void entering_pending() { ++shared_st_->num_pending_connections; }
     void exiting_pending() { --shared_st_->num_pending_connections; }
 
-    boost::capy::task<boost::capy::results<>> run_with_timeout(
-        boost::capy::task<boost::capy::results<>> task,
-        std::chrono::steady_clock::duration dur
-    )
+    bool is_idle() const { return is_linked(); }
+
+    boost::capy::task<boost::capy::results<>> do_shutdown()
     {
-        if (dur.count() > 0)
-        {
-            co_return co_await boost::corosio::timeout(std::move(task), dur);
-        }
-        else
-        {
-            co_return co_await std::move(task);
-        }
+        // TODO: do we need another timeout value here?
+        return run_with_timeout(conn_.shutdown(), params_->ping_timeout);
+    }
+
+    boost::capy::task<boost::capy::results<>> do_connect()
+    {
+        return run_with_timeout(conn_.connect(params_->transport), params_->connect_timeout);
+    }
+
+    boost::capy::task<boost::capy::results<>> do_ping()
+    {
+        return run_with_timeout(conn_.exec(ping_req_, &check_handler), params_->ping_timeout);
+    }
+
+    boost::capy::task<boost::capy::results<>> reset_connection()
+    {
+        // TODO: it is unclear what should we do here:
+        //   We may run DISCARD ALL to clean up evth. except transaction blocks:
+        //      CLOSE ALL: cursors
+        //      SET SESSION AUTHORIZATION DEFAULT: if you were superuser and impersonated someone
+        //        else
+        //      RESET ALL: if you changed parameters
+        //      DEALLOCATE ALL: if you used explicit PREPARE (you shouldn't)
+        //      UNLISTEN *: if you were using this connection to listen
+        //      SELECT pg_advisory_unlock_all(): locks
+        //      DISCARD PLANS: cached execution plans
+        //      DISCARD TEMP: temporary tables
+        //      DISCARD SEQUENCES: sequences
+        //   If we are within a failed transaction, we could try to detect it
+        //   by storing this info upon receiving ready_for_query and running a rollback
+        // For now we do nothing, but this should change.
+
+        co_return {};
     }
 
 public:
@@ -107,97 +149,102 @@ public:
         ping_req_.add(protocol::sync{});
     }
 
-    boost::capy::task<boost::capy::results<>> run()
-    {
-        // Allow run() track how many of us are outstanding
-        auto guard = shared_st_->running_connections_counter.scoped_notify_start();
-
-        // Invoke the sans-io algorithm
-        auto last_act_ = resume(std::error_code(), collection_state::none);
-
-        while (true)
-        {
-            // Check for cancellations. TODO: this is error-prone, consider using a stop callback?
-            if ((co_await boost::capy::this_coro::stop_token).stop_requested())
-            {
-                co_return {};
-            }
-
-            // Apply the next action
-            switch (last_act_)
-            {
-                case next_connection_action::connect:
-                {
-                    auto [ec] = co_await run_with_timeout(
-                        conn_.connect(params_->transport),
-                        params_->connect_timeout
-                    );
-                    last_act_ = resume(ec, collection_state::none);
-                    break;
-                }
-                case next_connection_action::sleep_connect_failed:
-                {
-                    auto [ec] = co_await boost::corosio::delay(params_->retry_interval);
-                    last_act_ = resume(ec, collection_state::none);
-                    break;
-                }
-                case next_connection_action::ping:
-                {
-                    check handler;
-                    auto [ec] = co_await run_with_timeout(
-                        conn_.exec(ping_req_, &handler),
-                        params_->ping_timeout
-                    );
-                    last_act_ = resume(ec, collection_state::none);
-                    break;
-                }
-                case next_connection_action::reset:
-                {
-                    // TODO: it is unclear what should we do here:
-                    //   We may run DISCARD ALL to clean up evth. except transaction blocks:
-                    //      CLOSE ALL: cursors
-                    //      SET SESSION AUTHORIZATION DEFAULT: if you were superuser and impersonated someone
-                    //        else
-                    //      RESET ALL: if you changed parameters
-                    //      DEALLOCATE ALL: if you used explicit PREPARE (you shouldn't)
-                    //      UNLISTEN *: if you were using this connection to listen
-                    //      SELECT pg_advisory_unlock_all(): locks
-                    //      DISCARD PLANS: cached execution plans
-                    //      DISCARD TEMP: temporary tables
-                    //      DISCARD SEQUENCES: sequences
-                    //   If we are within a failed transaction, we could try to detect it
-                    //   by storing this info upon receiving ready_for_query and running a rollback
-                    // For now we do nothing, but this should change.
-                    last_act_ = resume(std::error_code(), collection_state::none);
-                    break;
-                }
-                case next_connection_action::idle_wait:
-                {
-                    auto [ec] = params_->ping_interval.count() > 0 ? co_await boost::corosio::timeout(
-                                                                         collection_ev_.wait(),
-                                                                         params_->ping_interval
-                                                                     )
-                                                                   : co_await collection_ev_.wait();
-                    collection_ev_.clear();
-                    // TODO: now that this is not MT-safe, the exchange could probably be done in the sans-io
-                    // code
-                    last_act_ = resume(ec, std::exchange(collection_state_, collection_state::none));
-                    break;
-                }
-                case next_connection_action::none:
-                {
-                    co_return {};
-                }
-                default: BOOST_ASSERT(false);  // LCOV_EXCL_LINE
-            }
-        }
-    }
+    void mark_as_in_use() noexcept { exiting_idle(); }
 
     void mark_as_collectable(bool should_reset)
     {
         collection_state_ = should_reset ? collection_state::needs_collect_with_reset
                                          : collection_state::needs_collect;
         collection_ev_.set();
+    }
+
+    boost::capy::task<boost::capy::results<>> run()
+    {
+        const auto tok = co_await boost::capy::this_coro::stop_token;
+
+        // Allow run() track how many of us are outstanding
+        // TODO: this shouldn't really be here, but in capy::async_run()'s callback
+        auto guard = shared_st_->running_connections_counter.scoped_notify_start();
+
+        // We're now pending.
+        // TODO: there is a race condition between create_connection() and running this that can cause
+        //    more connections to be created than required.
+        entering_pending();
+
+        while (!tok.stop_requested())
+        {
+            // If there is any leftover, clean it up. This is a best effort - discard the result
+            if (conn_.is_connected())
+                static_cast<void>(co_await do_shutdown());
+
+            // Try to connect
+            if (auto [ec] = co_await do_connect(); ec)
+            {
+                // If we failed, sleep and try again
+                static_cast<void>(co_await boost::corosio::delay(params_->retry_interval));
+                continue;
+            }
+
+            // We've succeeded and are now idle
+            exiting_pending();
+            entering_idle();
+
+            while (true)
+            {
+                // Wait until either it's time to ping, or we're notified for a collection.
+                // Note that the idle => in-use transition is performed outside this coro in mark_as_in_use()
+                auto [ec] = co_await run_with_timeout(collection_ev_.wait(), params_->ping_interval);
+                collection_ev_.clear();
+
+                if (ec == boost::capy::cond::canceled)
+                    co_return {};
+                else if (is_idle())
+                {
+                    // We're still idle after the wait. Time to ping
+                    exiting_idle();
+                    entering_pending();
+                    if (auto [ec] = co_await do_ping(); ec)
+                    {
+                        // Ping failed. Reconnect
+                        break;
+                    }
+
+                    // Ping succeeded. We're idle again
+                    exiting_pending();
+                    entering_idle();
+                }
+                else if (collection_state_ == collection_state::none)
+                {
+                    // The user is still using the connection. Go back to waiting
+                    continue;
+                }
+                else if (collection_state_ == collection_state::needs_collect)
+                {
+                    // The user said we don't need a reset. Mark it as idle and keep going
+                    entering_idle();
+                    collection_state_ = collection_state::none;
+                    continue;
+                }
+                else
+                {
+                    // The user has finished with the connection but requested a reset
+                    BOOST_ASSERT(collection_state_ == collection_state::needs_collect_with_reset);
+                    entering_pending();
+                    if (auto [ec] = co_await run_with_timeout(reset_connection(), params_->ping_timeout); ec)
+                    {
+                        // Reset failed. Reconnect
+                        break;
+                    }
+
+                    // Reset successful, back to idle
+                    exiting_pending();
+                    entering_idle();
+                    continue;
+                }
+            }
+        }
+
+        co_return {};
     }
 
     // Getters, used by pooled_connection

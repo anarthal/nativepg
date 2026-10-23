@@ -189,7 +189,7 @@ startup_fsm_impl::result startup_fsm_impl::resume(
                 case kind::notice_response:
                     // TODO: record these somehow
                     break;
-                case kind::ready_for_query: return std::error_code();
+                case kind::ready_for_query: st.update_tracked(msg); return std::error_code();
                 default: st.reset(); return std::error_code(client_errc::unexpected_message);
             }
         }

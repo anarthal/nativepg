@@ -32,6 +32,7 @@
 #include "nativepg/exclusivity.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/connection_state.hpp"
+#include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/response_handler.hpp"
 
@@ -67,14 +68,17 @@ public:
     ~co_connection();
 
     // Establishes a connection to the server.
+    // If the connection is established (is_connected() == true), tears down the current
+    //   session before establishing the new one. The session is closed abruptly: no Terminate message
+    //   is sent, and the TLS shutdown is skipped. Any operation in flight is cancelled,
+    //   finishing with an ec == capy::cond::canceled. Call shutdown() first if you want
+    //   a graceful close.
     // After a successful completion, is_connected() == true, and last_error() is empty.
     // After a completion with an error, is_connected() == false, and last_error() contains
-    //   the error that caused the failure.
-    // Can be called after shutdown(), to re-use the connection.
-    // Can be called after a fatal error has been encountered (and thus is_connected() == false),
-    //   even if shutdown() is not called first.
+    //   the error that caused the failure. This holds even if a session was established
+    //   when connect() was called.
+    // Notifications that were received but not read with receive() are discarded.
     // Failure modes:
-    //   - If the connection is already established (is_connected() == true), fails with already_connected.
     //   - If another connect() or a shutdown() is outstanding, fails with already_running.
     boost::capy::task<boost::capy::results<>> connect(connect_params params, diagnostics* diag = nullptr);
 
@@ -345,6 +349,7 @@ public:
     // a successful call to connect() completes,
     // and until one of the following happens:
     //   - shutdown() initiates
+    //   - connect() initiates, replacing the session
     //   - One of the functions requiring server interaction (e.g. exec(), receive())
     //     detects a fatal error (e.g. network failure, protocol violation).
     bool is_connected() const noexcept;
@@ -361,6 +366,18 @@ public:
     // Values reported via ParameterStatus
     std::optional<bool> standard_conforming_strings() const;
     std::optional<encoding> client_encoding() const;
+
+    // The transaction status reported by the last ReadyForQuery message we read.
+    // Potential uses include deciding when to issue a ROLLBACK for session re-use.
+    // The value is authoritative only when no exec operation is in flight.
+    //   Requests that were written but whose response hasn't been read yet may
+    //   have already changed the backend's status. If you pipeline requests
+    //   (or run exec() operations in parallel), read this after all of them complete.
+    // If the connection hasn't been established yet (i.e. `is_connected() == false`),
+    //   returns transaction_status::idle.
+    // Copy-in and copy-out don't produce a ReadyForQuery until the copy is
+    //   terminated, so the value stays at the pre-copy status for their duration.
+    protocol::transaction_status txn_status() const noexcept;
 
     // TODO: this should be removed but is now used within the tests.
     //   Remove once we have accessors for backend PID

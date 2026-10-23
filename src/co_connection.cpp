@@ -94,6 +94,10 @@ struct detail::co_connection_impl
         {
             last_error_ = ec;
             is_connected_ = false;
+
+            // Session state is no longer reliable
+            st.reset_tracked();
+
             mpx_.stop();
             stream_.close();
         }
@@ -105,16 +109,17 @@ struct detail::co_connection_impl
     {
         using protocol::detail::connect_fsm;
 
-        // connect can't be run while the connection is healthy
-        if (is_connected_)
-            co_return {client_errc::already_connected};
-
         // Can't be run in parallel with another connect/shutdown
         if (connect_shutdown_running_)
             co_return {client_errc::already_running};
 
         // We're now connecting
         running_guard guard{connect_shutdown_running_};
+
+        // We might be tearing down a healthy session. Mark ourselves as
+        // disconnected so no new operation is accepted while we tear down.
+        is_connected_ = false;
+        st.reset_tracked();
 
         // Unblock anything currently outstanding.
         // These operations will complete immediately with an error after we yield.
@@ -133,10 +138,9 @@ struct detail::co_connection_impl
 
         // We can forget about pending operations now - they don't need anything
         // from us anymore. Clean up the remaining data
-        is_connected_ = false;
         last_error_.clear();
         exec_notifications_.clear();
-        st.reset();
+        st.reset_buffers();
         st.shared_diag = {};
         mpx_.restart();
 
@@ -206,6 +210,7 @@ struct detail::co_connection_impl
         // Prevent any more requests from being accepted.
         // This avoid someone else acquiring the write mutex while we write the Terminate.
         is_connected_ = false;
+        st.reset_tracked();
         mpx_.stop();
 
         // Send the terminate
@@ -231,11 +236,10 @@ struct detail::co_connection_impl
         {
             if (!final_ec)
                 final_ec = ec;
-            st.reset_tracked();
         }
         else
         {
-            st.reset();
+            st.reset_buffers();
             mpx_.restart();
         }
 
@@ -784,7 +788,10 @@ struct detail::co_connection_impl
                         // We're reading leftovers
                         consumed += res.size;
                         if (res.message.type() == protocol::any_backend_message::kind::ready_for_query)
+                        {
+                            st.update_tracked(res.message);
                             guard.report_rfq();
+                        }
                     }
                     else
                     {
@@ -964,6 +971,8 @@ std::optional<bool> co_connection::standard_conforming_strings() const
 }
 
 std::optional<encoding> co_connection::client_encoding() const { return impl_->st.client_encoding; }
+
+protocol::transaction_status co_connection::txn_status() const noexcept { return impl_->st.txn_status; }
 
 bool co_connection::is_connected() const noexcept { return impl_->is_connected_; }
 

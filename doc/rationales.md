@@ -496,3 +496,16 @@ meaning that further attempts to transfer bytes are not expected to make progres
 EOF is treated as a regular fatal error because a half-open
 connection state, where we can write but not read, makes no sense.
 After the read side is shut down, the connection is dead.
+
+## For an established connection, `connect()` replaces the session instead of failing. Why?
+
+It simplifies code dealing with reconnection. Consider a health check
+implemented as a trivial query. If executing it fails, the server is probably gone.
+But the server may also have answered with an error, leaving the session healthy.
+Naive reconnection code reacts to both cases by calling `connect()` again.
+If we made `connect()` fail for established sessions, that would be a bug.
+
+Implementing these semantics requires no extra code, because `connect()` already
+needs to deal with the leftovers that fatal errors may leave behind.
+The error-if-connected semantics can be trivially implemented on top
+of `connect()` and `is_connected()`, which is a good sign.

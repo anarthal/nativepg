@@ -105,16 +105,16 @@ struct detail::co_connection_impl
     {
         using protocol::detail::connect_fsm;
 
-        // connect can't be run while the connection is healthy
-        if (is_connected_)
-            co_return {client_errc::already_connected};
-
         // Can't be run in parallel with another connect/shutdown
         if (connect_shutdown_running_)
             co_return {client_errc::already_running};
 
         // We're now connecting
         running_guard guard{connect_shutdown_running_};
+
+        // We might be tearing down a healthy session. Mark ourselves as
+        // disconnected so no new operation is accepted while we tear down.
+        is_connected_ = false;
 
         // Unblock anything currently outstanding.
         // These operations will complete immediately with an error after we yield.
@@ -133,7 +133,6 @@ struct detail::co_connection_impl
 
         // We can forget about pending operations now - they don't need anything
         // from us anymore. Clean up the remaining data
-        is_connected_ = false;
         last_error_.clear();
         exec_notifications_.clear();
         st.reset();

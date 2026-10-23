@@ -15,6 +15,9 @@
 #include <boost/capy/when_all.hpp>
 #include <boost/core/lightweight_test.hpp>
 
+#include <cstdint>
+#include <optional>
+#include <string>
 #include <system_error>
 
 #include "nativepg/client_errc.hpp"
@@ -177,24 +180,83 @@ capy::task<> test_connect_removes_leftovers()
     co_await check_connection_usable(conn);
 }
 
-// connect() on an established connection fails and leaves it untouched
-capy::task<> test_already_connected()
+// connect() on an established connection replaces the session
+capy::task<> test_connect_while_connected()
 {
     // Setup
     auto conn = co_await establish_connection();
     const auto old_pid = conn.state().backend_process_id;
 
-    // Connecting again is an error
+    // Connect again, without shutting down first
     diagnostics diag;
-    auto [ec] = co_await conn.connect(default_connect_params(), &diag);
-    BOOST_TEST_EQ(ec, make_error_code(client_errc::already_connected));
-    BOOST_TEST_EQ(diag, diagnostics());
+    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
+        co_return;
 
-    // The existing session is still there and works
+    // We're in a new session
     BOOST_TEST(conn.is_connected());
     BOOST_TEST_EQ(conn.last_error(), std::error_code());
-    BOOST_TEST_EQ(conn.state().backend_process_id, old_pid);
+    BOOST_TEST_NE(conn.state().backend_process_id, old_pid);
 
+    co_await check_connection_usable(conn);
+}
+
+// connect() on an established connection cancels operations in flight
+capy::task<> test_connect_while_connected_cancels_ops()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+    diagnostics diag;
+    const auto pid = conn.state().backend_process_id;
+
+    // A request that won't finish by itself
+    request req;
+    req.add_query("SELECT pg_sleep(9999)");
+
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::task<capy::results<>> {
+            // Read until we get the cancellation
+            auto [ec] = co_await conn.exec(req, check());
+            test_cond_eq(ec, capy::cond::canceled);
+            co_return {};
+        }(),
+
+        [&]() -> capy::task<capy::results<>> {
+            co_await yield();  // just in case, so exec() starts
+            check_success(co_await conn.connect(default_connect_params(), &diag), diag);
+            co_return {};
+        }()
+    ));
+
+    // The replacement session is new and healthy
+    BOOST_TEST(conn.is_connected());
+    BOOST_TEST_EQ(conn.last_error(), std::error_code());
+    BOOST_TEST_NE(conn.state().backend_process_id, pid);
+
+    co_await check_connection_usable(conn);
+}
+
+// A connect() that fails on an established connection leaves it closed,
+// rather than restoring the session it replaced
+capy::task<> test_connect_while_connected_failure()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    // Connect again, with credentials that the server won't accept
+    auto params = default_connect_params();
+    params.password = "bad_password";
+
+    diagnostics diag;
+    auto [ec] = co_await conn.connect(params, &diag);
+    test_cond_eq(ec, sqlstate_cond::invalid_password);
+
+    // The old session is gone, and the failure was recorded
+    BOOST_TEST_NOT(conn.is_connected());
+    BOOST_TEST_EQ(conn.last_error(), ec);
+
+    // The connection can still be re-established
+    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
+        co_return;
     co_await check_connection_usable(conn);
 }
 
@@ -261,7 +323,11 @@ int main()
     run_coroutine_test(test_connect_after_shutdown());
     run_coroutine_test(test_connect_after_fatal_error());
     run_coroutine_test(test_connect_removes_leftovers());
-    run_coroutine_test(test_already_connected());
+
+    run_coroutine_test(test_connect_while_connected());
+    run_coroutine_test(test_connect_while_connected_cancels_ops());
+    run_coroutine_test(test_connect_while_connected_failure());
+
     run_coroutine_test(test_connect_while_connect());
     run_coroutine_test(test_connect_while_shutdown());
 

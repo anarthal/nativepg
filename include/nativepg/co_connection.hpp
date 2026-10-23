@@ -67,14 +67,17 @@ public:
     ~co_connection();
 
     // Establishes a connection to the server.
+    // If the connection is established (is_connected() == true), tears down the current
+    //   session before establishing the new one. The session is closed abruptly: no Terminate message
+    //   is sent, and the TLS shutdown is skipped. Any operation in flight is cancelled,
+    //   finishing with an ec == capy::cond::canceled. Call shutdown() first if you want
+    //   a graceful close.
     // After a successful completion, is_connected() == true, and last_error() is empty.
     // After a completion with an error, is_connected() == false, and last_error() contains
-    //   the error that caused the failure.
-    // Can be called after shutdown(), to re-use the connection.
-    // Can be called after a fatal error has been encountered (and thus is_connected() == false),
-    //   even if shutdown() is not called first.
+    //   the error that caused the failure. This holds even if a session was established
+    //   when connect() was called.
+    // Notifications that were received but not read with receive() are discarded.
     // Failure modes:
-    //   - If the connection is already established (is_connected() == true), fails with already_connected.
     //   - If another connect() or a shutdown() is outstanding, fails with already_running.
     boost::capy::task<boost::capy::results<>> connect(connect_params params, diagnostics* diag = nullptr);
 
@@ -345,6 +348,7 @@ public:
     // a successful call to connect() completes,
     // and until one of the following happens:
     //   - shutdown() initiates
+    //   - connect() initiates, replacing the session
     //   - One of the functions requiring server interaction (e.g. exec(), receive())
     //     detects a fatal error (e.g. network failure, protocol violation).
     bool is_connected() const noexcept;

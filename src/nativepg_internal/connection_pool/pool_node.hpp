@@ -60,10 +60,6 @@ struct pool_shared_state
     // The number of pending connections (currently getting ready).
     // Required to compute how many connections we should create at any given point in time.
     std::size_t num_pending_connections{0};
-
-    // The number of async_get_connection ops that are waiting for a connection to become available.
-    // Required to compute how many connections we should create at any given point in time.
-    std::size_t num_pending_requests{0};
 };
 
 template <class Awaitable>

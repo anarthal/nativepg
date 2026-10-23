@@ -83,6 +83,10 @@ class co_connection_pool_impl
     boost::capy::async_event connections_needed_;
     op_counter running_connections_counter_;
 
+    // The number of async_get_connection ops that are waiting for a connection to become available.
+    // Required to compute how many connections we should create at any given point in time.
+    std::size_t num_pending_requests_{0};
+
     boost::capy::task<> run_one(pool_node& node)
     {
         auto guard = running_connections_counter_.scoped_notify_start();
@@ -108,7 +112,7 @@ class co_connection_pool_impl
             params_.max_size,
             all_conns_.size(),
             shared_st_.num_pending_connections,
-            shared_st_.num_pending_requests
+            num_pending_requests_
         );
 
         // Create them
@@ -121,7 +125,7 @@ class co_connection_pool_impl
     void enter_request_pending()
     {
         // Record that we're pending
-        ++shared_st_.num_pending_requests;
+        ++num_pending_requests_;
 
         // Tell run() that we need connections
         connections_needed_.set();
@@ -131,8 +135,8 @@ class co_connection_pool_impl
     void exit_request_pending()
     {
         // Record that we're no longer pending
-        BOOST_ASSERT(shared_st_.num_pending_requests > 0u);
-        --shared_st_.num_pending_requests;
+        BOOST_ASSERT(num_pending_requests_ > 0u);
+        --num_pending_requests_;
     }
 
     pool_node* try_get_connection()

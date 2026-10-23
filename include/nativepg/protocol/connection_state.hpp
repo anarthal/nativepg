@@ -55,14 +55,19 @@ struct connection_state
         txn_status = transaction_status::idle;
         backend_process_id = {};
         backend_secret_key = {};
+        // shared_diag are transient by nature
+    }
+
+    void reset_buffers()
+    {
+        write_buffer.clear();
+        read_buffer.reset();
     }
 
     void reset()
     {
-        write_buffer.clear();
-        read_buffer.reset();
         reset_tracked();
-        // shared_diag are transient by nature
+        reset_buffers();
     }
 };
 

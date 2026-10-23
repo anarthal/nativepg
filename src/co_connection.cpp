@@ -119,6 +119,7 @@ struct detail::co_connection_impl
         // We might be tearing down a healthy session. Mark ourselves as
         // disconnected so no new operation is accepted while we tear down.
         is_connected_ = false;
+        st.reset_tracked();
 
         // Unblock anything currently outstanding.
         // These operations will complete immediately with an error after we yield.
@@ -139,7 +140,7 @@ struct detail::co_connection_impl
         // from us anymore. Clean up the remaining data
         last_error_.clear();
         exec_notifications_.clear();
-        st.reset();
+        st.reset_buffers();
         st.shared_diag = {};
         mpx_.restart();
 
@@ -209,6 +210,7 @@ struct detail::co_connection_impl
         // Prevent any more requests from being accepted.
         // This avoid someone else acquiring the write mutex while we write the Terminate.
         is_connected_ = false;
+        st.reset_tracked();
         mpx_.stop();
 
         // Send the terminate
@@ -234,11 +236,10 @@ struct detail::co_connection_impl
         {
             if (!final_ec)
                 final_ec = ec;
-            st.reset_tracked();
         }
         else
         {
-            st.reset();
+            st.reset_buffers();
             mpx_.restart();
         }
 

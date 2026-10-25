@@ -3,13 +3,18 @@
 #define NATIVEPG_TYPES_DATETIME_HPP
 
 #include <boost/endian/conversion.hpp>
-#include <system_error>
 
+#include <cctype>
 #include <charconv>
 #include <chrono>
-#include <cctype>
+#include <concepts>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <span>
 #include <string_view>
+#include <system_error>
+#include <vector>
 
 #include "nativepg/client_errc.hpp"
 
@@ -671,7 +676,373 @@ std::error_code parse_binary_interval(
     return {};
 }
 
+// --- Serialization
 
+namespace detail {
+
+inline constexpr std::int64_t micros_per_day = 86'400'000'000;
+inline constexpr std::int64_t micros_per_second = 1'000'000;
+
+// Days between the Unix epoch (used by std::chrono) and the PostgreSQL epoch (2000-01-01)
+inline constexpr std::int64_t pg_epoch_days = 10'957;
+inline constexpr std::int64_t pg_epoch_micros = pg_epoch_days * micros_per_day;
+
+// Day counts beyond this can't be converted to a std::chrono::year_month_day safely
+inline constexpr std::int64_t max_calendar_days = 12'000'000;
+
+// Offsets accepted by PostgreSQL for timetz: up to 15:59:59 in either direction
+inline constexpr std::int64_t max_utc_offset_seconds = 15 * 3600 + 59 * 60 + 59;
+
+// Appends value, left-padded with zeros to at least width digits
+template <std::integral T>
+void append_padded(std::vector<unsigned char>& to, T value, std::size_t width)
+{
+    char buffer[24];
+    const auto res = std::to_chars(buffer, buffer + sizeof(buffer), value);
+    const auto len = static_cast<std::size_t>(res.ptr - buffer);
+    if (len < width)
+        to.insert(to.end(), width - len, static_cast<unsigned char>('0'));
+    to.insert(to.end(), buffer, res.ptr);
 }
+
+inline void append_chars(std::vector<unsigned char>& to, std::string_view sv)
+{
+    to.insert(to.end(), sv.begin(), sv.end());
+}
+
+// Appends YYYY-MM-DD. Returns true if the date is BC, in which case the caller must append " BC"
+inline bool append_date_text(std::vector<unsigned char>& to, const std::chrono::year_month_day& ymd)
+{
+    const int year = static_cast<int>(ymd.year());
+    const bool bc = year <= 0;
+    append_padded(to, bc ? 1 - year : year, 4);
+    to.push_back('-');
+    append_padded(to, static_cast<unsigned>(ymd.month()), 2);
+    to.push_back('-');
+    append_padded(to, static_cast<unsigned>(ymd.day()), 2);
+    return bc;
+}
+
+// Appends HH:MM:SS[.ffffff]. The hours field is not limited to 2 digits
+inline void append_time_text(std::vector<unsigned char>& to, std::uint64_t micros)
+{
+    const std::uint64_t total_seconds = micros / micros_per_second;
+    const std::uint64_t fraction = micros % micros_per_second;
+    append_padded(to, total_seconds / 3600, 2);
+    to.push_back(':');
+    append_padded(to, total_seconds / 60 % 60, 2);
+    to.push_back(':');
+    append_padded(to, total_seconds % 60, 2);
+    if (fraction != 0)
+    {
+        to.push_back('.');
+        append_padded(to, fraction, 6);
+    }
+}
+
+inline std::error_code check_time_of_day(std::int64_t micros)
+{
+    return micros < 0 || micros > micros_per_day ? std::error_code(client_errc::value_too_big)
+                                                 : std::error_code();
+}
+
+// Splits a number of microseconds since the Unix epoch into a calendar date and a time of day
+inline std::error_code split_timestamp(
+    std::int64_t micros,
+    std::chrono::year_month_day& ymd,
+    std::int64_t& time_of_day
+)
+{
+    std::int64_t days = micros / micros_per_day;
+    time_of_day = micros % micros_per_day;
+    if (time_of_day < 0)
+    {
+        time_of_day += micros_per_day;
+        --days;
+    }
+    if (days > max_calendar_days || days < -max_calendar_days)
+        return client_errc::value_too_big;
+
+    ymd = std::chrono::year_month_day{
+        std::chrono::sys_days{std::chrono::days(static_cast<std::chrono::days::rep>(days))}
+    };
+    return ymd.ok() ? std::error_code() : std::error_code(client_errc::value_too_big);
+}
+
+template <class T>
+std::error_code serialize_text_timestamp_impl(
+    const T& value,
+    bool with_utc_suffix,
+    std::vector<unsigned char>& to
+)
+{
+    if (value == T::max())
+    {
+        append_chars(to, "infinity");
+        return {};
+    }
+    if (value == T::min())
+    {
+        append_chars(to, "-infinity");
+        return {};
+    }
+
+    std::chrono::year_month_day ymd;
+    std::int64_t time_of_day{};
+    if (auto ec = split_timestamp(
+            static_cast<std::int64_t>(value.time_since_epoch().count()),
+            ymd,
+            time_of_day
+        ))
+        return ec;
+
+    const bool bc = append_date_text(to, ymd);
+    to.push_back(' ');
+    append_time_text(to, static_cast<std::uint64_t>(time_of_day));
+    if (with_utc_suffix)
+        append_chars(to, "+00");
+    if (bc)
+        append_chars(to, " BC");
+    return {};
+}
+
+template <class T>
+std::error_code serialize_binary_timestamp_impl(const T& value, std::vector<unsigned char>& to)
+{
+    constexpr auto min = (std::numeric_limits<std::int64_t>::min)();
+    constexpr auto max = (std::numeric_limits<std::int64_t>::max)();
+
+    // The infinities are encoded as the extreme values of the 64-bit integer
+    std::int64_t result{};
+    if (value == T::max())
+    {
+        result = max;
+    }
+    else if (value == T::min())
+    {
+        result = min;
+    }
+    else
+    {
+        const auto micros = static_cast<std::int64_t>(value.time_since_epoch().count());
+        if (micros < min + 1 + pg_epoch_micros)
+            return client_errc::value_too_big;
+        result = micros - pg_epoch_micros;
+    }
+
+    const auto offset = to.size();
+    to.resize(offset + 8);
+    boost::endian::endian_store<std::int64_t, 8, boost::endian::order::big>(to.data() + offset, result);
+    return {};
+}
+
+inline std::error_code append_utc_offset_text(std::vector<unsigned char>& to, std::chrono::seconds offset)
+{
+    const std::int64_t secs = offset.count();
+    if (secs > max_utc_offset_seconds || secs < -max_utc_offset_seconds)
+        return client_errc::value_too_big;
+    to.push_back(secs < 0 ? '-' : '+');
+    const auto mag = static_cast<std::uint64_t>(secs < 0 ? -secs : secs);
+    append_padded(to, mag / 3600, 2);
+    to.push_back(':');
+    append_padded(to, mag / 60 % 60, 2);
+    if (mag % 60 != 0)
+    {
+        to.push_back(':');
+        append_padded(to, mag % 60, 2);
+    }
+    return {};
+}
+
+}  // namespace detail
+
+// DATE (TEXT). The infinities are the extreme values of std::chrono::sys_days
+template <class T = std::chrono::sys_days>
+std::error_code serialize_text_date(const T& value, std::vector<unsigned char>& to)
+{
+    if (value == T::max())
+    {
+        detail::append_chars(to, "infinity");
+        return {};
+    }
+    if (value == T::min())
+    {
+        detail::append_chars(to, "-infinity");
+        return {};
+    }
+
+    const auto days = static_cast<std::int64_t>(value.time_since_epoch().count());
+    if (days > detail::max_calendar_days || days < -detail::max_calendar_days)
+        return client_errc::value_too_big;
+    const std::chrono::year_month_day ymd{
+        std::chrono::sys_days{std::chrono::days(static_cast<std::chrono::days::rep>(days))}
+    };
+    if (!ymd.ok())
+        return client_errc::value_too_big;
+
+    if (detail::append_date_text(to, ymd))
+        detail::append_chars(to, " BC");
+    return {};
+}
+
+// DATE (BINARY)
+template <class T = std::chrono::sys_days>
+std::error_code serialize_binary_date(const T& value, std::vector<unsigned char>& to)
+{
+    constexpr auto min = (std::numeric_limits<std::int32_t>::min)();
+    constexpr auto max = (std::numeric_limits<std::int32_t>::max)();
+
+    std::int32_t result{};
+    if (value == T::max())
+    {
+        result = max;
+    }
+    else if (value == T::min())
+    {
+        result = min;
+    }
+    else
+    {
+        const auto days = static_cast<std::int64_t>(value.time_since_epoch().count()) - detail::pg_epoch_days;
+        if (days <= min || days >= max)
+            return client_errc::value_too_big;
+        result = static_cast<std::int32_t>(days);
+    }
+
+    const auto offset = to.size();
+    to.resize(offset + 4);
+    boost::endian::endian_store<std::int32_t, 4, boost::endian::order::big>(to.data() + offset, result);
+    return {};
+}
+
+// TIME (TEXT)
+inline std::error_code serialize_text_time(std::chrono::microseconds value, std::vector<unsigned char>& to)
+{
+    const auto micros = static_cast<std::int64_t>(value.count());
+    if (auto ec = detail::check_time_of_day(micros))
+        return ec;
+    detail::append_time_text(to, static_cast<std::uint64_t>(micros));
+    return {};
+}
+
+// TIME (BINARY)
+inline std::error_code serialize_binary_time(std::chrono::microseconds value, std::vector<unsigned char>& to)
+{
+    const auto micros = static_cast<std::int64_t>(value.count());
+    if (auto ec = detail::check_time_of_day(micros))
+        return ec;
+    const auto offset = to.size();
+    to.resize(offset + 8);
+    boost::endian::endian_store<std::int64_t, 8, boost::endian::order::big>(to.data() + offset, micros);
+    return {};
+}
+
+// TIMETZ (TEXT)
+template <class T = types::pg_timetz>
+std::error_code serialize_text_timetz(const T& value, std::vector<unsigned char>& to)
+{
+    const auto micros = static_cast<std::int64_t>(value.time_since_midnight.count());
+    if (auto ec = detail::check_time_of_day(micros))
+        return ec;
+
+    // Validate before appending anything, so that errors leave the buffer untouched
+    const std::int64_t secs = value.utc_offset.count();
+    if (secs > detail::max_utc_offset_seconds || secs < -detail::max_utc_offset_seconds)
+        return client_errc::value_too_big;
+
+    detail::append_time_text(to, static_cast<std::uint64_t>(micros));
+    return detail::append_utc_offset_text(to, value.utc_offset);
+}
+
+// TIMETZ (BINARY). PostgreSQL stores the offset as seconds WEST of UTC
+template <class T = types::pg_timetz>
+std::error_code serialize_binary_timetz(const T& value, std::vector<unsigned char>& to)
+{
+    const auto micros = static_cast<std::int64_t>(value.time_since_midnight.count());
+    if (auto ec = detail::check_time_of_day(micros))
+        return ec;
+    const std::int64_t secs = value.utc_offset.count();
+    if (secs > detail::max_utc_offset_seconds || secs < -detail::max_utc_offset_seconds)
+        return client_errc::value_too_big;
+
+    const auto offset = to.size();
+    to.resize(offset + 12);
+    boost::endian::endian_store<std::int64_t, 8, boost::endian::order::big>(to.data() + offset, micros);
+    boost::endian::endian_store<std::int32_t, 4, boost::endian::order::big>(
+        to.data() + offset + 8,
+        static_cast<std::int32_t>(-secs)
+    );
+    return {};
+}
+
+// TIMESTAMP (TEXT)
+template <class T = types::pg_timestamp>
+std::error_code serialize_text_timestamp(const T& value, std::vector<unsigned char>& to)
+{
+    return detail::serialize_text_timestamp_impl(value, false, to);
+}
+
+// TIMESTAMP (BINARY)
+template <class T = types::pg_timestamp>
+std::error_code serialize_binary_timestamp(const T& value, std::vector<unsigned char>& to)
+{
+    return detail::serialize_binary_timestamp_impl(value, to);
+}
+
+// TIMESTAMPTZ (TEXT). Always sent as UTC
+template <class T = types::pg_timestamptz>
+std::error_code serialize_text_timestamptz(const T& value, std::vector<unsigned char>& to)
+{
+    return detail::serialize_text_timestamp_impl(value, true, to);
+}
+
+// TIMESTAMPTZ (BINARY)
+template <class T = types::pg_timestamptz>
+std::error_code serialize_binary_timestamptz(const T& value, std::vector<unsigned char>& to)
+{
+    return detail::serialize_binary_timestamp_impl(value, to);
+}
+
+// INTERVAL (TEXT), in PostgreSQL's "postgres" style: "<months> mons <days> days [-]HH:MM:SS[.ffffff]"
+template <class T = types::pg_interval>
+std::error_code serialize_text_interval(const T& value, std::vector<unsigned char>& to)
+{
+    detail::append_padded(to, value.months, 0);
+    detail::append_chars(to, " mons ");
+    detail::append_padded(to, value.days, 0);
+    detail::append_chars(to, " days ");
+
+    const auto micros = static_cast<std::int64_t>(value.time.count());
+    if (micros < 0)
+        to.push_back('-');
+    // Negating in unsigned arithmetic is well defined, even for the minimum value
+    const auto magnitude = micros < 0 ? std::uint64_t{0} - static_cast<std::uint64_t>(micros)
+                                      : static_cast<std::uint64_t>(micros);
+    detail::append_time_text(to, magnitude);
+    return {};
+}
+
+// INTERVAL (BINARY)
+template <class T = types::pg_interval>
+std::error_code serialize_binary_interval(const T& value, std::vector<unsigned char>& to)
+{
+    const auto offset = to.size();
+    to.resize(offset + 16);
+    boost::endian::endian_store<std::int64_t, 8, boost::endian::order::big>(
+        to.data() + offset,
+        static_cast<std::int64_t>(value.time.count())
+    );
+    boost::endian::endian_store<std::int32_t, 4, boost::endian::order::big>(
+        to.data() + offset + 8,
+        static_cast<std::int32_t>(value.days)
+    );
+    boost::endian::endian_store<std::int32_t, 4, boost::endian::order::big>(
+        to.data() + offset + 12,
+        static_cast<std::int32_t>(value.months)
+    );
+    return {};
+}
+
+}  // namespace nativepg::types
 
 #endif  // NATIVEPG_TYPES_DATETIME_HPP

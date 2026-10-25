@@ -21,11 +21,14 @@
 #include <cstdint>
 #include <limits>
 #include <ranges>
+#include <string>
 #include <string_view>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 #include "nativepg/client_errc.hpp"
+#include "nativepg/detail/numeric_encoding.hpp"
 #include "nativepg/field_view.hpp"
 
 namespace nativepg::types {
@@ -209,6 +212,48 @@ std::error_code parse_binary_numeric(const field_view& from, T& to)
     to = std::move(result);
 
     return {};
+}
+
+// Serializes a finite or special value. Note: converting to a string allocates
+template <class T>
+std::error_code serialize_text_numeric(const T& value, std::vector<unsigned char>& to)
+{
+    using detail_kind = nativepg::detail::numeric_special;
+    if (boost::multiprecision::isnan(value))
+    {
+        nativepg::detail::serialize_text_numeric_special(detail_kind::nan, to);
+        return {};
+    }
+    if (boost::multiprecision::isinf(value))
+    {
+        nativepg::detail::serialize_text_numeric_special(
+            value < 0 ? detail_kind::neg_inf : detail_kind::pos_inf,
+            to
+        );
+        return {};
+    }
+
+    const std::string str = value.str();
+    to.insert(to.end(), str.begin(), str.end());
+    return {};
+}
+
+template <class T>
+std::error_code serialize_binary_numeric(const T& value, std::vector<unsigned char>& to)
+{
+    using detail_kind = nativepg::detail::numeric_special;
+    if (boost::multiprecision::isnan(value))
+        return nativepg::detail::serialize_binary_numeric_special(detail_kind::nan, to);
+    if (boost::multiprecision::isinf(value))
+    {
+        return nativepg::detail::serialize_binary_numeric_special(
+            value < 0 ? detail_kind::neg_inf : detail_kind::pos_inf,
+            to
+        );
+    }
+
+    const std::string str = value.str();
+    return nativepg::detail::serialize_binary_numeric_digits(str, to);
 }
 
 }  // namespace nativepg::types

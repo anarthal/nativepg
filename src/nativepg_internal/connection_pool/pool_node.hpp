@@ -104,12 +104,6 @@ class pool_node : public pool_node_hook
 
     bool is_idle() const { return is_linked(); }
 
-    auto do_shutdown()
-    {
-        // TODO: do we need another timeout value here?
-        return run_with_timeout(conn_.shutdown(), params_->ping_timeout);
-    }
-
     auto do_connect()
     {
         return run_with_timeout(conn_.connect(params_->transport), params_->connect_timeout);
@@ -168,10 +162,6 @@ public:
 
         while (!tok.stop_requested())
         {
-            // If there is any leftover, clean it up. This is a best effort - discard the result
-            if (conn_.is_connected())
-                static_cast<void>(co_await do_shutdown());
-
             // Try to connect
             if (auto [ec] = co_await do_connect(); ec)
             {

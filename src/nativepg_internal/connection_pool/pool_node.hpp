@@ -64,19 +64,13 @@ struct pool_shared_state
 };
 
 template <class Awaitable>
-boost::capy::task<boost::capy::results<>> run_with_timeout(
-    Awaitable aw,
-    std::chrono::steady_clock::duration dur
-)
+auto run_with_timeout(Awaitable aw, std::chrono::steady_clock::duration dur)
 {
-    if (dur.count() > 0)
-    {
-        co_return co_await boost::corosio::timeout(std::move(aw), dur);
-    }
-    else
-    {
-        co_return co_await std::move(aw);
-    }
+    // Most of the time, we do have a timeout, so we optimize for this case.
+    // Doing this instead of a conditional is one less frame
+    auto deadline = dur.count() > 0 ? std::chrono::steady_clock::now() + dur
+                                    : (std::chrono::steady_clock::time_point::max)();
+    return boost::corosio::timeout(std::move(aw), deadline);
 }
 
 // TODO: recover thread-safety tests
@@ -106,21 +100,18 @@ class pool_node : public boost::intrusive::list_base_hook<>
 
     bool is_idle() const { return is_linked(); }
 
-    boost::capy::task<boost::capy::results<>> do_shutdown()
+    auto do_shutdown()
     {
         // TODO: do we need another timeout value here?
         return run_with_timeout(conn_.shutdown(), params_->ping_timeout);
     }
 
-    boost::capy::task<boost::capy::results<>> do_connect()
+    auto do_connect()
     {
         return run_with_timeout(conn_.connect(params_->transport), params_->connect_timeout);
     }
 
-    boost::capy::task<boost::capy::results<>> do_ping()
-    {
-        return run_with_timeout(conn_.exec(ping_req_, &check_handler), params_->ping_timeout);
-    }
+    auto do_ping() { return run_with_timeout(conn_.exec(ping_req_, &check_handler), params_->ping_timeout); }
 
     boost::capy::task<boost::capy::results<>> reset_connection()
     {

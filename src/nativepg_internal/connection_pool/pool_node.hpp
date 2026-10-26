@@ -9,6 +9,7 @@
 #define NATIVEPG_POOL_NODE_HPP
 
 #include <boost/assert.hpp>
+#include <boost/capy/cond.hpp>
 #include <boost/capy/ex/async_waker.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/ex/this_coro.hpp>
@@ -22,6 +23,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <system_error>
 #include <utility>
 
 #include "nativepg/capy-stub/ex/async_condition.hpp"
@@ -32,19 +34,15 @@
 
 namespace nativepg::detail {
 
-// A collection_state represents the possibility that a connection
-// that was in_use was returned by the user
-enum class collection_state
+template <class Awaitable>
+auto run_with_timeout(Awaitable aw, std::chrono::steady_clock::duration dur)
 {
-    // Connection wasn't returned
-    none,
-
-    // Connection was returned and doesn't need reset
-    needs_collect,
-
-    // Connection was returned and needs reset
-    needs_collect_with_reset
-};
+    // Most of the time, we do have a timeout, so we optimize for this case.
+    // Doing this instead of a conditional is one less frame
+    auto deadline = dur.count() > 0 ? std::chrono::steady_clock::now() + dur
+                                    : (std::chrono::steady_clock::time_point::max)();
+    return boost::corosio::timeout(std::move(aw), deadline);
+}
 
 class pool_node;
 
@@ -67,16 +65,6 @@ struct pool_shared_state
     std::size_t num_in_use_connections{0u};
 };
 
-template <class Awaitable>
-auto run_with_timeout(Awaitable aw, std::chrono::steady_clock::duration dur)
-{
-    // Most of the time, we do have a timeout, so we optimize for this case.
-    // Doing this instead of a conditional is one less frame
-    auto deadline = dur.count() > 0 ? std::chrono::steady_clock::now() + dur
-                                    : (std::chrono::steady_clock::time_point::max)();
-    return boost::corosio::timeout(std::move(aw), deadline);
-}
-
 // TODO: recover thread-safety tests
 class pool_node : public pool_node_hook
 {
@@ -84,9 +72,74 @@ class pool_node : public pool_node_hook
     request ping_req_;
     pool_shared_state* shared_st_;
     co_connection conn_;
-    boost::capy::async_waker collection_waker_;  // Notifications about collections
-    std::atomic<collection_state> collection_state_{collection_state::none};
     check check_handler;
+
+    // A collection_state represents the possibility that a connection
+    // that was in use was returned by the user
+    enum class collection_state
+    {
+        // Connection wasn't returned
+        none,
+
+        // Connection was returned and doesn't need reset
+        needs_collect,
+
+        // Connection was returned and needs reset
+        needs_collect_with_reset
+    };
+
+    // What should run() do after idle_wait() finishes?
+    enum class collection_action
+    {
+        // Run a ping
+        ping,
+
+        // Mark the connection as returned, no reset needed
+        collect,
+
+        // Mark the connection as returned, reset needed
+        collect_with_reset,
+    };
+
+    // Thread-safe, for collection notifications.
+    boost::capy::async_waker collection_waker_;
+    std::atomic<collection_state> collection_state_{collection_state::none};
+
+    boost::capy::task<boost::capy::results<collection_action>> idle_wait()
+    {
+        while (true)
+        {
+            auto [ec] = co_await run_with_timeout(collection_waker_.wait(), params_->ping_interval);
+            if (ec == boost::capy::cond::timeout)
+            {
+                if (is_idle())
+                {
+                    // The user hasn't picked the connection and the ping interval has elapsed.
+                    // Time to ping
+                    co_return {std::error_code(), collection_action::ping};
+                }
+
+                // The user is still using the connection. Go back to waiting
+            }
+            else if (ec)
+            {
+                // Likely a cancellation
+                co_return {ec, collection_action::ping};
+            }
+            else
+            {
+                switch (collection_state_.exchange(collection_state::none))
+                {
+                    case collection_state::needs_collect:
+                        co_return {std::error_code(), collection_action::collect};
+                    case collection_state::needs_collect_with_reset:
+                        co_return {std::error_code(), collection_action::collect_with_reset};
+                    case collection_state::none: break;
+                    default: BOOST_ASSERT(false); break;
+                }
+            }
+        }
+    }
 
     void entering_idle()
     {
@@ -173,17 +226,16 @@ public:
             // We've succeeded and are now idle
             entering_idle();
 
-            while (!tok.stop_requested())
+            while (true)
             {
                 // Wait until either it's time to ping, or we're notified for a collection.
                 // Note that the idle => in-use transition is performed outside this coro in mark_as_in_use()
-                static_cast<void>(
-                    co_await run_with_timeout(collection_waker_.wait(), params_->ping_interval)
-                );
+                auto [ec, act] = co_await idle_wait();
+                if (ec)
+                    break;
 
-                if (is_idle())
+                if (act == collection_action::ping)
                 {
-                    // We're still idle after the wait. Time to ping.
                     // We shouldn't hand this connection to the user until the ping finishes
                     exiting_idle();
                     if (auto [ec] = co_await do_ping(); ec)
@@ -194,27 +246,17 @@ public:
 
                     // Ping succeeded. We're idle again
                     entering_idle();
-                    continue;
                 }
-
-                // Check the collection status
-                const auto col_st = collection_state_.exchange(collection_state::none);
-                if (col_st == collection_state::none)
-                {
-                    // The user is still using the connection. Go back to waiting
-                    continue;
-                }
-                else if (col_st == collection_state::needs_collect)
+                else if (act == collection_action::collect)
                 {
                     // The user said we don't need a reset. Mark it as idle and keep going
                     exiting_in_use();
                     entering_idle();
-                    continue;
                 }
                 else
                 {
                     // The user has finished with the connection but requested a reset
-                    BOOST_ASSERT(col_st == collection_state::needs_collect_with_reset);
+                    BOOST_ASSERT(act == collection_action::collect_with_reset);
                     exiting_in_use();
                     if (auto [ec] = co_await run_with_timeout(reset_connection(), params_->ping_timeout); ec)
                     {
@@ -224,7 +266,6 @@ public:
 
                     // Reset successful, back to idle
                     entering_idle();
-                    continue;
                 }
             }
         }

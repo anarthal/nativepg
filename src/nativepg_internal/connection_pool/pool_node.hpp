@@ -39,10 +39,10 @@ enum class collection_state
     // Connection wasn't returned
     none,
 
-    // Connection was returned and needs reset
+    // Connection was returned and doesn't need reset
     needs_collect,
 
-    // Connection was returned and doesn't need reset
+    // Connection was returned and needs reset
     needs_collect_with_reset
 };
 

@@ -90,9 +90,8 @@ class co_connection_pool_impl
     // Required to compute how many connections we should create at any given point in time.
     std::size_t num_pending_requests_{0};
 
-    boost::capy::task<> run_one(pool_node& node)
+    boost::capy::task<> run_one(pool_node& node, op_counter::guard guard)
     {
-        auto guard = running_connections_counter_.scoped_notify_start();
         static_cast<void>(co_await boost::capy::when_any(node.run(), cancel_ev_.wait()));
     }
 
@@ -102,8 +101,17 @@ class co_connection_pool_impl
     // We don't propagate the stop_token because ordering of cleanup callbacks is important
     void create_connection(const boost::capy::await_context* env)
     {
+        // Create the connection
         all_conns_.emplace_back(env->executor.context(), &params_, shared_st_);
-        boost::capy::run_async(env->executor, env->frame_allocator)(run_one(all_conns_.back()));
+
+        // Record that we have a task running. Doing this here instead of in run_one()
+        // prevents potential race conditions (op_counter::wait() running before the start notification)
+        auto guard = running_connections_counter_.scoped_notify_start();
+
+        // Actually start the task
+        boost::capy::run_async(env->executor, env->frame_allocator)(
+            run_one(all_conns_.back(), std::move(guard))
+        );
     }
 
     // Create and run connections as required by the current config and state

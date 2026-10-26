@@ -90,7 +90,7 @@ class co_connection_pool_impl
     // Required to compute how many connections we should create at any given point in time.
     std::size_t num_pending_requests_{0};
 
-    boost::capy::task<> run_one(pool_node& node, op_counter::guard guard)
+    boost::capy::task<> run_one(pool_node& node, op_counter::guard)
     {
         static_cast<void>(co_await boost::capy::when_any(node.run(), cancel_ev_.wait()));
     }

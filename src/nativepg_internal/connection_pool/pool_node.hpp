@@ -47,13 +47,18 @@ enum class collection_state
     needs_collect_with_reset
 };
 
+class pool_node;
+
+// The hook used by pool_node for Boost.Intrusive compatibility
+using pool_node_hook = boost::intrusive::list_base_hook<>;
+
 // State shared between pool tasks
 // TODO: logging
-template <class Node>
 struct pool_shared_state
 {
     // The list of connections that are currently idle. Non-owning.
-    boost::intrusive::list<Node> idle_list;
+    // Using base_hook explicitly is required because pool_node is incomplete
+    boost::intrusive::list<pool_node, boost::intrusive::base_hook<pool_node_hook>> idle_list;
 
     // Condition variable to wait for idle connections
     boost::capy::async_condition idle_connections_cv;
@@ -74,11 +79,11 @@ auto run_with_timeout(Awaitable aw, std::chrono::steady_clock::duration dur)
 }
 
 // TODO: recover thread-safety tests
-class pool_node : public boost::intrusive::list_base_hook<>
+class pool_node : public pool_node_hook
 {
     const pool_params* params_;
     request ping_req_;
-    pool_shared_state<pool_node>* shared_st_;
+    pool_shared_state* shared_st_;
     co_connection conn_;
     boost::capy::async_waker collection_waker_;  // Notifications about collections
     std::atomic<collection_state> collection_state_{collection_state::none};
@@ -135,11 +140,7 @@ class pool_node : public boost::intrusive::list_base_hook<>
     }
 
 public:
-    pool_node(
-        boost::capy::execution_context& ctx,
-        const pool_params* params,
-        pool_shared_state<pool_node>& shared_st
-    )
+    pool_node(boost::capy::execution_context& ctx, const pool_params* params, pool_shared_state& shared_st)
         : params_(params), shared_st_(&shared_st), conn_(ctx)
     {
         // There is no explicit PING command, but sending a sync will cause

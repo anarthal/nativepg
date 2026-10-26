@@ -81,7 +81,7 @@ class co_connection_pool_impl
     pool_params params_;
     state_t state_{state_t::initial};
     std::list<pool_node> all_conns_;
-    pool_shared_state<pool_node> shared_st_;
+    pool_shared_state shared_st_;
     boost::capy::async_event cancel_ev_;
     boost::capy::async_event connections_needed_;
     op_counter running_connections_counter_;

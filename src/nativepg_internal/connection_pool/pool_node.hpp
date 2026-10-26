@@ -213,6 +213,19 @@ public:
     {
         const auto tok = co_await boost::capy::this_coro::stop_token;
 
+        // If we exit and we're in the idle list, remove ourselves from it.
+        // Otherwise, safe_link mode may trigger an assert on pool destruction.
+        struct idle_guard_t
+        {
+            pool_node& self;
+            idle_guard_t(pool_node& self) noexcept : self(self) {}
+            ~idle_guard_t()
+            {
+                if (self.is_idle())
+                    self.exiting_idle();
+            }
+        } idle_guard{*this};
+
         while (!tok.stop_requested())
         {
             // Try to connect

@@ -8,7 +8,7 @@
 #ifndef NATIVEPG_POOL_NODE_HPP
 #define NATIVEPG_POOL_NODE_HPP
 
-#include <boost/capy/cond.hpp>
+#include <boost/assert.hpp>
 #include <boost/capy/ex/async_waker.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/ex/this_coro.hpp>
@@ -29,7 +29,6 @@
 #include "nativepg/co_connection_pool.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
-#include "nativepg_internal/op_counter.hpp"
 
 namespace nativepg::detail {
 

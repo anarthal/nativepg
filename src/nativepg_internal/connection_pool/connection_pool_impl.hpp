@@ -8,6 +8,7 @@
 #ifndef NATIVEPG_CONNECTION_POOL_IMPL_HPP
 #define NATIVEPG_CONNECTION_POOL_IMPL_HPP
 
+#include <boost/assert.hpp>
 #include <boost/capy/cond.hpp>
 #include <boost/capy/error.hpp>
 #include <boost/capy/ex/async_event.hpp>
@@ -21,17 +22,52 @@
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_any.hpp>
 
-#include <chrono>
+#include <algorithm>
 #include <cstddef>
 #include <list>
 #include <stop_token>
 
 #include "nativepg/co_connection_pool.hpp"
 #include "nativepg_internal/connection_pool/check_pool_params.hpp"
-#include "nativepg_internal/connection_pool/connection_node.hpp"
-#include "nativepg_internal/connection_pool/sansio_connection_node.hpp"
+#include "nativepg_internal/connection_pool/pool_node.hpp"
+#include "nativepg_internal/op_counter.hpp"
 
 namespace nativepg::detail {
+
+// Given config params and the current state, computes the number
+// of connections that the pool should create at any given point in time
+inline std::size_t num_connections_to_create(
+    std::size_t initial_size,         // config
+    std::size_t max_size,             // config
+    std::size_t current_connections,  // the number of connections in the pool, in any state
+    std::size_t in_use_connections,   // the number of connections in the pool handed to the user
+    std::size_t pending_requests      // the current number of async_get_connection requests that are waiting
+)
+{
+    BOOST_ASSERT(initial_size <= max_size);
+    BOOST_ASSERT(current_connections <= max_size);
+    BOOST_ASSERT(in_use_connections <= current_connections);
+
+    // Number of connections that are getting ready (in the process of being connected, reset, ...)
+    const std::size_t pending_connections = current_connections - in_use_connections;
+
+    // We aim to have one pending connection per pending request.
+    // When these connections successfully connect, they will fulfill the pending requests.
+    std::size_t required_by_requests = pending_requests > pending_connections
+                                           ? static_cast<std::size_t>(pending_requests - pending_connections)
+                                           : 0u;
+
+    // We should always have at least min_connections.
+    // This might not be the case if the pool is just starting.
+    std::size_t required_by_min = current_connections < initial_size
+                                      ? static_cast<std::size_t>(initial_size - current_connections)
+                                      : 0u;
+
+    // We can't excess max_connections. This is the room for new connections that we have
+    std::size_t room = static_cast<std::size_t>(max_size - current_connections);
+
+    return (std::min)((std::max)(required_by_requests, required_by_min), room);
+}
 
 class co_connection_pool_impl
 {
@@ -44,10 +80,20 @@ class co_connection_pool_impl
 
     pool_params params_;
     state_t state_{state_t::initial};
-    std::list<connection_node> all_conns_;
-    conn_shared_state<connection_node> shared_st_;
+    std::list<pool_node> all_conns_;
+    pool_shared_state shared_st_;
     boost::capy::async_event cancel_ev_;
     boost::capy::async_event connections_needed_;
+    op_counter running_connections_counter_;
+
+    // The number of async_get_connection ops that are waiting for a connection to become available.
+    // Required to compute how many connections we should create at any given point in time.
+    std::size_t num_pending_requests_{0};
+
+    boost::capy::task<> run_one(pool_node& node, op_counter::guard)
+    {
+        static_cast<void>(co_await boost::capy::when_any(node.run(), cancel_ev_.wait()));
+    }
 
     // Create and run one connection
     // This should be safe as long as we ensure that the parent task (pool run)
@@ -55,9 +101,16 @@ class co_connection_pool_impl
     // We don't propagate the stop_token because ordering of cleanup callbacks is important
     void create_connection(const boost::capy::await_context* env)
     {
+        // Create the connection
         all_conns_.emplace_back(env->executor.context(), &params_, shared_st_);
+
+        // Record that we have a task running. Doing this here instead of in run_one()
+        // prevents potential race conditions (op_counter::wait() running before the start notification)
+        auto guard = running_connections_counter_.scoped_notify_start();
+
+        // Actually start the task
         boost::capy::run_async(env->executor, env->frame_allocator)(
-            boost::capy::when_any(all_conns_.back().run(), cancel_ev_.wait())
+            run_one(all_conns_.back(), std::move(guard))
         );
     }
 
@@ -69,8 +122,8 @@ class co_connection_pool_impl
             params_.initial_size,
             params_.max_size,
             all_conns_.size(),
-            shared_st_.num_pending_connections,
-            shared_st_.num_pending_requests
+            shared_st_.num_in_use_connections,
+            num_pending_requests_
         );
 
         // Create them
@@ -83,7 +136,7 @@ class co_connection_pool_impl
     void enter_request_pending()
     {
         // Record that we're pending
-        ++shared_st_.num_pending_requests;
+        ++num_pending_requests_;
 
         // Tell run() that we need connections
         connections_needed_.set();
@@ -93,11 +146,11 @@ class co_connection_pool_impl
     void exit_request_pending()
     {
         // Record that we're no longer pending
-        BOOST_ASSERT(shared_st_.num_pending_requests > 0u);
-        --shared_st_.num_pending_requests;
+        BOOST_ASSERT(num_pending_requests_ > 0u);
+        --num_pending_requests_;
     }
 
-    connection_node* try_get_connection()
+    pool_node* try_get_connection()
     {
         if (!shared_st_.idle_list.empty())
         {
@@ -155,15 +208,10 @@ public:
         shared_st_.idle_connections_cv.notify_all();
 
         // Wait for all connection tasks to exit. We need to replace the stop token so this has any effect.
-        // Skip this if there is no connection to wait for
-        if (!all_conns_.empty())
-        {
-            co_await boost::capy::run(std::stop_token())([this]() -> boost::capy::task<> {
-                auto [ec2] = co_await shared_st_.conns_finished_cv.wait();
-                BOOST_ASSERT(!ec2);
-                static_cast<void>(ec2);
-            }());
-        }
+        [[maybe_unused]] auto [ec2] = co_await boost::capy::run(std::stop_token())(
+            running_connections_counter_.wait()
+        );
+        BOOST_ASSERT(!ec2);
 
         // Done
         co_return {boost::capy::error::canceled};

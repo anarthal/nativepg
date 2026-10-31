@@ -24,10 +24,10 @@
 namespace nativepg {
 
 namespace detail {
-class connection_node;
+class pool_node;
 class co_connection_pool_impl;
-void return_connection(connection_node&, bool should_reset);
-co_connection& get_connection(connection_node&);
+void return_connection(pool_node&, bool should_reset);
+co_connection& get_connection(pool_node&);
 }  // namespace detail
 
 struct pool_params
@@ -43,36 +43,24 @@ struct pool_params
 
 class pooled_connection
 {
-    detail::connection_node* node_{};
+    struct deleter
+    {
+        void operator()(detail::pool_node* p) const { detail::return_connection(*p, true); }
+    };
 
-    pooled_connection(detail::connection_node& node) noexcept : node_(&node) {}
+    std::unique_ptr<detail::pool_node, deleter> node_;
+
+    explicit pooled_connection(detail::pool_node& node) noexcept : node_(&node) {}
 
     friend class detail::co_connection_pool_impl;
 
 public:
     pooled_connection() noexcept = default;
-
-    pooled_connection(pooled_connection&& other) noexcept : node_(other.node_) { other.node_ = nullptr; }
-
-    pooled_connection& operator=(pooled_connection&& other) noexcept
-    {
-        if (valid())
-        {
-            detail::return_connection(*node_, true);
-        }
-        node_ = other.node_;
-        other.node_ = nullptr;
-        return *this;
-    }
-
+    pooled_connection(pooled_connection&& other) = default;
+    pooled_connection& operator=(pooled_connection&& other) noexcept = default;
     pooled_connection(const pooled_connection&) = delete;
     pooled_connection& operator=(const pooled_connection&) = delete;
-
-    ~pooled_connection()
-    {
-        if (valid())
-            detail::return_connection(*node_, true);
-    }
+    ~pooled_connection() = default;
 
     bool valid() const noexcept { return node_ != nullptr; }
 
@@ -87,8 +75,7 @@ public:
     void return_without_reset() noexcept
     {
         BOOST_ASSERT(valid());
-        detail::return_connection(*node_, false);
-        node_ = nullptr;
+        detail::return_connection(*node_.release(), false);
     }
 };
 

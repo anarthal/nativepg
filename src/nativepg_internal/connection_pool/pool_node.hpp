@@ -241,7 +241,7 @@ public:
                 // Note that the idle => in-use transition is performed outside this coro in mark_as_in_use()
                 auto [ec, act] = co_await idle_wait();
                 if (ec)
-                    break;
+                    co_return {};  // cancellation
 
                 if (act == collection_action::ping)
                 {

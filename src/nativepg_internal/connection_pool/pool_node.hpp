@@ -29,6 +29,7 @@
 #include "nativepg/capy-stub/ex/async_condition.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_connection_pool.hpp"
+#include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
 
@@ -164,6 +165,9 @@ class pool_node : public pool_node_hook
 
     auto do_ping() { return run_with_timeout(conn_.exec(ping_req_, &check_handler), params_->ping_timeout); }
 
+    // TODO: do we need another timeout?
+    auto do_reset() { return run_with_timeout(reset_connection(), params_->ping_timeout); }
+
     boost::capy::task<boost::capy::results<>> reset_connection()
     {
         // TODO: it is unclear what should we do here:
@@ -260,24 +264,25 @@ public:
                     // Ping succeeded. We're idle again
                     entering_idle();
                 }
-                else if (act == collection_action::collect)
-                {
-                    // The user said we don't need a reset. Mark it as idle and keep going
-                    exiting_in_use();
-                    entering_idle();
-                }
                 else
                 {
-                    // The user has finished with the connection but requested a reset
-                    BOOST_ASSERT(act == collection_action::collect_with_reset);
+                    // We're no longer in-use
                     exiting_in_use();
-                    if (auto [ec] = co_await run_with_timeout(reset_connection(), params_->ping_timeout); ec)
-                    {
-                        // Reset failed. Reconnect
+
+                    // If the connection is marked as broken, reconnect
+                    if (!conn_.is_connected())
                         break;
+
+                    // We should reset if the user requested it, or if we
+                    // detect an open transaction
+                    if (act == collection_action::collect_with_reset ||
+                        conn_.txn_status() != protocol::transaction_status::idle)
+                    {
+                        if (auto [ec] = co_await do_reset(); ec)
+                            break;  // reset failed, reconnect
                     }
 
-                    // Reset successful, back to idle
+                    // We have successfully cleaned up the connection. We're idle again
                     entering_idle();
                 }
             }

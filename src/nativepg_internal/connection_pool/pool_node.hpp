@@ -170,23 +170,15 @@ class pool_node : public pool_node_hook
 
     boost::capy::task<boost::capy::results<>> reset_connection()
     {
-        // TODO: it is unclear what should we do here:
-        //   We may run DISCARD ALL to clean up evth. except transaction blocks:
-        //      CLOSE ALL: cursors
-        //      SET SESSION AUTHORIZATION DEFAULT: if you were superuser and impersonated someone
-        //        else
-        //      RESET ALL: if you changed parameters
-        //      DEALLOCATE ALL: if you used explicit PREPARE (you shouldn't)
-        //      UNLISTEN *: if you were using this connection to listen
-        //      SELECT pg_advisory_unlock_all(): locks
-        //      DISCARD PLANS: cached execution plans
-        //      DISCARD TEMP: temporary tables
-        //      DISCARD SEQUENCES: sequences
-        //   If we are within a failed transaction, we could try to detect it
-        //   by storing this info upon receiving ready_for_query and running a rollback
-        // For now we do nothing, but this should change.
+        // Compose the reset request.
+        // DISCARD ALL can't be used in a transaction block, so the rollback must be before it.
+        // ROLLBACK without an open transaction block issues a notice
+        request reset_req;
+        if (conn_.txn_status() != protocol::transaction_status::idle)
+            reset_req.add_simple_query("ROLLBACK");
+        reset_req.add_simple_query("DISCARD ALL");
 
-        co_return {};
+        co_return co_await conn_.exec(reset_req, &check_handler);
     }
 
 public:

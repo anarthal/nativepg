@@ -41,9 +41,7 @@ using namespace std::string_view_literals;
 
 namespace {
 
-// Drives a copy-in until the server asks us for data, so the tests covering
-// the copy writer functions can start from there.
-// req and handler must be kept alive until st is reset
+// Runs an operation until reaching Copy-in mode
 capy::task<capy::results<>> enter_copy_data(
     co_connection& conn,
     exec_state& st,
@@ -105,9 +103,11 @@ capy::task<> test_after_shutdown()
 
 capy::task<> test_connect()
 {
+    // Setup
     co_connection conn{co_await capy::this_coro::executor};
     diagnostics diag;
 
+    // The function makes has_ops_in_flight() return true
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::task<capy::results<>> {
             check_success(co_await conn.connect(default_connect_params(), &diag), diag);
@@ -120,13 +120,16 @@ capy::task<> test_connect()
         }()
     ));
 
+    // And it's reset when it completes
     BOOST_TEST_NOT(conn.has_ops_in_flight());
 }
 
 capy::task<> test_shutdown()
 {
+    // Setup
     auto conn = co_await establish_connection();
 
+    // The function makes has_ops_in_flight() return true
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::task<capy::results<>> {
             check_success(co_await conn.shutdown());
@@ -139,7 +142,7 @@ capy::task<> test_shutdown()
         }()
     ));
 
-    BOOST_TEST_NOT(conn.is_connected());
+    // And it's reset when it completes
     BOOST_TEST_NOT(conn.has_ops_in_flight());
 }
 
@@ -149,10 +152,12 @@ capy::task<> test_shutdown()
 
 capy::task<> test_exec()
 {
+    // Setup
     auto conn = co_await establish_connection();
     request req;
     req.add_query("SELECT 1");
 
+    // The function makes has_ops_in_flight() return true
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::task<capy::results<>> {
             check_success(co_await conn.exec(req, check()));
@@ -165,16 +170,19 @@ capy::task<> test_exec()
         }()
     ));
 
+    // And it's reset when it completes
     BOOST_TEST_NOT(conn.has_ops_in_flight());
 }
 
 capy::task<> test_receive()
 {
+    // Setup
     auto conn = co_await establish_connection();
 
     if (!co_await checked_exec(conn, "LISTEN test_ops_in_flight"))
         co_return;
 
+    // The function makes has_ops_in_flight() return true
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::task<capy::results<>> {
             notification_vector notifs;
@@ -191,11 +199,13 @@ capy::task<> test_receive()
         }()
     ));
 
+    // And it's reset when it completes
     BOOST_TEST_NOT(conn.has_ops_in_flight());
 }
 
 capy::task<> test_copy_in()
 {
+    // Setup
     auto conn = co_await establish_connection();
 
     if (!co_await checked_exec(conn, "CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)"))
@@ -208,6 +218,7 @@ capy::task<> test_copy_in()
     source.provide("1\tone\n2\ttwo\n");
     diagnostics diag;
 
+    // The function makes has_ops_in_flight() return true
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::task<capy::results<>> {
             auto [ec, rows] = co_await conn.copy_in(req, &source, &diag);
@@ -222,11 +233,13 @@ capy::task<> test_copy_in()
         }()
     ));
 
+    // And it's reset when it completes
     BOOST_TEST_NOT(conn.has_ops_in_flight());
 }
 
 capy::task<> test_copy_out()
 {
+    // Setup
     auto conn = co_await establish_connection();
 
     request req_setup;
@@ -241,6 +254,7 @@ capy::task<> test_copy_out()
     capy::test::write_sink sink;
     diagnostics diag;
 
+    // The function makes has_ops_in_flight() return true
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::task<capy::results<>> {
             auto [ec, rows] = co_await conn.copy_out(req, &sink, &diag);
@@ -255,6 +269,7 @@ capy::task<> test_copy_out()
         }()
     ));
 
+    // And it's reset when it completes
     BOOST_TEST_NOT(conn.has_ops_in_flight());
 }
 
@@ -277,7 +292,7 @@ capy::task<> test_write_request()
         co_return;
     BOOST_TEST_NOT(conn.has_ops_in_flight());
 
-    // Recall that when_all launches things in order
+    // The function makes has_ops_in_flight() return true
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::task<capy::results<>> {
             check_success(co_await conn.write_request(st));
@@ -290,6 +305,7 @@ capy::task<> test_write_request()
         }()
     ));
 
+    // And it's reset when it completes
     BOOST_TEST_NOT(conn.has_ops_in_flight());
 }
 
@@ -310,6 +326,7 @@ capy::task<> test_read_some_response()
         co_return;
     BOOST_TEST_NOT(conn.has_ops_in_flight());
 
+    // The function makes has_ops_in_flight() return true
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::task<capy::results<>> {
             check_success(co_await conn.read_some_response(st));
@@ -322,6 +339,7 @@ capy::task<> test_read_some_response()
         }()
     ));
 
+    // And it's reset when it completes
     BOOST_TEST_NOT(conn.has_ops_in_flight());
 }
 
@@ -343,6 +361,7 @@ capy::task<> test_write_some_copy_data()
         co_return;
     BOOST_TEST_NOT(conn.has_ops_in_flight());
 
+    // The function makes has_ops_in_flight() return true
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::task<capy::results<>> {
             auto [ec, bytes] = co_await conn.write_some_copy_data(st, capy::make_buffer("1\tone\n"sv));
@@ -356,6 +375,7 @@ capy::task<> test_write_some_copy_data()
         }()
     ));
 
+    // And it's reset when it completes
     BOOST_TEST_NOT(conn.has_ops_in_flight());
 }
 

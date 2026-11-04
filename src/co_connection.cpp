@@ -994,6 +994,8 @@ void co_connection::reset_exec_states()
     impl_->mpx_.reset_exec_states();
 }
 
+void co_connection::clear_cached_notifications() { impl_->exec_notifications_.clear(); }
+
 void detail::exec_state_impl::reset()
 {
     BOOST_ASSERT(!writing);

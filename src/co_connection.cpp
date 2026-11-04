@@ -923,6 +923,12 @@ capy::task<capy::results<>> co_connection::exec(
     if (auto ec = prepare_request(exec_st, req, handler, exclusivity::shared))
         co_return {ec};
 
+    // Keep the 'we have operations in-flight' flag active until the operation completes.
+    // Otherwise, until the 1st operation launches, has_ops_in_flight() returns false.
+    // TODO: I don't like this, because it prevents higher-level primitives from
+    //   being implemented reliably without accessing internals.
+    auto guard = impl_->pending_ops_.scoped_notify_start();
+
     // Run the reader and writer tasks in parallel
     auto [final_ec, writer_dummy, reader_dummy] = co_await capy::when_all(
         write_request(exec_st),
@@ -938,7 +944,7 @@ capy::task<capy::results<std::uint64_t>> co_connection::copy_in(
     diagnostics* diag
 )
 {
-    return detail::copy_in(*this, req, std::move(source), diag);
+    return detail::copy_in(*this, impl_->pending_ops_, req, std::move(source), diag);
 }
 
 capy::task<capy::results<std::uint64_t>> co_connection::copy_out(
@@ -947,7 +953,7 @@ capy::task<capy::results<std::uint64_t>> co_connection::copy_out(
     diagnostics* diag
 )
 {
-    return detail::copy_out(*this, req, std::move(sink), diag);
+    return detail::copy_out(*this, impl_->pending_ops_, req, std::move(sink), diag);
 }
 
 capy::task<capy::results<std::size_t>> co_connection::write_some_copy_data_impl(

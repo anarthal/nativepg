@@ -34,6 +34,7 @@
 #include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/detail/response_utils.hpp"
 #include "nativepg/responses/response_handler.hpp"
+#include "nativepg_internal/op_counter.hpp"
 
 namespace nativepg::detail {
 
@@ -154,6 +155,7 @@ inline boost::capy::task<boost::capy::results<>> copy_out_reader(
 
 inline boost::capy::task<boost::capy::results<std::uint64_t>> copy_out(
     co_connection& conn,
+    op_counter& pending_ops,
     const request& req,
     boost::capy::any_write_sink sink,
     diagnostics* diag
@@ -169,6 +171,12 @@ inline boost::capy::task<boost::capy::results<std::uint64_t>> copy_out(
     exec_state st;
     if (auto ec = conn.prepare_request(st, req, &handler, exclusivity::shared))
         co_return {ec, 0u};
+
+    // Keep the 'we have operations in-flight' flag active until the operation completes.
+    // Otherwise, until the 1st operation launches, has_ops_in_flight() returns false.
+    // TODO: I don't like this, because it prevents higher-level primitives from
+    //   being implemented reliably without accessing internals.
+    auto guard = pending_ops.scoped_notify_start();
 
     // Run the reader and the writer in parallel. Running them in
     // sequence may deadlock for big requests (neither the server nor us

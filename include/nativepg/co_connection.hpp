@@ -379,6 +379,14 @@ public:
     //   terminated, so the value stays at the pre-copy status for their duration.
     protocol::transaction_status txn_status() const noexcept;
 
+    // Returns true if any async operation (connect, shutdown, exec, receive,
+    //   write_request, read_some_response, write_some_copy_data, write_copy_done, write_copy_fail)
+    //   has been started on this connection, but hasn't completed yet.
+    // Some functionality (e.g. returning a connection to a connection pool)
+    //   is only safe when no operations are in-flight.
+    //   This function exists to check such preconditions.
+    bool has_ops_in_flight() const noexcept;
+
     // TODO: this should be removed but is now used within the tests.
     //   Remove once we have accessors for backend PID
     protocol::connection_state& state();

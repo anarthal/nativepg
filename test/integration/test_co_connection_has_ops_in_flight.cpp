@@ -50,15 +50,6 @@ struct row_int
 };
 BOOST_DESCRIBE_STRUCT(row_int, (), (value))
 
-// Checks that an operation is currently in flight. Called from a sibling
-// coroutine while the operation under test is suspended, so it needs to
-// report where it was invoked from
-void check_in_flight(const co_connection& conn, boost::source_location loc = BOOST_CURRENT_LOCATION)
-{
-    if (!BOOST_TEST(conn.has_ops_in_flight()))
-        std::cerr << "  Called from " << loc << std::endl;
-}
-
 // Drives a copy-in until the server asks us for data, so the tests covering
 // the copy writer functions can start from there.
 // req and handler must be kept alive until st is reset
@@ -145,7 +136,7 @@ capy::task<> test_connect()
         }(),
 
         [&]() -> capy::task<capy::results<>> {
-            check_in_flight(conn);
+            BOOST_TEST(conn.has_ops_in_flight());
             co_return {};
         }()
     ));
@@ -165,7 +156,7 @@ capy::task<> test_shutdown()
         }(),
 
         [&]() -> capy::task<capy::results<>> {
-            check_in_flight(conn);
+            BOOST_TEST(conn.has_ops_in_flight());
             co_return {};
         }()
     ));
@@ -215,7 +206,7 @@ capy::task<> test_receive()
         }(),
 
         [&]() -> capy::task<capy::results<>> {
-            check_in_flight(conn);
+            BOOST_TEST(conn.has_ops_in_flight());
 
             // Unblock the receive()
             co_await checked_exec(conn, request().add_query("NOTIFY test_ops_in_flight"));
@@ -252,7 +243,7 @@ capy::task<> test_copy_in()
         }(),
 
         [&]() -> capy::task<capy::results<>> {
-            check_in_flight(conn);
+            BOOST_TEST(conn.has_ops_in_flight());
             co_return {};
         }()
     ));
@@ -288,7 +279,7 @@ capy::task<> test_copy_out()
         }(),
 
         [&]() -> capy::task<capy::results<>> {
-            check_in_flight(conn);
+            BOOST_TEST(conn.has_ops_in_flight());
             co_return {};
         }()
     ));
@@ -324,7 +315,7 @@ capy::task<> test_write_request()
         }(),
 
         [&]() -> capy::task<capy::results<>> {
-            check_in_flight(conn);
+            BOOST_TEST(conn.has_ops_in_flight());
             co_return {};
         }()
     ));
@@ -361,7 +352,7 @@ capy::task<> test_read_some_response()
         }(),
 
         [&]() -> capy::task<capy::results<>> {
-            check_in_flight(conn);
+            BOOST_TEST(conn.has_ops_in_flight());
             co_return {};
         }()
     ));
@@ -406,7 +397,7 @@ capy::task<> test_write_some_copy_data()
         }(),
 
         [&]() -> capy::task<capy::results<>> {
-            check_in_flight(conn);
+            BOOST_TEST(conn.has_ops_in_flight());
             co_return {};
         }()
     ));
@@ -449,7 +440,7 @@ capy::task<> test_write_copy_done()
         }(),
 
         [&]() -> capy::task<capy::results<>> {
-            check_in_flight(conn);
+            BOOST_TEST(conn.has_ops_in_flight());
             co_return {};
         }()
     ));
@@ -487,7 +478,7 @@ capy::task<> test_write_copy_fail()
         }(),
 
         [&]() -> capy::task<capy::results<>> {
-            check_in_flight(conn);
+            BOOST_TEST(conn.has_ops_in_flight());
             co_return {};
         }()
     ));

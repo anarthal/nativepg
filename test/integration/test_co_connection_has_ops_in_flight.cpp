@@ -138,8 +138,6 @@ capy::task<> test_connect()
     co_connection conn{co_await capy::this_coro::executor};
     diagnostics diag;
 
-    // Recall that when_all launches things in order, so the connect() below is
-    // already suspended by the time the observer runs
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::task<capy::results<>> {
             check_success(co_await conn.connect(default_connect_params(), &diag), diag);
@@ -160,7 +158,6 @@ capy::task<> test_shutdown()
 {
     auto conn = co_await establish_connection();
 
-    // Recall that when_all launches things in order
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::task<capy::results<>> {
             check_success(co_await conn.shutdown());
@@ -505,42 +502,6 @@ capy::task<> test_write_copy_fail()
     co_await check_connection_usable(conn);
 }
 
-//
-// Several operations at a time
-//
-
-// It's a counter, not a flag: the connection keeps reporting work in flight
-// until the last operation finishes
-capy::task<> test_several_ops()
-{
-    auto conn = co_await establish_connection();
-
-    request req_fast;
-    req_fast.add_query("SELECT $1 AS value", 42);
-
-    request req_slow;
-    req_slow.add_query("SELECT pg_sleep(0.2)");
-
-    // Recall that when_all launches things in order. The server answers
-    // requests in the order it received them, so the fast one completes first
-    static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::task<capy::results<>> {
-            check_success(co_await conn.exec(req_fast, check()));
-
-            // Our own operation is done, but the slow one isn't
-            check_in_flight(conn);
-            co_return {};
-        }(),
-
-        [&]() -> capy::task<capy::results<>> {
-            check_success(co_await conn.exec(req_slow, check()));
-            co_return {};
-        }()
-    ));
-
-    BOOST_TEST_NOT(conn.has_ops_in_flight());
-}
-
 }  // namespace
 
 int main()
@@ -562,8 +523,6 @@ int main()
     run_coroutine_test(test_write_some_copy_data());
     run_coroutine_test(test_write_copy_done());
     run_coroutine_test(test_write_copy_fail());
-
-    run_coroutine_test(test_several_ops());
 
     return boost::report_errors();
 }

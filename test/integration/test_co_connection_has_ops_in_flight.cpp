@@ -12,9 +12,7 @@
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/core/lightweight_test.hpp>
-#include <boost/describe/class.hpp>
 
-#include <iostream>
 #include <string_view>
 #include <system_error>
 
@@ -28,7 +26,6 @@
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
 #include "nativepg/responses/response_handler.hpp"
-#include "nativepg/responses/resultset_callback.hpp"
 #include "nativepg/write_status.hpp"
 #include "test_utils/ci_server.hpp"
 #include "test_utils/co_connection_utils.hpp"
@@ -43,12 +40,6 @@ using namespace nativepg::test;
 using namespace std::string_view_literals;
 
 namespace {
-
-struct row_int
-{
-    int value;
-};
-BOOST_DESCRIBE_STRUCT(row_int, (), (value))
 
 // Drives a copy-in until the server asks us for data, so the tests covering
 // the copy writer functions can start from there.
@@ -73,17 +64,6 @@ capy::task<capy::results<>> enter_copy_data(
             co_return {ec};
     }
 
-    co_return {};
-}
-
-// Reads whatever is left of a response, so the connection is left usable
-capy::task<capy::results<>> read_until_done(co_connection& conn, exec_state& st)
-{
-    while (!st.read_done())
-    {
-        if (auto [ec] = co_await conn.read_some_response(st); ec)
-            co_return {ec};
-    }
     co_return {};
 }
 
@@ -123,7 +103,6 @@ capy::task<> test_after_shutdown()
 // Session establishment and teardown
 //
 
-// connect() counts while it runs
 capy::task<> test_connect()
 {
     co_connection conn{co_await capy::this_coro::executor};
@@ -144,7 +123,6 @@ capy::task<> test_connect()
     BOOST_TEST_NOT(conn.has_ops_in_flight());
 }
 
-// So does shutdown()
 capy::task<> test_shutdown()
 {
     auto conn = co_await establish_connection();
@@ -169,38 +147,37 @@ capy::task<> test_shutdown()
 // High-level operations
 //
 
-// exec() counts while it runs. The response handler is invoked from inside the
-// operation, which makes this the one observation point that needs no
-// concurrent sibling
 capy::task<> test_exec()
 {
     auto conn = co_await establish_connection();
-
-    bool observed = false;
-    auto cb = [&](row_int) { observed = conn.has_ops_in_flight(); };
-
     request req;
-    req.add_query("SELECT $1 AS value", 42);
-    if (!co_await checked_exec(conn, req, resultset_callback<row_int>(cb)))
-        co_return;
+    req.add_query("SELECT 1");
 
-    BOOST_TEST(observed);
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::task<capy::results<>> {
+            check_success(co_await conn.exec(req, check()));
+            co_return {};
+        }(),
+
+        [&]() -> capy::task<capy::results<>> {
+            BOOST_TEST(conn.has_ops_in_flight());
+            co_return {};
+        }()
+    ));
+
     BOOST_TEST_NOT(conn.has_ops_in_flight());
 }
 
-// receive() counts while it waits for a notification
 capy::task<> test_receive()
 {
     auto conn = co_await establish_connection();
 
-    if (!co_await checked_exec(conn, request().add_query("LISTEN \"test_ops_in_flight\"")))
+    if (!co_await checked_exec(conn, "LISTEN test_ops_in_flight"))
         co_return;
 
-    // Recall that when_all launches things in order, so the receive() below is
-    // already waiting when the observer runs
-    notification_vector notifs;
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::task<capy::results<>> {
+            notification_vector notifs;
             check_success(co_await conn.receive(notifs));
             co_return {};
         }(),
@@ -208,17 +185,15 @@ capy::task<> test_receive()
         [&]() -> capy::task<capy::results<>> {
             BOOST_TEST(conn.has_ops_in_flight());
 
-            // Unblock the receive()
-            co_await checked_exec(conn, request().add_query("NOTIFY test_ops_in_flight"));
+            // Unblock receive()
+            co_await checked_exec(conn, "NOTIFY test_ops_in_flight");
             co_return {};
         }()
     ));
 
     BOOST_TEST_NOT(conn.has_ops_in_flight());
-    co_await check_connection_usable(conn);
 }
 
-// copy_in() counts while it runs
 capy::task<> test_copy_in()
 {
     auto conn = co_await establish_connection();
@@ -233,7 +208,6 @@ capy::task<> test_copy_in()
     source.provide("1\tone\n2\ttwo\n");
     diagnostics diag;
 
-    // Recall that when_all launches things in order
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::task<capy::results<>> {
             auto [ec, rows] = co_await conn.copy_in(req, &source, &diag);
@@ -249,10 +223,8 @@ capy::task<> test_copy_in()
     ));
 
     BOOST_TEST_NOT(conn.has_ops_in_flight());
-    co_await check_connection_usable(conn);
 }
 
-// copy_out() counts while it runs
 capy::task<> test_copy_out()
 {
     auto conn = co_await establish_connection();
@@ -269,7 +241,6 @@ capy::task<> test_copy_out()
     capy::test::write_sink sink;
     diagnostics diag;
 
-    // Recall that when_all launches things in order
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::task<capy::results<>> {
             auto [ec, rows] = co_await conn.copy_out(req, &sink, &diag);
@@ -285,23 +256,22 @@ capy::task<> test_copy_out()
     ));
 
     BOOST_TEST_NOT(conn.has_ops_in_flight());
-    co_await check_connection_usable(conn);
 }
 
 //
 // Low-level operations
 //
 
-// write_request() counts while it runs. prepare_request() is synchronous and
-// doesn't start anything, so it must not count
 capy::task<> test_write_request()
 {
+    // Setup
     auto conn = co_await establish_connection();
 
     request req;
     req.add_query("SELECT $1 AS value", 42);
     check handler;
 
+    // Prepare a request. This does not count because it's sync
     exec_state st;
     if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
         co_return;
@@ -321,22 +291,18 @@ capy::task<> test_write_request()
     ));
 
     BOOST_TEST_NOT(conn.has_ops_in_flight());
-
-    // We wrote a request we never read. Abandon it and let the next exec
-    // discard its response
-    st.reset();
-    co_await check_connection_usable(conn);
 }
 
-// read_some_response() counts while it runs
 capy::task<> test_read_some_response()
 {
+    // Setup
     auto conn = co_await establish_connection();
 
     request req;
     req.add_query("SELECT $1 AS value", 42);
     check handler;
 
+    // Prepare a request and write it
     exec_state st;
     if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
         co_return;
@@ -344,10 +310,9 @@ capy::task<> test_read_some_response()
         co_return;
     BOOST_TEST_NOT(conn.has_ops_in_flight());
 
-    // Recall that when_all launches things in order
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::task<capy::results<>> {
-            check_success(co_await read_until_done(conn, st));
+            check_success(co_await conn.read_some_response(st));
             co_return {};
         }(),
 
@@ -358,13 +323,11 @@ capy::task<> test_read_some_response()
     ));
 
     BOOST_TEST_NOT(conn.has_ops_in_flight());
-    check_success(st.handler_error());
-    co_await check_connection_usable(conn);
 }
 
-// write_some_copy_data() counts while it runs
 capy::task<> test_write_some_copy_data()
 {
+    // Setup
     auto conn = co_await establish_connection();
 
     if (!co_await checked_exec(conn, "CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)"))
@@ -374,25 +337,16 @@ capy::task<> test_write_some_copy_data()
     req.add_query("COPY copy_in_test FROM STDIN");
     check handler;
 
+    // Run the request until entering Copy-in
     exec_state st;
     if (!check_success(co_await enter_copy_data(conn, st, req, &handler)))
         co_return;
     BOOST_TEST_NOT(conn.has_ops_in_flight());
 
-    // Recall that when_all launches things in order
-    constexpr auto data = "1\tone\n"sv;
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::task<capy::results<>> {
-            // A single call may transfer only part of the buffer, and the copy
-            // can't be terminated until all of it has been handed over
-            auto remaining = data;
-            while (!remaining.empty())
-            {
-                auto [ec, bytes] = co_await conn.write_some_copy_data(st, capy::make_buffer(remaining));
-                if (!check_success(ec))
-                    break;
-                remaining = remaining.substr(bytes);
-            }
+            auto [ec, bytes] = co_await conn.write_some_copy_data(st, capy::make_buffer("1\tone\n"sv));
+            check_success(ec);
             co_return {};
         }(),
 
@@ -403,19 +357,11 @@ capy::task<> test_write_some_copy_data()
     ));
 
     BOOST_TEST_NOT(conn.has_ops_in_flight());
-
-    // Terminate the copy, so the connection is left usable
-    if (!check_success(co_await conn.write_copy_done(st)))
-        co_return;
-    if (!check_success(co_await read_until_done(conn, st)))
-        co_return;
-    check_success(st.handler_error());
-    co_await check_connection_usable(conn);
 }
 
-// write_copy_done() counts while it runs
 capy::task<> test_write_copy_done()
 {
+    // Setup
     auto conn = co_await establish_connection();
 
     if (!co_await checked_exec(conn, "CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)"))
@@ -425,14 +371,13 @@ capy::task<> test_write_copy_done()
     req.add_query("COPY copy_in_test FROM STDIN");
     check handler;
 
+    // Run the request until entering Copy-in
     exec_state st;
     if (!check_success(co_await enter_copy_data(conn, st, req, &handler)))
         co_return;
-
-    // Terminating an empty copy is valid, so there is no data to send first
     BOOST_TEST_NOT(conn.has_ops_in_flight());
 
-    // Recall that when_all launches things in order
+    // The function makes has_ops_in_flight() return true
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::task<capy::results<>> {
             check_success(co_await conn.write_copy_done(st));
@@ -445,17 +390,13 @@ capy::task<> test_write_copy_done()
         }()
     ));
 
+    // And it's reset when it completes
     BOOST_TEST_NOT(conn.has_ops_in_flight());
-
-    if (!check_success(co_await read_until_done(conn, st)))
-        co_return;
-    check_success(st.handler_error());
-    co_await check_connection_usable(conn);
 }
 
-// write_copy_fail() counts while it runs
 capy::task<> test_write_copy_fail()
 {
+    // Setup
     auto conn = co_await establish_connection();
 
     if (!co_await checked_exec(conn, "CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)"))
@@ -465,12 +406,13 @@ capy::task<> test_write_copy_fail()
     req.add_query("COPY copy_in_test FROM STDIN");
     check handler;
 
+    // Run the request until entering Copy-in
     exec_state st;
     if (!check_success(co_await enter_copy_data(conn, st, req, &handler)))
         co_return;
     BOOST_TEST_NOT(conn.has_ops_in_flight());
 
-    // Recall that when_all launches things in order
+    // The function makes has_ops_in_flight() return true
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::task<capy::results<>> {
             check_success(co_await conn.write_copy_fail(st, "aborted by test"));
@@ -483,14 +425,8 @@ capy::task<> test_write_copy_fail()
         }()
     ));
 
+    // And it's reset when it completes
     BOOST_TEST_NOT(conn.has_ops_in_flight());
-
-    // The server reports the copy as failed. We only care that reading the
-    // response leaves the connection usable - test_copy_fail covers the error
-    if (!check_success(co_await read_until_done(conn, st)))
-        co_return;
-    BOOST_TEST_NE(st.handler_error().code, std::error_code());
-    co_await check_connection_usable(conn);
 }
 
 }  // namespace

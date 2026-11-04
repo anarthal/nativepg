@@ -261,18 +261,26 @@ public:
                     // We're no longer in-use
                     exiting_in_use();
 
-                    // If the connection is marked as broken, reconnect
-                    if (!conn_.is_connected())
+                    // If the connection is marked as broken, reconnect.
+                    // TODO: leftovers could be handled without reconnection.
+                    //   This is simpler though.
+                    if (!conn_.is_connected() || conn_.has_leftovers())
                         break;
 
                     // We should reset if the user requested it, or if we
-                    // detect an open transaction
+                    // detect an open transaction. txn_status() is reliable
+                    // here because we have no leftovers to read.
                     if (act == collection_action::collect_with_reset ||
                         conn_.txn_status() != protocol::transaction_status::idle)
                     {
                         if (auto [ec] = co_await do_reset(); ec)
                             break;  // reset failed, reconnect
                     }
+
+                    // Discard any unread notifications generated during the session.
+                    // Must happen without leftovers and after any potential reset,
+                    // as notifications might be generated until the reset becomes effective.
+                    conn_.clear_cached_notifications();
 
                     // We have successfully cleaned up the connection. We're idle again
                     entering_idle();

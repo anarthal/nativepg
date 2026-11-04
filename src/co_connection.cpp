@@ -847,10 +847,7 @@ struct detail::co_connection_impl
         }
     }
 
-    bool has_ops_in_flight() const noexcept
-    {
-        return pending_ops_.count() != 0u || connect_shutdown_running_;
-    }
+    bool has_ops_in_flight() const { return pending_ops_.count() != 0u || connect_shutdown_running_; }
 };
 
 co_connection::co_connection(capy::execution_context& ctx)
@@ -990,6 +987,12 @@ bool co_connection::is_connected() const noexcept { return impl_->is_connected_;
 std::error_code co_connection::last_error() const noexcept { return impl_->last_error_; }
 
 bool co_connection::has_ops_in_flight() const noexcept { return impl_->has_ops_in_flight(); }
+
+void co_connection::reset_exec_states()
+{
+    BOOST_ASSERT(!has_ops_in_flight());
+    impl_->mpx_.reset_exec_states();
+}
 
 void detail::exec_state_impl::reset()
 {

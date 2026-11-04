@@ -387,6 +387,14 @@ public:
     //   This function exists to check such preconditions.
     bool has_ops_in_flight() const noexcept;
 
+    // Calls reset() on every exec_state currently attached to this connection.
+    // Useful as part of session cleanup, for connection pools.
+    // Preconditions: !has_ops_in_flight().
+    // TODO: I hate this. It is tailored specifically for connection pool,
+    //   and is indicating that maybe our exec_state model is too flexible.
+    //   Consider a model where exec_state requires exclusivity at some point.
+    void reset_exec_states();
+
     // TODO: this should be removed but is now used within the tests.
     //   Remove once we have accessors for backend PID
     protocol::connection_state& state();

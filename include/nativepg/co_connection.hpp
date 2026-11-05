@@ -395,6 +395,12 @@ public:
     //   Consider a model where exec_state requires exclusivity at some point.
     void reset_exec_states();
 
+    // Discards notifications received but never read with receive().
+    // Useful as part of session cleanup, for connection pools.
+    // Might be called with operations in-flight.
+    // Has no effect on notifications read by subsequent exec() operations.
+    void clear_cached_notifications();
+
     // TODO: this should be removed but is now used within the tests.
     //   Remove once we have accessors for backend PID
     protocol::connection_state& state();

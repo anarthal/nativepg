@@ -379,11 +379,6 @@ public:
     //   terminated, so the value stays at the pre-copy status for their duration.
     protocol::transaction_status txn_status() const noexcept;
 
-    bool has_ops_in_flight() const noexcept;
-    bool has_leftovers() const noexcept;
-    void reset_exec_states();
-    void clear_cached_notifications();
-
     // TODO: this should be removed but is now used within the tests.
     //   Remove once we have accessors for backend PID
     protocol::connection_state& state();

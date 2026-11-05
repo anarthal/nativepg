@@ -191,13 +191,11 @@ capy::task<> test_pooled_connection_destructor()
         std::int32_t pid = 0;
 
         {
-            // Get a connection
+            // Get a connection and mark it
             auto [ec, conn] = co_await pool.get_connection();
             if (!check_success(ec) || !BOOST_TEST(conn.valid()))
                 co_return;
             pid = conn->state().backend_process_id;
-
-            // Alter session state
             if (!co_await set_session_var(conn.get(), "abc"))
                 co_return;
 
@@ -208,10 +206,11 @@ capy::task<> test_pooled_connection_destructor()
         auto [ec, conn] = co_await pool.get_connection();
         if (!check_success(ec) || !BOOST_TEST(conn.valid()))
             co_return;
-        BOOST_TEST_EQ(conn->state().backend_process_id, pid);
 
-        // No reset has been issued, so our mark is still there
-        BOOST_TEST_EQ((co_await get_session_var(conn.get())).value_or(""), "abc");
+        // Same session, but session state was reset
+        BOOST_TEST_EQ(conn->state().backend_process_id, pid);
+        BOOST_TEST_EQ((co_await get_session_var(conn.get())).value_or(""), std::string());
+        co_await check_connection_usable(conn.get());
     }());
 }
 

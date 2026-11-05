@@ -19,7 +19,6 @@
 #include "nativepg/responses/response_handler.hpp"
 #include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
-#include "test_utils/printing.hpp"
 
 // Covers co_connection::has_leftovers
 
@@ -49,32 +48,11 @@ capy::task<> test_fatal_error()
     // There is a follow-up query that will receive no response
     request req;
     req.add_query("SELECT pg_terminate_backend(pg_backend_pid())");
-    req.add_query("SELECT 1");
-    check handler;
+    req.add_query("SELECT pg_sleep(999)");
 
-    exec_state st;
-    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
-        co_return;
-    if (!check_success(co_await conn.write_request(st)))
-        co_return;
-
-    // The request is written but its response hasn't been read, so we do have
-    // something outstanding while the session is still alive
-    BOOST_TEST(conn.has_leftovers());
-
-    // Read until the session dies
-    std::error_code ec;
-    while (!st.read_done())
-    {
-        auto [read_ec] = co_await conn.read_some_response(st);
-        if (read_ec)
-        {
-            ec = read_ec;
-            break;
-        }
-    }
-    if (!BOOST_TEST_NE(ec, std::error_code()))
-        co_return;
+    // Executing it fails
+    auto [ec] = co_await conn.exec(req, check());
+    BOOST_TEST_NE(ec, std::error_code());
 
     // Nothing is reported once the connection is gone
     BOOST_TEST_NOT(conn.is_connected());
@@ -113,8 +91,7 @@ capy::task<> test_exec_state_linked()
     co_await check_connection_usable(conn);
 }
 
-// The leftover outlives the state that created it: detaching a state with an
-// unread response hands the debt over to the connection
+// If a the response hasn't been fully read, that's a leftover
 capy::task<> test_exec_state_pending_read()
 {
     // Setup
@@ -130,9 +107,9 @@ capy::task<> test_exec_state_pending_read()
         co_return;
     if (!check_success(co_await conn.write_request(st)))
         co_return;
+    st.reset();
 
-    // Detach the state. The connection still owes the server a read
-    conn.reset_exec_states();
+    // The response hasn't been read yet
     BOOST_TEST(conn.has_leftovers());
 
     // The next request absorbs it

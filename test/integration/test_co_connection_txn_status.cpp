@@ -281,12 +281,9 @@ capy::task<> test_fatal_error()
         co_return;
     BOOST_TEST_EQ(conn.txn_status(), transaction_status::in_transaction);
 
-    // Ask the server to kill the backend serving us. It answers with a FATAL
-    // error and closes the connection, so our reader never sees a ReadyForQuery
-    request req;
-    req.add_query("SELECT pg_terminate_backend(pg_backend_pid())");
-    auto [ec] = co_await conn.exec(req, check());
-    BOOST_TEST_NE(ec, std::error_code());  // check unreliable
+    // Produce a fatal error
+    if (!co_await break_connection(conn))
+        co_return;
 
     // The connection is dead, and the status it had no longer applies
     BOOST_TEST_NOT(conn.is_connected());

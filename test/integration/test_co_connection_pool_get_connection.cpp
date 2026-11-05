@@ -112,22 +112,6 @@ capy::task<bool> create_leftovers(co_connection& conn, boost::source_location lo
     co_return true;
 }
 
-// Asks the server to kill the backend serving us. It answers with a FATAL error
-// and closes the socket, so the connection ends up in a fatal error state
-// TODO: extract
-capy::task<bool> break_connection(co_connection& conn, boost::source_location loc = BOOST_CURRENT_LOCATION)
-{
-    request req;
-    req.add_query("SELECT pg_terminate_backend(pg_backend_pid())");
-
-    auto [ec] = co_await conn.exec(req, check());
-    bool ok = BOOST_TEST_NE(ec, std::error_code());
-    ok &= BOOST_TEST_NOT(conn.is_connected());
-    if (!ok)
-        std::cerr << "  Called from " << loc << std::endl;
-    co_return ok;
-}
-
 // Raises a notification on conn's own session and makes sure it has been read
 // into the cache by the time we return
 // TODO: extract

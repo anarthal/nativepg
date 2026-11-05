@@ -95,6 +95,13 @@ boost::capy::task<std::optional<std::string>> get_session_var(
     boost::source_location loc = BOOST_CURRENT_LOCATION
 );
 
+// Asks the server to kill the backend serving us. It answers with a FATAL error
+// and closes the socket, so the connection ends up in a fatal error state
+boost::capy::task<bool> break_connection(
+    co_connection& conn,
+    boost::source_location loc = BOOST_CURRENT_LOCATION
+);
+
 }  // namespace nativepg::test
 
 #endif

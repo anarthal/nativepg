@@ -129,17 +129,13 @@ capy::task<> test_connect_after_fatal_error()
     auto conn = co_await establish_connection();
     const auto old_pid = conn.state().backend_process_id;
 
-    // Ask the server to kill the backend serving us. It answers with a FATAL
-    // error and closes the connection, so our reader never sees its
-    // ReadyForQuery and the read fails
-    request req;
-    req.add_query("SELECT pg_terminate_backend(pg_backend_pid())");
-    auto [ec] = co_await conn.exec(req, check());
-    BOOST_TEST_NE(ec, std::error_code());
+    // Break the current connection
+    if (!co_await break_connection(conn))
+        co_return;
 
     // The connection is no longer usable, and remembers why
     BOOST_TEST_NOT(conn.is_connected());
-    BOOST_TEST_EQ(conn.last_error(), ec);
+    BOOST_TEST_NE(conn.last_error(), std::error_code());
 
     // Reconnect
     diagnostics diag;

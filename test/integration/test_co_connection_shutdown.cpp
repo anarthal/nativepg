@@ -103,14 +103,9 @@ capy::task<> test_shutdown_after_fatal_error()
     diagnostics diag;
     auto conn = co_await establish_connection();
 
-    // Ask the server to kill the backend serving us. It answers with a FATAL
-    // error and closes the connection, so our reader never gets its
-    // ReadyForQuery and the operation fails
-    request req_kill;
-    req_kill.add_simple_query("SELECT pg_terminate_backend(pg_backend_pid())");
-    auto [exec_ec] = co_await conn.exec(req_kill, check());
-    BOOST_TEST_NE(exec_ec, std::error_code());
-    BOOST_TEST_NOT(conn.is_connected());
+    // Break the connection
+    if (!co_await break_connection(conn))
+        co_return;
     BOOST_TEST_NE(conn.last_error(), std::error_code());
 
     // Shutting down succeeds: the Terminate message is skipped

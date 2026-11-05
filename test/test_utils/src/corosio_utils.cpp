@@ -165,3 +165,16 @@ boost::capy::task<std::optional<std::string>> nativepg::test::get_session_var(
     }
     co_return std::move(rows[0].value);
 }
+
+boost::capy::task<bool> nativepg::test::break_connection(co_connection& conn, boost::source_location loc)
+{
+    request req;
+    req.add_query("SELECT pg_terminate_backend(pg_backend_pid())");
+
+    auto [ec] = co_await conn.exec(req, check());
+    bool ok = BOOST_TEST_NE(ec, std::error_code());  // exact code unreliable
+    ok &= BOOST_TEST_NOT(conn.is_connected());
+    if (!ok)
+        std::cerr << "  Called from " << loc << std::endl;
+    co_return ok;
+}

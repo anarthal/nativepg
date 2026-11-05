@@ -139,13 +139,8 @@ capy::task<> test_after_fatal_error()
     if (!co_await cache_notification(conn, "test_clear_fatal", "dead session"))
         co_return;
 
-    // Ask the server to kill the backend serving us. It answers with a FATAL
-    // error and closes the connection
-    request req_kill;
-    req_kill.add_query("SELECT pg_terminate_backend(pg_backend_pid())");
-    auto [ec] = co_await conn.exec(req_kill, check());
-    BOOST_TEST_NE(ec, std::error_code());
-    if (!BOOST_TEST_NOT(conn.is_connected()))
+    // Break the connection
+    if (!co_await break_connection(conn))
         co_return;
 
     // Clearing a dead connection's cache is safe

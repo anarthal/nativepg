@@ -112,22 +112,6 @@ capy::task<bool> create_leftovers(co_connection& conn, boost::source_location lo
     co_return true;
 }
 
-// Raises a notification on conn's own session and makes sure it has been read
-// into the cache by the time we return
-// TODO: extract
-capy::task<bool> cache_notification(
-    co_connection& conn,
-    std::string_view channel,
-    std::string_view payload,
-    boost::source_location loc = BOOST_CURRENT_LOCATION
-)
-{
-    request req;
-    req.add_query("NOTIFY " + std::string(channel) + ", '" + std::string(payload) + "'");
-    req.add_query("SELECT 1");
-    co_return co_await checked_exec(conn, req, check(), loc);
-}
-
 // Note: current_setting() returns NULL when a custom setting hasn't been set,
 // and the empty string when it has been reset.
 // We use optional::value_or() to collapse both cases

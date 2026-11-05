@@ -102,6 +102,14 @@ boost::capy::task<bool> break_connection(
     boost::source_location loc = BOOST_CURRENT_LOCATION
 );
 
+// Raises a notification and makes sure it has been read into the cache
+boost::capy::task<bool> cache_notification(
+    co_connection& conn,
+    std::string_view channel,
+    std::string_view payload,
+    boost::source_location loc = BOOST_CURRENT_LOCATION
+);
+
 }  // namespace nativepg::test
 
 #endif

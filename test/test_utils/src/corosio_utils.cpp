@@ -178,3 +178,16 @@ boost::capy::task<bool> nativepg::test::break_connection(co_connection& conn, bo
         std::cerr << "  Called from " << loc << std::endl;
     co_return ok;
 }
+
+boost::capy::task<bool> nativepg::test::cache_notification(
+    co_connection& conn,
+    std::string_view channel,
+    std::string_view payload,
+    boost::source_location loc
+)
+{
+    request req;
+    req.add_query("NOTIFY " + std::string(channel) + ", '" + std::string(payload) + "'");
+    req.add_query("SELECT 1");
+    co_return co_await checked_exec(conn, req, check(), loc);
+}

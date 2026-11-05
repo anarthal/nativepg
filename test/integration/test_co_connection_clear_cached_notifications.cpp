@@ -12,14 +12,10 @@
 #include <boost/capy/when_all.hpp>
 #include <boost/core/lightweight_test.hpp>
 
-#include <system_error>
-
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/notification_vector.hpp"
 #include "nativepg/protocol/async.hpp"
-#include "nativepg/request.hpp"
-#include "nativepg/responses/check.hpp"
 #include "test_utils/ci_server.hpp"
 #include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
@@ -32,17 +28,6 @@ using namespace nativepg;
 using namespace nativepg::test;
 
 namespace {
-
-// Raises a notification on conn's own session and makes sure it has been read
-// into the cache by the time we return. The trailing SELECT forces the reader
-// to go past the NotificationResponse
-capy::task<bool> cache_notification(co_connection& conn, std::string_view channel, std::string_view payload)
-{
-    request req;
-    req.add_query("NOTIFY " + std::string(channel) + ", '" + std::string(payload) + "'");
-    req.add_query("SELECT 1");
-    co_return co_await checked_exec(conn, req);
-}
 
 // There are notifications to discard when the function is called
 capy::task<> test_with_cached_notifications()

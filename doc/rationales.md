@@ -517,7 +517,7 @@ The pool works with the following mental model:
 - Before a connection is handed by `get_connection`, and after the connection
   is returned, it can only be touched by the pool. This is, only the pool can
   use its accessors and invoke its async operations.
-- Once it's handed to the user, it can only be touched to the user.
+- Once it's handed to the user, it can only be touched by the user.
   The pool should not access it anyhow.
 
 This model allows efficient use in multi-threaded situations, with a single
@@ -525,7 +525,7 @@ pool shared by many threads:
 
 - The user is expected to create a strand protecting the pool. `run()` and `get_connection()`
   should be run within the pool's strand. Connection bookkeeping actions
-  (the first bullet point in the list above) are performed by `run()`,
+  (the first bullet point in the list above) are performed by `run()` and `get_connection()`,
   and are protected by this strand.
 - Once a connection has been obtained, the user can exit the pool's strand.
   This allows for true parallelism between independent sessions.
@@ -534,7 +534,8 @@ pool shared by many threads:
 - Returning a connection to the pool can be run safely from any thread.
 
 For this model to work, user sessions must not touch the connection anyhow
-after returning. This leads to the precondition we're discussing.
+after returning. The pool can't wait for in-flight operations either,
+because that would be a race condition. This leads to the precondition we're discussing.
 
 ## What's this `co_connection::reset_exec_states()`?
 
@@ -554,13 +555,14 @@ auto [ec, conn] = co_await pool.get_connection();
 // Violates the "user sessions don't touch the connection after returning it" principle
 ```
 
-To make the above code well-defined, we make `~pooled_connection()` use
-`co_connection::reset_exec_states()`, moving `exec_state` abandonment to the user session.
+To make the above code well-defined, we use `co_connection::reset_exec_states()`
+in the `pooled_connection` functions that return the connection to the pool,
+which moves `exec_state` abandonment to the user session.
 
 Note: I don't like this. I think it's evidencing that we allow for too much
 flexibility in `exec_state`. Other designs will be explored in the future.
 
-## Why does `co_connection` have so many low-level primitives (`reset_cached_notifications()`), instead of a `reset_session()` function?
+## Why does `co_connection` have so many low-level primitives (like `clear_cached_notifications()`), instead of a `reset_session()` function?
 
 I believe that `co_connection` should be composed of many low-level primitives
 that can be composed to build useful things. Users should be able to write

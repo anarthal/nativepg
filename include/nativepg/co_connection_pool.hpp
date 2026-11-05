@@ -158,7 +158,7 @@ public:
 //       Cached notification are discarded
 //       (as per clear_cached_notifications() - this doesn't entail server round-trip).
 //     - Session-reset. If the pool thinks that the connection works but its state has been modified,
-//       it attempts to clean it up. This currently entails a `ROLLBACK` and a `RESET ALL`, plus
+//       it attempts to clean it up. This currently entails a `ROLLBACK` and a `DISCARD ALL`, plus
 //       a call to clear_cached_notifications().
 //       This is lighter than re-establishing the connection, but requires a round-trip to the server.
 //     - Re-establishing the connection. This is the most drastic (and heavyweight) action.

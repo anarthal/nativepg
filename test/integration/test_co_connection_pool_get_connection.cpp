@@ -33,6 +33,8 @@
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_connection_pool.hpp"
 #include "nativepg/exec_state.hpp"
+#include "nativepg/notification_vector.hpp"
+#include "nativepg/protocol/async.hpp"
 #include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/request.hpp"
@@ -44,6 +46,7 @@
 #include "test_utils/printing.hpp"
 #include "test_utils/test_cond_eq.hpp"
 #include "test_utils/test_opt_eq.hpp"
+#include "test_utils/test_range_eq.hpp"
 #include "test_utils/test_string_contains.hpp"
 #include "test_utils/yield.hpp"
 
@@ -111,6 +114,7 @@ capy::task<bool> create_leftovers(co_connection& conn, boost::source_location lo
 
 // Asks the server to kill the backend serving us. It answers with a FATAL error
 // and closes the socket, so the connection ends up in a fatal error state
+// TODO: extract
 capy::task<bool> break_connection(co_connection& conn, boost::source_location loc = BOOST_CURRENT_LOCATION)
 {
     request req;
@@ -122,6 +126,22 @@ capy::task<bool> break_connection(co_connection& conn, boost::source_location lo
     if (!ok)
         std::cerr << "  Called from " << loc << std::endl;
     co_return ok;
+}
+
+// Raises a notification on conn's own session and makes sure it has been read
+// into the cache by the time we return
+// TODO: extract
+capy::task<bool> cache_notification(
+    co_connection& conn,
+    std::string_view channel,
+    std::string_view payload,
+    boost::source_location loc = BOOST_CURRENT_LOCATION
+)
+{
+    request req;
+    req.add_query("NOTIFY " + std::string(channel) + ", '" + std::string(payload) + "'");
+    req.add_query("SELECT 1");
+    co_return co_await checked_exec(conn, req, check(), loc);
 }
 
 // Note: current_setting() returns NULL when a custom setting hasn't been set,
@@ -224,6 +244,97 @@ capy::task<> test_return_without_reset()
 
         // No reset has been issued, so our mark is still there
         test_opt_eq(co_await get_session_var(conn.get()), "abc");
+    }());
+}
+
+// Notifications cached during the session are discarded
+capy::task<> test_cached_notifications_with_reset()
+{
+    co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params(1)};
+
+    co_await with_pool_running(pool, [&]() -> capy::task<> {
+        // Get a connection and cache a notification in it
+        auto [ec, conn] = co_await pool.get_connection();
+        if (!check_success(ec) || !BOOST_TEST(conn.valid()))
+            co_return;
+        const auto pid = conn->state().backend_process_id;
+        if (!co_await checked_exec(conn.get(), "LISTEN test_pool_notif_reset"))
+            co_return;
+        if (!co_await cache_notification(conn.get(), "test_pool_notif_reset", "discarded"))
+            co_return;
+
+        // Return the connection
+        conn = pooled_connection();
+
+        // Get the same connection again
+        std::tie(ec, conn) = co_await pool.get_connection();
+        if (!check_success(ec) || !BOOST_TEST(conn.valid()))
+            co_return;
+        BOOST_TEST_EQ(conn->state().backend_process_id, pid);
+
+        // The reset ran UNLISTEN *, so subscribe again before raising a new one
+        if (!co_await checked_exec(conn.get(), "LISTEN test_pool_notif_reset"))
+            co_return;
+        if (!co_await cache_notification(conn.get(), "test_pool_notif_reset", "delivered"))
+            co_return;
+
+        // Only the new notification is delivered
+        notification_vector notifs;
+        if (!check_success(co_await conn->receive(notifs)))
+            co_return;
+        const protocol::notification_response expected[] = {
+            {.process_id = pid, .channel_name = "test_pool_notif_reset", .payload = "delivered"}
+        };
+        test_range_eq(notifs, expected);
+
+        co_await check_connection_usable(conn.get());
+    }());
+}
+
+// Same, when the user requested no reset: the discard happens regardless
+capy::task<> test_cached_notifications_without_reset()
+{
+    co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params(1)};
+
+    co_await with_pool_running(pool, [&]() -> capy::task<> {
+        // Get a connection and cache a notification in it
+        auto [ec, conn] = co_await pool.get_connection();
+        if (!check_success(ec) || !BOOST_TEST(conn.valid()))
+            co_return;
+        const auto pid = conn->state().backend_process_id;
+        if (!co_await checked_exec(conn.get(), "LISTEN test_pool_notif_no_reset"))
+            co_return;
+        if (!co_await cache_notification(conn.get(), "test_pool_notif_no_reset", "discarded"))
+            co_return;
+
+        // Return the connection
+        conn.return_without_reset();
+
+        // Get the same connection again
+        std::tie(ec, conn) = co_await pool.get_connection();
+        if (!check_success(ec) || !BOOST_TEST(conn.valid()))
+            co_return;
+        BOOST_TEST_EQ(conn->state().backend_process_id, pid);
+
+        // The current implementation doesn't reset here, but could
+        // (finding notifications is a sign that the connection is not as clean as expected).
+        // We re-issue the LISTEN to avoid depending on current behavior
+        if (!co_await checked_exec(conn.get(), "LISTEN test_pool_notif_no_reset"))
+            co_return;
+        if (!co_await cache_notification(conn.get(), "test_pool_notif_no_reset", "delivered"))
+            co_return;
+
+        // The notification from the previous session was dropped,
+        // so only the new one is delivered
+        notification_vector notifs;
+        if (!check_success(co_await conn->receive(notifs)))
+            co_return;
+        const protocol::notification_response expected[] = {
+            {.process_id = pid, .channel_name = "test_pool_notif_no_reset", .payload = "delivered"}
+        };
+        test_range_eq(notifs, expected);
+
+        co_await check_connection_usable(conn.get());
     }());
 }
 
@@ -680,6 +791,8 @@ int main()
     run_coroutine_test(test_return_with_reset());
     run_coroutine_test(test_pooled_connection_destructor());
     run_coroutine_test(test_return_without_reset());
+    run_coroutine_test(test_cached_notifications_with_reset());
+    run_coroutine_test(test_cached_notifications_without_reset());
     run_coroutine_test(test_fatal_error_with_reset());
     run_coroutine_test(test_fatal_error_without_reset());
     run_coroutine_test(test_leftovers_with_reset());

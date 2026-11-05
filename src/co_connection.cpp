@@ -848,6 +848,20 @@ struct detail::co_connection_impl
     }
 
     bool has_ops_in_flight() const { return pending_ops_.count() != 0u || connect_shutdown_running_; }
+
+    bool has_leftovers() const
+    {
+        // Not connected => false
+        if (!is_connected_)
+            return false;
+
+        // Things still queued => false
+        if (mpx_.has_exec_readers())
+            return true;
+
+        // Otherwise, check if we have any write or read leftovers
+        return !mpx_.previous_write_bytes().empty() || mpx_.trailing_rfqs() != 0u;
+    }
 };
 
 co_connection::co_connection(capy::execution_context& ctx)
@@ -983,6 +997,8 @@ std::optional<encoding> co_connection::client_encoding() const { return impl_->s
 protocol::transaction_status co_connection::txn_status() const noexcept { return impl_->st.txn_status; }
 
 bool co_connection::is_connected() const noexcept { return impl_->is_connected_; }
+
+bool co_connection::has_leftovers() const noexcept { return impl_->has_leftovers(); }
 
 std::error_code co_connection::last_error() const noexcept { return impl_->last_error_; }
 

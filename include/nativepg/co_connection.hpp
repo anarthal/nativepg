@@ -369,10 +369,8 @@ public:
 
     // The transaction status reported by the last ReadyForQuery message we read.
     // Potential uses include deciding when to issue a ROLLBACK for session re-use.
-    // The value is authoritative only when no exec operation is in flight.
-    //   Requests that were written but whose response hasn't been read yet may
-    //   have already changed the backend's status. If you pipeline requests
-    //   (or run exec() operations in parallel), read this after all of them complete.
+    // The value is authoritative only when no exec operation is in flight,
+    //   and all responses have been fully read (i.e. `has_leftovers() == false`)
     // If the connection hasn't been established yet (i.e. `is_connected() == false`),
     //   returns transaction_status::idle.
     // Copy-in and copy-out don't produce a ReadyForQuery until the copy is
@@ -386,6 +384,24 @@ public:
     //   is only safe when no operations are in-flight.
     //   This function exists to check such preconditions.
     bool has_ops_in_flight() const noexcept;
+
+    // Returns true if any previous exec() operations (or their low-level counterparts)
+    //   have left any unfinished work due to cancellation.
+    // Leftovers include:
+    //   - If only part of the request is written, the rest is stored so it can be sent
+    //     later, keeping the connection healthy.
+    //   - If the response hasn't been fully read, the rest will be skipped, keeping
+    //     the connection healthy.
+    // This function can be used to detect when a session needs cleanup, for session re-use.
+    // It can also be used to determine whether txn_status() is authoritative.
+    // If the connection hasn't been established, or encountered a fatal error
+    //   (i.e. `is_connected() == false`), returns false.
+    // If an exec() is in-flight, or an exec_state operation has been started
+    //   but hasn't completed yet (e.g. write_request() completed
+    //   but read_response() never called), returns true.
+    //   TODO: the term here would be that an exec_state is 'attached', but this means
+    //         nothing to the user. Revise this when we simplify exec_state into exclusive-only.
+    bool has_leftovers() const noexcept;
 
     // Calls reset() on every exec_state currently attached to this connection.
     // Useful as part of session cleanup, for connection pools.

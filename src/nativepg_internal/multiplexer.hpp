@@ -264,6 +264,8 @@ public:
             active_tasks_.front().reset();
     }
 
+    std::size_t trailing_rfqs() const { return trailing_rfqs_; }
+
 private:
     // Grants exclusive access to the write side
     boost::capy::async_mutex write_mtx_;

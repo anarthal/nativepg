@@ -256,6 +256,16 @@ public:
     // Are there any exec readers waiting?
     bool has_exec_readers() const { return !active_tasks_.empty(); }
 
+    // Resets all execution states in the task list
+    void reset_exec_states()
+    {
+        // reset() unliks, so a range-for isn't safe
+        while (!active_tasks_.empty())
+            active_tasks_.front().reset();
+    }
+
+    std::size_t trailing_rfqs() const { return trailing_rfqs_; }
+
 private:
     // Grants exclusive access to the write side
     boost::capy::async_mutex write_mtx_;

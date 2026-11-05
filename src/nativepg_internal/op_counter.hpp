@@ -70,6 +70,9 @@ public:
                 co_return {ec};
         co_return {};
     }
+
+    // Returns the number of operations that are in-flight
+    std::size_t count() const { return count_; }
 };
 
 }  // namespace nativepg::detail

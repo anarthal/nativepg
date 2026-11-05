@@ -29,6 +29,7 @@
 #include "nativepg/capy-stub/ex/async_condition.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_connection_pool.hpp"
+#include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
 
@@ -164,25 +165,20 @@ class pool_node : public pool_node_hook
 
     auto do_ping() { return run_with_timeout(conn_.exec(ping_req_, &check_handler), params_->ping_timeout); }
 
+    // TODO: do we need another timeout?
+    auto do_reset() { return run_with_timeout(reset_connection(), params_->ping_timeout); }
+
     boost::capy::task<boost::capy::results<>> reset_connection()
     {
-        // TODO: it is unclear what should we do here:
-        //   We may run DISCARD ALL to clean up evth. except transaction blocks:
-        //      CLOSE ALL: cursors
-        //      SET SESSION AUTHORIZATION DEFAULT: if you were superuser and impersonated someone
-        //        else
-        //      RESET ALL: if you changed parameters
-        //      DEALLOCATE ALL: if you used explicit PREPARE (you shouldn't)
-        //      UNLISTEN *: if you were using this connection to listen
-        //      SELECT pg_advisory_unlock_all(): locks
-        //      DISCARD PLANS: cached execution plans
-        //      DISCARD TEMP: temporary tables
-        //      DISCARD SEQUENCES: sequences
-        //   If we are within a failed transaction, we could try to detect it
-        //   by storing this info upon receiving ready_for_query and running a rollback
-        // For now we do nothing, but this should change.
+        // Compose the reset request.
+        // DISCARD ALL can't be used in a transaction block, so the rollback must be before it.
+        // ROLLBACK without an open transaction block issues a notice
+        request reset_req;
+        if (conn_.txn_status() != protocol::transaction_status::idle)
+            reset_req.add_simple_query("ROLLBACK");
+        reset_req.add_simple_query("DISCARD ALL");
 
-        co_return {};
+        co_return co_await conn_.exec(reset_req, &check_handler);
     }
 
 public:
@@ -245,7 +241,7 @@ public:
                 // Note that the idle => in-use transition is performed outside this coro in mark_as_in_use()
                 auto [ec, act] = co_await idle_wait();
                 if (ec)
-                    break;
+                    co_return {};  // cancellation
 
                 if (act == collection_action::ping)
                 {
@@ -260,24 +256,33 @@ public:
                     // Ping succeeded. We're idle again
                     entering_idle();
                 }
-                else if (act == collection_action::collect)
-                {
-                    // The user said we don't need a reset. Mark it as idle and keep going
-                    exiting_in_use();
-                    entering_idle();
-                }
                 else
                 {
-                    // The user has finished with the connection but requested a reset
-                    BOOST_ASSERT(act == collection_action::collect_with_reset);
+                    // We're no longer in-use
                     exiting_in_use();
-                    if (auto [ec] = co_await run_with_timeout(reset_connection(), params_->ping_timeout); ec)
-                    {
-                        // Reset failed. Reconnect
+
+                    // If the connection is marked as broken, reconnect.
+                    // TODO: leftovers could be handled without reconnection.
+                    //   This is simpler though.
+                    if (!conn_.is_connected() || conn_.has_leftovers())
                         break;
+
+                    // We should reset if the user requested it, or if we
+                    // detect an open transaction. txn_status() is reliable
+                    // here because we have no leftovers to read.
+                    if (act == collection_action::collect_with_reset ||
+                        conn_.txn_status() != protocol::transaction_status::idle)
+                    {
+                        if (auto [ec] = co_await do_reset(); ec)
+                            break;  // reset failed, reconnect
                     }
 
-                    // Reset successful, back to idle
+                    // Discard any unread notifications generated during the session.
+                    // Must happen without leftovers and after any potential reset,
+                    // as notifications might be generated until the reset becomes effective.
+                    conn_.clear_cached_notifications();
+
+                    // We have successfully cleaned up the connection. We're idle again
                     entering_idle();
                 }
             }

@@ -34,6 +34,15 @@ boost::capy::task<boost::capy::results<pooled_connection>> co_connection_pool::g
     return impl_->get_connection();
 }
 
-void detail::return_connection(pool_node& node, bool should_reset) { node.mark_as_collectable(should_reset); }
+void detail::return_connection(pool_node& node, bool should_reset)
+{
+    // Reset any exec_state's still pointing into the connection.
+    // This must be done here for thread-safety, because it writes into the exec_state's,
+    // not owned by the pool.
+    node.connection().reset_exec_states();
+
+    // Notify the pool that the connection can be collected
+    node.mark_as_collectable(should_reset);
+}
 
 co_connection& detail::get_connection(pool_node& node) { return node.connection(); }

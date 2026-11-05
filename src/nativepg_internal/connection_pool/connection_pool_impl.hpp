@@ -102,6 +102,8 @@ class co_connection_pool_impl
     void create_connection(const boost::capy::await_context* env)
     {
         // Create the connection
+        // TODO: this is problematic. run() waits for tasks but not for nodes.
+        //   The pool probably needs an execution_context& as ctor arg (or needs to use it :))
         all_conns_.emplace_back(env->executor.context(), &params_, shared_st_);
 
         // Record that we have a task running. Doing this here instead of in run_one()

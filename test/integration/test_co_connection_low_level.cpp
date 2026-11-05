@@ -699,7 +699,7 @@ capy::task<> test_receive_before()
 {
     // Setup
     auto conn = co_await establish_connection(), notifier = co_await establish_connection();
-    if (!co_await checked_exec(conn, request().add_query("LISTEN test_ll_receive_before")))
+    if (!co_await checked_exec(conn, "LISTEN test_ll_receive_before"))
         co_return;
 
     // Runs through the low-level API, once the receive() is the current reader
@@ -737,7 +737,7 @@ capy::task<> test_receive_before()
             }
 
             // The receive() is still waiting, so give it something to report
-            co_await checked_exec(notifier, request().add_query("NOTIFY test_ll_receive_before, 'hello'"));
+            co_await checked_exec(notifier, "NOTIFY test_ll_receive_before, 'hello'");
             co_return {};
         }()
     ));
@@ -762,7 +762,7 @@ capy::task<> test_receive_after()
     // Setup
     auto conn = co_await establish_connection(), locker = co_await establish_connection(),
          notifier = co_await establish_connection();
-    if (!co_await checked_exec(conn, request().add_query("LISTEN test_ll_receive_after")))
+    if (!co_await checked_exec(conn, "LISTEN test_ll_receive_after"))
         co_return;
 
     // Note: different tests should use different IDs
@@ -809,7 +809,7 @@ capy::task<> test_receive_after()
 
             // Raise a notification. Our reader is the one that takes it off the
             // wire and hands it over to the receive()
-            co_await checked_exec(notifier, request().add_query("NOTIFY test_ll_receive_after, 'hello'"));
+            co_await checked_exec(notifier, "NOTIFY test_ll_receive_after, 'hello'");
 
             // Unblock the rest of our own response
             check_success(co_await locker.shutdown());
@@ -1129,10 +1129,7 @@ capy::task<> test_write_copy_data()
 {
     // Setup
     auto conn = co_await establish_connection();
-    if (!co_await checked_exec(
-            conn,
-            request().add_query("CREATE TEMPORARY TABLE test_write_copy_data (id INT, name TEXT)")
-        ))
+    if (!co_await checked_exec(conn, "CREATE TEMPORARY TABLE test_write_copy_data (id INT, name TEXT)"))
         co_return;
 
     // A COPY ... FROM STDIN leaves the writer waiting for the server to ask for data

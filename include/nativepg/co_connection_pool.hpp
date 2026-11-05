@@ -127,7 +127,7 @@ public:
 //   run() creates a new connection.
 //   This happens until pool_params::max_size connections are created.
 //   Further requests wait until a connection is returned to the pool.
-//   TODO: execution_context used by connections
+//   Connections are created using the execution_context passed to the pool's constructor.
 // Connection retrieval: you get a connection calling get_connection.
 //   If no connection is available (e.g. all of them are in use or the server is unhealthy),
 //   blocks indefinitely. You may want to set a timeout on this function.

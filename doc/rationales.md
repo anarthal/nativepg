@@ -514,11 +514,11 @@ of `connect()` and `is_connected()`, which is a good sign.
 
 The pool works with the following mental model:
 
-- Before a connection is handed by `get_connection`, and after the connection
-  is returned, it can only be touched by the pool. This is, only the pool can
+- Before a connection is handed out by `get_connection()`, and after the connection
+  is returned, it can only be touched by the pool. That is, only the pool can
   use its accessors and invoke its async operations.
 - Once it's handed to the user, it can only be touched by the user.
-  The pool should not access it anyhow.
+  The pool must not access it in any way.
 
 This model allows efficient use in multi-threaded situations, with a single
 pool shared by many threads:
@@ -533,18 +533,18 @@ pool shared by many threads:
   This design reduces the amount of code that runs under the global lock.
 - Returning a connection to the pool can be run safely from any thread.
 
-For this model to work, user sessions must not touch the connection anyhow
-after returning. The pool can't wait for in-flight operations either,
+For this model to work, user sessions must not touch the connection in any way
+after returning it. The pool can't wait for in-flight operations either,
 because that would be a race condition. This leads to the precondition we're discussing.
 
 ## What's this `co_connection::reset_exec_states()`?
 
 It exists for session cleanup within connection pools. Sessions might leave
 `exec_state` objects representing requests mid-execution.
-These need to be reset for sessions to be usable.
+These need to be reset for the connection to be reusable.
 
 `exec_state`'s destructor stores any leftovers in the connection object
-to prevent de-syncs. This is dangerous within connection pool. If we do
+to prevent de-syncs. This is dangerous within a connection pool. If we do
 nothing, this would result in undefined behavior:
 
 ```cpp
@@ -555,20 +555,20 @@ auto [ec, conn] = co_await pool.get_connection();
 // Violates the "user sessions don't touch the connection after returning it" principle
 ```
 
-To make the above code well-defined, we use `co_connection::reset_exec_states()`
-in the `pooled_connection` functions that return the connection to the pool,
-which moves `exec_state` abandonment to the user session.
+To make the above code well-defined, we call `co_connection::reset_exec_states()`
+from the `pooled_connection` functions that return the connection to the pool.
+This moves `exec_state` abandonment into the user's session.
 
-Note: I don't like this. I think it's evidencing that we allow for too much
+Note: I don't like this. I think it's evidence that we allow too much
 flexibility in `exec_state`. Other designs will be explored in the future.
 
 ## Why does `co_connection` have so many low-level primitives (like `clear_cached_notifications()`), instead of a `reset_session()` function?
 
-I believe that `co_connection` should be composed of many low-level primitives
+I believe that `co_connection` should provide many low-level primitives
 that can be composed to build useful things. Users should be able to write
 connection pools themselves without relying on private APIs.
 
-The pool resets sessions in the way I find safer and more useful, but this
+The pool resets sessions in the way I find safest and most useful, but this
 is not the only possible choice. For instance, some users want prepared
 statement caches. Future designs may allow the user to customize the reset logic.
 When this happens, having individual pieces is more useful than a single function.
@@ -578,12 +578,12 @@ When this happens, having individual pieces is more useful than a single functio
 For safety. Handing a user session a connection without the proper cleanup
 is dangerous, and can lead to vulnerabilities.
 
-The indicators we have don't cover all the possible session state modifications.
-See [`DISCARD ALL` docs](https://www.postgresql.org/docs/current/sql-discard.html)
-if you want to check it. As an example, if you acquire a lock
+The indicators we have don't cover all possible session state modifications.
+See the [`DISCARD ALL` docs](https://www.postgresql.org/docs/current/sql-discard.html)
+for the full list. As an example, if you acquire a lock
 with `pg_advisory_lock`, the pool has no way to know you did.
 Resetting here prevents a potential application-wide deadlock.
 
-Ensuring cleanup is specially tricky in case of errors.
-If you're not sure of what your session did, let the pool perform
-a reset and have you covered.
+Ensuring cleanup is especially tricky in case of error.
+If you're not sure what your session did, let the pool perform
+a reset and cover you.

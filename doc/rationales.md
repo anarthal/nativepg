@@ -509,3 +509,79 @@ Implementing these semantics requires no extra code, because `connect()` already
 needs to deal with the leftovers that fatal errors may leave behind.
 The error-if-connected semantics can be trivially implemented on top
 of `connect()` and `is_connected()`, which is a good sign.
+
+## Why does returning a connection to the pool require `!has_ops_in_flight()`?
+
+The pool works with the following mental model:
+
+- Before a connection is handed by `get_connection`, and after the connection
+  is returned, it can only be touched by the pool. This is, only the pool can
+  use its accessors and invoke its async operations.
+- Once it's handed to the user, it can only be touched to the user.
+  The pool should not access it anyhow.
+
+This model allows efficient use in multi-threaded situations, with a single
+pool shared by many threads:
+
+- The user is expected to create a strand protecting the pool. `run()` and `get_connection()`
+  should be run within the pool's strand. Connection bookkeeping actions
+  (the first bullet point in the list above) are performed by `run()`,
+  and are protected by this strand.
+- Once a connection has been obtained, the user can exit the pool's strand.
+  This allows for true parallelism between independent sessions.
+  If we think of strands as mutexes, the pool's mutex would be akin to a global lock.
+  This design reduces the amount of code that runs under the global lock.
+- Returning a connection to the pool can be run safely from any thread.
+
+For this model to work, user sessions must not touch the connection anyhow
+after returning. This leads to the precondition we're discussing.
+
+## What's this `co_connection::reset_exec_states()`?
+
+It exists for session cleanup within connection pools. Sessions might leave
+`exec_state` objects representing requests mid-execution.
+These need to be reset for sessions to be usable.
+
+`exec_state`'s destructor stores any leftovers in the connection object
+to prevent de-syncs. This is dangerous within connection pool. If we do
+nothing, this would result in undefined behavior:
+
+```cpp
+exec_state st;
+auto [ec, conn] = co_await pool.get_connection();
+// Problematic: the connection is returned to the pool, and then exec_state's
+// destructor modifies the connection to inform of potential leftovers.
+// Violates the "user sessions don't touch the connection after returning it" principle
+```
+
+To make the above code well-defined, we make `~pooled_connection()` use
+`co_connection::reset_exec_states()`, moving `exec_state` abandonment to the user session.
+
+Note: I don't like this. I think it's evidencing that we allow for too much
+flexibility in `exec_state`. Other designs will be explored in the future.
+
+## Why does `co_connection` have so many low-level primitives (`reset_cached_notifications()`), instead of a `reset_session()` function?
+
+I believe that `co_connection` should be composed of many low-level primitives
+that can be composed to build useful things. Users should be able to write
+connection pools themselves without relying on private APIs.
+
+The pool resets sessions in the way I find safer and more useful, but this
+is not the only possible choice. For instance, some users want prepared
+statement caches. Future designs may allow the user to customize the reset logic.
+When this happens, having individual pieces is more useful than a single function.
+
+## Why does the pool reset unless `return_without_reset` is used? You have session status indicators, like `txn_status()`
+
+For safety. Handing a user session a connection without the proper cleanup
+is dangerous, and can lead to vulnerabilities.
+
+The indicators we have don't cover all the possible session state modifications.
+See [`DISCARD ALL` docs](https://www.postgresql.org/docs/current/sql-discard.html)
+if you want to check it. As an example, if you acquire a lock
+with `pg_advisory_lock`, the pool has no way to know you did.
+Resetting here prevents a potential application-wide deadlock.
+
+Ensuring cleanup is specially tricky in case of errors.
+If you're not sure of what your session did, let the pool perform
+a reset and have you covered.

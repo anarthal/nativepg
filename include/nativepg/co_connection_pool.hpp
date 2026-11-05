@@ -138,6 +138,9 @@ public:
 //       when you know that you didn't mutate session state. E.g. if you only run a SELECT,
 //       this is safe. If you started a transaction, it is not.
 //       Triggered by return_without_reset.
+//       Use this semantic only when you're completely sure that your session didn't
+//       leave anything behind. As a rule of thumb, if you encountered an error, don't
+//       call return_without_reset.
 //   All async operations on the underlying connection must complete before returning
 //   the connection to the pool (i.e. `has_ops_in_flight() == false`). Otherwise, the
 //   behavior is undefined.

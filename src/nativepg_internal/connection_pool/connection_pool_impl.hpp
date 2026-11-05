@@ -78,6 +78,7 @@ class co_connection_pool_impl
         cancelled,
     };
 
+    boost::capy::execution_context& ctx_;
     pool_params params_;
     state_t state_{state_t::initial};
     std::list<pool_node> all_conns_;
@@ -102,9 +103,7 @@ class co_connection_pool_impl
     void create_connection(const boost::capy::await_context* env)
     {
         // Create the connection
-        // TODO: this is problematic. run() waits for tasks but not for nodes.
-        //   The pool probably needs an execution_context& as ctor arg (or needs to use it :))
-        all_conns_.emplace_back(env->executor.context(), &params_, shared_st_);
+        all_conns_.emplace_back(ctx_, &params_, shared_st_);
 
         // Record that we have a task running. Doing this here instead of in run_one()
         // prevents potential race conditions (op_counter::wait() running before the start notification)
@@ -167,8 +166,8 @@ class co_connection_pool_impl
     }
 
 public:
-    co_connection_pool_impl(boost::capy::execution_context&, pool_params&& params)
-        : params_(std::move(params))
+    co_connection_pool_impl(boost::capy::execution_context& ctx, pool_params&& params)
+        : ctx_(ctx), params_(std::move(params))
     {
         check_pool_params(params_);
     }

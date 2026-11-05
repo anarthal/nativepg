@@ -718,22 +718,27 @@ capy::task<> test_invalid_params()
 {
     auto ex = co_await capy::this_coro::executor;
 
-    auto check_throws = [ex](pool_params params, std::string_view expected_msg) {
+    auto check_throws = [ex](
+                            pool_params params,
+                            std::string_view expected_msg,
+                            boost::source_location loc = BOOST_CURRENT_LOCATION
+                        ) {
         try
         {
             static_cast<void>(co_connection_pool(ex, std::move(params)));
             BOOST_ERROR("Expected std::invalid_argument, but no exception was thrown");
+            std::cerr << "  Called from " << loc << std::endl;
         }
         catch (const std::invalid_argument& exc)
         {
-            test_string_contains(exc.what(), expected_msg);
+            test_string_contains(exc.what(), expected_msg, loc);
         }
     };
 
     check_throws({.transport = {}, .max_size = 0}, "pool_params::max_size must be greater than zero");
     check_throws(
         {.transport = {}, .initial_size = 4, .max_size = 2},
-        "pool_params::max_size must be greater than pool_params::initial_size"
+        "pool_params::max_size must be greater than or equal to pool_params::initial_size"
     );
     check_throws(
         {.transport = {}, .connect_timeout = -1s},

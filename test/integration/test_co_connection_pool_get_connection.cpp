@@ -18,14 +18,23 @@
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <stop_token>
+#include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_connection_pool.hpp"
+#include "nativepg/exec_state.hpp"
 #include "nativepg/protocol/connection_state.hpp"
+#include "nativepg/protocol/ready_for_query.hpp"
+#include "nativepg/request.hpp"
+#include "nativepg/responses/check.hpp"
+#include "nativepg/responses/response_handler.hpp"
 #include "test_utils/ci_server.hpp"
 #include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
@@ -134,6 +143,287 @@ capy::task<> test_pooled_connection_destructor()
 
         // No reset has been issued, so our mark is still there
         test_opt_eq(co_await get_session_var(conn.get()), "abc");
+    }());
+}
+
+// --- Recovery on return ---
+//
+// pool_node::run's recovery path is:
+//   1. fatal error or leftovers  => reconnect
+//   2. otherwise, reset if the user asked for one or a transaction is open
+//   3. otherwise, hand the session back untouched
+// The tests below drive each branch. max_size is 1 throughout, so the pool has a
+// single connection: a changed backend PID means it reconnected, and an unchanged
+// one means it reused the session.
+//
+// The case "returned without reset, session clean" is covered by
+// test_return_connection above.
+
+// DISCARD ALL resets customized GUCs to their default. Whether that reads back as
+// NULL or as an empty string is a server detail, so normalize both to empty.
+std::string session_var_or_empty(const std::optional<std::string>& value)
+{
+    return value.value_or("");
+}
+
+// Writes a request but never reads its response, so the connection is healthy
+// but owes us a ReadyForQuery
+capy::task<bool> create_leftovers(co_connection& conn)
+{
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+        co_return false;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return false;
+
+    // Detaching the state leaves the response unread. Done before returning the
+    // connection, since the pool requires no exec_state to outlive the checkout
+    st.reset();
+
+    co_return BOOST_TEST(conn.is_connected()) && BOOST_TEST(conn.has_leftovers());
+}
+
+// Asks the server to kill the backend serving us. It answers with a FATAL error
+// and closes the socket, so the connection ends up in a fatal error state
+capy::task<bool> break_connection(co_connection& conn)
+{
+    request req;
+    req.add_query("SELECT pg_terminate_backend(pg_backend_pid())");
+    req.add_query("SELECT pg_sleep(999)");
+
+    auto [ec] = co_await conn.exec(req, check());
+    if (!BOOST_TEST_NE(ec, std::error_code()))
+        co_return false;
+
+    co_return BOOST_TEST_NOT(conn.is_connected()) && BOOST_TEST_NOT(conn.has_leftovers());
+}
+
+// A clean connection returned with a reset request is reset in place:
+// same session, but the session state is wiped
+capy::task<> test_return_with_reset()
+{
+    co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params(1)};
+
+    co_await with_pool_running(pool, [&]() -> capy::task<> {
+        std::int32_t pid = 0;
+
+        {
+            auto [ec, conn] = co_await pool.get_connection();
+            if (!check_success(ec) || !BOOST_TEST(conn.valid()))
+                co_return;
+            pid = conn->state().backend_process_id;
+
+            // Alter session state
+            if (!co_await set_session_var(conn.get(), "abc"))
+                co_return;
+
+            // The destructor returns the connection requesting a reset
+        }
+
+        auto [ec, conn] = co_await pool.get_connection();
+        if (!check_success(ec) || !BOOST_TEST(conn.valid()))
+            co_return;
+
+        // Same session, but DISCARD ALL wiped our mark
+        BOOST_TEST_EQ(conn->state().backend_process_id, pid);
+        BOOST_TEST_EQ(session_var_or_empty(co_await get_session_var(conn.get())), std::string());
+        co_await check_connection_usable(conn.get());
+    }());
+}
+
+// A connection that died while in use is reconnected, rather than reset
+capy::task<> test_fatal_error_with_reset()
+{
+    co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params(1)};
+
+    co_await with_pool_running(pool, [&]() -> capy::task<> {
+        std::int32_t pid = 0;
+
+        {
+            auto [ec, conn] = co_await pool.get_connection();
+            if (!check_success(ec) || !BOOST_TEST(conn.valid()))
+                co_return;
+            pid = conn->state().backend_process_id;
+
+            if (!co_await set_session_var(conn.get(), "abc"))
+                co_return;
+            if (!co_await break_connection(conn.get()))
+                co_return;
+
+            // The destructor returns the connection requesting a reset
+        }
+
+        auto [ec, conn] = co_await pool.get_connection();
+        if (!check_success(ec) || !BOOST_TEST(conn.valid()))
+            co_return;
+
+        // A reset was impossible, so the pool established a new session
+        BOOST_TEST_NE(conn->state().backend_process_id, pid);
+        BOOST_TEST_EQ(session_var_or_empty(co_await get_session_var(conn.get())), std::string());
+        co_await check_connection_usable(conn.get());
+    }());
+}
+
+// Same, when the user says no reset is needed: a dead session is reconnected
+// regardless of what the user asked for
+capy::task<> test_fatal_error_without_reset()
+{
+    co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params(1)};
+
+    co_await with_pool_running(pool, [&]() -> capy::task<> {
+        auto [ec, conn] = co_await pool.get_connection();
+        if (!check_success(ec) || !BOOST_TEST(conn.valid()))
+            co_return;
+        const auto pid = conn->state().backend_process_id;
+
+        if (!co_await set_session_var(conn.get(), "abc"))
+            co_return;
+        if (!co_await break_connection(conn.get()))
+            co_return;
+
+        conn.return_without_reset();
+
+        auto [ec2, conn2] = co_await pool.get_connection();
+        if (!check_success(ec2) || !BOOST_TEST(conn2.valid()))
+            co_return;
+
+        BOOST_TEST_NE(conn2->state().backend_process_id, pid);
+        BOOST_TEST_EQ(session_var_or_empty(co_await get_session_var(conn2.get())), std::string());
+        co_await check_connection_usable(conn2.get());
+    }());
+}
+
+// A connection returned with unread responses is reconnected. The session is
+// healthy, but the simplified recovery path doesn't drain leftovers
+capy::task<> test_leftovers_with_reset()
+{
+    co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params(1)};
+
+    co_await with_pool_running(pool, [&]() -> capy::task<> {
+        std::int32_t pid = 0;
+
+        {
+            auto [ec, conn] = co_await pool.get_connection();
+            if (!check_success(ec) || !BOOST_TEST(conn.valid()))
+                co_return;
+            pid = conn->state().backend_process_id;
+
+            if (!co_await set_session_var(conn.get(), "abc"))
+                co_return;
+            if (!co_await create_leftovers(conn.get()))
+                co_return;
+
+            // The destructor returns the connection requesting a reset
+        }
+
+        auto [ec, conn] = co_await pool.get_connection();
+        if (!check_success(ec) || !BOOST_TEST(conn.valid()))
+            co_return;
+
+        // We got a new session, and it isn't desynced
+        BOOST_TEST_NE(conn->state().backend_process_id, pid);
+        BOOST_TEST_EQ(session_var_or_empty(co_await get_session_var(conn.get())), std::string());
+        co_await check_connection_usable(conn.get());
+    }());
+}
+
+// Same, when the user says no reset is needed. The user's claim is about session
+// state and says nothing about the wire, so the leftovers still force a reconnect
+capy::task<> test_leftovers_without_reset()
+{
+    co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params(1)};
+
+    co_await with_pool_running(pool, [&]() -> capy::task<> {
+        auto [ec, conn] = co_await pool.get_connection();
+        if (!check_success(ec) || !BOOST_TEST(conn.valid()))
+            co_return;
+        const auto pid = conn->state().backend_process_id;
+
+        if (!co_await set_session_var(conn.get(), "abc"))
+            co_return;
+        if (!co_await create_leftovers(conn.get()))
+            co_return;
+
+        conn.return_without_reset();
+
+        auto [ec2, conn2] = co_await pool.get_connection();
+        if (!check_success(ec2) || !BOOST_TEST(conn2.valid()))
+            co_return;
+
+        BOOST_TEST_NE(conn2->state().backend_process_id, pid);
+        BOOST_TEST_EQ(session_var_or_empty(co_await get_session_var(conn2.get())), std::string());
+        co_await check_connection_usable(conn2.get());
+    }());
+}
+
+// A connection returned inside a transaction block is rolled back and reset,
+// without losing the session
+capy::task<> test_open_txn_with_reset()
+{
+    co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params(1)};
+
+    co_await with_pool_running(pool, [&]() -> capy::task<> {
+        std::int32_t pid = 0;
+
+        {
+            auto [ec, conn] = co_await pool.get_connection();
+            if (!check_success(ec) || !BOOST_TEST(conn.valid()))
+                co_return;
+            pid = conn->state().backend_process_id;
+
+            if (!co_await set_session_var(conn.get(), "abc"))
+                co_return;
+            if (!co_await checked_exec(conn.get(), "BEGIN"))
+                co_return;
+            BOOST_TEST_EQ(conn->txn_status(), protocol::transaction_status::in_transaction);
+
+            // The destructor returns the connection requesting a reset
+        }
+
+        auto [ec, conn] = co_await pool.get_connection();
+        if (!check_success(ec) || !BOOST_TEST(conn.valid()))
+            co_return;
+
+        // Same session, rolled back and discarded
+        BOOST_TEST_EQ(conn->state().backend_process_id, pid);
+        BOOST_TEST_EQ(conn->txn_status(), protocol::transaction_status::idle);
+        BOOST_TEST_EQ(session_var_or_empty(co_await get_session_var(conn.get())), std::string());
+        co_await check_connection_usable(conn.get());
+    }());
+}
+
+// An open transaction triggers a reset even when the user said none was needed
+capy::task<> test_open_txn_without_reset()
+{
+    co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params(1)};
+
+    co_await with_pool_running(pool, [&]() -> capy::task<> {
+        auto [ec, conn] = co_await pool.get_connection();
+        if (!check_success(ec) || !BOOST_TEST(conn.valid()))
+            co_return;
+        const auto pid = conn->state().backend_process_id;
+
+        if (!co_await set_session_var(conn.get(), "abc"))
+            co_return;
+        if (!co_await checked_exec(conn.get(), "BEGIN"))
+            co_return;
+        BOOST_TEST_EQ(conn->txn_status(), protocol::transaction_status::in_transaction);
+
+        conn.return_without_reset();
+
+        auto [ec2, conn2] = co_await pool.get_connection();
+        if (!check_success(ec2) || !BOOST_TEST(conn2.valid()))
+            co_return;
+
+        // The reset ran anyway: same session, no transaction, mark gone
+        BOOST_TEST_EQ(conn2->state().backend_process_id, pid);
+        BOOST_TEST_EQ(conn2->txn_status(), protocol::transaction_status::idle);
+        BOOST_TEST_EQ(session_var_or_empty(co_await get_session_var(conn2.get())), std::string());
+        co_await check_connection_usable(conn2.get());
     }());
 }
 
@@ -392,6 +682,15 @@ int main()
 {
     run_coroutine_test(test_return_connection());
     run_coroutine_test(test_pooled_connection_destructor());
+
+    run_coroutine_test(test_return_with_reset());
+    run_coroutine_test(test_fatal_error_with_reset());
+    run_coroutine_test(test_fatal_error_without_reset());
+    run_coroutine_test(test_leftovers_with_reset());
+    run_coroutine_test(test_leftovers_without_reset());
+    run_coroutine_test(test_open_txn_with_reset());
+    run_coroutine_test(test_open_txn_without_reset());
+
     run_coroutine_test(test_connections_created_if_required());
     run_coroutine_test(test_connections_created_if_requests_gt_pending());
     run_coroutine_test(test_connection_upper_limit());

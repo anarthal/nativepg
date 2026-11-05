@@ -8,11 +8,11 @@
 #ifndef NATIVEPG_CO_CONNECTION_POOL_HPP
 #define NATIVEPG_CO_CONNECTION_POOL_HPP
 
+#include <boost/assert.hpp>
 #include <boost/capy/concept/executor.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
-#include <boost/compat/function_ref.hpp>
 
 #include <chrono>
 #include <memory>
@@ -37,25 +37,29 @@ struct pool_params
     connect_params transport;
 
     // The initial number of dedicated connections.
-    // When run() is called, these number of connections will be initially created.
+    // When run() is called, this number of connections will be initially created.
     // (Think of this as the minimum number of connections that a pool may have).
     std::size_t initial_size{1};
 
     // The maximum number of connections. If a connection is requested, but none are available,
     // a new connection will be established, up to this size.
+    // TODO: update this number, this is MySQL's default.
     std::size_t max_size{151};
 
-    // Timeout for connection establishment (physical connect, TLS handshake, PostgreSQL session setup)
+    // Timeout for connection establishment (physical connect, TLS handshake, PostgreSQL session setup).
+    // Set it to zero to disable the timeout.
     std::chrono::steady_clock::duration connect_timeout{std::chrono::seconds(20)};
 
-    // Time that we wait after a connection establishment failure, before we try again
+    // Time that we wait after a connection establishment failure, before we try again.
     std::chrono::steady_clock::duration retry_interval{std::chrono::seconds(30)};
 
     // Time interval that a connection must be idle (i.e. not given to the user)
     // before a dummy request is sent.
+    // Set it to zero to disable pings.
     std::chrono::steady_clock::duration ping_interval{std::chrono::seconds(30)};
 
-    // Timeout for pings and resets
+    // Timeout for pings and resets.
+    // Set it to zero to disable the timeout.
     std::chrono::steady_clock::duration ping_timeout{std::chrono::seconds(10)};
 };
 
@@ -91,11 +95,11 @@ public:
     ~pooled_connection() = default;
 
     // Does the object point to a valid connection? Or is it 'empty'? I.e. default
-    // constructed or moved-from.
+    // constructed, moved-from or already returned.
     bool valid() const noexcept { return node_ != nullptr; }
 
     // Retrieves the underlying connection
-    // Precondition: `is_valid() == true`
+    // Precondition: `valid() == true`
     co_connection& get() noexcept { return detail::get_connection(*node_); }
     const co_connection& get() const noexcept { return detail::get_connection(*node_); }
     co_connection* operator->() noexcept { return &get(); }
@@ -126,7 +130,7 @@ public:
 //   TODO: execution_context used by connections
 // Connection retrieval: you get a connection calling get_connection.
 //   If no connection is available (e.g. all of them are in use or the server is unhealthy),
-//   blocks indefinitely. You may want to set a timeout to this function.
+//   blocks indefinitely. You may want to set a timeout on this function.
 //   Once a healthy connection is retrieved, the pool won't execute any operations
 //   on it until you return it to the pool.
 // Returning a connection to the pool: through pooled_connection's functions.
@@ -135,8 +139,8 @@ public:
 //       handing it to other sessions. Safer but slower, because it requires
 //       a round-trip to the server. Triggered by ~pooled_connection() and assigning to pooled_connection.
 //     - Without reset: asks the pool to skip the reset step. Use it as an optimization,
-//       when you know that you didn't mutate session state. E.g. if you only run a SELECT,
-//       this is safe. If you started a transaction, it is not.
+//       when you know that you didn't mutate session state. E.g. if you ran a SELECT
+//       that only returns data, this is safe. If you acquired an advisory lock, it is not.
 //       Triggered by return_without_reset.
 //       Use this semantic only when you're completely sure that your session didn't
 //       leave anything behind. As a rule of thumb, if you encountered an error, don't
@@ -155,11 +159,11 @@ public:
 //   clean up session state as much as possible. The pool may respond to you returning
 //   a connection with the following actions (recall that these happen in the background, owned by run()):
 //     - Nothing. If the pool evaluates that the connection is clean, it marks it as available immediately.
-//       Cached notification are discarded
+//       Cached notifications are discarded
 //       (as per clear_cached_notifications() - this doesn't entail server round-trip).
 //     - Session-reset. If the pool thinks that the connection works but its state has been modified,
-//       it attempts to clean it up. This currently entails a `ROLLBACK` and a `DISCARD ALL`, plus
-//       a call to clear_cached_notifications().
+//       it attempts to clean it up. This currently entails a `ROLLBACK` if a transaction block is open,
+//       a `DISCARD ALL`, and a call to clear_cached_notifications().
 //       This is lighter than re-establishing the connection, but requires a round-trip to the server.
 //     - Re-establishing the connection. This is the most drastic (and heavyweight) action.
 //   co_connection has some functions that indicate how clean a session is. The pool currently
@@ -180,6 +184,7 @@ class co_connection_pool
     co_connection_pool(boost::capy::execution_context& ctx, pool_params&& params, int);
 
 public:
+    // Throws if the params are invalid (e.g. negative timeouts).
     co_connection_pool(boost::capy::execution_context& ctx, pool_params params)
         : co_connection_pool(ctx, std::move(params), 0)
     {

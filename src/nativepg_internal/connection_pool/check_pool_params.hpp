@@ -22,7 +22,7 @@ inline void check_pool_params(const pool_params& params)
     if (params.max_size == 0)
         msg = "pool_params::max_size must be greater than zero";
     else if (params.max_size < params.initial_size)
-        msg = "pool_params::max_size must be greater than pool_params::initial_size";
+        msg = "pool_params::max_size must be greater than or equal to pool_params::initial_size";
     else if (params.connect_timeout.count() < 0)
         msg = "pool_params::connect_timeout must not be negative";
     else if (params.retry_interval.count() <= 0)

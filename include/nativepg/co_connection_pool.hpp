@@ -127,7 +127,7 @@ public:
 //   run() creates a new connection.
 //   This happens until pool_params::max_size connections are created.
 //   Further requests wait until a connection is returned to the pool.
-//   TODO: execution_context used by connections
+//   Connections are created using the execution_context passed to the pool's constructor.
 // Connection retrieval: you get a connection calling get_connection.
 //   If no connection is available (e.g. all of them are in use or the server is unhealthy),
 //   blocks indefinitely. You may want to set a timeout on this function.
@@ -176,6 +176,8 @@ public:
 //     - If you didn't use return_without_reset(), and the above indicators are clean, a reset is issued.
 //     - If the above indicators are not clean, either a reset or a re-establishment is performed,
 //       regardless of what returning method you used. The exact logic is not specified.
+// Lifetime rules: the pool must outlive any pooled_connection retrieved by get_connection.
+//   It is safe for run() to complete before all pooled_connection objects are destroyed.
 //
 class co_connection_pool
 {

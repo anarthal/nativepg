@@ -588,7 +588,7 @@ Ensuring cleanup is especially tricky in case of error.
 If you're not sure what your session did, let the pool perform
 a reset and cover you.
 
-## Why does the pool need an `execution_context&` in the constructor? Why not making `run()` own the connections?
+## Why does the pool need an `execution_context&` in the constructor? Why not make `run()` own the connections?
 
 Connections might survive `run()`, so they can't be owned by it.
 This is the case when `run()` is cancelled while a connection is still in use.

@@ -592,6 +592,7 @@ a reset and cover you.
 
 Connections might survive `run()`, so they can't be owned by it.
 This is the case when `run()` is cancelled while a connection is still in use.
+Connections must survive until the user returns them to the pool.
 
 We could make `run()` wait unconditionally until the user returns
 all connections, but it would make `run()` block for an arbitrary

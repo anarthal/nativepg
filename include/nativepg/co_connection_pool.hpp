@@ -176,6 +176,8 @@ public:
 //     - If you didn't use return_without_reset(), and the above indicators are clean, a reset is issued.
 //     - If the above indicators are not clean, either a reset or a re-establishment is performed,
 //       regardless of what returning method you used. The exact logic is not specified.
+// Lifetime rules: the pool must outlive any pooled_connection retrieved by get_connection.
+//   It is safe for run() to complete before all pooled_connection objects are destroyed.
 //
 class co_connection_pool
 {

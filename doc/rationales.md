@@ -587,3 +587,14 @@ Resetting here prevents a potential application-wide deadlock.
 Ensuring cleanup is especially tricky in case of error.
 If you're not sure what your session did, let the pool perform
 a reset and cover you.
+
+## Why does the pool need an `execution_context&` in the constructor? Why not making `run()` own the connections?
+
+Connections might survive `run()`, so they can't be owned by it.
+This is the case when `run()` is cancelled while a connection is still in use.
+
+We could make `run()` wait unconditionally until the user returns
+all connections, but it would make `run()` block for an arbitrary
+amount of time, even in the presence of cancellations.
+I've been trying to avoid this at all costs in the library,
+as it's unintuitive and can lead to deadlocks.

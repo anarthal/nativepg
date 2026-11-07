@@ -6,7 +6,6 @@
 //
 
 #include <boost/capy/ex/this_coro.hpp>
-#include <boost/capy/io_result.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/core/lightweight_test.hpp>
 
@@ -19,6 +18,7 @@
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
 #include "test_utils/ci_server.hpp"
+#include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
 #include "test_utils/test_opt_eq.hpp"
@@ -38,7 +38,7 @@ capy::task<> test_shutdown()
     if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
         co_return;
 
-    // Sanity check: the connection works before shutting it down
+    // The connection works
     request req;
     req.add_simple_query("SELECT 1");
     if (!check_success(co_await conn.exec(req, check(), &diag), diag))
@@ -55,8 +55,7 @@ capy::task<> test_shutdown()
     // The connection can be re-opened
     if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
         co_return;
-    if (!check_success(co_await conn.exec(req, check(), &diag), diag))
-        co_return;
+    co_await check_connection_usable(conn);
 }
 
 // shutdown invalidates any GUC we had recorded
@@ -77,12 +76,58 @@ capy::task<> test_gucs()
     test_opt_eq(conn.client_encoding(), std::nullopt);
 }
 
+// shutdown can be called on a not-yet-established connection
+capy::task<> test_shutdown_not_connected()
+{
+    // Setup
+    co_connection conn{co_await capy::this_coro::executor};
+    BOOST_TEST_NOT(conn.is_connected());
+
+    // Should be a no-op
+    auto [shutdown_ec] = co_await conn.shutdown();
+    BOOST_TEST_EQ(shutdown_ec, std::error_code());
+    BOOST_TEST_NOT(conn.is_connected());
+    BOOST_TEST_EQ(conn.last_error(), std::error_code());
+
+    // The connection can still be established afterwards
+    diagnostics diag;
+    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
+        co_return;
+    co_await check_connection_usable(conn);
+}
+
+// shutdown cleans up after a fatal error, without trying to talk to the server
+capy::task<> test_shutdown_after_fatal_error()
+{
+    // Setup
+    diagnostics diag;
+    auto conn = co_await establish_connection();
+
+    // Break the connection
+    if (!co_await break_connection(conn))
+        co_return;
+    BOOST_TEST_NE(conn.last_error(), std::error_code());
+
+    // Shutting down succeeds: the Terminate message is skipped
+    if (!check_success(co_await conn.shutdown()))
+        co_return;
+    BOOST_TEST_NOT(conn.is_connected());
+    BOOST_TEST_EQ(conn.last_error(), std::error_code());  // was cleared
+
+    // The connection can be re-established
+    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
+        co_return;
+    co_await check_connection_usable(conn);
+}
+
 }  // namespace
 
 int main()
 {
     run_coroutine_test(test_shutdown());
     run_coroutine_test(test_gucs());
+    run_coroutine_test(test_shutdown_not_connected());
+    run_coroutine_test(test_shutdown_after_fatal_error());
 
     return boost::report_errors();
 }

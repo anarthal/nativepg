@@ -15,6 +15,7 @@
 #include "nativepg/encoding.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/detail/read_buffer.hpp"
+#include "nativepg/protocol/ready_for_query.hpp"
 
 namespace nativepg::protocol {
 
@@ -38,26 +39,35 @@ struct connection_state
     std::optional<bool> standard_conforming_strings{};
     std::optional<encoding> client_encoding{};
 
+    // Reported by the last ReadyForQuery we read
+    transaction_status txn_status{transaction_status::idle};
+
     // TODO: this is safe for now, but is there any case where it may not be?
     diagnostics shared_diag{};
 
     // Updates GUCs as required
     void update_tracked(const any_backend_message& msg);
 
-    void reset_gucs()
+    void reset_tracked()
     {
         standard_conforming_strings.reset();
         client_encoding.reset();
+        txn_status = transaction_status::idle;
+        backend_process_id = {};
+        backend_secret_key = {};
+        // shared_diag are transient by nature
+    }
+
+    void reset_buffers()
+    {
+        write_buffer.clear();
+        read_buffer.reset();
     }
 
     void reset()
     {
-        write_buffer.clear();
-        read_buffer.reset();
-        backend_process_id = {};
-        backend_secret_key = {};
-        reset_gucs();
-        // shared_diag are transient by nature
+        reset_tracked();
+        reset_buffers();
     }
 };
 

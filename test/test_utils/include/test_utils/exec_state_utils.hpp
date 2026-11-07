@@ -21,6 +21,7 @@ struct expected_status
     bool is_prepared{};
     write_status write_phase{write_status::request};
     bool reader_done{};
+    bool is_abandoned{};
 };
 
 // A tool to check that exec_state's status accessors have the expected values

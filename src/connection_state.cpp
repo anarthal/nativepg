@@ -44,6 +44,11 @@ void connection_state::update_tracked(const any_backend_message& msg)
             }
             return;
         }
+        case any_backend_message::kind::ready_for_query:
+        {
+            txn_status = msg.get_ready_for_query().status;
+            return;
+        }
         default: return;
     }
 }

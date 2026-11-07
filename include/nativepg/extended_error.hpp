@@ -10,6 +10,7 @@
 
 #include <boost/assert/source_location.hpp>
 
+#include <exception>
 #include <string>
 #include <string_view>
 #include <system_error>

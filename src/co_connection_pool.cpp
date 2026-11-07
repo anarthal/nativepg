@@ -5,15 +5,16 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 
 #include <memory>
 #include <utility>
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_connection_pool.hpp"
-#include "nativepg_internal/connection_pool/connection_node.hpp"
 #include "nativepg_internal/connection_pool/connection_pool_impl.hpp"
+#include "nativepg_internal/connection_pool/pool_node.hpp"
 
 using namespace nativepg;
 
@@ -26,16 +27,22 @@ co_connection_pool& co_connection_pool::operator=(co_connection_pool&&) noexcept
 
 co_connection_pool::~co_connection_pool() = default;
 
-boost::capy::io_task<> co_connection_pool::run() { return impl_->run(); }
+boost::capy::task<boost::capy::results<>> co_connection_pool::run() { return impl_->run(); }
 
-boost::capy::io_task<pooled_connection> co_connection_pool::get_connection()
+boost::capy::task<boost::capy::results<pooled_connection>> co_connection_pool::get_connection()
 {
     return impl_->get_connection();
 }
 
-void detail::return_connection(connection_node& node, bool should_reset)
+void detail::return_connection(pool_node& node, bool should_reset)
 {
+    // Reset any exec_state's still pointing into the connection.
+    // This must be done here for thread-safety, because it writes into the exec_state's,
+    // not owned by the pool.
+    node.connection().reset_exec_states();
+
+    // Notify the pool that the connection can be collected
     node.mark_as_collectable(should_reset);
 }
 
-co_connection& detail::get_connection(connection_node& node) { return node.connection(); }
+co_connection& detail::get_connection(pool_node& node) { return node.connection(); }

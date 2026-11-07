@@ -33,7 +33,7 @@
 #include <boost/capy/ex/executor_ref.hpp>
 #include <boost/capy/ex/run_async.hpp>
 #include <boost/capy/ex/this_coro.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/corosio/io_context.hpp>
@@ -81,7 +81,7 @@ struct bench_state
     }
 };
 
-capy::io_task<> multiplexed_session(bench_state& st, std::int64_t session_id)
+capy::task<capy::results<>> multiplexed_session(bench_state& st, std::int64_t session_id)
 {
     // Sessions are spread over the available connections round-robin
     auto& conn = st.conns[static_cast<std::size_t>(session_id) % st.conns.size()];
@@ -126,7 +126,7 @@ capy::task<> run_case(const connect_params& params, std::size_t nconns)
     }
 
     // Tasks are lazy: none of these run until when_all awaits them
-    std::vector<capy::io_task<>> sessions;
+    std::vector<capy::task<capy::results<>>> sessions;
     sessions.reserve(nsess);
     for (int i = 0; i < nsess; ++i)
         sessions.push_back(multiplexed_session(st, i));

@@ -9,16 +9,14 @@
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/buffer_slice.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
+#include <boost/capy/cond.hpp>
+#include <boost/capy/error.hpp>
 #include <boost/capy/ex/execution_context.hpp>
-#include <boost/capy/io/any_buffer_source.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/capy/write.hpp>
 #include <boost/container/static_vector.hpp>
-#include <boost/corosio/connect.hpp>
-#include <boost/corosio/resolver.hpp>
-#include <boost/corosio/socket_option.hpp>
-#include <boost/corosio/tcp_socket.hpp>
 
 #include <algorithm>
 #include <array>
@@ -27,11 +25,11 @@
 #include <limits>
 #include <optional>
 #include <span>
-#include <string>
 #include <string_view>
 #include <system_error>
 #include <utility>
 
+#include "nativepg/capy-stub/io/any_buffer_source.hpp"
 #include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
@@ -55,89 +53,201 @@
 #include "nativepg_internal/copy_in.hpp"
 #include "nativepg_internal/copy_out.hpp"
 #include "nativepg_internal/multiplexer.hpp"
+#include "nativepg_internal/op_counter.hpp"
+#include "nativepg_internal/pg_stream.hpp"
 
 namespace capy = boost::capy;
-namespace corosio = boost::corosio;
 namespace container = boost::container;
 
 namespace nativepg {
 
-struct co_connection::impl
+static bool is_fatal(std::error_code ec) { return ec && ec != capy::cond::canceled; }
+
+struct detail::co_connection_impl
 {
-    // Marks a state as having a write operation in flight, so that no two of
-    // write_request/write_some_copy_data/write_copy_done/write_copy_fail overlap
-    struct writing_guard
+    // Marks a state flag as true while the guard is alive.
+    // Used by any op that needs 'already_running' detection
+    struct running_guard
     {
-        detail::exec_state_impl* st;
-        explicit writing_guard(detail::exec_state_impl& s) noexcept : st(&s) { st->writing = true; }
-        writing_guard(const writing_guard&) = delete;
-        writing_guard& operator=(const writing_guard&) = delete;
-        ~writing_guard() { st->writing = false; }
+        bool* running;
+        explicit running_guard(bool& val) noexcept : running(&val) { *running = true; }
+        running_guard(const running_guard&) = delete;
+        running_guard& operator=(const running_guard&) = delete;
+        ~running_guard() { *running = false; }
     };
 
-    corosio::resolver resolv;
-    corosio::tcp_socket sock;
+    detail::pg_stream stream_;
+    detail::op_counter pending_ops_;
     protocol::connection_state st{};
-    capy::any_stream stream{&sock};
-    detail::multiplexer mpx_;  // TODO: clean up this?
+    detail::multiplexer mpx_;
     notification_vector exec_notifications_;
     bool receiver_running_{};
+    bool is_connected_{};
+    bool connect_shutdown_running_{};
+    std::error_code last_error_;
 
-    void reset()
+    // TODO: this works until we implement TLS, then it'd need to be a coroutine
+    void on_fatal_error(std::error_code ec)
     {
-        // TODO: this somehow conflicts with connection_state::reset()
-        // For now we keep both, as this is specific to co_connection, but the ideal
-        // is having just one
+        // Guarantees first-error-wins semantics
+        if (is_connected_)
+        {
+            last_error_ = ec;
+            is_connected_ = false;
+
+            // Session state is no longer reliable
+            st.reset_tracked();
+
+            mpx_.stop();
+            stream_.close();
+        }
+    }
+
+    explicit co_connection_impl(capy::execution_context& ctx) : stream_(ctx) {}
+
+    capy::task<capy::results<>> connect(connect_params params, diagnostics* diag)
+    {
+        using protocol::detail::connect_fsm;
+
+        // Can't be run in parallel with another connect/shutdown
+        if (connect_shutdown_running_)
+            co_return {client_errc::already_running};
+
+        // We're now connecting
+        running_guard guard{connect_shutdown_running_};
+
+        // We might be tearing down a healthy session. Mark ourselves as
+        // disconnected so no new operation is accepted while we tear down.
+        is_connected_ = false;
+        st.reset_tracked();
+
+        // Unblock anything currently outstanding.
+        // These operations will complete immediately with an error after we yield.
+        mpx_.stop();
+        stream_.close();
+
+        // Wait for pending operations to finish.
+        // Avoids the risk of calling stream reads/writes concurrently,
+        // and avoids use-after-free errors with write_some
+        // accessing bytes that we free during cleanup.
+        if (auto [ec] = co_await pending_ops_.wait(); ec)
+        {
+            last_error_ = ec;
+            co_return {ec};
+        }
+
+        // We can forget about pending operations now - they don't need anything
+        // from us anymore. Clean up the remaining data
+        last_error_.clear();
         exec_notifications_.clear();
+        st.reset_buffers();
+        st.shared_diag = {};
+        mpx_.restart();
+
+        // Initialize
+        connect_fsm fsm_(params);
+        auto res = fsm_.resume(st, {}, 0u);
+
+        while (true)
+        {
+            switch (res.type())
+            {
+                case connect_fsm::result_type::write:
+                {
+                    auto [ec, bytes] = co_await capy::write(stream_, capy::make_buffer(res.write_data()));
+                    res = fsm_.resume(st, ec, bytes);
+                    break;
+                }
+                case connect_fsm::result_type::read:
+                {
+                    auto [ec, bytes] = co_await stream_.read_some(capy::make_buffer(res.read_buffer()));
+                    res = fsm_.resume(st, ec, bytes);
+                    break;
+                }
+                case connect_fsm::result_type::connect:
+                {
+                    auto [ec] = co_await stream_.connect(params);
+                    res = fsm_.resume(st, ec, 0u);
+                    break;
+                }
+                case connect_fsm::result_type::close:
+                {
+                    stream_.close();
+                    res = fsm_.resume(st, {}, 0u);
+                    break;
+                }
+                case connect_fsm::result_type::done:
+                {
+                    // Update the connection status
+                    last_error_ = res.error();
+                    is_connected_ = !res.error();
+
+                    // Done
+                    if (diag)
+                        *diag = st.shared_diag;
+                    co_return {res.error()};
+                }
+                default: BOOST_ASSERT(false); co_return {};
+            }
+        }
     }
 
-    explicit impl(capy::execution_context& ctx) : resolv(ctx), sock(ctx) {}
-
-    capy::io_task<> physical_connect(const connect_params& params)
+    capy::task<capy::results<>> shutdown()
     {
-        auto [ec, endpoints] = co_await resolv.resolve(params.hostname, std::to_string(params.port));
-        if (ec)
-            co_return {ec};
+        // Shutdown can't run in parallel with connect() or other shutdown()
+        if (connect_shutdown_running_)
+            co_return {client_errc::already_running};
+        running_guard guard{connect_shutdown_running_};
 
-        auto [ec2, ep] = co_await boost::corosio::connect(sock, endpoints);
-        if (ec2)
-            co_return {ec2};
+        std::error_code final_ec;
 
-        // Disable Nagle's algorithm.
-        // Must be done after async_connect because it re-opens the socket
-        // for every candidate endpoint, discarding options.
-        sock.set_option(corosio::socket_option::no_delay(true));
+        // Can we send the Terminate message? If the write-side of the multiplexer
+        // is locked, we might have a write in-progress or be in the middle of a frame.
+        // In these cases, skip the graceful shutdown
+        // Terminate only makes sense if the connection is healthy
+        bool should_send_terminate = is_connected_ && !mpx_.is_write_locked();
 
-        co_return {};
-    }
+        // Prevent any more requests from being accepted.
+        // This avoid someone else acquiring the write mutex while we write the Terminate.
+        is_connected_ = false;
+        st.reset_tracked();
+        mpx_.stop();
 
-    capy::io_task<> shutdown()
-    {
-        // TODO: we should probably have some state checks
-        // TODO: we could really serialize to a fixed storage block, this is known size
-        // TODO: an error here shouldn't prevent the function from closing the transport
-        //       (the error should not happen, to begin with)
-        // TODO: this is bypassing the multiplexer and it should't
-        // Serialize the terminate request
-        st.write_buffer.clear();
-        if (auto ec = protocol::serialize(protocol::terminate{}, st.write_buffer))
-            co_return {ec};
+        // Send the terminate
+        if (should_send_terminate)
+        {
+            st.write_buffer.clear();
+            [[maybe_unused]] auto ec = protocol::serialize(protocol::terminate{}, st.write_buffer);
+            // TODO: not ideal, this shouldn't be allowed to fail in 1st place.
+            // This is fixed size, could be constexpr
+            BOOST_ASSERT(!ec);
 
-        // Write it
-        auto [write_ec, bytes] = co_await capy::write(stream, capy::make_buffer(st.write_buffer));
+            // TODO: what do we do with write_ec?
+            auto [write_ec, bytes] = co_await capy::write(stream_, capy::make_buffer(st.write_buffer));
+            final_ec = write_ec;
+        }
 
-        // GUCs should be reported as unknown for unestablished connections
-        st.reset_gucs();
+        // Close the underlying transport anyway
+        stream_.close();
 
-        // Close the underlying transport anyway.
-        // No tcp_socket::shutdown() here to match what libpq does.
-        // At least on Linux, it does nothing:
-        // both close() and shutdown(SHUT_RDWR) will send a RST if there is pending
-        // data in the read buffer (e.g. a pending NotificationResponse),
-        // and a FIN otherwise. Should't be a big deal.
-        sock.close();
+        // Wait for any pending operations to finish.
+        // As with connect, this is required before clearing buffers.
+        if (auto [ec] = co_await pending_ops_.wait(); ec)
+        {
+            if (!final_ec)
+                final_ec = ec;
+        }
+        else
+        {
+            st.reset_buffers();
+            mpx_.restart();
+        }
 
-        co_return {write_ec};
+        // These are safe anyway
+        last_error_.clear();
+        exec_notifications_.clear();
+
+        co_return {final_ec};
     }
 
     std::error_code prepare_request(
@@ -152,12 +262,12 @@ struct co_connection::impl
             return ec;
 
         // Set the state up. This cleans up any leftover from previous operations
-        detail::exec_state_access::get_impl(exec_st).setup(mpx_, req, handler, excl);
+        detail::exec_state_access::get_impl(exec_st).setup(*this, req, handler, excl);
         return std::error_code();
     }
 
     // This is the writer side of exec
-    boost::capy::io_task<> write_request(detail::exec_state_impl& exec_st)
+    capy::task<capy::results<>> write_request(detail::exec_state_impl& exec_st)
     {
         using writer_status = detail::exec_state_impl::writer_status;
 
@@ -165,10 +275,21 @@ struct co_connection::impl
         if (!exec_st.is_prepared() || exec_st.payload_written())
             co_return {client_errc::invalid_state};
 
+        // Abandoned translates into canceled
+        if (exec_st.abandoned)
+            co_return {capy::error::canceled};
+
+        // The connection must be healthy
+        if (!is_connected_)
+            co_return {client_errc::not_connected};
+
         // Only one write operation per state may be in flight
         if (exec_st.writing)
             co_return {client_errc::already_running};
-        writing_guard guard{exec_st};
+        running_guard guard{exec_st.writing};
+
+        // In-flight operation accounting
+        auto in_flight_guard = pending_ops_.scoped_notify_start();
 
         // Wait for our turn to write and register what we are doing in the queue.
         // When resuming a partially written request we still hold both, so skip this
@@ -183,11 +304,11 @@ struct co_connection::impl
         // of our own. The former is required to keep the connection healthy.
         // Most of the time, the 1st buffer is empty, and Corosio coalesces this to a
         // non-vectored write, for all backends.
-        auto [ec, bytes_written] = co_await boost::capy::write(
-            stream,
-            std::array<boost::capy::const_buffer, 2u>{
-                boost::capy::make_buffer(mpx_.previous_write_bytes()),
-                boost::capy::make_buffer(exec_st.remaining_payload())
+        auto [ec, bytes_written] = co_await capy::write(
+            stream_,
+            std::array<capy::const_buffer, 2u>{
+                capy::make_buffer(mpx_.previous_write_bytes()),
+                capy::make_buffer(exec_st.remaining_payload())
             }
         );
 
@@ -198,7 +319,11 @@ struct co_connection::impl
         // interleave its bytes with our half-written one. The caller may retry,
         // and destroying the exec_state hands the leftovers to the next writer
         if (ec)
+        {
+            if (is_fatal(ec))
+                on_fatal_error(ec);
             co_return {ec};
+        }
 
         // We wrote the request in full. Release the write side
         mpx_.report_writer_exit(exec_st);
@@ -207,28 +332,38 @@ struct co_connection::impl
         co_return {};
     }
 
-    boost::capy::io_task<> read_some_response(detail::exec_state_impl& exec_st)
+    capy::task<capy::results<>> read_some_response(detail::exec_state_impl& exec_st)
     {
         // We must have been prepared, and must still have something to read
         // This function is allowed in CopyIn mode
         if (!exec_st.is_prepared() || exec_st.read_done())
             co_return {client_errc::invalid_state};
 
+        // Abandoned translates into canceled
+        if (exec_st.abandoned)
+            co_return {capy::error::canceled};
+
+        // The connection must be healthy
+        if (!is_connected_)
+            co_return {client_errc::not_connected};
+
         // Only one reader per state may be in flight
         if (exec_st.reading)
             co_return {client_errc::already_running};
-        exec_st.reading = true;
-        struct reading_guard
-        {
-            detail::exec_state_impl* st;
-            ~reading_guard() { st->reading = false; }
-        } guard{&exec_st};
+        running_guard guard{exec_st.reading};
+
+        // In-flight operation accounting
+        auto in_flight_guard = pending_ops_.scoped_notify_start();
 
         auto& fsm = *exec_st.fsm;
 
         // Wait for our turn (this is a no-op if it's out turn already)
         if (auto [ec] = co_await exec_st.evt.wait(); ec)
             co_return {ec};
+
+        // Abandoned translates into canceled
+        if (exec_st.abandoned)
+            co_return {capy::error::canceled};
 
         // Read one batch of messages (this is a no-op if we have cached messages)
         if (auto [ec] = co_await read_some_messages(); ec)
@@ -258,7 +393,8 @@ struct co_connection::impl
                 }
                 else
                 {
-                    // TODO: this is a fatal error and should be recorded as such
+                    // This is a fatal error
+                    on_fatal_error(res.ec);
                     co_return {res.ec};
                 }
             }
@@ -305,9 +441,11 @@ struct co_connection::impl
                     // other requests might end up being intercalated between copy data
                     if (exec_st.excl != exclusivity::exclusive)
                     {
-                        // TODO: this is a fatal error
+                        // This is fatal
+                        constexpr auto err = client_errc::requires_exclusive;
                         st.read_buffer.consume(consumed);
-                        co_return {client_errc::requires_exclusive};
+                        on_fatal_error(err);
+                        co_return {err};
                     }
 
                     // Record the fact that we're now in CopyIn mode
@@ -320,8 +458,8 @@ struct co_connection::impl
                 else if (fsm_ec != client_errc::needs_more)
                 {
                     // There has been a severe protocol violation (unrecoverable)
-                    // TODO: flag this internally
                     st.read_buffer.consume(consumed);
+                    on_fatal_error(fsm_ec);
                     co_return {fsm_ec};
                 }
             }
@@ -341,7 +479,7 @@ struct co_connection::impl
         return res;
     }
 
-    capy::io_task<std::size_t> write_some_copy_data(
+    capy::task<capy::results<std::size_t>> write_some_copy_data(
         detail::exec_state_impl& exec_st,
         std::span<const capy::const_buffer> input_buffs
     )
@@ -359,10 +497,17 @@ struct co_connection::impl
         if (exec_st.phase() != write_status::copy_data)
             co_return {client_errc::invalid_state, 0u};
 
+        // If the connection becomes unhealthy after writing the request, we go to abandoned
+        if (exec_st.abandoned)
+            co_return {capy::error::canceled, 0u};
+
         // Only one write operation per state may be in flight
         if (exec_st.writing)
             co_return {client_errc::already_running, 0u};
-        writing_guard guard{exec_st};
+        running_guard guard{exec_st.writing};
+
+        // In-flight operation accounting
+        auto in_flight_guard = pending_ops_.scoped_notify_start();
 
         // Clamp the input sequence
         if (input_buffs.size() > max_input_buffers)
@@ -371,7 +516,7 @@ struct co_connection::impl
         // Empty buffers are a no-op.
         // Special case required because we might be in the middle of
         // transferring a frame header
-        const std::size_t buff_size = boost::capy::buffer_size(input_buffs);
+        const std::size_t buff_size = capy::buffer_size(input_buffs);
         if (buff_size == 0u)
             co_return {};
 
@@ -409,8 +554,7 @@ struct co_connection::impl
         if (prev_payload_size > 0u)
         {
             auto prev_payload = capy::buffer_slice(input_buffs, 0u, prev_payload_size);
-            auto data = prev_payload.data();
-            output_buffs.insert(output_buffs.end(), capy::begin(data), capy::end(data));
+            output_buffs.insert(output_buffs.end(), capy::begin(prev_payload), capy::end(prev_payload));
         }
 
         if (payload_size > 0u)
@@ -418,12 +562,11 @@ struct co_connection::impl
             frame_header = make_copy_data_header(payload_size);
             output_buffs.push_back(capy::make_buffer(frame_header));
             auto payload = capy::buffer_slice(input_buffs, prev_payload_size, payload_size);
-            auto data = payload.data();
-            output_buffs.insert(output_buffs.end(), capy::begin(data), capy::end(data));
+            output_buffs.insert(output_buffs.end(), capy::begin(payload), capy::end(payload));
         }
 
         // Write the thing
-        auto [ec, bytes] = co_await stream.write_some(std::span(output_buffs));
+        auto [ec, bytes] = co_await stream_.write_some(std::span(output_buffs));
         std::size_t retval = 0u;
 
         if (bytes <= prev_header_size)
@@ -462,10 +605,13 @@ struct co_connection::impl
             retval = prev_payload_size + payload_size;
         }
 
+        if (is_fatal(ec))
+            on_fatal_error(ec);
+
         co_return {ec, retval};
     }
 
-    boost::capy::io_task<> write_copy_finished(
+    capy::task<capy::results<>> write_copy_finished(
         detail::exec_state_impl& exec_st,
         bool success,
         std::string_view error_message
@@ -476,14 +622,21 @@ struct co_connection::impl
         if (exec_st.phase() != write_status::copy_data)
             co_return {client_errc::invalid_state};
 
+        // If the connection becomes unhealthy after writing the request, we go to abandoned
+        if (exec_st.abandoned)
+            co_return {capy::error::canceled};
+
         // Only one write operation per state may be in flight
         if (exec_st.writing)
             co_return {client_errc::already_running};
-        writing_guard guard{exec_st};
+        running_guard guard{exec_st.writing};
 
         // If there are missing bytes to transfer, that's an error
         if (exec_st.copy_in.frame_num_bytes > 0u)
             co_return {client_errc::copy_incomplete_transfer};
+
+        // In-flight operation accounting
+        auto in_flight_guard = pending_ops_.scoped_notify_start();
 
         // Compose the message to send. This is:
         //  CopyDone if we were successful
@@ -502,12 +655,12 @@ struct co_connection::impl
         }
 
         // Send this to the server
-        auto [ec, bytes] = co_await capy::write(stream, capy::make_buffer(st.write_buffer));
+        auto [ec, bytes] = co_await capy::write(stream_, capy::make_buffer(st.write_buffer));
         if (ec)
         {
-            // TODO: an incomplete transfer here is fatal. Mark the connection
-            // as dead when we have the functionality
+            // An incomplete transfer here is fatal
             // TODO: do we want resumability here, too?
+            on_fatal_error(ec);
             co_return {ec};
         }
 
@@ -517,19 +670,19 @@ struct co_connection::impl
         co_return {};
     }
 
-    boost::capy::io_task<> receive(notification_vector& output)
+    capy::task<capy::results<>> receive(notification_vector& output)
     {
+        // State check
+        if (!is_connected_)
+            co_return {client_errc::not_connected};
+
         // Verify that no two receivers run in parallel
         if (receiver_running_)
             co_return {client_errc::already_running};
-        receiver_running_ = true;
+        running_guard receiver_running_guard{receiver_running_};
 
-        // Release the slot however we leave this function
-        struct receiver_guard
-        {
-            impl* self;
-            ~receiver_guard() { self->receiver_running_ = false; }
-        } receiver_running_guard{this};
+        // In-flight operation accounting
+        auto in_flight_guard = pending_ops_.scoped_notify_start();
 
         // We own the output from this point on
         output.clear();
@@ -538,14 +691,13 @@ struct co_connection::impl
         auto [ec] = co_await wait_for_notifications(output);
 
         // If we managed to read any, report success.
-        // TODO: if this was a fatal error, we should mark the connection as failed
         if (!output.empty())
             ec.clear();
 
         co_return {ec};
     }
 
-    boost::capy::io_task<> wait_for_notifications(notification_vector& output)
+    capy::task<capy::results<>> wait_for_notifications(notification_vector& output)
     {
         while (true)
         {
@@ -577,7 +729,7 @@ struct co_connection::impl
         }
     }
 
-    boost::capy::io_task<> receive_read(
+    capy::task<capy::results<>> receive_read(
         detail::multiplexer::receive_guard& guard,
         notification_vector& output
     )
@@ -590,8 +742,7 @@ struct co_connection::impl
             auto bytes = st.read_buffer.committed_area();
             auto res = protocol::parse_message(bytes.subspan(consumed));
 
-            // Check for errors and end of input.
-            // Errors here are irrecoverable.
+            // Check for errors and end of input
             if (res.ec)
             {
                 st.read_buffer.consume(consumed);
@@ -610,6 +761,8 @@ struct co_connection::impl
                 }
                 else
                 {
+                    // There has been a protocol violation
+                    on_fatal_error(res.ec);
                     co_return {res.ec};
                 }
             }
@@ -635,7 +788,10 @@ struct co_connection::impl
                         // We're reading leftovers
                         consumed += res.size;
                         if (res.message.type() == protocol::any_backend_message::kind::ready_for_query)
+                        {
+                            st.update_tracked(res.message);
                             guard.report_rfq();
+                        }
                     }
                     else
                     {
@@ -646,15 +802,22 @@ struct co_connection::impl
                         // For safety, check that there is an actual reader.
                         // The multiplexer structure makes sure this should be the case.
                         // This prevents busy spinning in case of de-synchronization
-                        auto final_ec = mpx_.has_exec_readers() ? std::error_code()
-                                                                : client_errc::unexpected_message;
-                        co_return {final_ec};
+                        if (mpx_.has_exec_readers())
+                        {
+                            co_return {};
+                        }
+                        else
+                        {
+                            constexpr auto err = client_errc::unexpected_message;
+                            on_fatal_error(err);
+                            co_return {err};
+                        }
                     }
             }
         }
     }
 
-    capy::io_task<> read_some_messages()
+    capy::task<capy::results<>> read_some_messages()
     {
         while (true)
         {
@@ -667,19 +830,44 @@ struct co_connection::impl
             st.read_buffer.prepare(missing_bytes);
 
             // Read some data
-            auto [ec, bytes] = co_await stream.read_some(capy::make_buffer(st.read_buffer.prepared_area()));
+            auto [ec, bytes] = co_await stream_.read_some(capy::make_buffer(st.read_buffer.prepared_area()));
 
             // Check for errors
+            // TODO: we are discarding the read bytes unconditionally on error.
+            // The bytes might contain a more useful explanation on what failed (i.e. an ErrorMessage)
             if (ec)
+            {
+                if (is_fatal(ec))
+                    on_fatal_error(ec);
                 co_return {ec};
+            }
 
             // Commit the data we were handed in
             st.read_buffer.commit(bytes);
         }
     }
+
+    bool has_ops_in_flight() const { return pending_ops_.count() != 0u || connect_shutdown_running_; }
+
+    bool has_leftovers() const
+    {
+        // Not connected => false
+        if (!is_connected_)
+            return false;
+
+        // Things still queued => false
+        if (mpx_.has_exec_readers())
+            return true;
+
+        // Otherwise, check if we have any write or read leftovers
+        return !mpx_.previous_write_bytes().empty() || mpx_.trailing_rfqs() != 0u;
+    }
 };
 
-co_connection::co_connection(capy::execution_context& ctx) : impl_(std::make_unique<impl>(ctx)) {}
+co_connection::co_connection(capy::execution_context& ctx)
+    : impl_(std::make_unique<detail::co_connection_impl>(ctx))
+{
+}
 
 co_connection::co_connection(co_connection&&) noexcept = default;
 
@@ -689,58 +877,17 @@ co_connection::~co_connection() = default;
 
 // TODO: I'd prefer having connect_params be a view
 // const references here may cause dangling parameters
-// TODO: proper reset
-capy::io_task<> co_connection::connect(connect_params params, diagnostics* diag)
+capy::task<capy::results<>> co_connection::connect(connect_params params, diagnostics* diag)
 {
-    using protocol::detail::connect_fsm;
-
-    // Initialize
-    impl_->reset();
-    connect_fsm fsm_(params);
-    auto res = fsm_.resume(impl_->st, {}, 0u);
-
-    while (true)
-    {
-        switch (res.type())
-        {
-            case connect_fsm::result_type::write:
-            {
-                auto [ec, bytes] = co_await capy::write(impl_->sock, capy::make_buffer(res.write_data()));
-                res = fsm_.resume(impl_->st, ec, bytes);
-                break;
-            }
-            case connect_fsm::result_type::read:
-            {
-                auto [ec, bytes] = co_await impl_->sock.read_some(capy::make_buffer(res.read_buffer()));
-                res = fsm_.resume(impl_->st, ec, bytes);
-                break;
-            }
-            case connect_fsm::result_type::connect:
-            {
-                auto [ec] = co_await impl_->physical_connect(params);
-                res = fsm_.resume(impl_->st, ec, 0u);
-                break;
-            }
-            case connect_fsm::result_type::close:
-            {
-                impl_->sock.close();  // this can't fail in Corosio
-                res = fsm_.resume(impl_->st, {}, 0u);
-                break;
-            }
-            case connect_fsm::result_type::done:
-            {
-                if (diag)
-                    *diag = impl_->st.shared_diag;
-                co_return {res.error()};
-            }
-            default: BOOST_ASSERT(false); co_return {};
-        }
-    }
+    return impl_->connect(std::move(params), diag);
 }
 
-capy::io_task<> co_connection::shutdown() { return impl_->shutdown(); }
+capy::task<capy::results<>> co_connection::shutdown() { return impl_->shutdown(); }
 
-capy::io_task<> co_connection::receive(notification_vector& output) { return impl_->receive(output); }
+capy::task<capy::results<>> co_connection::receive(notification_vector& output)
+{
+    return impl_->receive(output);
+}
 
 std::error_code co_connection::prepare_request(
     exec_state& exec_st,
@@ -752,17 +899,17 @@ std::error_code co_connection::prepare_request(
     return impl_->prepare_request(exec_st, req, handler, excl);
 }
 
-boost::capy::io_task<> co_connection::write_request(exec_state& st)
+capy::task<capy::results<>> co_connection::write_request(exec_state& st)
 {
     return impl_->write_request(detail::exec_state_access::get_impl(st));
 }
 
-boost::capy::io_task<> co_connection::read_some_response(exec_state& st)
+capy::task<capy::results<>> co_connection::read_some_response(exec_state& st)
 {
     return impl_->read_some_response(detail::exec_state_access::get_impl(st));
 }
 
-static capy::io_task<> read_response(co_connection& conn, exec_state& exec_st, diagnostics* diag)
+static capy::task<capy::results<>> read_response(co_connection& conn, exec_state& exec_st, diagnostics* diag)
 {
     while (!exec_st.read_done())
     {
@@ -776,15 +923,25 @@ static capy::io_task<> read_response(co_connection& conn, exec_state& exec_st, d
     co_return {handler_err.code};
 }
 
-capy::io_task<> co_connection::exec(const request& req, response_handler_ref handler, diagnostics* diag)
+capy::task<capy::results<>> co_connection::exec(
+    const request& req,
+    response_handler_ref handler,
+    diagnostics* diag
+)
 {
     // Setup
     exec_state exec_st;
     if (auto ec = prepare_request(exec_st, req, handler, exclusivity::shared))
         co_return {ec};
 
+    // Keep the 'we have operations in-flight' flag active until the operation completes.
+    // Otherwise, until the 1st operation launches, has_ops_in_flight() returns false.
+    // TODO: I don't like this, because it prevents higher-level primitives from
+    //   being implemented reliably without accessing internals.
+    auto guard = impl_->pending_ops_.scoped_notify_start();
+
     // Run the reader and writer tasks in parallel
-    auto [final_ec, writer_dummy, reader_dummy] = co_await boost::capy::when_all(
+    auto [final_ec, writer_dummy, reader_dummy] = co_await capy::when_all(
         write_request(exec_st),
         read_response(*this, exec_st, diag)
     );
@@ -792,25 +949,25 @@ capy::io_task<> co_connection::exec(const request& req, response_handler_ref han
     co_return {final_ec};
 }
 
-capy::io_task<std::uint64_t> co_connection::copy_in(
+capy::task<capy::results<std::uint64_t>> co_connection::copy_in(
     const request& req,
     capy::any_buffer_source source,
     diagnostics* diag
 )
 {
-    return detail::copy_in(*this, req, std::move(source), diag);
+    return detail::copy_in(*this, impl_->pending_ops_, req, std::move(source), diag);
 }
 
-capy::io_task<std::uint64_t> co_connection::copy_out(
+capy::task<capy::results<std::uint64_t>> co_connection::copy_out(
     const request& req,
     capy::any_write_sink sink,
     diagnostics* diag
 )
 {
-    return detail::copy_out(*this, req, std::move(sink), diag);
+    return detail::copy_out(*this, impl_->pending_ops_, req, std::move(sink), diag);
 }
 
-capy::io_task<std::size_t> co_connection::write_some_copy_data_impl(
+capy::task<capy::results<std::size_t>> co_connection::write_some_copy_data_impl(
     exec_state& st,
     std::span<const capy::const_buffer> buffers
 )
@@ -818,19 +975,15 @@ capy::io_task<std::size_t> co_connection::write_some_copy_data_impl(
     return impl_->write_some_copy_data(detail::exec_state_access::get_impl(st), buffers);
 }
 
-capy::io_task<> co_connection::write_copy_done(exec_state& st)
+capy::task<capy::results<>> co_connection::write_copy_done(exec_state& st)
 {
     return impl_->write_copy_finished(detail::exec_state_access::get_impl(st), true, {});
 }
 
-capy::io_task<> co_connection::write_copy_fail(exec_state& st, std::string_view message)
+capy::task<capy::results<>> co_connection::write_copy_fail(exec_state& st, std::string_view message)
 {
     return impl_->write_copy_finished(detail::exec_state_access::get_impl(st), false, message);
 }
-
-capy::io_task<> co_connection::read_some_messages() { return impl_->read_some_messages(); }
-
-capy::any_stream& co_connection::stream() { return impl_->stream; }
 
 protocol::connection_state& co_connection::state() { return impl_->st; }
 
@@ -841,7 +994,24 @@ std::optional<bool> co_connection::standard_conforming_strings() const
 
 std::optional<encoding> co_connection::client_encoding() const { return impl_->st.client_encoding; }
 
-// TODO: do we want another cpp for this?
+protocol::transaction_status co_connection::txn_status() const noexcept { return impl_->st.txn_status; }
+
+bool co_connection::is_connected() const noexcept { return impl_->is_connected_; }
+
+bool co_connection::has_leftovers() const noexcept { return impl_->has_leftovers(); }
+
+std::error_code co_connection::last_error() const noexcept { return impl_->last_error_; }
+
+bool co_connection::has_ops_in_flight() const noexcept { return impl_->has_ops_in_flight(); }
+
+void co_connection::reset_exec_states()
+{
+    BOOST_ASSERT(!has_ops_in_flight());
+    impl_->mpx_.reset_exec_states();
+}
+
+void co_connection::clear_cached_notifications() { impl_->exec_notifications_.clear(); }
+
 void detail::exec_state_impl::reset()
 {
     BOOST_ASSERT(!writing);
@@ -849,19 +1019,28 @@ void detail::exec_state_impl::reset()
 
     // Release whatever we still hold in the multiplexer.
     // Being linked is what tells us that enter() succeeded
-    if (is_prepared() && is_linked())
+    if (is_prepared() && is_linked() && !abandoned)
     {
-        // The writer may still hold the write mutex
-        if (writer_st == writer_status::locked)
-            mpx->report_writer_exit(*this);
+        if (copy_in.active)
+        {
+            // Abandoning during Copy-in is not recoverable.
+            // This already unlinks and cleans everything up.
+            conn->on_fatal_error(client_errc::copy_incomplete_transfer);
+        }
+        else
+        {
+            // The writer may still hold the write mutex
+            if (writer_st == writer_status::locked)
+                conn->mpx_.report_writer_exit(*this);
 
-        // The reader may still owe an exit report
-        if (!reader_done)
-            mpx->report_reader_exit(*this);
+            // The reader may still owe an exit report
+            if (!reader_done)
+                conn->mpx_.report_reader_exit(*this);
+        }
     }
     BOOST_ASSERT(!is_linked());
 
-    mpx = nullptr;
+    conn = nullptr;
     excl = exclusivity::shared;
     writer_st = writer_status::initial;
     reader_done = false;
@@ -869,12 +1048,13 @@ void detail::exec_state_impl::reset()
     bytes_written = 0u;
     pending_rfqs = 0u;
     read_rfqs = 0u;
+    abandoned = false;
     evt.clear();
     fsm.reset();
 }
 
 void detail::exec_state_impl::setup(
-    multiplexer& mpx_ref,
+    co_connection_impl& conn_ref,
     const request& req,
     response_handler_ref handler,
     exclusivity new_excl
@@ -883,7 +1063,7 @@ void detail::exec_state_impl::setup(
     // Clean up any leftover from previous operations
     reset();
 
-    mpx = &mpx_ref;
+    conn = &conn_ref;
     excl = new_excl;
     fsm.emplace(&req, handler);
 }

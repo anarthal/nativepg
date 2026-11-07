@@ -10,7 +10,7 @@
 #include <boost/capy/error.hpp>
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/run_async.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/capy/write.hpp>
@@ -84,7 +84,7 @@ static capy::task<> co_main()
     capy::async_event copy_in_received;
 
     auto [ec, dummy1, dummy2] = co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Writer. Wait for the server to send
             // CopyInResponse and thus enter Copy-in mode
             if (auto [ec] = co_await copy_in_received.wait(); ec)
@@ -106,7 +106,7 @@ static capy::task<> co_main()
             // Tell the server that we're done
             co_return co_await conn.write_copy_done(exec_st);
         }(),
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             while (!exec_st.read_done())
             {
                 // Read part of the response

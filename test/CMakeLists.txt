@@ -5,6 +5,8 @@
 # file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 #
 
+find_package(boost_json REQUIRED)
+
 # Test utils
 add_library(nativepg_test_utils STATIC test_utils/src/common_utils.cpp)
 target_include_directories(nativepg_test_utils PUBLIC 
@@ -69,7 +71,7 @@ nativepg_add_test(unit/types             test_base)
 nativepg_add_test(unit/types             test_numeric)
 nativepg_add_test(unit/types             test_decimal)
 nativepg_add_test(unit/types             test_datetime)
-nativepg_add_test(unit/types             test_json)
+nativepg_add_test(unit/types             test_json Boost::json)
 
 if (NATIVEPG_COROSIO_API)
     nativepg_add_test(integration            test_co_connection_connect  nativepg_test_utils_corosio)
@@ -81,5 +83,11 @@ if (NATIVEPG_COROSIO_API)
     nativepg_add_test(integration            test_co_connection_copy_in  nativepg_test_utils_corosio)
     nativepg_add_test(integration            test_co_connection_copy_out  nativepg_test_utils_corosio)
     nativepg_add_test(integration            test_co_connection_shutdown  nativepg_test_utils_corosio)
+    nativepg_add_test(integration            test_co_connection_txn_status  nativepg_test_utils_corosio)
+    nativepg_add_test(integration            test_co_connection_has_ops_in_flight  nativepg_test_utils_corosio)
+    nativepg_add_test(integration            test_co_connection_has_leftovers  nativepg_test_utils_corosio)
+    nativepg_add_test(integration            test_co_connection_reset_exec_states  nativepg_test_utils_corosio)
+    nativepg_add_test(integration            test_co_connection_clear_cached_notifications  nativepg_test_utils_corosio)
     nativepg_add_test(integration            test_gucs  nativepg_test_utils_corosio)
+    nativepg_add_test(integration            test_co_connection_pool_get_connection  nativepg_test_utils_corosio)
 endif()

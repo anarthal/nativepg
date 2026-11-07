@@ -6,7 +6,6 @@
 //
 
 #include <boost/capy/ex/this_coro.hpp>
-#include <boost/capy/io_result.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/core/lightweight_test.hpp>
 

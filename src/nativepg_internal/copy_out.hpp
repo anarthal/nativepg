@@ -10,8 +10,8 @@
 
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/buffer_copy.hpp>
-#include <boost/capy/io/any_write_sink.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/container/small_vector.hpp>
 
@@ -23,6 +23,7 @@
 #include <span>
 #include <system_error>
 
+#include "nativepg/capy-stub/io/any_write_sink.hpp"
 #include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/exclusivity.hpp"
@@ -33,6 +34,7 @@
 #include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/detail/response_utils.hpp"
 #include "nativepg/responses/response_handler.hpp"
+#include "nativepg_internal/op_counter.hpp"
 
 namespace nativepg::detail {
 
@@ -108,7 +110,7 @@ public:
 };
 
 // Reader side of copy_out
-inline boost::capy::io_task<> copy_out_reader(
+inline boost::capy::task<boost::capy::results<>> copy_out_reader(
     co_connection& conn,
     exec_state& st,
     copy_out_buffers& buffs,
@@ -151,8 +153,9 @@ inline boost::capy::io_task<> copy_out_reader(
     }
 }
 
-inline boost::capy::io_task<std::uint64_t> copy_out(
+inline boost::capy::task<boost::capy::results<std::uint64_t>> copy_out(
     co_connection& conn,
+    op_counter& pending_ops,
     const request& req,
     boost::capy::any_write_sink sink,
     diagnostics* diag
@@ -168,6 +171,12 @@ inline boost::capy::io_task<std::uint64_t> copy_out(
     exec_state st;
     if (auto ec = conn.prepare_request(st, req, &handler, exclusivity::shared))
         co_return {ec, 0u};
+
+    // Keep the 'we have operations in-flight' flag active until the operation completes.
+    // Otherwise, until the 1st operation launches, has_ops_in_flight() returns false.
+    // TODO: I don't like this, because it prevents higher-level primitives from
+    //   being implemented reliably without accessing internals.
+    auto guard = pending_ops.scoped_notify_start();
 
     // Run the reader and the writer in parallel. Running them in
     // sequence may deadlock for big requests (neither the server nor us

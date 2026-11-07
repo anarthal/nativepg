@@ -28,7 +28,7 @@ add_executable(nativepg_datetime_example types/datetime.cpp)
 target_link_libraries(nativepg_datetime_example PRIVATE nativepg)
 
 add_executable(nativepg_json_example types/json.cpp)
-target_link_libraries(nativepg_json_example PRIVATE nativepg)
+target_link_libraries(nativepg_json_example PRIVATE nativepg Boost::json)
 
 if (NATIVEPG_COROSIO_API)
     add_executable(nativepg_co_connection co_connection.cpp)

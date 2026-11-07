@@ -10,10 +10,11 @@
 
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
+#include <boost/capy/error.hpp>
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/async_mutex.hpp>
 #include <boost/capy/io/any_stream.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/capy/when_any.hpp>
@@ -30,6 +31,7 @@
 #include "nativepg/detail/exec_state_impl.hpp"
 #include "nativepg/exclusivity.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/responses/any_request_message.hpp"
 
 // TODO: impl notes
 // TODO: encapsulation here is completely broken. This needs a refactor when we write its unit tests
@@ -44,8 +46,42 @@ public:
         receive_evt_.set();  // tasks start empty
     }
 
-    // TODO: this should have a proper reset to call on connection establishment.
-    // If leftovers happen after a connection is severed, they are never cleaned up.
+    void stop()
+    {
+        // Mark ourselves as stopped
+        stopped_ = true;
+
+        // Remove all pending tasks and mark them as dead
+        active_tasks_.clear_and_dispose([](exec_state_impl* exec_st) {
+            exec_st->abandoned = true;
+            exec_st->evt.set();
+        });
+
+        // Wake the receiver, if any
+        receive_evt_.set();
+
+        // If anyone was holding the write mutex, unlock it.
+        // Because we're stopped, successive enter() attempts will fail.
+        // TODO: I don't like this. Reading the impl this should work,
+        //   but I don't think you're supposed to unlock from a coro != than the one that locked.
+        if (write_mtx_.is_locked())
+            write_mtx_.unlock();
+    }
+
+    void restart()
+    {
+        BOOST_ASSERT(active_tasks_.empty());
+        BOOST_ASSERT(!write_mtx_.is_locked());
+        trailing_rfqs_ = 0u;
+        receiver_reading_ = false;
+        stopped_ = false;
+
+        // TODO: I hate this. This can't be cleared in stop() because
+        // there might be a pending stream write pointing to these bytes
+        pending_write_.clear();
+    }
+
+    bool is_write_locked() const { return write_mtx_.is_locked(); }
 
     // Gets a buffer containing leftover bytes from previous execs
     // that should be written before our request
@@ -55,6 +91,9 @@ public:
     // from previously abandoned requests, and the rest to st's own request.
     void on_bytes_written(exec_state_impl& st, std::size_t bytes_written)
     {
+        if (st.abandoned)
+            return;
+
         BOOST_ASSERT(st.writer_st == exec_state_impl::writer_status::locked);
 
         // Did we manage to write any leftover bytes from previous execs?
@@ -81,6 +120,9 @@ public:
     // Exceptions here are rare, so we'll handle this later.
     void report_writer_exit(exec_state_impl& st)
     {
+        if (st.abandoned)
+            return;
+
         BOOST_ASSERT(st.writer_st == exec_state_impl::writer_status::locked);
 
         // Subsequent execs need to send whatever we didn't
@@ -107,6 +149,8 @@ public:
     // Reports that the reader has exited with a fatal failure
     void report_reader_exit(exec_state_impl& st)
     {
+        if (st.abandoned)
+            return;
         st.reader_done = true;
         if (st.payload_written())
             on_both_exited(st);
@@ -114,13 +158,18 @@ public:
 
     // Registers a task within the multiplexer and waits for the writer's turn.
     // The state and its request must be kept alive until the state is reset
-    boost::capy::io_task<> enter(exec_state_impl& exec_st)
+    boost::capy::task<boost::capy::results<>> enter(exec_state_impl& exec_st)
     {
         BOOST_ASSERT(!exec_st.is_linked());
 
-        // Wait for our turn to write
+        // Wait for our turn to write. A stop here counts as a failure to acquire the mutex
         if (auto [ec] = co_await write_mtx_.lock(); ec)
             co_return {ec};
+        if (stopped_)
+        {
+            write_mtx_.unlock();
+            co_return {boost::capy::error::canceled};
+        }
 
         // We now hold the write mutex and owe an exit report
         exec_st.writer_st = exec_state_impl::writer_status::locked;
@@ -183,11 +232,13 @@ public:
     };
 
     // TODO: do we want this as an awaitable instead?
-    boost::capy::io_task<receive_guard> enter_receive()
+    boost::capy::task<boost::capy::results<receive_guard>> enter_receive()
     {
         // Wait for our turn
         if (auto [ec] = co_await receive_evt_.wait(); ec)
-            co_return {ec, {}};
+            co_return {ec, receive_guard{}};
+        if (stopped_)
+            co_return {boost::capy::error::canceled, receive_guard{}};
 
         // Reset the event, so further notifications aren't lost
         receive_evt_.clear();
@@ -197,13 +248,23 @@ public:
         receiver_reading_ = active_tasks_.empty();
 
         // Done
-        co_return {{}, receive_guard{*this}};
+        co_return {std::error_code(), receive_guard{*this}};
     }
 
     void notify_receiver() { receive_evt_.set(); }
 
     // Are there any exec readers waiting?
     bool has_exec_readers() const { return !active_tasks_.empty(); }
+
+    // Resets all execution states in the task list
+    void reset_exec_states()
+    {
+        // reset() unliks, so a range-for isn't safe
+        while (!active_tasks_.empty())
+            active_tasks_.front().reset();
+    }
+
+    std::size_t trailing_rfqs() const { return trailing_rfqs_; }
 
 private:
     // Grants exclusive access to the write side
@@ -224,6 +285,9 @@ private:
     // Should be set when there are new notifications
     // or the receiver can attempt to read
     boost::capy::async_event receive_evt_;
+
+    // Are we stopped? Prevents further tasks from entering the multiplexer
+    bool stopped_{};
 
     static inline std::size_t count_rfqs(const request& req)
     {
@@ -272,7 +336,7 @@ private:
     void on_receiver_exit()
     {
         // If we were reading, we're no longer doing it, so notify any pending readers
-        if (receiver_reading_)
+        if (receiver_reading_ && !stopped_)
             notify_next_reader();
         receiver_reading_ = false;
     }

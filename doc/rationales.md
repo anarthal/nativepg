@@ -446,3 +446,156 @@ This is viable, but it complicates the implementation a lot because:
   (for `CopyData`, usually one per row).
 - Asynchronous messages might be interleaved with `CopyData` messages.
   E.g. a `NotificationResponse` might arrive if we are subscribed to a channel.
+
+## Why does `co_connection` attempt to detect fatal errors?
+
+First, for security. Some fatal errors imply that the client and
+server have become de-synchronized. If we received a message type
+that is not legal in the current state, something has gone extremely wrong.
+Maybe we had a bug in multiplexing. Insisting on using the connection opens
+the door for exploits. Request B may end up receiving request A's response,
+causing all sorts of bugs.
+
+Second, to avoid deadlocks. In the case of a de-sync, `exec()` might be waiting
+for a response that will never arrive, because it was incorrectly attributed.
+If we detect such an error, we cancel `exec()`. In the context of a connection pool,
+this allows returning the connection to the pool for cleanup.
+
+Third, connection pools need to know if connections are healthy when
+returned. Because they don't have access to what the user did with the connection,
+having `is_connected()` tells them whether they should re-establish the connection or not.
+`last_error()` aids with logging.
+
+## Why `is_connected()` and not a status enum?
+
+Early designs distinguished between `not_connected` and `fatal_error` statuses.
+`fatal_error` is equivalent to `!is_connected() && !!last_error()`.
+We preferred to avoid duplicate status info.
+
+## Why does `exec_state` need an abandoned status?
+
+Consider a query being executed using an `exec_state` and its associated functions.
+The request has been written, but part of the response hasn't arrived yet.
+At this point, a fatal error is encountered (or `shutdown()` is called).
+The rest of the response is not going to arrive, even if the connection is re-established.
+
+The user might inadvertently try to `read_some_response` again on the
+`exec_state`. We need a way to tell them that the operation is dead
+and not going to come back. It's not enough to cancel the current in-flight
+operation. Any successive operations on this `exec_state` should also fail.
+It's also not enough to check `co_connection::is_connected()`, because
+connections might be re-established, while a half-executed `exec_state`
+can't be recovered.
+
+## Why are all network errors, except for cancellation, fatal?
+
+At the moment, we operate on a defined subset of stream types.
+For these, network errors other than cancellation are 'final',
+meaning that further attempts to transfer bytes are not expected to make progress.
+
+EOF is treated as a regular fatal error because a half-open
+connection state, where we can write but not read, makes no sense.
+After the read side is shut down, the connection is dead.
+
+## For an established connection, `connect()` replaces the session instead of failing. Why?
+
+It simplifies code dealing with reconnection. Consider a health check
+implemented as a trivial query. If executing it fails, the server is probably gone.
+But the server may also have answered with an error, leaving the session healthy.
+Naive reconnection code reacts to both cases by calling `connect()` again.
+If we made `connect()` fail for established sessions, that would be a bug.
+
+Implementing these semantics requires no extra code, because `connect()` already
+needs to deal with the leftovers that fatal errors may leave behind.
+The error-if-connected semantics can be trivially implemented on top
+of `connect()` and `is_connected()`, which is a good sign.
+
+## Why does returning a connection to the pool require `!has_ops_in_flight()`?
+
+The pool works with the following mental model:
+
+- Before a connection is handed out by `get_connection()`, and after the connection
+  is returned, it can only be touched by the pool. That is, only the pool can
+  use its accessors and invoke its async operations.
+- Once it's handed to the user, it can only be touched by the user.
+  The pool must not access it in any way.
+
+This model allows efficient use in multi-threaded situations, with a single
+pool shared by many threads:
+
+- The user is expected to create a strand protecting the pool. `run()` and `get_connection()`
+  should be run within the pool's strand. Connection bookkeeping actions
+  (the first bullet point in the list above) are performed by `run()` and `get_connection()`,
+  and are protected by this strand.
+- Once a connection has been obtained, the user can exit the pool's strand.
+  This allows for true parallelism between independent sessions.
+  If we think of strands as mutexes, the pool's mutex would be akin to a global lock.
+  This design reduces the amount of code that runs under the global lock.
+- Returning a connection to the pool can be run safely from any thread.
+
+For this model to work, user sessions must not touch the connection in any way
+after returning it. The pool can't wait for in-flight operations either,
+because that would be a race condition. This leads to the precondition we're discussing.
+
+## What's this `co_connection::reset_exec_states()`?
+
+It exists for session cleanup within connection pools. Sessions might leave
+`exec_state` objects representing requests mid-execution.
+These need to be reset for the connection to be reusable.
+
+`exec_state`'s destructor stores any leftovers in the connection object
+to prevent de-syncs. This is dangerous within a connection pool. If we do
+nothing, this would result in undefined behavior:
+
+```cpp
+exec_state st;
+auto [ec, conn] = co_await pool.get_connection();
+// Problematic: the connection is returned to the pool, and then exec_state's
+// destructor modifies the connection to inform of potential leftovers.
+// Violates the "user sessions don't touch the connection after returning it" principle
+```
+
+To make the above code well-defined, we call `co_connection::reset_exec_states()`
+from the `pooled_connection` functions that return the connection to the pool.
+This moves `exec_state` abandonment into the user's session.
+
+Note: I don't like this. I think it's evidence that we allow too much
+flexibility in `exec_state`. Other designs will be explored in the future.
+
+## Why does `co_connection` have so many low-level primitives (like `clear_cached_notifications()`), instead of a `reset_session()` function?
+
+I believe that `co_connection` should provide many low-level primitives
+that can be composed to build useful things. Users should be able to write
+connection pools themselves without relying on private APIs.
+
+The pool resets sessions in the way I find safest and most useful, but this
+is not the only possible choice. For instance, some users want prepared
+statement caches. Future designs may allow the user to customize the reset logic.
+When this happens, having individual pieces is more useful than a single function.
+
+## Why does the pool reset unless `return_without_reset` is used? You have session status indicators, like `txn_status()`
+
+For safety. Handing a user session a connection without the proper cleanup
+is dangerous, and can lead to vulnerabilities.
+
+The indicators we have don't cover all possible session state modifications.
+See the [`DISCARD ALL` docs](https://www.postgresql.org/docs/current/sql-discard.html)
+for the full list. As an example, if you acquire a lock
+with `pg_advisory_lock`, the pool has no way to know you did.
+Resetting here prevents a potential application-wide deadlock.
+
+Ensuring cleanup is especially tricky in case of error.
+If you're not sure what your session did, let the pool perform
+a reset and cover you.
+
+## Why does the pool need an `execution_context&` in the constructor? Why not make `run()` own the connections?
+
+Connections might survive `run()`, so they can't be owned by it.
+This is the case when `run()` is cancelled while a connection is still in use.
+Connections must survive until the user returns them to the pool.
+
+We could make `run()` wait unconditionally until the user returns
+all connections, but it would make `run()` block for an arbitrary
+amount of time, even in the presence of cancellations.
+I've been trying to avoid this at all costs in the library,
+as it's unintuitive and can lead to deadlocks.

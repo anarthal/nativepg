@@ -8,7 +8,8 @@
 #include <boost/capy/cond.hpp>
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/run.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/ex/this_coro.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/core/lightweight_test.hpp>
@@ -17,6 +18,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -149,7 +151,7 @@ capy::task<> test_success_exclusive()
         co_return;
 
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Even if the next writer starts first, it will have to queue
             if (!check_success(co_await conn.write_request(st2)))
                 co_return {};
@@ -163,7 +165,7 @@ capy::task<> test_success_exclusive()
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Reading to completion is what releases the write side
             while (!st.read_done())
             {
@@ -408,7 +410,7 @@ capy::task<> test_read_before_write()
         co_return;
 
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             while (!st.read_done())
             {
                 if (!check_success(co_await conn.read_some_response(st)))
@@ -417,7 +419,7 @@ capy::task<> test_read_before_write()
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Just in case
             co_await yield();
 
@@ -522,13 +524,13 @@ capy::task<> test_retry_read_after_cancel()
 
     // Cancel a read that is waiting for the rest of the response
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             auto [ec] = co_await conn.read_some_response(st);
             test_cond_eq(ec, capy::cond::canceled);
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             co_await yield();  // let the reader start
             co_return {std::make_error_code(std::errc::io_error)};
         }()
@@ -580,14 +582,14 @@ capy::task<> test_exec_before()
     exec_state st;
 
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Execute the query. Will acquire ownership first and block on the lock
             response handler{into(exec_rows), check_execute()};
             check_success(co_await conn.exec(req_exec, &handler));
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Ensure exec() goes first
             co_await yield();
 
@@ -661,12 +663,12 @@ capy::task<> test_exec_after()
 
     // Start an exec() that will queue, and unlock the reader
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             check_success(co_await conn.exec(req_exec, into(exec_rows)));
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             co_await yield();  // Just in case
 
             // Unblock the reader
@@ -697,7 +699,7 @@ capy::task<> test_receive_before()
 {
     // Setup
     auto conn = co_await establish_connection(), notifier = co_await establish_connection();
-    if (!co_await checked_exec(conn, request().add_query("LISTEN test_ll_receive_before")))
+    if (!co_await checked_exec(conn, "LISTEN test_ll_receive_before"))
         co_return;
 
     // Runs through the low-level API, once the receive() is the current reader
@@ -710,13 +712,13 @@ capy::task<> test_receive_before()
     notification_vector notifs;
 
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Takes the read side, since nothing else is running
             check_success(co_await conn.receive(notifs));
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Ensure receive() goes first
             co_await yield();
 
@@ -735,7 +737,7 @@ capy::task<> test_receive_before()
             }
 
             // The receive() is still waiting, so give it something to report
-            co_await checked_exec(notifier, request().add_query("NOTIFY test_ll_receive_before, 'hello'"));
+            co_await checked_exec(notifier, "NOTIFY test_ll_receive_before, 'hello'");
             co_return {};
         }()
     ));
@@ -760,7 +762,7 @@ capy::task<> test_receive_after()
     // Setup
     auto conn = co_await establish_connection(), locker = co_await establish_connection(),
          notifier = co_await establish_connection();
-    if (!co_await checked_exec(conn, request().add_query("LISTEN test_ll_receive_after")))
+    if (!co_await checked_exec(conn, "LISTEN test_ll_receive_after"))
         co_return;
 
     // Note: different tests should use different IDs
@@ -792,13 +794,13 @@ capy::task<> test_receive_after()
     bool receive_finished = false;
 
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             check_success(co_await conn.receive(notifs));
             receive_finished = true;
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             co_await yield();  // let the receive() start
 
             // We still own the read side, so the receive() can't have read anything
@@ -807,7 +809,7 @@ capy::task<> test_receive_after()
 
             // Raise a notification. Our reader is the one that takes it off the
             // wire and hands it over to the receive()
-            co_await checked_exec(notifier, request().add_query("NOTIFY test_ll_receive_after, 'hello'"));
+            co_await checked_exec(notifier, "NOTIFY test_ll_receive_after, 'hello'");
 
             // Unblock the rest of our own response
             check_success(co_await locker.shutdown());
@@ -861,12 +863,8 @@ capy::task<> test_reset_prepared()
 
     // Setting a session-scoped variable leaves a trace we can look for
     request req;
-    req.add_query("SET SESSION nativepg.query_run = 'yes'");
+    req.add_query(set_session_var_query("yes"));
     check handler;
-
-    // current_setting will return NULL if the variable is not there
-    request req_check;
-    req_check.add_query("SELECT coalesce(current_setting('nativepg.query_run', true), 'no') AS value");
 
     exec_state st;
     if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
@@ -877,10 +875,7 @@ capy::task<> test_reset_prepared()
     check_status(st, {.is_prepared = false, .write_phase = write_status::request, .reader_done = false});
 
     // The statement never made it to the server, so the variable isn't there
-    std::vector<row_string> rows;
-    if (!co_await checked_exec(conn, req_check, into(rows)))
-        co_return;
-    test_range_eq(rows, std::vector<row_string>{{.value = "no"}});
+    test_opt_eq(co_await get_session_var(conn), std::nullopt);
 }
 
 // Resetting after writing, without reading anything, leaves a response that
@@ -1083,13 +1078,13 @@ capy::task<> test_write_already_running()
         co_return;
 
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Writes successfully
             check_success(co_await conn.write_request(st));
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Launched after the first write
             auto [ec] = co_await conn.write_request(st);
             BOOST_TEST_EQ(ec, make_error_code(client_errc::already_running));
@@ -1134,10 +1129,7 @@ capy::task<> test_write_copy_data()
 {
     // Setup
     auto conn = co_await establish_connection();
-    if (!co_await checked_exec(
-            conn,
-            request().add_query("CREATE TEMPORARY TABLE test_write_copy_data (id INT, name TEXT)")
-        ))
+    if (!co_await checked_exec(conn, "CREATE TEMPORARY TABLE test_write_copy_data (id INT, name TEXT)"))
         co_return;
 
     // A COPY ... FROM STDIN leaves the writer waiting for the server to ask for data
@@ -1226,7 +1218,7 @@ capy::task<> test_read_already_running()
 
     // Reading further will block
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // This one will block and succeed
             while (!st.read_done())
             {
@@ -1236,7 +1228,7 @@ capy::task<> test_read_already_running()
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             co_await yield();  // let the read start
 
             // A second read on the same state is rejected
@@ -1285,6 +1277,76 @@ capy::task<> test_read_already_done()
     co_await check_connection_usable(conn);
 }
 
+// write_request requires an established connection
+capy::task<> test_write_not_connected()
+{
+    // Setup
+    co_connection conn{co_await capy::this_coro::executor};
+
+    // Prepare
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+        co_return;
+
+    // Writing fails
+    auto [ec] = co_await conn.write_request(st);
+    BOOST_TEST_EQ(ec, std::error_code(client_errc::not_connected));
+    check_status(st, {.is_prepared = true, .write_phase = write_status::request, .reader_done = false});
+}
+
+// read_some_response requires an established connection
+capy::task<> test_read_not_connected()
+{
+    // Setup
+    co_connection conn{co_await capy::this_coro::executor};
+
+    // Prepare
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+        co_return;
+
+    // Reading fails fails
+    auto [ec] = co_await conn.read_some_response(st);
+    BOOST_TEST_EQ(ec, std::error_code(client_errc::not_connected));
+    check_status(st, {.is_prepared = true, .write_phase = write_status::request, .reader_done = false});
+}
+
+// read_some_request fails for abandoned states
+capy::task<> test_read_abandoned()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    request req;
+    req.add_query("SELECT $1 AS value", 42);
+    check handler;
+
+    // Produce an abandoned state
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    if (!check_success(co_await conn.shutdown()))
+        co_return;
+    check_status(
+        st,
+        {.is_prepared = true, .write_phase = write_status::done, .reader_done = false, .is_abandoned = true}
+    );
+
+    // Reading fails
+    auto [ec] = co_await conn.read_some_response(st);
+    test_cond_eq(ec, capy::cond::canceled);
+}
+
 }  // namespace
 
 int main()
@@ -1321,6 +1383,9 @@ int main()
     run_coroutine_test(test_read_not_prepared());
     run_coroutine_test(test_read_already_running());
     run_coroutine_test(test_read_already_done());
+    run_coroutine_test(test_write_not_connected());
+    run_coroutine_test(test_read_not_connected());
+    run_coroutine_test(test_read_abandoned());
 
     return boost::report_errors();
 }

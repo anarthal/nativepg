@@ -8,9 +8,9 @@
 #ifndef NATIVEPG_TEST_YIELD_HPP
 #define NATIVEPG_TEST_YIELD_HPP
 
-#include <boost/capy/concept/io_awaitable.hpp>
+#include <boost/capy/concept/context_awaitable.hpp>
 #include <boost/capy/continuation.hpp>
-#include <boost/capy/ex/io_env.hpp>
+#include <boost/capy/ex/await_context.hpp>
 
 #include <coroutine>
 
@@ -31,7 +31,7 @@ public:
     // Always suspends: completing inline would defeat the purpose
     bool await_ready() const noexcept { return false; }
 
-    std::coroutine_handle<> await_suspend(std::coroutine_handle<> h, const boost::capy::io_env* env)
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<> h, const boost::capy::await_context* env)
     {
         cont_.h = h;
         env->executor.post(cont_);

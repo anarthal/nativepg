@@ -11,8 +11,8 @@
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/cond.hpp>
 #include <boost/capy/ex/async_event.hpp>
-#include <boost/capy/io/any_buffer_source.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/capy/write.hpp>
 #include <boost/container/small_vector.hpp>
@@ -25,6 +25,7 @@
 #include <system_error>
 #include <utility>
 
+#include "nativepg/capy-stub/io/any_buffer_source.hpp"
 #include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/exclusivity.hpp"
@@ -35,6 +36,7 @@
 #include "nativepg/responses/any_request_message.hpp"
 #include "nativepg/responses/detail/response_utils.hpp"
 #include "nativepg/responses/response_handler.hpp"
+#include "nativepg_internal/op_counter.hpp"
 
 namespace nativepg::detail {
 
@@ -65,7 +67,7 @@ public:
         evt_.set();
     }
 
-    boost::capy::io_task<copy_in_action> receive()
+    boost::capy::task<boost::capy::results<copy_in_action>> receive()
     {
         // Wait for a value to be present
         if (auto [ec] = co_await evt_.wait(); ec)
@@ -78,7 +80,7 @@ public:
         buff_.erase(buff_.begin());
         if (buff_.empty())
             evt_.clear();
-        co_return {{}, res};
+        co_return {std::error_code(), res};
     }
 };
 
@@ -167,7 +169,7 @@ struct copy_in_stream_adaptor
     exec_state* st_ptr;
 
     template <boost::capy::ConstBufferSequence Buffers>
-    boost::capy::io_task<std::size_t> write_some(Buffers&& buffs)
+    boost::capy::task<boost::capy::results<std::size_t>> write_some(Buffers&& buffs)
     {
         return conn_ptr->write_some_copy_data(*st_ptr, std::forward<Buffers>(buffs));
     }
@@ -175,7 +177,7 @@ struct copy_in_stream_adaptor
 
 // Runs a single Copy-in operation until termination.
 // Only transport failures are reported: anything else is recorded in copy_ec.
-inline boost::capy::io_task<> run_copy(
+inline boost::capy::task<boost::capy::results<>> run_copy(
     co_connection& conn,
     exec_state& st,
     boost::capy::any_buffer_source& source,
@@ -218,7 +220,7 @@ inline boost::capy::io_task<> run_copy(
 
 // Writer side of copy_in
 // Only transport failures are reported: anything else is recorded in copy_ec.
-inline boost::capy::io_task<> copy_in_writer(
+inline boost::capy::task<boost::capy::results<>> copy_in_writer(
     co_connection& conn,
     exec_state& st,
     boost::capy::any_buffer_source& source,
@@ -257,7 +259,11 @@ inline boost::capy::io_task<> copy_in_writer(
 }
 
 // Reader side of copy_in
-inline boost::capy::io_task<> copy_in_reader(co_connection& conn, exec_state& st, copy_in_channel& channel)
+inline boost::capy::task<boost::capy::results<>> copy_in_reader(
+    co_connection& conn,
+    exec_state& st,
+    copy_in_channel& channel
+)
 {
     // This will invoke the handler, which will tell the writer what to do
     while (!st.read_done())
@@ -271,13 +277,20 @@ inline boost::capy::io_task<> copy_in_reader(co_connection& conn, exec_state& st
     co_return {};
 }
 
-inline boost::capy::io_task<std::uint64_t> copy_in(
+inline boost::capy::task<boost::capy::results<std::uint64_t>> copy_in(
     co_connection& conn,
+    op_counter& pending_ops,
     const request& req,
     boost::capy::any_buffer_source source,
     diagnostics* diag
 )
 {
+    // Keep the 'we have operations in-flight' flag active until the operation completes.
+    // Otherwise, until the 1st operation launches, has_ops_in_flight() returns false.
+    // TODO: I don't like this, because it prevents higher-level primitives from
+    //   being implemented reliably without accessing internals.
+    auto guard = pending_ops.scoped_notify_start();
+
     // Clear diagnostics
     if (diag)
         *diag = diagnostics();

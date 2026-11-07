@@ -12,7 +12,7 @@
 #include <boost/capy/error.hpp>
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/run.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/core/lightweight_test.hpp>
@@ -37,6 +37,7 @@
 #include "nativepg/responses/check.hpp"
 #include "nativepg/responses/error_into.hpp"
 #include "nativepg/responses/into.hpp"
+#include "nativepg/responses/response_handler.hpp"
 #include "nativepg/sqlstate_cond.hpp"
 #include "nativepg/write_status.hpp"
 #include "test_utils/co_connection_utils.hpp"
@@ -67,7 +68,7 @@ using boost::describe::operators::operator==;
 using boost::describe::operators::operator<<;
 
 // Sends the entire buffer as copy data, in as many calls as it takes
-capy::io_task<> write_all_copy_data(co_connection& conn, exec_state& st, std::string_view buff)
+capy::task<capy::results<>> write_all_copy_data(co_connection& conn, exec_state& st, std::string_view buff)
 {
     while (!buff.empty())
     {
@@ -80,7 +81,7 @@ capy::io_task<> write_all_copy_data(co_connection& conn, exec_state& st, std::st
 }
 
 // Reads until st.write_phase() is copy_data
-capy::io_task<> read_until_copy_data(co_connection& conn, exec_state& st)
+capy::task<capy::results<>> read_until_copy_data(co_connection& conn, exec_state& st)
 {
     while (st.write_phase() == write_status::waiting_for_reader)
     {
@@ -91,7 +92,7 @@ capy::io_task<> read_until_copy_data(co_connection& conn, exec_state& st)
     co_return {};
 }
 
-capy::io_task<> read_until_done(co_connection& conn, exec_state& st)
+capy::task<capy::results<>> read_until_done(co_connection& conn, exec_state& st)
 {
     while (!st.read_done())
     {
@@ -397,7 +398,7 @@ capy::task<> test_success_buffer_sequence()
     for (std::size_t transferred = 0u; transferred < total_size;)
     {
         auto slc = capy::buffer_slice(seq, transferred);
-        auto [ec, bytes] = co_await conn.write_some_copy_data(st, slc.data());
+        auto [ec, bytes] = co_await conn.write_some_copy_data(st, slc);
         if (!BOOST_TEST_EQ(ec, std::error_code()))
             co_return;
         transferred += bytes;
@@ -555,7 +556,7 @@ capy::task<> test_success_parallel()
     capy::async_event copy_in_received;
 
     auto [ec, writer_dummy, reader_dummy] = co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Writer. Write the request
             if (!check_success(co_await conn.write_request(st)))
                 co_return {capy::error::canceled};
@@ -575,7 +576,7 @@ capy::task<> test_success_parallel()
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Reader. Needs to notify the writer to start writing copy data
             while (!st.read_done())
             {
@@ -844,7 +845,82 @@ capy::task<> test_cancel_retry_copy_data()
     co_await check_connection_usable(conn);
 }
 
-// TODO: cancelling write_copy_done/write_copy_fail is fatal
+// Errors in the copy terminators are fatal
+capy::task<> test_cancel_copy_done()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    if (!co_await checked_exec(conn, "CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)"))
+        co_return;
+
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    if (!check_success(co_await read_until_copy_data(conn, st)))
+        co_return;
+
+    // write_copy_done will get cancelled
+    std::stop_source stop_src;
+    stop_src.request_stop();
+    auto [ec] = co_await capy::run(stop_src.get_token())(conn.write_copy_done(st));
+    test_cond_eq(ec, capy::cond::canceled);
+
+    // The connection is now unusable
+    check_status(
+        st,
+        {.is_prepared = true,
+         .write_phase = write_status::copy_data,
+         .reader_done = false,
+         .is_abandoned = true}
+    );
+    BOOST_TEST_NOT(conn.is_connected());
+    test_cond_eq(conn.last_error(), capy::cond::canceled);
+}
+
+capy::task<> test_cancel_copy_fail()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    if (!co_await checked_exec(conn, "CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)"))
+        co_return;
+
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    if (!check_success(co_await read_until_copy_data(conn, st)))
+        co_return;
+
+    // write_copy_fail will get cancelled
+    std::stop_source stop_src;
+    stop_src.request_stop();
+    auto [ec] = co_await capy::run(stop_src.get_token())(conn.write_copy_fail(st, "cancelled"));
+    test_cond_eq(ec, capy::cond::canceled);
+
+    // This is a fatal error
+    check_status(
+        st,
+        {.is_prepared = true,
+         .write_phase = write_status::copy_data,
+         .reader_done = false,
+         .is_abandoned = true}
+    );
+    BOOST_TEST_NOT(conn.is_connected());
+    test_cond_eq(conn.last_error(), capy::cond::canceled);
+}
 
 // A COPY ... FROM STDIN must be the last thing in its request (fatal error)
 capy::task<> do_test_copy_in_not_last(
@@ -884,9 +960,16 @@ capy::task<> do_test_copy_in_not_last(
     // The connection is unusable
     check_status(
         st,
-        {.is_prepared = true, .write_phase = write_status::waiting_for_reader, .reader_done = false},
+        {.is_prepared = true,
+         .write_phase = write_status::waiting_for_reader,
+         .reader_done = false,
+         .is_abandoned = true},
         loc
     );
+    bool ok = BOOST_TEST_NOT(conn.is_connected());
+    ok &= BOOST_TEST_EQ(conn.last_error(), std::error_code(client_errc::copy_in_not_last));
+    if (!ok)
+        std::cerr << "  Called from " << loc << std::endl;
 }
 
 capy::task<> test_copy_in_not_last_extended_protocol()
@@ -930,10 +1013,42 @@ capy::task<> test_copy_in_not_exclusive()
     // The reader receives CopyInResponse and fails
     std::error_code ec;
     while (!ec && !st.read_done())
-        ec = (co_await conn.read_some_response(st)).ec;
+        std::tie(ec) = co_await conn.read_some_response(st);
     BOOST_TEST_EQ(ec, std::error_code(client_errc::requires_exclusive));
 
     // The connection is not usable
+    BOOST_TEST_NOT(conn.is_connected());
+    BOOST_TEST_EQ(conn.last_error(), std::error_code(client_errc::requires_exclusive));
+}
+
+// Abandoning an operation while the server is waiting for copy data is fatal
+capy::task<> test_reset_during_copy_in()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+
+    if (!co_await checked_exec(conn, "CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)"))
+        co_return;
+
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+    check handler;
+
+    exec_state st;
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    if (!check_success(co_await read_until_copy_data(conn, st)))
+        co_return;
+    check_status(st, {.is_prepared = true, .write_phase = write_status::copy_data, .reader_done = false});
+
+    // Abandon the operation before it finishes
+    st.reset();
+
+    // Fatal error
+    BOOST_TEST_NOT(conn.is_connected());
+    BOOST_TEST_EQ(conn.last_error(), std::error_code(client_errc::copy_incomplete_transfer));
 }
 
 //
@@ -1081,28 +1196,28 @@ capy::task<> test_already_running()
         co_return;
 
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Takes the write side
             auto [ec, bytes] = co_await conn.write_some_copy_data(st, capy::make_buffer("1\tone\n"sv));
             check_success(ec);
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Launched while the first one is still in flight
             auto [ec, bytes] = co_await conn.write_some_copy_data(st, capy::make_buffer("abc"sv));
             BOOST_TEST_EQ(ec, std::error_code(client_errc::already_running));
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Launched while the first one is still in flight
             auto [ec] = co_await conn.write_copy_done(st);
             BOOST_TEST_EQ(ec, std::error_code(client_errc::already_running));
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Launched while the first one is still in flight
             auto [ec] = co_await conn.write_copy_fail(st, "message");
             BOOST_TEST_EQ(ec, std::error_code(client_errc::already_running));
@@ -1118,6 +1233,51 @@ capy::task<> test_already_running()
     check_success(st.handler_error());
 
     co_await check_connection_usable(conn);
+}
+
+// write_some_copy_data, write_copy_done and write_copy_error
+// fail for an abandoned exec_state
+capy::task<> test_abandoned()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+    request req;
+    req.add_query("COPY copy_in_test FROM STDIN");
+    check handler;
+
+    exec_state st;
+
+    if (!co_await checked_exec(conn, "CREATE TEMPORARY TABLE copy_in_test (id INT, name TEXT)"))
+        co_return;
+
+    // Trigger Copy-in
+    if (!BOOST_TEST_EQ(conn.prepare_request(st, req, &handler, exclusivity::exclusive), std::error_code()))
+        co_return;
+    if (!check_success(co_await conn.write_request(st)))
+        co_return;
+    if (!check_success(co_await read_until_copy_data(conn, st)))
+        co_return;
+
+    // Abandon the state
+    if (!check_success(co_await conn.shutdown()))
+        co_return;
+    check_status(
+        st,
+        {.is_prepared = true,
+         .write_phase = write_status::copy_data,
+         .reader_done = false,
+         .is_abandoned = true}
+    );
+
+    // The functions fail
+    auto [ec1] = co_await conn.write_copy_done(st);
+    test_cond_eq(ec1, capy::cond::canceled);
+
+    auto [ec2] = co_await conn.write_copy_done(st);
+    test_cond_eq(ec2, capy::cond::canceled);
+
+    auto [ec3] = co_await conn.write_copy_fail(st, "error");
+    test_cond_eq(ec3, capy::cond::canceled);
 }
 
 }  // namespace
@@ -1140,16 +1300,20 @@ int main()
     run_coroutine_test(test_server_error_mid_transfer());
 
     run_coroutine_test(test_cancel_retry_copy_data());
+    run_coroutine_test(test_cancel_copy_done());
+    run_coroutine_test(test_cancel_copy_fail());
 
     run_coroutine_test(test_copy_in_not_last_extended_protocol());
     run_coroutine_test(test_copy_in_not_last_simple_query_protocol());
     run_coroutine_test(test_copy_in_not_exclusive());
+    run_coroutine_test(test_reset_during_copy_in());
 
     run_coroutine_test(test_not_prepared());
     run_coroutine_test(test_request_not_written());
     run_coroutine_test(test_not_in_copy_data());
     run_coroutine_test(test_already_done());
     run_coroutine_test(test_already_running());
+    run_coroutine_test(test_abandoned());
 
     return boost::report_errors();
 }

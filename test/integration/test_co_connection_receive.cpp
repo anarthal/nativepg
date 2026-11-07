@@ -10,7 +10,7 @@
 #include <boost/capy/ex/immediate.hpp>
 #include <boost/capy/ex/run.hpp>
 #include <boost/capy/ex/this_coro.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/core/lightweight_test.hpp>
@@ -34,6 +34,7 @@
 #include "nativepg/responses/response.hpp"
 #include "nativepg/responses/response_handler.hpp"
 #include "nativepg/responses/resultset_callback.hpp"
+#include "test_utils/ci_server.hpp"
 #include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
@@ -66,11 +67,11 @@ capy::task<> test_single_notification()
     auto conn = co_await establish_connection(), notifier = co_await establish_connection();
 
     // Listen
-    if (!co_await checked_exec(conn, request().add_query("LISTEN \"test_receive_single\"")))
+    if (!co_await checked_exec(conn, "LISTEN test_receive_single"))
         co_return;
 
     // Raise the notification
-    if (!co_await checked_exec(notifier, request().add_query("NOTIFY test_receive_single, 'some payload'")))
+    if (!co_await checked_exec(notifier, "NOTIFY test_receive_single, 'some payload'"))
         co_return;
 
     // Receive
@@ -87,7 +88,7 @@ capy::task<> test_single_notification()
     test_range_eq(notifs, expected);
 
     // Raise a second notification
-    if (!co_await checked_exec(notifier, request().add_query("NOTIFY test_receive_single, 'second payload'")))
+    if (!co_await checked_exec(notifier, "NOTIFY test_receive_single, 'second payload'"))
         co_return;
 
     // The next receive() delivers only the new one: the previous batch was consumed
@@ -112,11 +113,11 @@ capy::task<> test_empty_payload()
     auto conn = co_await establish_connection(), notifier = co_await establish_connection();
 
     // Listen
-    if (!co_await checked_exec(conn, request().add_query("LISTEN \"test_empty_payload\"")))
+    if (!co_await checked_exec(conn, "LISTEN test_empty_payload"))
         co_return;
 
     // Raise the notification
-    if (!co_await checked_exec(notifier, request().add_query("NOTIFY test_empty_payload")))
+    if (!co_await checked_exec(notifier, "NOTIFY test_empty_payload"))
         co_return;
 
     // Receive
@@ -144,7 +145,7 @@ capy::task<> test_notification_during_exec()
     auto conn = co_await establish_connection();
 
     // Listen
-    if (!co_await checked_exec(conn, request().add_query("LISTEN \"test_during_exec\"")))
+    if (!co_await checked_exec(conn, "LISTEN test_during_exec"))
         co_return;
 
     // Raise the notification. Make sure it arrives during exec
@@ -178,7 +179,7 @@ capy::task<> test_batch_notifications()
     auto conn = co_await establish_connection(), notifier = co_await establish_connection();
 
     // Listen
-    if (!co_await checked_exec(conn, request().add_query("LISTEN \"test_batch\"")))
+    if (!co_await checked_exec(conn, "LISTEN test_batch"))
         co_return;
 
     // Raise the notifications. Payloads must differ because Postgres deduplicates
@@ -220,7 +221,7 @@ capy::task<> test_receive_before_any_exec()
     // Recall that when_all launches things in order, so the receive() below starts
     // on a connection where no request has run yet
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Takes the reader on an idle connection, then has to hand it over to
             // the LISTEN below and wait until the notification arrives
             notification_vector notifs;
@@ -236,15 +237,12 @@ capy::task<> test_receive_before_any_exec()
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Subscribe only now, with the receive() already in flight
-            co_await checked_exec(conn, request().add_query("LISTEN \"test_before_any_exec\""));
+            co_await checked_exec(conn, "LISTEN test_before_any_exec");
 
             // Unblock receive
-            co_await checked_exec(
-                notifier,
-                request().add_query("NOTIFY test_before_any_exec, 'no previous exec'")
-            );
+            co_await checked_exec(notifier, "NOTIFY test_before_any_exec, 'no previous exec'");
             co_return {};
         }()
     ));
@@ -267,7 +265,7 @@ capy::task<> test_receive_during_exec_handover()
         co_return;
 
     // Listen
-    if (!co_await checked_exec(conn, request().add_query("LISTEN \"test_receive_during_exec\"")))
+    if (!co_await checked_exec(conn, "LISTEN test_receive_during_exec"))
         co_return;
 
     // Blocks on the lock, keeping the reader busy
@@ -279,7 +277,7 @@ capy::task<> test_receive_during_exec_handover()
 
     // Recall that when_all launches things in order
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Owns the reader until the lock is released
             row_int row{};
             auto cb = [&](row_int r) {
@@ -293,7 +291,7 @@ capy::task<> test_receive_during_exec_handover()
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Wait for exec to be in progress
             check_success(co_await select_finished.wait());
 
@@ -311,17 +309,14 @@ capy::task<> test_receive_during_exec_handover()
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Once exec is blocked on the lock, unlock, so things make progress
             check_success(co_await select_finished.wait());
             check_success(co_await locker.shutdown());
 
             // Once exec has finished, issue a notification to unblock the receiver
             check_success(co_await exec_finished.wait());
-            co_await checked_exec(
-                notifier,
-                request().add_query("NOTIFY test_receive_during_exec, 'my payload'")
-            );
+            co_await checked_exec(notifier, "NOTIFY test_receive_during_exec, 'my payload'");
 
             co_return {};
         }()
@@ -344,7 +339,7 @@ capy::task<> test_receive_during_exec_gets_notifications()
         co_return;
 
     // Listen
-    if (!co_await checked_exec(conn, request().add_query("LISTEN test_receive_during_exec_notif")))
+    if (!co_await checked_exec(conn, "LISTEN test_receive_during_exec_notif"))
         co_return;
 
     // Issues a query to give time to receive() to start and wait,
@@ -358,12 +353,12 @@ capy::task<> test_receive_during_exec_gets_notifications()
 
     // Recall that when_all launches things in order
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             co_await checked_exec(conn, req_exec);
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Retrieve the notifications
             notification_vector notifs;
             if (check_success(co_await conn.receive(notifs)))
@@ -395,7 +390,7 @@ capy::task<> test_exec_starts_during_receive()
     auto conn = co_await establish_connection();
 
     // Listen
-    if (!co_await checked_exec(conn, request().add_query("LISTEN \"test_exec_during_receive\"")))
+    if (!co_await checked_exec(conn, "LISTEN test_exec_during_receive"))
         co_return;
 
     // Blocks on the lock, so the exec stays in flight while we set things up
@@ -406,7 +401,7 @@ capy::task<> test_exec_starts_during_receive()
     // when_all launches things in order, so the receive() runs first and takes
     // the reader before the exec below registers itself
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Owns the reader until the exec's first response message arrives
             notification_vector notifs;
             if (check_success(co_await conn.receive(notifs)))
@@ -421,14 +416,14 @@ capy::task<> test_exec_starts_during_receive()
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // exec() should't be blocked by the ongoing receive().
             // If it is, we don't raise the notification in the following
             // line, and the test fails by timeout.
-            co_await checked_exec(conn, request().add_query("SELECT 42"));
+            co_await checked_exec(conn, "SELECT 42");
 
             // Unblock the receiver to finish the test
-            co_await checked_exec(conn, request().add_query("NOTIFY test_exec_during_receive, 'my payload'"));
+            co_await checked_exec(conn, "NOTIFY test_exec_during_receive, 'my payload'");
 
             co_return {};
         }()
@@ -449,12 +444,12 @@ capy::task<> test_cancel_immediately()
     auto conn = co_await establish_connection(), notifier = co_await establish_connection();
 
     // Listen
-    if (!co_await checked_exec(conn, request().add_query("LISTEN \"test_cancel_immediate\"")))
+    if (!co_await checked_exec(conn, "LISTEN test_cancel_immediate"))
         co_return;
 
     // Run a receive() that gets cancelled immediately
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             notification_vector notifs;
             auto [ec] = co_await conn.receive(notifs);
             test_cond_eq(ec, capy::cond::canceled);
@@ -464,7 +459,7 @@ capy::task<> test_cancel_immediately()
     ));
 
     // Raise a notification
-    if (!co_await checked_exec(notifier, request().add_query("NOTIFY test_cancel_immediate, 'after cancel'")))
+    if (!co_await checked_exec(notifier, "NOTIFY test_cancel_immediate, 'after cancel'"))
         co_return;
 
     // The next receive() succeeds
@@ -497,7 +492,7 @@ capy::task<> test_receive_reads_exec_leftovers()
         co_return;
 
     // Listen
-    if (!co_await checked_exec(conn, request().add_query("LISTEN test_receive_exec_leftovers")))
+    if (!co_await checked_exec(conn, "LISTEN test_receive_exec_leftovers"))
         co_return;
 
     // Blocks on the lock. Cancelling it with part of its response already read
@@ -511,7 +506,7 @@ capy::task<> test_receive_reads_exec_leftovers()
 
     // Recall that when_all launches things in order
     static_cast<void>(co_await capy::when_all(
-        capy::run(stop_src.get_token())([&]() -> capy::io_task<> {
+        capy::run(stop_src.get_token())([&]() -> capy::task<capy::results<>> {
             // Cancelled while blocked on the lock
             row_int row{};
             auto cb = [&](row_int r) {
@@ -526,7 +521,7 @@ capy::task<> test_receive_reads_exec_leftovers()
             co_return {};
         }()),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Becomes the reader once the exec is gone, and has to consume what
             // the server still owes for it before it can see the notification
             notification_vector notifs;
@@ -542,7 +537,7 @@ capy::task<> test_receive_reads_exec_leftovers()
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Cancel the exec once part of its response has been read
             check_success(co_await select_finished.wait());
             stop_src.request_stop();
@@ -552,10 +547,7 @@ capy::task<> test_receive_reads_exec_leftovers()
             check_success(co_await locker.shutdown());
 
             // Raise a notification, so the receive() has something to report
-            co_await checked_exec(
-                notifier,
-                request().add_query("NOTIFY test_receive_exec_leftovers, 'after leftovers'")
-            );
+            co_await checked_exec(notifier, "NOTIFY test_receive_exec_leftovers, 'after leftovers'");
             co_return {};
         }()
     ));
@@ -572,7 +564,7 @@ capy::task<> test_gucs()
     auto conn = co_await establish_connection();
 
     // Listen, so the session receives the notification it raises itself
-    if (!co_await checked_exec(conn, request().add_query("LISTEN test_receive_leftover_gucs")))
+    if (!co_await checked_exec(conn, "LISTEN test_receive_leftover_gucs"))
         co_return;
 
     // Sanity check: the test is testing something
@@ -618,12 +610,12 @@ capy::task<> test_receive_already_running()
     auto conn = co_await establish_connection(), notifier = co_await establish_connection();
 
     // Listen
-    if (!co_await checked_exec(conn, request().add_query("LISTEN \"test_already_running\"")))
+    if (!co_await checked_exec(conn, "LISTEN test_already_running"))
         co_return;
 
     // Recall that when_all launches things in order
     static_cast<void>(co_await capy::when_all(
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // Takes the receiver slot and waits for notifications
             notification_vector notifs;
             if (check_success(co_await conn.receive(notifs)))
@@ -638,21 +630,106 @@ capy::task<> test_receive_already_running()
             co_return {};
         }(),
 
-        [&]() -> capy::io_task<> {
+        [&]() -> capy::task<capy::results<>> {
             // The slot is taken, so this one fails without touching the connection
             notification_vector notifs;
             auto [ec] = co_await conn.receive(notifs);
             BOOST_TEST_EQ(ec, make_error_code(client_errc::already_running));
 
             // Unblock the receiver that is running
-            co_await checked_exec(
-                notifier,
-                request().add_query("NOTIFY test_already_running, 'only receiver'")
-            );
+            co_await checked_exec(notifier, "NOTIFY test_already_running, 'only receiver'");
 
             co_return {};
         }()
     ));
+
+    // The connection is left in a usable state
+    co_await check_connection_usable(conn);
+}
+
+//
+// Connection status
+//
+
+// receive() requires an established connection
+capy::task<> test_receive_not_connected()
+{
+    // Setup: a connection that was never established
+    co_connection conn{co_await capy::this_coro::executor};
+
+    notification_vector notifs;
+    auto [ec] = co_await conn.receive(notifs);
+    BOOST_TEST_EQ(ec, std::error_code(client_errc::not_connected));
+}
+
+// A shutdown() cancels any receive() that is in flight
+capy::task<> test_receive_canceled_by_shutdown()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+    if (!co_await checked_exec(conn, "LISTEN \"test_receive_shutdown\""))
+        co_return;
+
+    // Recall that when_all launches things in order, so the receive() is
+    // already waiting for notifications when the shutdown starts
+    static_cast<void>(co_await capy::when_all(
+        [&]() -> capy::task<capy::results<>> {
+            notification_vector notifs;
+            auto [ec] = co_await conn.receive(notifs);
+            test_cond_eq(ec, capy::cond::canceled);
+            BOOST_TEST(notifs.empty());
+            co_return {};
+        }(),
+
+        [&]() -> capy::task<capy::results<>> {
+            check_success(co_await conn.shutdown());
+            co_return {};
+        }()
+    ));
+
+    // The connection is down
+    BOOST_TEST_NOT(conn.is_connected());
+}
+
+// Notifications cached by the previous sessions are discarded on reconnection
+capy::task<> test_reconnect_clears_cached_notifications()
+{
+    // Setup
+    auto conn = co_await establish_connection();
+    diagnostics diag;
+
+    // Receive a notification that won't be delivered
+    request req_notify;
+    req_notify.add_query("LISTEN \"test_receive_reconnect\"");
+    req_notify.add_query("NOTIFY test_receive_reconnect, 'old session'");
+    req_notify.add_query("SELECT 1");
+    if (!co_await checked_exec(conn, req_notify))
+        co_return;
+
+    // Re-establish the connection
+    if (!check_success(co_await conn.shutdown()))
+        co_return;
+    if (!check_success(co_await conn.connect(default_connect_params(), &diag), diag))
+        co_return;
+
+    // Deliver another notification. This one will get read
+    request req_notify2;
+    req_notify2.add_query("LISTEN \"test_receive_reconnect\"");
+    req_notify2.add_query("NOTIFY test_receive_reconnect, 'new session'");
+    req_notify2.add_query("SELECT 1");
+    if (!co_await checked_exec(conn, req_notify2))
+        co_return;
+
+    // Only the notification raised during the new session is delivered
+    notification_vector notifs;
+    if (!check_success(co_await conn.receive(notifs)))
+        co_return;
+    const protocol::notification_response expected[] = {
+        {.process_id = conn.state().backend_process_id,
+         .channel_name = "test_receive_reconnect",
+         .payload = "new session"}
+    };
+    test_range_eq(notifs, expected);
 
     // The connection is left in a usable state
     co_await check_connection_usable(conn);
@@ -676,6 +753,10 @@ int main()
     run_coroutine_test(test_receive_reads_exec_leftovers());
     run_coroutine_test(test_gucs());
     run_coroutine_test(test_receive_already_running());
+
+    run_coroutine_test(test_receive_not_connected());
+    run_coroutine_test(test_receive_canceled_by_shutdown());
+    run_coroutine_test(test_reconnect_clears_cached_notifications());
 
     return boost::report_errors();
 }

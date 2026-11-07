@@ -15,6 +15,7 @@
 #include "nativepg/encoding.hpp"
 #include "nativepg/protocol/any_backend_message.hpp"
 #include "nativepg/protocol/connection_state.hpp"
+#include "nativepg/protocol/ready_for_query.hpp"
 #include "test_utils/printing.hpp"
 #include "test_utils/test_opt_eq.hpp"
 
@@ -31,12 +32,14 @@ struct tracked_values
     std::uint32_t backend_secret_key;
     std::optional<bool> standard_conforming_strings;
     std::optional<encoding> client_encoding;
+    transaction_status txn_status;
 
     explicit tracked_values(const connection_state& st) noexcept
         : backend_process_id(st.backend_process_id),
           backend_secret_key(st.backend_secret_key),
           standard_conforming_strings(st.standard_conforming_strings),
-          client_encoding(st.client_encoding)
+          client_encoding(st.client_encoding),
+          txn_status(st.txn_status)
     {
     }
 
@@ -46,7 +49,8 @@ struct tracked_values
         return os << "{ .backend_process_id=" << v.backend_process_id
                   << ", .backend_secret_key=" << v.backend_secret_key
                   << ", .standard_conforming_strings=" << optional_wrapper{v.standard_conforming_strings}
-                  << ", .client_encoding=" << optional_wrapper{v.client_encoding} << " }";
+                  << ", .client_encoding=" << optional_wrapper{v.client_encoding}
+                  << ", .txn_status=" << v.txn_status << " }";
     }
 };
 
@@ -162,6 +166,41 @@ void test_other_parameter_names()
     check_no_change(parameter_status{.name = "", .value = "UTF8"});
 }
 
+// Transaction status is tracked
+void test_txn_status_idle()
+{
+    auto st = make_initial_state();
+    st.txn_status = transaction_status::in_transaction;
+    tracked_values expected{st};
+
+    st.update_tracked(ready_for_query{.status = transaction_status::idle});
+
+    expected.txn_status = transaction_status::idle;
+    BOOST_TEST_EQ(tracked_values{st}, expected);
+}
+
+void test_txn_status_in_txn()
+{
+    auto st = make_initial_state();
+    tracked_values expected{st};
+
+    st.update_tracked(ready_for_query{.status = transaction_status::in_transaction});
+
+    expected.txn_status = transaction_status::in_transaction;
+    BOOST_TEST_EQ(tracked_values{st}, expected);
+}
+
+void test_txn_status_failed()
+{
+    auto st = make_initial_state();
+    tracked_values expected{st};
+
+    st.update_tracked(ready_for_query{.status = transaction_status::failed});
+
+    expected.txn_status = transaction_status::failed;
+    BOOST_TEST_EQ(tracked_values{st}, expected);
+}
+
 // Every other message type leaves the state alone
 void test_other_messages()
 {
@@ -195,7 +234,6 @@ void test_other_messages()
     check_no_change(parameter_description{});
     check_no_change(parse_complete{});
     check_no_change(portal_suspended{});
-    check_no_change(ready_for_query{});
     check_no_change(field_description{});
     check_no_change(row_description{});
 }
@@ -214,6 +252,11 @@ int main()
     test_backend_key_data();
 
     test_other_parameter_names();
+
+    test_txn_status_idle();
+    test_txn_status_in_txn();
+    test_txn_status_failed();
+
     test_other_messages();
 
     return boost::report_errors();

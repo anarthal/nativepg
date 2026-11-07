@@ -8,7 +8,6 @@
 #include <boost/core/lightweight_test.hpp>
 #include <boost/json/parse.hpp>
 #include <boost/json/serialize.hpp>
-#include <boost/json/src.hpp>  // inline header-only implementation (single TU)
 #include <boost/json/value.hpp>
 
 #include <cstdint>

@@ -8,7 +8,6 @@
 #include <boost/assert.hpp>
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/make_buffer.hpp>
-#include <boost/capy/concept/buffer_source.hpp>
 #include <boost/capy/concept/executor.hpp>
 #include <boost/capy/cond.hpp>
 #include <boost/capy/error.hpp>
@@ -16,7 +15,7 @@
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/ex/run_async.hpp>
 #include <boost/capy/ex/this_coro.hpp>
-#include <boost/capy/io_task.hpp>
+#include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/capy/write.hpp>
@@ -31,9 +30,11 @@
 #include <iostream>
 #include <span>
 #include <string_view>
+#include <system_error>
 #include <type_traits>
 #include <vector>
 
+#include "nativepg/capy-stub/concept/buffer_source.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
@@ -67,7 +68,8 @@ public:
         : file_(ctx), buffer_(buffer_size)
     {
         BOOST_ASSERT(buffer_size > 0u);
-        file_.open(path, corosio::file_base::read_only);
+        if (auto ec = file_.open(path, corosio::file_base::read_only))
+            throw std::system_error(ec, "Failed to open " + path.string());
     }
 
     // Same, but taking an executor instead of a context
@@ -85,7 +87,7 @@ public:
     // Returns the bytes that haven't been consumed yet, reading from the file
     // if required. Reports capy::cond::eof once the file has been exhausted.
     // dest must not be empty; at most one descriptor is written to it
-    capy::io_task<std::span<capy::const_buffer>> pull(std::span<capy::const_buffer> dest)
+    capy::task<capy::results<std::span<capy::const_buffer>>> pull(std::span<capy::const_buffer> dest)
     {
         BOOST_ASSERT(!dest.empty());
 
@@ -118,7 +120,7 @@ public:
 
         // The memory stays valid until the next pull/consume, as required
         dest[0] = capy::const_buffer(buffer_.data() + offset_, size_ - offset_);
-        co_return {{}, dest.first(1)};
+        co_return {std::error_code(), dest.first(1)};
     }
 
     // Discards n bytes from the data returned by the last pull

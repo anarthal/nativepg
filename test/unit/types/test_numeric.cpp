@@ -16,6 +16,7 @@
 #include <sstream>
 #include <string>
 #include <system_error>
+#include <vector>
 
 #include "nativepg/field_traits.hpp"
 #include "nativepg/types/numeric.hpp"
@@ -194,6 +195,102 @@ void test_field_parse_binary_numeric_success()
     BOOST_TEST_EQ(out_val, mp::number<mp::cpp_dec_float<50>>("1234.5678"));
 }
 
+//
+// Serialization
+//
+using dec50 = mp::number<mp::cpp_dec_float<50>>;
+
+std::vector<unsigned char> serialize_numeric(const dec50& v, protocol::format_code code)
+{
+    std::vector<unsigned char> to{0xde, 0xad};  // Verify that we append rather than overwrite
+    BOOST_TEST_EQ(field_serialize(v, code, to), std::error_code());
+    return std::vector<unsigned char>(to.begin() + 2, to.end());
+}
+
+void check_numeric_binary(const dec50& v, const std::vector<unsigned char>& expected)
+{
+    const auto actual = serialize_numeric(v, protocol::format_code::binary);
+    BOOST_TEST(actual == expected);
+}
+
+void test_serialize_numeric_binary_exact()
+{
+    // 12345.6789: groups 0001 2345 6789, weight 1, dscale 4
+    check_numeric_binary(
+        dec50("12345.6789"),
+        {0x00, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x04, 0x00, 0x01, 0x09, 0x29, 0x1a, 0x85}
+    );
+    // 0.0012: single group, weight -1, dscale 4
+    check_numeric_binary(dec50("0.0012"), {0x00, 0x01, 0xff, 0xff, 0x00, 0x00, 0x00, 0x04, 0x00, 0x0c});
+    // -100
+    check_numeric_binary(dec50("-100"), {0x00, 0x01, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x64});
+    // Zero has no digit groups
+    check_numeric_binary(dec50("0"), {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
+    // 10000: one group at weight 1
+    check_numeric_binary(dec50("10000"), {0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01});
+}
+
+void test_serialize_numeric_binary_special()
+{
+    check_numeric_binary(
+        std::numeric_limits<dec50>::quiet_NaN(),
+        {0x00, 0x00, 0x00, 0x00, 0xc0, 0x00, 0x00, 0x00}
+    );
+    check_numeric_binary(
+        std::numeric_limits<dec50>::infinity(),
+        {0x00, 0x00, 0x00, 0x00, 0xd0, 0x00, 0x00, 0x00}
+    );
+    check_numeric_binary(
+        -std::numeric_limits<dec50>::infinity(),
+        {0x00, 0x00, 0x00, 0x00, 0xf0, 0x00, 0x00, 0x00}
+    );
+}
+
+void test_serialize_numeric_text()
+{
+    auto to_string = [](const dec50& v) {
+        const auto b = serialize_numeric(v, protocol::format_code::text);
+        return std::string(b.begin(), b.end());
+    };
+    BOOST_TEST_EQ(to_string(std::numeric_limits<dec50>::quiet_NaN()), "NaN");
+    BOOST_TEST_EQ(to_string(std::numeric_limits<dec50>::infinity()), "Infinity");
+    BOOST_TEST_EQ(to_string(-std::numeric_limits<dec50>::infinity()), "-Infinity");
+    BOOST_TEST_EQ(dec50(to_string(dec50("12345.6789"))), dec50("12345.6789"));
+}
+
+void test_serialize_numeric_roundtrip()
+{
+    const char* values[] = {
+        "0",
+        "1",
+        "-1",
+        "12345.6789",
+        "0.0000001",
+        "-98765432109876543210.123456789",
+        "100000000",
+        "0.5",
+        "1e20",
+        "123456789012345678901234567890",
+    };
+    for (const char* str : values)
+    {
+        for (auto code : {protocol::format_code::text, protocol::format_code::binary})
+        {
+            const dec50 in(str);
+            const auto wire = serialize_numeric(in, code);
+            dec50 out;
+            const auto ec = code == protocol::format_code::binary
+                                ? types::parse_binary_numeric(field_view(wire), out)
+                                : types::parse_text_numeric(field_view(wire), out);
+            BOOST_TEST_EQ(ec, std::error_code());
+            BOOST_TEST_EQ(out, in);
+        }
+    }
+}
+
+static_assert(serializable_field<dec50>);
+static_assert(field_serialize_oid<dec50> == 1700);
+
 }  // namespace
 
 int main()
@@ -327,6 +424,11 @@ int main()
     test_field_parse_binary_numeric_unexpected_null_error();
     test_field_parse_text_numeric_success();
     test_field_parse_binary_numeric_success();
+
+    test_serialize_numeric_binary_exact();
+    test_serialize_numeric_binary_special();
+    test_serialize_numeric_text();
+    test_serialize_numeric_roundtrip();
 
     return boost::report_errors();
 }

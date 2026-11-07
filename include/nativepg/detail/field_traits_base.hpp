@@ -376,8 +376,92 @@ struct parse_field_traits<std::uint32_t>
 };
 
 // --- Serialize
-// Types without a serialization function in nativepg/types/base.hpp (bool, bytea, char,
-// float4, float8) are intentionally left out: they can't be used as query parameters yet.
+
+// BOOL
+template <>
+struct serialize_field_traits<bool>
+{
+    static constexpr std::int32_t oid = detail::bool_oid;
+
+    static std::error_code serialize(bool value, protocol::format_code code, std::vector<unsigned char>& to)
+    {
+        return code == protocol::format_code::binary ? types::serialize_binary_bool(value, to)
+                                                     : types::serialize_text_bool(value, to);
+    }
+};
+
+// BYTEA
+template <>
+struct serialize_field_traits<std::vector<std::byte>>
+{
+    static constexpr std::int32_t oid = detail::bytea_oid;
+
+    static std::error_code serialize(
+        const std::vector<std::byte>& value,
+        protocol::format_code code,
+        std::vector<unsigned char>& to
+    )
+    {
+        return code == protocol::format_code::binary ? types::serialize_binary_bytea(value, to)
+                                                     : types::serialize_text_bytea(value, to);
+    }
+};
+
+// INTERNAL CHAR
+template <>
+struct serialize_field_traits<char>
+{
+    static constexpr std::int32_t oid = detail::char_oid;
+
+    static std::error_code serialize(char value, protocol::format_code code, std::vector<unsigned char>& to)
+    {
+        return code == protocol::format_code::binary ? types::serialize_binary_char(value, to)
+                                                     : types::serialize_text_char(value, to);
+    }
+};
+
+// FLOAT4
+template <>
+struct serialize_field_traits<float>
+{
+    static constexpr std::int32_t oid = detail::float4_oid;
+
+    static std::error_code serialize(float value, protocol::format_code code, std::vector<unsigned char>& to)
+    {
+        return code == protocol::format_code::binary ? types::serialize_binary_float(value, to)
+                                                     : types::serialize_text_float(value, to);
+    }
+};
+
+// FLOAT8
+template <>
+struct serialize_field_traits<double>
+{
+    static constexpr std::int32_t oid = detail::float8_oid;
+
+    static std::error_code serialize(double value, protocol::format_code code, std::vector<unsigned char>& to)
+    {
+        return code == protocol::format_code::binary ? types::serialize_binary_float(value, to)
+                                                     : types::serialize_text_float(value, to);
+    }
+};
+
+// OID
+template <>
+struct serialize_field_traits<std::uint32_t>
+{
+    static constexpr std::int32_t oid = detail::oid_oid;
+
+    static std::error_code serialize(
+        std::uint32_t value,
+        protocol::format_code code,
+        std::vector<unsigned char>& to
+    )
+    {
+        return code == protocol::format_code::binary ? types::serialize_binary_int(value, to)
+                                                     : types::serialize_text_int(value, to);
+    }
+};
 
 // INT2
 template <>

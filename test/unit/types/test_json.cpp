@@ -291,10 +291,55 @@ void test_field_parse_binary_jsonb_success()
     BOOST_TEST(out_val == boost::json::parse(json_text));
 }
 
+//
+// Serialization
+//
+void test_serialize_json_text()
+{
+    const auto value = boost::json::parse(R"({"a":[1,2,{"b":null}],"c":"x"})");
+    std::vector<unsigned char> to{0xde, 0xad};
+    BOOST_TEST_EQ(field_serialize(value, protocol::format_code::text, to), std::error_code());
+    const std::string text(to.begin() + 2, to.end());
+    BOOST_TEST_EQ(text, R"({"a":[1,2,{"b":null}],"c":"x"})");
+}
+
+void test_serialize_jsonb_binary()
+{
+    const auto value = boost::json::parse(R"([true,false])");
+    std::vector<unsigned char> to{0xde, 0xad};
+    BOOST_TEST_EQ(field_serialize(value, protocol::format_code::binary, to), std::error_code());
+    BOOST_TEST_EQ(to[2], 1);  // Version byte
+    BOOST_TEST_EQ(std::string(to.begin() + 3, to.end()), "[true,false]");
+}
+
+void test_serialize_json_long_value()
+{
+    // Longer than the serializer's internal buffer, to exercise chunking
+    boost::json::array arr;
+    for (int i = 0; i < 1000; ++i)
+        arr.emplace_back(i);
+    const boost::json::value value(std::move(arr));
+    for (auto code : {protocol::format_code::text, protocol::format_code::binary})
+    {
+        std::vector<unsigned char> to;
+        BOOST_TEST_EQ(field_serialize(value, code, to), std::error_code());
+        const std::size_t skip = code == protocol::format_code::binary ? 1u : 0u;
+        const std::string text(to.begin() + skip, to.end());
+        BOOST_TEST_EQ(text, boost::json::serialize(value));
+    }
+}
+
+static_assert(serializable_field<boost::json::value>);
+static_assert(field_serialize_oid<boost::json::value> == 3802);
+
 }  // namespace
 
 int main()
 {
+    test_serialize_json_text();
+    test_serialize_jsonb_binary();
+    test_serialize_json_long_value();
+
     test_parse_text_json_success();
     test_parse_text_json_scalar_success();
     test_parse_text_json_empty_is_noop();

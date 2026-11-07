@@ -880,18 +880,18 @@ static_assert(serializable_field<std::int64_t>);
 static_assert(serializable_field<std::string>);
 static_assert(serializable_field<std::string_view>);
 
-// Serialization is not implemented for these yet
-static_assert(!serializable_field<bool>);
-static_assert(!serializable_field<char>);
-static_assert(!serializable_field<float>);
-static_assert(!serializable_field<double>);
-static_assert(!serializable_field<std::vector<std::byte>>);
+static_assert(serializable_field<bool>);
+static_assert(serializable_field<char>);
+static_assert(serializable_field<float>);
+static_assert(serializable_field<double>);
+static_assert(serializable_field<std::uint32_t>);
+static_assert(serializable_field<std::vector<std::byte>>);
 
 // An optional is serializable if and only if its value type is
 static_assert(serializable_field<std::optional<std::int32_t>>);
 static_assert(serializable_field<std::optional<std::string>>);
 static_assert(serializable_field<std::optional<std::string_view>>);
-static_assert(!serializable_field<std::optional<bool>>);
+static_assert(serializable_field<std::optional<bool>>);
 static_assert(!serializable_field<std::optional<unmapped_type>>);
 
 // An optional advertises the OID of its value type
@@ -977,6 +977,105 @@ void test_field_serialize_string_success()
         check_serialize(std::string("a\0b", 3), code, {'a', 0x00, 'b'});
     }
 }
+
+void test_field_serialize_bool_success()
+{
+    check_serialize(true, protocol::format_code::text, {'t'});
+    check_serialize(false, protocol::format_code::text, {'f'});
+    check_serialize(true, protocol::format_code::binary, {0x01});
+    check_serialize(false, protocol::format_code::binary, {0x00});
+}
+
+void test_field_serialize_bytea_success()
+{
+    const std::vector<std::byte> value{std::byte{0x00}, std::byte{0x0f}, std::byte{0xab}, std::byte{0xff}};
+    check_serialize(value, protocol::format_code::text, {'\\', 'x', '0', '0', '0', 'f', 'a', 'b', 'f', 'f'});
+    check_serialize(value, protocol::format_code::binary, {0x00, 0x0f, 0xab, 0xff});
+
+    // Empty values
+    check_serialize(std::vector<std::byte>{}, protocol::format_code::text, {'\\', 'x'});
+    check_serialize(std::vector<std::byte>{}, protocol::format_code::binary, {});
+}
+
+void test_field_serialize_char_success()
+{
+    for (auto code : {protocol::format_code::text, protocol::format_code::binary})
+    {
+        check_serialize('a', code, {'a'});
+        check_serialize('\0', code, {0x00});
+    }
+}
+
+void test_field_serialize_oid_success()
+{
+    check_serialize(std::uint32_t(42), protocol::format_code::text, {'4', '2'});
+    check_serialize(
+        std::uint32_t(4294967295u),
+        protocol::format_code::text,
+        {'4', '2', '9', '4', '9', '6', '7', '2', '9', '5'}
+    );
+    check_serialize(std::uint32_t(42), protocol::format_code::binary, {0x00, 0x00, 0x00, 0x2a});
+    check_serialize(std::uint32_t(4294967295u), protocol::format_code::binary, {0xff, 0xff, 0xff, 0xff});
+}
+
+void test_field_serialize_float_text_success()
+{
+    check_serialize(1.5f, protocol::format_code::text, {'1', '.', '5'});
+    check_serialize(-0.25f, protocol::format_code::text, {'-', '0', '.', '2', '5'});
+    check_serialize(0.1, protocol::format_code::text, {'0', '.', '1'});
+    check_serialize(std::numeric_limits<double>::infinity(), protocol::format_code::text, {'i', 'n', 'f'});
+    check_serialize(std::numeric_limits<double>::quiet_NaN(), protocol::format_code::text, {'n', 'a', 'n'});
+}
+
+void test_field_serialize_float_binary_success()
+{
+    check_serialize(1.5f, protocol::format_code::binary, {0x3f, 0xc0, 0x00, 0x00});
+    check_serialize(-2.0f, protocol::format_code::binary, {0xc0, 0x00, 0x00, 0x00});
+    check_serialize(1.5, protocol::format_code::binary, {0x3f, 0xf8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
+    check_serialize(-2.0, protocol::format_code::binary, {0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
+    check_serialize(
+        std::numeric_limits<double>::infinity(),
+        protocol::format_code::binary,
+        {0x7f, 0xf0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+    );
+}
+
+// Serialized values parse back to the same value
+void test_serialize_parse_roundtrip()
+{
+    for (auto code : {protocol::format_code::text, protocol::format_code::binary})
+    {
+        {
+            std::vector<unsigned char> buff;
+            BOOST_TEST_EQ(field_serialize(0.1, code, buff), error_code());
+            double out{};
+            BOOST_TEST_EQ(field_parse(field_view(buff), detail::float8_oid, code, out), error_code());
+            BOOST_TEST_EQ(out, 0.1);
+        }
+        {
+            std::vector<unsigned char> buff;
+            const std::vector<std::byte> in{std::byte{0x00}, std::byte{0x7f}, std::byte{0xff}};
+            BOOST_TEST_EQ(field_serialize(in, code, buff), error_code());
+            std::vector<std::byte> out;
+            BOOST_TEST_EQ(field_parse(field_view(buff), detail::bytea_oid, code, out), error_code());
+            BOOST_TEST(out == in);
+        }
+        {
+            std::vector<unsigned char> buff;
+            BOOST_TEST_EQ(field_serialize(true, code, buff), error_code());
+            bool out = false;
+            BOOST_TEST_EQ(field_parse(field_view(buff), detail::bool_oid, code, out), error_code());
+            BOOST_TEST(out);
+        }
+    }
+}
+
+static_assert(field_serialize_oid<bool> == 16);
+static_assert(field_serialize_oid<std::vector<std::byte>> == 17);
+static_assert(field_serialize_oid<char> == 18);
+static_assert(field_serialize_oid<float> == 700);
+static_assert(field_serialize_oid<double> == 701);
+static_assert(field_serialize_oid<std::uint32_t> == 26);
 
 //
 // Nullable serialization (field_traits_nullable.hpp)
@@ -1141,6 +1240,13 @@ int main()
     test_field_serialize_int_text_success();
     test_field_serialize_int_binary_success();
     test_field_serialize_string_success();
+    test_field_serialize_bool_success();
+    test_field_serialize_bytea_success();
+    test_field_serialize_char_success();
+    test_field_serialize_oid_success();
+    test_field_serialize_float_text_success();
+    test_field_serialize_float_binary_success();
+    test_serialize_parse_roundtrip();
     test_field_serialize_optional_engaged_success();
     test_field_serialize_optional_null();
 

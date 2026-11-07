@@ -17,6 +17,7 @@
 
 #include <cstdint>
 #include <system_error>
+#include <vector>
 
 #include "nativepg/extended_error.hpp"
 #include "nativepg/field_traits.hpp"
@@ -33,8 +34,6 @@ inline constexpr std::int32_t numeric_oid = 1700;
 namespace nativepg {
 
 // --- Parse
-// There is no serialization counterpart: nativepg/types/numeric.hpp implements parsing only,
-// so these types can't be used as query parameters yet.
 
 // NUMERIC
 template <unsigned Digits, class Exp, class Alloc, boost::multiprecision::expression_template_option ET>
@@ -61,6 +60,29 @@ struct parse_field_traits<
         BOOST_ASSERT(type_oid == detail::numeric_oid);
         return code == protocol::format_code::binary ? types::parse_binary_numeric(from, to)
                                                      : types::parse_text_numeric(from, to);
+    }
+};
+
+// --- Serialize
+
+// NUMERIC
+template <unsigned Digits, class Exp, class Alloc, boost::multiprecision::expression_template_option ET>
+struct serialize_field_traits<
+    boost::multiprecision::number<boost::multiprecision::cpp_dec_float<Digits, Exp, Alloc>, ET>>
+{
+    using value_type = boost::multiprecision::
+        number<boost::multiprecision::cpp_dec_float<Digits, Exp, Alloc>, ET>;
+
+    static constexpr std::int32_t oid = detail::numeric_oid;
+
+    static std::error_code serialize(
+        const value_type& value,
+        protocol::format_code code,
+        std::vector<unsigned char>& to
+    )
+    {
+        return code == protocol::format_code::binary ? types::serialize_binary_numeric(value, to)
+                                                     : types::serialize_text_numeric(value, to);
     }
 };
 

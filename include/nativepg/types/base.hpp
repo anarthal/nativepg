@@ -11,13 +11,17 @@
 #include <boost/endian/conversion.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <charconv>
+#include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <type_traits>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
@@ -86,6 +90,18 @@ std::error_code parse_binary_bool(const field_view& from, T& to)
     return {};
 }
 
+inline std::error_code serialize_text_bool(bool value, std::vector<unsigned char>& to)
+{
+    to.push_back(value ? 't' : 'f');
+    return {};
+}
+
+inline std::error_code serialize_binary_bool(bool value, std::vector<unsigned char>& to)
+{
+    to.push_back(value ? 1 : 0);
+    return {};
+}
+
 // BYTEA => std::vector<std::byte>>;
 template <class T = std::vector<std::byte>>
 std::error_code parse_text_bytea(const field_view& from, T& to)
@@ -122,6 +138,32 @@ std::error_code parse_binary_bytea(const field_view& from, T& to)
     return {};
 }
 
+inline std::error_code serialize_text_bytea(std::span<const std::byte> value, std::vector<unsigned char>& to)
+{
+    constexpr char hex_digits[] = "0123456789abcdef";
+    to.reserve(to.size() + 2 + value.size() * 2);
+    to.push_back('\\');
+    to.push_back('x');
+    for (const std::byte b : value)
+    {
+        const auto v = static_cast<unsigned>(b);
+        to.push_back(static_cast<unsigned char>(hex_digits[v >> 4]));
+        to.push_back(static_cast<unsigned char>(hex_digits[v & 0xf]));
+    }
+    return {};
+}
+
+inline std::error_code serialize_binary_bytea(
+    std::span<const std::byte> value,
+    std::vector<unsigned char>& to
+)
+{
+    to.reserve(to.size() + value.size());
+    for (const std::byte b : value)
+        to.push_back(static_cast<unsigned char>(b));
+    return {};
+}
+
 // "CHAR" => char (INTERNAL CHAR NOT CHAR(N) / CHARACTER(N)!)
 template <class T>
 std::error_code parse_text_char(const field_view& from, T& to)
@@ -139,6 +181,18 @@ std::error_code parse_binary_char(const field_view& from, T& to)
     if (from.data().size() != 1)
         return client_errc::protocol_value_error;
     to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data().data());
+    return {};
+}
+
+inline std::error_code serialize_text_char(char value, std::vector<unsigned char>& to)
+{
+    to.push_back(static_cast<unsigned char>(value));
+    return {};
+}
+
+inline std::error_code serialize_binary_char(char value, std::vector<unsigned char>& to)
+{
+    to.push_back(static_cast<unsigned char>(value));
     return {};
 }
 
@@ -196,6 +250,33 @@ std::error_code parse_binary_float(const field_view& from, T& to)
         return client_errc::protocol_value_error;
 
     to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data().data());
+    return {};
+}
+
+template <std::floating_point T>
+std::error_code serialize_text_float(const T& value, std::vector<unsigned char>& to)
+{
+    // Shortest representation that round-trips. Also yields inf, -inf and nan, which Postgres accepts
+    char buffer[64];
+    const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
+    if (result.ec != std::errc{})
+        return std::make_error_code(result.ec);
+    to.insert(to.end(), buffer, result.ptr);
+    return {};
+}
+
+// float4 and float8 are sent as their IEEE 754 bit pattern in network byte order
+template <std::floating_point T>
+    requires(sizeof(T) == 4 || sizeof(T) == 8)
+std::error_code serialize_binary_float(const T& value, std::vector<unsigned char>& to)
+{
+    using bits_type = std::conditional_t<sizeof(T) == 4, std::uint32_t, std::uint64_t>;
+    const auto offset = to.size();
+    to.resize(offset + sizeof(T));
+    boost::endian::endian_store<bits_type, sizeof(T), boost::endian::order::big>(
+        to.data() + offset,
+        std::bit_cast<bits_type>(value)
+    );
     return {};
 }
 

@@ -10,6 +10,7 @@
 
 #include <system_error>
 
+#include <array>
 #include <optional>
 #include <span>
 #include <string_view>

@@ -1043,7 +1043,7 @@ static_assert(serializable_field<char>);
 static_assert(serializable_field<float>);
 static_assert(serializable_field<double>);
 static_assert(serializable_field<std::uint32_t>);
-static_assert(serializable_field<std::span<std::byte>>);
+static_assert(serializable_field<std::span<const std::byte>>);
 
 // An optional is serializable if and only if its value type is
 static_assert(serializable_field<std::optional<std::int32_t>>);
@@ -1147,13 +1147,13 @@ void test_field_serialize_bool_success()
 void test_field_serialize_bytea_success()
 {
     std::vector<std::byte> storage{std::byte{0x00}, std::byte{0x0f}, std::byte{0xab}, std::byte{0xff}};
-    const std::span<std::byte> value{storage};
+    const std::span<const std::byte> value{storage};
     check_serialize(value, protocol::format_code::text, {'\\', 'x', '0', '0', '0', 'f', 'a', 'b', 'f', 'f'});
     check_serialize(value, protocol::format_code::binary, {0x00, 0x0f, 0xab, 0xff});
 
     // Empty values
-    check_serialize(std::span<std::byte>{}, protocol::format_code::text, {'\\', 'x'});
-    check_serialize(std::span<std::byte>{}, protocol::format_code::binary, {});
+    check_serialize(std::span<const std::byte>{}, protocol::format_code::text, {'\\', 'x'});
+    check_serialize(std::span<const std::byte>{}, protocol::format_code::binary, {});
 }
 
 void test_field_serialize_char_success()
@@ -1335,7 +1335,7 @@ void test_serialize_parse_roundtrip()
         {
             std::vector<unsigned char> buff;
             std::array<std::byte, 3> in_storage{std::byte{0x00}, std::byte{0x7f}, std::byte{0xff}};
-            std::span<std::byte> in{in_storage};
+            std::span<const std::byte> in{in_storage};
             BOOST_TEST_EQ(field_serialize(in, code, buff), error_code());
             std::array<std::byte, 3> out_storage{};
             std::span<std::byte> out{out_storage};
@@ -1345,7 +1345,7 @@ void test_serialize_parse_roundtrip()
         {
             std::vector<unsigned char> buff;
             std::vector<std::byte> in_storage{std::byte{0x00}, std::byte{0x7f}, std::byte{0xff}};
-            std::span<std::byte> in{in_storage};
+            std::span<const std::byte> in{in_storage};
             BOOST_TEST_EQ(field_serialize(in, code, buff), error_code());
             std::vector<std::byte> out_storage(in_storage.size());
             std::span<std::byte> out{out_storage};
@@ -1400,7 +1400,7 @@ void test_serialize_parse_roundtrip()
 }
 
 static_assert(field_serialize_oid<bool> == 16);
-static_assert(field_serialize_oid<std::span<std::byte>> == 17);
+static_assert(field_serialize_oid<std::span<const std::byte>> == 17);
 static_assert(field_serialize_oid<char> == 18);
 static_assert(field_serialize_oid<float> == 700);
 static_assert(field_serialize_oid<double> == 701);

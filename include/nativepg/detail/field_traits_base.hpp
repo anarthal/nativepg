@@ -426,23 +426,6 @@ struct serialize_field_traits<bool>
 
 // BYTEA
 template <>
-struct serialize_field_traits<std::span<std::byte>>
-{
-    static constexpr std::int32_t oid = detail::bytea_oid;
-
-    static std::error_code serialize(
-        const std::span<std::byte>& value,
-        protocol::format_code code,
-        std::vector<unsigned char>& to
-    )
-    {
-        return code == protocol::format_code::binary ? types::serialize_binary_bytea(value, to)
-                                                     : types::serialize_text_bytea(value, to);
-    }
-};
-
-// BYTEA, read-only view
-template <>
 struct serialize_field_traits<std::span<const std::byte>>
 {
     static constexpr std::int32_t oid = detail::bytea_oid;

@@ -11,12 +11,14 @@
 #include <boost/endian/conversion.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <charconv>
+#include <cmath>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
-#include <iterator>
+#include <cstring>
 #include <span>
 #include <string>
 #include <string_view>
@@ -58,12 +60,24 @@ std::error_code parse_text_to_number(const std::string_view& sv, T& to)
 {
     T result = 0;
     auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), result);
-    if (ec == std::errc{} && ptr == sv.data() + sv.size())
-        to = std::move(result);  // Success
-    else if (sv.size() != 0)
+    if (ec == std::errc{} && sv.size() > 0 && ptr == sv.data() + sv.size())
+        to = result;  // Success
+    else
         return client_errc::protocol_value_error;
 
     return {};
+}
+
+// Returns -1 if c is not a hex digit
+constexpr int hex_value(char c) noexcept
+{
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
+    return -1;
 }
 
 }  // namespace detail
@@ -102,7 +116,9 @@ inline std::error_code serialize_binary_bool(bool value, std::vector<unsigned ch
     return {};
 }
 
-// BYTEA => std::span<std::byte>>;
+// BYTEA => std::span<std::byte>;
+// If the destination is larger than the value, only the first bytes are written.
+// Text parsing leaves the destination untouched on error.
 template <class T = std::span<std::byte>>
 std::error_code parse_text_bytea(const field_view& from, T to)
 {
@@ -122,35 +138,32 @@ std::error_code parse_text_bytea(const field_view& from, T to)
     if (to.size() < required_size)
         return std::make_error_code(std::errc::result_out_of_range);
 
-    std::size_t out_idx = 0;
-    for (std::size_t i = 0; i < sv.size(); i += 2)
+    // Validate first, so that errors don't leave a partially written destination
+    for (const char c : sv)
     {
-        unsigned char byte{};
-        if (auto [ptr, ec] = std::from_chars(sv.data() + i, sv.data() + i + 2, byte, 16);
-            ec != std::errc{} || ptr != sv.data() + i + 2)
-        {
+        if (detail::hex_value(c) < 0)
             return client_errc::protocol_value_error;
-        }
+    }
 
-        // Write directly to the span's buffer
-        to[out_idx++] = static_cast<std::byte>(byte);
+    for (std::size_t i = 0; i < required_size; ++i)
+    {
+        to[i] = static_cast<std::byte>(
+            (detail::hex_value(sv[2 * i]) << 4) | detail::hex_value(sv[2 * i + 1])
+        );
     }
 
     return {};
 }
 
 template <class T = std::span<std::byte>>
-std::error_code parse_binary_bytea(const field_view& from, T to) {
-    // Ensure the destination span is big enough to hold the data
-    if (to.size() < from.data().size()) {
+std::error_code parse_binary_bytea(const field_view& from, T to)
+{
+    if (to.size() < from.data().size())
         return std::make_error_code(std::errc::result_out_of_range);
-    }
 
-    // Binary format is raw bytes — copy directly using modern ranges
-    std::ranges::transform(from.data(), to.begin(), [](unsigned char byte) {
-        return static_cast<std::byte>(byte);
-    });
-
+    // Binary format is raw bytes
+    if (!from.data().empty())
+        std::memcpy(to.data(), from.data().data(), from.data().size());
     return {};
 }
 
@@ -182,21 +195,37 @@ inline std::error_code serialize_binary_bytea(
 
 // "CHAR" => char (INTERNAL CHAR NOT CHAR(N) / CHARACTER(N)!)
 template <class T>
+    requires(std::integral<T> && sizeof(T) == 1)
 std::error_code parse_text_char(const field_view& from, T& to)
 {
+    // Empty means \0. Bytes with the high bit set are sent as \ooo (octal). Anything else is sent as is
     const std::string_view sv = from.data_str();
-    if (sv.size() != 1)
-        return client_errc::protocol_value_error;
-    to = static_cast<char>(sv[0]);
-    return {};
+    if (sv.empty())
+    {
+        to = 0;
+        return {};
+    }
+    if (sv.size() == 1)
+    {
+        to = static_cast<T>(sv[0]);
+        return {};
+    }
+    if (sv.size() == 4 && sv[0] == '\\' && sv[1] >= '0' && sv[1] <= '3' && sv[2] >= '0' && sv[2] <= '7' &&
+        sv[3] >= '0' && sv[3] <= '7')
+    {
+        to = static_cast<T>(((sv[1] - '0') << 6) | ((sv[2] - '0') << 3) | (sv[3] - '0'));
+        return {};
+    }
+    return client_errc::protocol_value_error;
 }
 
 template <class T>
+    requires(std::integral<T> && sizeof(T) == 1)
 std::error_code parse_binary_char(const field_view& from, T& to)
 {
     if (from.data().size() != 1)
         return client_errc::protocol_value_error;
-    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data().data());
+    to = static_cast<T>(from.data()[0]);
     return {};
 }
 
@@ -220,7 +249,8 @@ std::error_code parse_text_int(const field_view& from, T& to)
     return detail::parse_text_to_number<T>(sv, to);
 }
 
-template <class T>
+template <std::integral T>
+    requires(!std::same_as<T, bool>)
 std::error_code parse_binary_int(const field_view& from, T& to)
 {
     if (from.data().size() != sizeof(T))
@@ -230,18 +260,20 @@ std::error_code parse_binary_int(const field_view& from, T& to)
 }
 
 template <std::integral T>
+    requires(!std::same_as<T, bool>)
 std::error_code serialize_text_int(const T& value, std::vector<unsigned char>& to)
 {
-    // The buffer is always big enough for any integral type, so to_chars can't fail here
-    char buffer[512];
-    auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
+    // Enough for the sign and digits of any integral type up to 64 bits
+    char buffer[24];
+    const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
     if (result.ec != std::errc{})
-        return std::error_code(std::make_error_code(result.ec));
+        return std::make_error_code(result.ec);
     to.insert(to.end(), buffer, result.ptr);
     return {};
 }
 
 template <std::integral T>
+    requires(!std::same_as<T, bool>)
 std::error_code serialize_binary_int(const T& value, std::vector<unsigned char>& to)
 {
     constexpr std::size_t size = sizeof(T);
@@ -252,27 +284,39 @@ std::error_code serialize_binary_int(const T& value, std::vector<unsigned char>&
 }
 
 // FLOAT => float
-template <class T>
+template <std::floating_point T>
 std::error_code parse_text_float(const field_view& from, T& to)
 {
     const std::string_view sv = from.data_str();
     return detail::parse_text_to_number<T>(sv, to);
 }
 
-template <class T>
+template <std::floating_point T>
+    requires(sizeof(T) == 4 || sizeof(T) == 8)
 std::error_code parse_binary_float(const field_view& from, T& to)
 {
     if (from.data().size() != sizeof(T))
         return client_errc::protocol_value_error;
 
-    to = boost::endian::endian_load<T, sizeof(T), boost::endian::order::big>(from.data().data());
+    using bits_type = std::conditional_t<sizeof(T) == 4, std::uint32_t, std::uint64_t>;
+    to = std::bit_cast<T>(
+        boost::endian::endian_load<bits_type, sizeof(T), boost::endian::order::big>(from.data().data())
+    );
     return {};
 }
 
 template <std::floating_point T>
 std::error_code serialize_text_float(const T& value, std::vector<unsigned char>& to)
 {
-    // Shortest representation that round-trips. Also yields inf, -inf and nan, which Postgres accepts
+    // to_chars may emit "-nan", which Postgres rejects
+    if (std::isnan(value))
+    {
+        constexpr std::string_view nan = "nan";
+        to.insert(to.end(), nan.begin(), nan.end());
+        return {};
+    }
+
+    // Shortest representation that round-trips. Also yields inf and -inf, which Postgres accepts
     char buffer[64];
     const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
     if (result.ec != std::errc{})
@@ -300,7 +344,8 @@ std::error_code serialize_binary_float(const T& value, std::vector<unsigned char
 template <class T = std::string>
 std::error_code parse_text_text(const field_view& from, T& to)
 {
-    to.assign(from.data_str());
+    const auto sv = from.data_str();
+    to.assign(sv.data(), sv.size());
     return {};
 }
 
@@ -308,7 +353,8 @@ template <class T = std::string>
 std::error_code parse_binary_text(const field_view& from, T& to)
 {
     // TODO What about different text encodings?
-    to.assign(from.data_str());
+    const auto sv = from.data_str();
+    to.assign(sv.data(), sv.size());
     return {};
 }
 

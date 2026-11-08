@@ -8,10 +8,13 @@
 #ifndef NATIVEPG_DETAIL_FIELD_TRAITS_BASE_HPP
 #define NATIVEPG_DETAIL_FIELD_TRAITS_BASE_HPP
 
-#pragma once
+#include <boost/assert.hpp>
+
+#include <array>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -223,7 +226,8 @@ struct parse_field_traits<std::int32_t>
                 std::int16_t value{};
                 const auto ec = binary ? types::parse_binary_int(from, value)
                                        : types::parse_text_int(from, value);
-                to = value;
+                if (!ec)
+                    to = value;
                 return ec;
             }
             case detail::int4_oid:
@@ -263,7 +267,8 @@ struct parse_field_traits<std::int64_t>
                 std::int16_t value{};
                 const auto ec = binary ? types::parse_binary_int(from, value)
                                        : types::parse_text_int(from, value);
-                to = value;
+                if (!ec)
+                    to = value;
                 return ec;
             }
             case detail::int4_oid:
@@ -271,7 +276,8 @@ struct parse_field_traits<std::int64_t>
                 std::int32_t value{};
                 const auto ec = binary ? types::parse_binary_int(from, value)
                                        : types::parse_text_int(from, value);
-                to = value;
+                if (!ec)
+                    to = value;
                 return ec;
             }
             case detail::int8_oid:
@@ -340,7 +346,8 @@ struct parse_field_traits<double>
                 float value{};
                 const auto ec = binary ? types::parse_binary_float<float>(from, value)
                                        : types::parse_text_float<float>(from, value);
-                to = value;
+                if (!ec)
+                    to = value;
                 return ec;
             }
             default: BOOST_ASSERT(false); return {client_errc::incompatible_field_type};
@@ -434,14 +441,14 @@ struct serialize_field_traits<std::span<std::byte>>
     }
 };
 
-// BYTEA, owning variant
+// BYTEA, read-only view
 template <>
-struct serialize_field_traits<std::vector<std::byte>>
+struct serialize_field_traits<std::span<const std::byte>>
 {
     static constexpr std::int32_t oid = detail::bytea_oid;
 
     static std::error_code serialize(
-        const std::vector<std::byte>& value,
+        std::span<const std::byte> value,
         protocol::format_code code,
         std::vector<unsigned char>& to
     )
@@ -577,4 +584,4 @@ struct serialize_field_traits<T>
 
 }  // namespace nativepg
 
-#endif
+#endif  // NATIVEPG_DETAIL_FIELD_TRAITS_BASE_HPP

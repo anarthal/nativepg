@@ -64,7 +64,10 @@ struct parse_field_traits<std::optional<T>>
             to.reset();
             return std::error_code{};
         }
-        return field_parse(from, type_oid, code, to.emplace());
+        const auto ec = field_parse(from, type_oid, code, to.emplace());
+        if (ec)
+            to.reset();
+        return ec;
     }
 };
 

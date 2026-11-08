@@ -1161,8 +1161,30 @@ void test_field_serialize_char_success()
     for (auto code : {protocol::format_code::text, protocol::format_code::binary})
     {
         check_serialize('a', code, {'a'});
-        check_serialize('\0', code, {0x00});
     }
+    check_serialize('\0', protocol::format_code::text, {});
+    check_serialize('\0', protocol::format_code::binary, {0x00});
+}
+
+void test_field_serialize_bytea_vector()
+{
+    std::vector<std::byte> value{std::byte{0x01}, std::byte{0xff}};
+    check_serialize(value, protocol::format_code::text, {'\\', 'x', '0', '1', 'f', 'f'});
+    check_serialize(value, protocol::format_code::binary, {0x01, 0xff});
+    static_assert(serializable_field<std::vector<std::byte>>);
+    static_assert(serializable_field<std::span<std::byte>>);
+}
+
+void test_field_parse_optional_error_resets()
+{
+    const unsigned char buf[] = {'x'};
+    field_view fv{std::span<const unsigned char>(buf)};
+    std::optional<std::int32_t> out = 5;
+    BOOST_TEST_EQ(
+        field_parse(fv, detail::int4_oid, protocol::format_code::text, out),
+        error_code(client_errc::protocol_value_error)
+    );
+    BOOST_TEST(!out.has_value());
 }
 
 void test_field_serialize_oid_success()
@@ -1596,6 +1618,8 @@ int main()
     test_field_is_compatible_more_types();
     test_field_serialize_optional_engaged_success();
     test_field_serialize_optional_null();
+    test_field_serialize_bytea_vector();
+    test_field_parse_optional_error_resets();
 
     return boost::report_errors();
 }

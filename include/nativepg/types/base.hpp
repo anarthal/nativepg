@@ -231,7 +231,9 @@ std::error_code parse_binary_char(const field_view& from, T& to)
 
 inline std::error_code serialize_text_char(char value, std::vector<unsigned char>& to)
 {
-    to.push_back(static_cast<unsigned char>(value));
+    // Empty text means \0, as text values can't contain NUL bytes
+    if (value != '\0')
+        to.push_back(static_cast<unsigned char>(value));
     return {};
 }
 

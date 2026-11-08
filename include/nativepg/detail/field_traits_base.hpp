@@ -441,6 +441,26 @@ struct serialize_field_traits<std::span<const std::byte>>
     }
 };
 
+// BYTEA, any contiguous container of bytes (e.g. std::vector<std::byte>) or mutable span
+template <class T>
+    requires(
+        !std::convertible_to<T, std::string_view> && !std::same_as<T, std::span<const std::byte>> &&
+        std::convertible_to<const T&, std::span<const std::byte>>
+    )
+struct serialize_field_traits<T>
+{
+    static constexpr std::int32_t oid = detail::bytea_oid;
+
+    static std::error_code serialize(
+        std::span<const std::byte> value,
+        protocol::format_code code,
+        std::vector<unsigned char>& to
+    )
+    {
+        return serialize_field_traits<std::span<const std::byte>>::serialize(value, code, to);
+    }
+};
+
 // INTERNAL CHAR
 template <>
 struct serialize_field_traits<char>

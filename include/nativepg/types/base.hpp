@@ -102,39 +102,55 @@ inline std::error_code serialize_binary_bool(bool value, std::vector<unsigned ch
     return {};
 }
 
-// BYTEA => std::vector<std::byte>>;
-template <class T = std::vector<std::byte>>
-std::error_code parse_text_bytea(const field_view& from, T& to)
+// BYTEA => std::span<std::byte>>;
+template <class T = std::span<std::byte>>
+std::error_code parse_text_bytea(const field_view& from, T to)
 {
-    // PostgresSQL text format for bytea is \x followed by hex pairs
+    // PostgreSQL text format for bytea is \x followed by hex pairs
     std::string_view sv = from.data_str();
     if (sv.size() < 2 || sv[0] != '\\' || sv[1] != 'x')
         return client_errc::protocol_value_error;
+
     sv.remove_prefix(2);
     if (sv.size() % 2 != 0)
         return client_errc::protocol_value_error;
-    to.clear();
-    to.reserve(sv.size() / 2);
+
+    // Calculate required capacity
+    const std::size_t required_size = sv.size() / 2;
+
+    // Check if the provided span has enough pre-allocated space
+    if (to.size() < required_size)
+        return std::make_error_code(std::errc::result_out_of_range);
+
+    std::size_t out_idx = 0;
     for (std::size_t i = 0; i < sv.size(); i += 2)
     {
         unsigned char byte{};
         if (auto [ptr, ec] = std::from_chars(sv.data() + i, sv.data() + i + 2, byte, 16);
             ec != std::errc{} || ptr != sv.data() + i + 2)
+        {
             return client_errc::protocol_value_error;
-        to.push_back(static_cast<std::byte>(byte));
+        }
+
+        // Write directly to the span's buffer
+        to[out_idx++] = static_cast<std::byte>(byte);
     }
+
     return {};
 }
 
-template <class T = std::vector<std::byte>>
-std::error_code parse_binary_bytea(const field_view& from, T& to)
-{
-    // Binary format is raw bytes — copy directly
-    to.clear();
-    to.reserve(from.data().size());
-    std::ranges::transform(from.data(), std::back_inserter(to), [](unsigned char byte) {
+template <class T = std::span<std::byte>>
+std::error_code parse_binary_bytea(const field_view& from, T to) {
+    // Ensure the destination span is big enough to hold the data
+    if (to.size() < from.data().size()) {
+        return std::make_error_code(std::errc::result_out_of_range);
+    }
+
+    // Binary format is raw bytes — copy directly using modern ranges
+    std::ranges::transform(from.data(), to.begin(), [](unsigned char byte) {
         return static_cast<std::byte>(byte);
     });
+
     return {};
 }
 

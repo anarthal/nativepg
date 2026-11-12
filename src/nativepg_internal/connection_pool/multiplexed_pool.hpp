@@ -102,6 +102,7 @@ public:
 
         // Set the pool status, so further requests aren't accepted.
         // Unblock any exec()'s waiting for nodes to become healthy
+        // TODO: this probably should be RAII
         status_ = pool_status::cancelled;
         shared_st_.healthy_nodes_ev.set();
 

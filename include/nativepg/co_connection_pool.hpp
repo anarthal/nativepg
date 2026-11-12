@@ -15,19 +15,23 @@
 #include <boost/capy/task.hpp>
 
 #include <chrono>
+#include <cstddef>
 #include <memory>
 #include <utility>
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
+#include "nativepg/extended_error.hpp"
+#include "nativepg/request.hpp"
+#include "nativepg/responses/response_handler.hpp"
 
 namespace nativepg {
 
 namespace detail {
 class pool_node;
-class co_connection_pool_impl;
 void return_connection(pool_node&, bool should_reset);
 co_connection& get_connection(pool_node&);
+class dedicated_pool;  // TODO: I don't like this
 }  // namespace detail
 
 // Configuration for the pool
@@ -39,12 +43,22 @@ struct pool_params
     // The initial number of dedicated connections.
     // When run() is called, this number of connections will be initially created.
     // (Think of this as the minimum number of connections that a pool may have).
+    // TODO: this should go into a dedicated_params struct
     std::size_t initial_size{1};
 
     // The maximum number of connections. If a connection is requested, but none are available,
     // a new connection will be established, up to this size.
     // TODO: update this number, this is MySQL's default.
+    // TODO: rename to max_total_size
     std::size_t max_size{151};
+
+    // TODO: is this OK inline?
+    struct multiplexed_params
+    {
+        // From the total connections, how many of these should be used for
+        // multiplexing? I.e. for co_connection_pool::exec()
+        std::size_t size{2u};
+    } multiplexed{};
 
     // Timeout for connection establishment (physical connect, TLS handshake, PostgreSQL session setup).
     // Set it to zero to disable the timeout.
@@ -76,7 +90,7 @@ class pooled_connection
 
     explicit pooled_connection(detail::pool_node& node) noexcept : node_(&node) {}
 
-    friend class detail::co_connection_pool_impl;
+    friend class detail::dedicated_pool;
 
 public:
     // Constructs an empty object, wrapping no connection
@@ -181,7 +195,8 @@ public:
 //
 class co_connection_pool
 {
-    std::unique_ptr<detail::co_connection_pool_impl> impl_;
+    struct impl;
+    std::unique_ptr<impl> impl_;
 
     co_connection_pool(boost::capy::execution_context& ctx, pool_params&& params, int);
 
@@ -212,6 +227,23 @@ public:
     boost::capy::task<boost::capy::results<>> run();
 
     boost::capy::task<boost::capy::results<pooled_connection>> get_connection();
+
+    boost::capy::task<boost::capy::results<>> exec(
+        const request& req,
+        response_handler_ref handler,
+        diagnostics* diag = nullptr
+    );
+
+    template <response_handler ResponseHandler>
+    boost::capy::task<boost::capy::results<>> exec(
+        const request& req,
+        ResponseHandler handler,
+        diagnostics* diag = nullptr
+    )
+    {
+        // Keep the handler alive
+        co_return co_await exec(req, response_handler_ref(&handler), diag);
+    }
 };
 
 }  // namespace nativepg

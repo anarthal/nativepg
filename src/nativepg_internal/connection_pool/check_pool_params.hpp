@@ -31,6 +31,7 @@ inline void check_pool_params(const pool_params& params)
         msg = "pool_params::ping_interval must not be negative";
     else if (params.ping_timeout.count() < 0)
         msg = "pool_params::ping_timeout must not be negative";
+    // TODO: check multiplexed
 
     if (msg != nullptr)
     {

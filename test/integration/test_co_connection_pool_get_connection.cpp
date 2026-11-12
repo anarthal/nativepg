@@ -41,6 +41,7 @@
 #include "nativepg/responses/check.hpp"
 #include "nativepg/responses/response_handler.hpp"
 #include "test_utils/ci_server.hpp"
+#include "test_utils/co_connection_pool_utils.hpp"
 #include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
@@ -64,24 +65,6 @@ pool_params create_pool_params(std::size_t max_size = 151)
         .transport = default_connect_params(),
         .max_size = max_size,
     };
-}
-
-// Utility to run a test that requires a running pool
-capy::task<> with_pool_running(co_connection_pool& pool, capy::task<> body)
-{
-    static_cast<void>(co_await capy::when_any(
-        [&]() -> capy::task<capy::results<>> {
-            // Run the pool. If the test passes, the body finishes 1st and cancels run()
-            auto [ec] = co_await pool.run();
-            test_cond_eq(ec, capy::cond::canceled);
-            co_return {};
-        }(),
-        [&]() -> capy::task<capy::results<>> {
-            // Run the test
-            co_await std::move(body);
-            co_return {};
-        }()
-    ));
 }
 
 // Writes a request but never reads its response, so the connection is healthy

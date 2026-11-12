@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_CONNECTION_POOL_IMPL_HPP
-#define NATIVEPG_CONNECTION_POOL_IMPL_HPP
+#ifndef NATIVEPG_DEDICATED_POOL_HPP
+#define NATIVEPG_DEDICATED_POOL_HPP
 
 #include <boost/assert.hpp>
 #include <boost/capy/cond.hpp>
@@ -28,8 +28,8 @@
 #include <stop_token>
 
 #include "nativepg/co_connection_pool.hpp"
-#include "nativepg_internal/connection_pool/check_pool_params.hpp"
 #include "nativepg_internal/connection_pool/pool_node.hpp"
+#include "nativepg_internal/connection_pool/pool_status.hpp"
 #include "nativepg_internal/op_counter.hpp"
 
 namespace nativepg::detail {
@@ -69,18 +69,11 @@ inline std::size_t num_connections_to_create(
     return (std::min)((std::max)(required_by_requests, required_by_min), room);
 }
 
-class co_connection_pool_impl
+class dedicated_pool
 {
-    enum class state_t
-    {
-        initial,
-        running,
-        cancelled,
-    };
-
     boost::capy::execution_context& ctx_;
-    pool_params params_;
-    state_t state_{state_t::initial};
+    const pool_params& params_;
+    pool_status status_{pool_status::initial};
     std::list<pool_node> all_conns_;
     pool_shared_state shared_st_;
     boost::capy::async_event cancel_ev_;
@@ -166,17 +159,16 @@ class co_connection_pool_impl
     }
 
 public:
-    co_connection_pool_impl(boost::capy::execution_context& ctx, pool_params&& params)
-        : ctx_(ctx), params_(std::move(params))
+    dedicated_pool(boost::capy::execution_context& ctx, const pool_params* params)
+        : ctx_(ctx), params_(*params)
     {
-        check_pool_params(params_);
     }
 
     boost::capy::task<boost::capy::results<>> run()
     {
         // Check that we're not running and set the state adequately
-        BOOST_ASSERT(state_ == state_t::initial);
-        state_ = state_t::running;
+        BOOST_ASSERT(status_ == pool_status::initial);
+        status_ = pool_status::running;
 
         const auto* env = co_await boost::capy::this_coro::environment;
 
@@ -200,7 +192,7 @@ public:
         }
 
         // Set the state so further get_connection requests fail
-        state_ = state_t::cancelled;
+        status_ = pool_status::cancelled;
 
         // Deliver the cancel notification to the child tasks
         cancel_ev_.set();
@@ -223,7 +215,7 @@ public:
         while (true)
         {
             // If the pool is cancelled, the operation must fail, even if there are available connections
-            if (state_ == state_t::cancelled)
+            if (status_ == pool_status::cancelled)
                 co_return {boost::capy::error::canceled, pooled_connection{}};
 
             // Try to get a connection

@@ -9,6 +9,7 @@
 #include <boost/capy/ex/run_async.hpp>
 #include <boost/capy/ex/this_coro.hpp>
 #include <boost/capy/task.hpp>
+#include <boost/capy/when_any.hpp>
 #include <boost/core/lightweight_test.hpp>
 #include <boost/corosio/io_context.hpp>
 #include <boost/describe/class.hpp>
@@ -25,13 +26,19 @@
 #include <utility>
 #include <vector>
 
+#include "nativepg/co_connection_pool.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/into.hpp"
+#include "test_utils/co_connection_pool_utils.hpp"
 #include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
+#include "test_utils/test_cond_eq.hpp"
 #include "test_utils/test_range_eq.hpp"
+
+namespace capy = boost::capy;
+namespace corosio = boost::corosio;
 
 namespace {
 
@@ -56,19 +63,19 @@ constexpr std::string_view session_var_name = "nativepg.test_var";
 
 }  // namespace
 
-void nativepg::test::run_coroutine_test(boost::capy::task<void> test, boost::source_location loc)
+void nativepg::test::run_coroutine_test(capy::task<void> test, boost::source_location loc)
 {
     // Set a timeout to the tests, so they don't hang on error
     constexpr std::chrono::seconds test_timeout{10};
     bool finished = false;
-    auto wrapper_fn = [test = std::move(test), &finished]() mutable -> boost::capy::task<void> {
+    auto wrapper_fn = [test = std::move(test), &finished]() mutable -> capy::task<void> {
         co_await std::move(test);
         finished = true;
     };
 
     // Actually run the test
-    boost::corosio::io_context ctx;
-    boost::capy::run_async(ctx.get_executor())(wrapper_fn());
+    corosio::io_context ctx;
+    capy::run_async(ctx.get_executor())(wrapper_fn());
     ctx.run_for(test_timeout);
 
     // Check that it finished
@@ -85,12 +92,12 @@ bool nativepg::test::check_success(std::error_code ec, const diagnostics& diag, 
     return ok;
 }
 
-boost::capy::task<nativepg::co_connection> nativepg::test::establish_connection(
+capy::task<nativepg::co_connection> nativepg::test::establish_connection(
     const connect_params& params,
     boost::source_location loc
 )
 {
-    co_connection conn{co_await boost::capy::this_coro::executor};
+    co_connection conn{co_await capy::this_coro::executor};
 
     diagnostics diag;
     if (!check_success(co_await conn.connect(params, &diag), diag, loc))
@@ -104,7 +111,7 @@ boost::capy::task<nativepg::co_connection> nativepg::test::establish_connection(
     co_return std::move(conn);
 }
 
-boost::capy::task<bool> nativepg::test::checked_exec(
+capy::task<bool> nativepg::test::checked_exec(
     co_connection& conn,
     const request& req,
     response_handler_ref handler,
@@ -116,10 +123,7 @@ boost::capy::task<bool> nativepg::test::checked_exec(
     co_return check_success(ec, diag, loc);
 }
 
-boost::capy::task<bool> nativepg::test::check_connection_usable(
-    co_connection& conn,
-    boost::source_location loc
-)
+capy::task<bool> nativepg::test::check_connection_usable(co_connection& conn, boost::source_location loc)
 {
     request req;
     req.add_query("SELECT $1 AS value", 1234);
@@ -134,7 +138,7 @@ std::string nativepg::test::set_session_var_query(std::string_view value)
     return std::string("SET ").append(session_var_name).append(" = '").append(value).append("'");
 }
 
-boost::capy::task<bool> nativepg::test::set_session_var(
+capy::task<bool> nativepg::test::set_session_var(
     co_connection& conn,
     std::string_view value,
     boost::source_location loc
@@ -143,7 +147,7 @@ boost::capy::task<bool> nativepg::test::set_session_var(
     co_return co_await checked_exec(conn, set_session_var_query(value), loc);
 }
 
-boost::capy::task<std::optional<std::string>> nativepg::test::get_session_var(
+capy::task<std::optional<std::string>> nativepg::test::get_session_var(
     co_connection& conn,
     boost::source_location loc
 )
@@ -166,7 +170,7 @@ boost::capy::task<std::optional<std::string>> nativepg::test::get_session_var(
     co_return std::move(rows[0].value);
 }
 
-boost::capy::task<bool> nativepg::test::break_connection(co_connection& conn, boost::source_location loc)
+capy::task<bool> nativepg::test::break_connection(co_connection& conn, boost::source_location loc)
 {
     request req;
     req.add_query("SELECT pg_terminate_backend(pg_backend_pid())");
@@ -179,7 +183,7 @@ boost::capy::task<bool> nativepg::test::break_connection(co_connection& conn, bo
     co_return ok;
 }
 
-boost::capy::task<bool> nativepg::test::cache_notification(
+capy::task<bool> nativepg::test::cache_notification(
     co_connection& conn,
     std::string_view channel,
     std::string_view payload,
@@ -190,4 +194,21 @@ boost::capy::task<bool> nativepg::test::cache_notification(
     req.add_query("NOTIFY " + std::string(channel) + ", '" + std::string(payload) + "'");
     req.add_query("SELECT 1");
     co_return co_await checked_exec(conn, req, check(), loc);
+}
+
+capy::task<> nativepg::test::with_pool_running(co_connection_pool& pool, capy::task<> body)
+{
+    static_cast<void>(co_await capy::when_any(
+        [&]() -> capy::task<capy::results<>> {
+            // Run the pool. If the test passes, the body finishes 1st and cancels run()
+            auto [ec] = co_await pool.run();
+            test_cond_eq(ec, capy::cond::canceled);
+            co_return {};
+        }(),
+        [&]() -> capy::task<capy::results<>> {
+            // Run the test
+            co_await std::move(body);
+            co_return {};
+        }()
+    ));
 }

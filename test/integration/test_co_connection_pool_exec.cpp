@@ -27,14 +27,11 @@
 #include <stop_token>
 #include <string>
 #include <system_error>
-#include <utility>
 #include <vector>
 
-#include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_connection_pool.hpp"
 #include "nativepg/extended_error.hpp"
-#include "nativepg/protocol/connection_state.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
 #include "nativepg/responses/into.hpp"
@@ -43,6 +40,7 @@
 #include "nativepg/responses/resultset_callback.hpp"
 #include "nativepg/sqlstate_cond.hpp"
 #include "test_utils/ci_server.hpp"
+#include "test_utils/co_connection_pool_utils.hpp"
 #include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
@@ -91,25 +89,6 @@ pool_params create_unreachable_pool_params(std::size_t multiplexed_size = 1)
     res.transport.password = "bad_password";
     res.retry_interval = 1h;
     return res;
-}
-
-// Utility to run a test that requires a running pool
-// TODO: duplicated
-capy::task<> with_pool_running(co_connection_pool& pool, capy::task<> body)
-{
-    static_cast<void>(co_await capy::when_any(
-        [&]() -> capy::task<capy::results<>> {
-            // Run the pool. If the test passes, the body finishes 1st and cancels run()
-            auto [ec] = co_await pool.run();
-            test_cond_eq(ec, capy::cond::canceled);
-            co_return {};
-        }(),
-        [&]() -> capy::task<capy::results<>> {
-            // Run the test
-            co_await std::move(body);
-            co_return {};
-        }()
-    ));
 }
 
 // Runs a plain request through the pool and checks that it produces its own

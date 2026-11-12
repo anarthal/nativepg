@@ -75,6 +75,7 @@ pool_params create_pool_params(std::size_t multiplexed_size = 2, std::size_t max
 {
     return {
         .transport = default_connect_params(),
+        .initial_size = 0u,
         .max_size = max_size,
         .multiplexed = {.size = multiplexed_size},
     };
@@ -162,7 +163,7 @@ capy::task<> test_success_without_diagnostics()
 
     co_await with_pool_running(pool, [&]() -> capy::task<> {
         request req;
-        req.add_query("SELECT 42 AS value", 42);
+        req.add_query("SELECT 42 AS value");
         std::vector<row_int> ints;
 
         if (!check_success(co_await pool.exec(req, into(ints))))
@@ -182,7 +183,7 @@ capy::task<> test_success_type_erased()
 
     co_await with_pool_running(pool, [&]() -> capy::task<> {
         request req;
-        req.add_query("SELECT 42 AS value", 42);
+        req.add_query("SELECT 42 AS value");
         std::vector<row_int> ints;
         auto handler = into(ints);
         diagnostics diag;
@@ -204,7 +205,7 @@ capy::task<> test_success_type_erased_without_diagnostics()
 
     co_await with_pool_running(pool, [&]() -> capy::task<> {
         request req;
-        req.add_query("SELECT 42 AS value", 42);
+        req.add_query("SELECT 42 AS value");
         std::vector<row_int> ints;
         auto handler = into(ints);
 

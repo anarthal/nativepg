@@ -265,7 +265,7 @@ capy::task<> test_exec_waits_for_healthy_connection()
 // Several requests can be run in parallel
 capy::task<> test_parallel_execs_single_connection()
 {
-    co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params(2)};
+    co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params(1)};
 
     co_await with_pool_running(pool, [&]() -> capy::task<> {
         // All three requests are handed to the pool before any completes

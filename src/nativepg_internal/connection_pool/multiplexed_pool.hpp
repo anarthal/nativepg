@@ -64,7 +64,6 @@ class multiplexed_pool
             // No luck, wait until one becomes available, or the pool is cancelled
             if (status_ == pool_status::cancelled)
                 co_return {boost::capy::error::canceled, nullptr};
-            shared_st_.healthy_nodes_ev.clear();  // TODO: this shouldn't be necessary, just in case
             if (auto [ec] = co_await shared_st_.healthy_nodes_ev.wait(); ec)
                 co_return {ec, nullptr};
         }

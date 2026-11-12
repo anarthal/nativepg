@@ -1,0 +1,122 @@
+//
+// Copyright (c) 2019-2025 Ruben Perez Hidalgo (rubenperez038 at gmail dot com)
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+
+#ifndef NATIVEPG_MULTIPLEXED_POOL_HPP
+#define NATIVEPG_MULTIPLEXED_POOL_HPP
+
+#include <boost/assert.hpp>
+#include <boost/capy/ex/execution_context.hpp>
+#include <boost/capy/results.hpp>
+#include <boost/capy/task.hpp>
+#include <boost/capy/when_all.hpp>
+
+#include <cstddef>
+#include <system_error>
+#include <vector>
+
+#include "nativepg/co_connection_pool.hpp"
+#include "nativepg_internal/connection_pool/pool_node.hpp"
+
+namespace nativepg::detail {
+
+class multiplexed_pool
+{
+    // TODO: duplicate
+    enum class state_t
+    {
+        initial,
+        running,
+        cancelled,
+    };
+
+    boost::capy::execution_context& ctx_;  // TODO: duplicate
+    const pool_params& params_;            // TODO: duplicate
+    state_t state_{state_t::initial};
+    std::vector<multiplexed_pool_node> all_nodes_;
+    multiplexed_shared_state shared_st_;
+    boost::capy::async_event connections_needed_;
+
+    void create_nodes()
+    {
+        const auto num_nodes = params_.multiplexed.size;
+        BOOST_ASSERT(all_nodes_.empty());
+        all_nodes_.reserve(num_nodes);
+        for (std::size_t i = 0u; i < num_nodes; ++i)
+            all_nodes_.emplace_back(ctx_, &params_);
+    }
+
+    std::vector<boost::capy::task<boost::capy::results<>>> make_node_tasks()
+    {
+        std::vector<boost::capy::task<boost::capy::results<>>> res;
+        res.reserve(all_nodes_.size());
+        for (auto& n : all_nodes_)
+            res.push_back(n.run());
+        return res;
+    }
+
+    // Waits until a connection becomes healthy
+    boost::capy::task<boost::capy::results<multiplexed_pool_node*>> get_healthy_node()
+    {
+        while (true)
+        {
+            // Try to get a healthy node
+            if (!shared_st_.healthy_nodes.empty())
+                co_return {std::error_code(), &shared_st_.healthy_nodes.front()};
+
+            // No luck, wait until one becomes available
+            shared_st_.healthy_nodes_ev.clear();  // TODO: this shouldn't be necessary, just in case
+            if (auto [ec] = co_await shared_st_.healthy_nodes_ev.wait(); ec)
+                co_return {ec, nullptr};
+        }
+    }
+
+public:
+    multiplexed_pool(boost::capy::execution_context& ctx, const pool_params* params)
+        : ctx_(ctx), params_(*params)
+    {
+    }
+
+    boost::capy::task<boost::capy::results<>> run()
+    {
+        // Don't create the connections up-front. Wait until at least one request arrives,
+        // so we don't pay for what we don't use
+        if (auto [ec] = co_await connections_needed_.wait(); ec)
+            co_return {ec};
+
+        // Now go ahead and create the connections. We need to create them using
+        // the pool's context because if run() is cancelled, outstanding exec()'s might
+        // not have finished by the time run() exits
+        create_nodes();
+
+        // Run the nodes until we got cancelled
+        co_return co_await boost::capy::when_all(make_node_tasks());
+    }
+
+    boost::capy::task<boost::capy::results<>> exec(
+        const request& req,
+        response_handler_ref handler,
+        diagnostics* diag = nullptr
+    )
+    {
+        // If the pool is cancelled, the operation must fail, even if there are available connections
+        if (state_ == state_t::cancelled)
+            co_return {boost::capy::error::canceled};
+
+        // Wait until a connection is healthy.
+        auto [ec, node] = co_await get_healthy_node();
+        if (ec)
+            co_return {ec};
+
+        // Execute the request on the connection we just got
+        BOOST_ASSERT(node != nullptr);
+        co_return co_await node->connection().exec(req, handler, diag);
+    }
+};
+
+}  // namespace nativepg::detail
+
+#endif

@@ -10,6 +10,7 @@
 
 #include <boost/assert.hpp>
 #include <boost/capy/cond.hpp>
+#include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/async_waker.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/ex/this_coro.hpp>
@@ -29,6 +30,7 @@
 #include "nativepg/capy-stub/ex/async_condition.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_connection_pool.hpp"
+#include "nativepg/notification_vector.hpp"
 #include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
@@ -67,6 +69,7 @@ struct pool_shared_state
 };
 
 // TODO: recover thread-safety tests
+// TODO: rename to exclusive_pool_node?
 class pool_node : public pool_node_hook
 {
     const pool_params* params_;
@@ -293,6 +296,78 @@ public:
 
     // Getters, used by pooled_connection
     co_connection& connection() noexcept { return conn_; }
+};
+
+// TODO: move
+class multiplexed_pool_node;
+
+struct multiplexed_shared_state
+{
+    // TODO: sort this by busy-ness
+    boost::intrusive::list<multiplexed_pool_node, boost::intrusive::base_hook<pool_node_hook>> healthy_nodes;
+    boost::capy::async_event healthy_nodes_ev;
+};
+
+class multiplexed_pool_node
+{
+    const pool_params* params_;
+    co_connection conn_;
+    multiplexed_shared_state* st_;
+
+    // TODO: duplicated
+    auto do_connect()
+    {
+        return run_with_timeout(conn_.connect(params_->transport), params_->connect_timeout);
+    }
+
+public:
+    multiplexed_pool_node(boost::capy::execution_context& ctx, const pool_params* params)
+        : params_(params), conn_(ctx)
+    {
+    }
+
+    co_connection& connection() { return conn_; }
+
+    boost::capy::task<boost::capy::results<>> run()
+    {
+        const auto tok = co_await boost::capy::this_coro::stop_token;
+        notification_vector notifs;
+
+        while (!tok.stop_requested())
+        {
+            // Try to connect
+            if (auto [ec] = co_await do_connect(); ec)
+            {
+                // If we failed, sleep and try again
+                static_cast<void>(co_await boost::corosio::delay(params_->retry_interval));
+                continue;
+            }
+
+            // We've succeeded. Notify tasks that they've got a healthy connection
+            st_->healthy_nodes.push_back(*this);
+            st_->healthy_nodes_ev.set();
+
+            // Now wait until
+            //  - It is time to ping (either because of inactivity or because it's been X time since the last
+            //  cleanup)
+            //  - The connection breaks (we can detect this, in part, using receive())
+            //  - There is no completions for Y time, indicating a broken connection
+            // TODO: this is a simplistic implementation that takes only point 2 into account
+            while (true)
+            {
+                // If we happen to receive any notifications, discard them
+                if (auto [ec] = co_await conn_.receive(notifs); ec)
+                    break;
+            }
+
+            // We are no longer healthy. TODO: RAII
+            st_->healthy_nodes.erase(st_->healthy_nodes.iterator_to(*this));
+            if (st_->healthy_nodes.empty())
+                st_->healthy_nodes_ev.clear();
+        }
+
+        co_return {};
+    }
 };
 
 }  // namespace nativepg::detail

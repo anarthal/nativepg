@@ -112,32 +112,6 @@ capy::task<> with_pool_running(co_connection_pool& pool, capy::task<> body)
     ));
 }
 
-// Runs a request through the pool, failing the test if it doesn't succeed
-capy::task<bool> checked_pool_exec(
-    co_connection_pool& pool,
-    const request& req,
-    response_handler_ref handler,
-    boost::source_location loc = BOOST_CURRENT_LOCATION
-)
-{
-    diagnostics diag;
-    auto [ec] = co_await pool.exec(req, handler, &diag);
-    co_return check_success(ec, diag, loc);
-}
-
-// Same, taking ownership of the handler, so temporaries can be passed
-template <response_handler Handler>
-capy::task<bool> checked_pool_exec(
-    co_connection_pool& pool,
-    const request& req,
-    Handler handler,
-    boost::source_location loc = BOOST_CURRENT_LOCATION
-)
-{
-    // Keep the handler alive
-    co_return co_await checked_pool_exec(pool, req, response_handler_ref(&handler), loc);
-}
-
 // Runs a plain request through the pool and checks that it produces its own
 // response. Detects de-syncs caused by previous requests.
 capy::task<bool> check_pool_usable(
@@ -148,7 +122,8 @@ capy::task<bool> check_pool_usable(
     request req;
     req.add_query("SELECT $1 AS value", 1234);
     std::vector<row_int> ints;
-    if (!co_await checked_pool_exec(pool, req, into(ints), loc))
+    diagnostics diag;
+    if (!check_success(co_await pool.exec(req, into(ints), &diag), diag, loc))
         co_return false;
     co_return test_range_eq(ints, std::vector<row_int>{{.value = 1234}}, loc);
 }
@@ -163,7 +138,8 @@ capy::task<std::int32_t> pool_backend_pid(
     request req;
     req.add_query("SELECT pg_backend_pid() AS value");
     std::vector<row_int> ints;
-    if (!co_await checked_pool_exec(pool, req, into(ints), loc))
+    diagnostics diag;
+    if (!check_success(co_await pool.exec(req, into(ints), &diag), diag, loc))
         co_return 0;
     if (!BOOST_TEST_EQ(ints.size(), 1u))
         co_return 0;
@@ -212,7 +188,8 @@ capy::task<> test_exec_before_run()
             request req;
             req.add_query("SELECT $1 AS value", 42);
             std::vector<row_int> ints;
-            if (co_await checked_pool_exec(pool, req, into(ints)))
+            diagnostics diag;
+            if (check_success(co_await pool.exec(req, into(ints), &diag), diag))
                 test_range_eq(ints, std::vector<row_int>{{.value = 42}});
             co_return {};
         }(),

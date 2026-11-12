@@ -596,8 +596,6 @@ capy::task<> test_exec_during_run_cancel()
     // is guaranteed to be waiting when the cancellation arrives
     co_connection_pool pool{co_await capy::this_coro::executor, create_unreachable_pool_params()};
 
-    std::stop_source run_stop_src;
-
     // Recall that when_all launches things in order
     static_cast<void>(co_await capy::when_all(
         [&]() -> capy::task<capy::results<>> {

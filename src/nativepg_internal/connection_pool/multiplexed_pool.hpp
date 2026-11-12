@@ -21,22 +21,15 @@
 
 #include "nativepg/co_connection_pool.hpp"
 #include "nativepg_internal/connection_pool/pool_node.hpp"
+#include "nativepg_internal/connection_pool/pool_status.hpp"
 
 namespace nativepg::detail {
 
 class multiplexed_pool
 {
-    // TODO: duplicate
-    enum class state_t
-    {
-        initial,
-        running,
-        cancelled,
-    };
-
     boost::capy::execution_context& ctx_;
     const pool_params& params_;
-    state_t state_{state_t::initial};
+    pool_status status_{pool_status::initial};
     std::vector<multiplexed_pool_node> all_nodes_;
     multiplexed_shared_state shared_st_;
     boost::capy::async_event connections_needed_;
@@ -69,7 +62,7 @@ class multiplexed_pool
                 co_return {std::error_code(), &shared_st_.healthy_nodes.front()};
 
             // No luck, wait until one becomes available, or the pool is cancelled
-            if (state_ == state_t::cancelled)
+            if (status_ == pool_status::cancelled)
                 co_return {boost::capy::error::canceled, nullptr};
             shared_st_.healthy_nodes_ev.clear();  // TODO: this shouldn't be necessary, just in case
             if (auto [ec] = co_await shared_st_.healthy_nodes_ev.wait(); ec)
@@ -99,7 +92,7 @@ public:
         auto [ec] = co_await boost::capy::when_all(make_node_tasks());
 
         // Set the pool status, so further requests aren't accepted
-        state_ = state_t::cancelled;
+        status_ = pool_status::cancelled;
 
         // TODO: what happens if the number of connections is 0?
 
@@ -113,7 +106,7 @@ public:
     )
     {
         // If the pool is cancelled, the operation must fail, even if there are available connections
-        if (state_ == state_t::cancelled)
+        if (status_ == pool_status::cancelled)
             co_return {boost::capy::error::canceled};
 
         // Wait until a connection is healthy.

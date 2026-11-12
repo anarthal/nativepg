@@ -29,6 +29,7 @@
 
 #include "nativepg/co_connection_pool.hpp"
 #include "nativepg_internal/connection_pool/pool_node.hpp"
+#include "nativepg_internal/connection_pool/pool_status.hpp"
 #include "nativepg_internal/op_counter.hpp"
 
 namespace nativepg::detail {
@@ -70,16 +71,9 @@ inline std::size_t num_connections_to_create(
 
 class dedicated_pool
 {
-    enum class state_t
-    {
-        initial,
-        running,
-        cancelled,
-    };
-
     boost::capy::execution_context& ctx_;
     const pool_params& params_;
-    state_t state_{state_t::initial};
+    pool_status status_{pool_status::initial};
     std::list<pool_node> all_conns_;
     pool_shared_state shared_st_;
     boost::capy::async_event cancel_ev_;
@@ -173,8 +167,8 @@ public:
     boost::capy::task<boost::capy::results<>> run()
     {
         // Check that we're not running and set the state adequately
-        BOOST_ASSERT(state_ == state_t::initial);
-        state_ = state_t::running;
+        BOOST_ASSERT(status_ == pool_status::initial);
+        status_ = pool_status::running;
 
         const auto* env = co_await boost::capy::this_coro::environment;
 
@@ -198,7 +192,7 @@ public:
         }
 
         // Set the state so further get_connection requests fail
-        state_ = state_t::cancelled;
+        status_ = pool_status::cancelled;
 
         // Deliver the cancel notification to the child tasks
         cancel_ev_.set();
@@ -221,7 +215,7 @@ public:
         while (true)
         {
             // If the pool is cancelled, the operation must fail, even if there are available connections
-            if (state_ == state_t::cancelled)
+            if (status_ == pool_status::cancelled)
                 co_return {boost::capy::error::canceled, pooled_connection{}};
 
             // Try to get a connection

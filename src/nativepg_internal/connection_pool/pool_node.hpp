@@ -321,8 +321,12 @@ class multiplexed_pool_node : public pool_node_hook
     }
 
 public:
-    multiplexed_pool_node(boost::capy::execution_context& ctx, const pool_params* params)
-        : params_(params), conn_(ctx)
+    multiplexed_pool_node(
+        boost::capy::execution_context& ctx,
+        const pool_params* params,
+        multiplexed_shared_state& st
+    )
+        : params_(params), conn_(ctx), st_(&st)
     {
     }
 

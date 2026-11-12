@@ -40,7 +40,7 @@ class multiplexed_pool
         BOOST_ASSERT(all_nodes_.empty());
         all_nodes_.reserve(num_nodes);
         for (std::size_t i = 0u; i < num_nodes; ++i)
-            all_nodes_.emplace_back(ctx_, &params_);
+            all_nodes_.emplace_back(ctx_, &params_, shared_st_);
     }
 
     std::vector<boost::capy::task<boost::capy::results<>>> make_node_tasks()
@@ -81,7 +81,10 @@ public:
         // Don't create the connections up-front. Wait until at least one request arrives,
         // so we don't pay for what we don't use
         if (auto [ec] = co_await connections_needed_.wait(); ec)
+        {
+            status_ = pool_status::cancelled;
             co_return {ec};
+        }
 
         // Now go ahead and create the connections. We need to create them using
         // the pool's context because if run() is cancelled, outstanding exec()'s might
@@ -91,8 +94,10 @@ public:
         // Run the nodes until we got cancelled
         auto [ec] = co_await boost::capy::when_all(make_node_tasks());
 
-        // Set the pool status, so further requests aren't accepted
+        // Set the pool status, so further requests aren't accepted.
+        // Unblock any exec()'s waiting for nodes to become healthy
         status_ = pool_status::cancelled;
+        shared_st_.healthy_nodes_ev.set();
 
         // TODO: what happens if the number of connections is 0?
 
@@ -108,6 +113,9 @@ public:
         // If the pool is cancelled, the operation must fail, even if there are available connections
         if (status_ == pool_status::cancelled)
             co_return {boost::capy::error::canceled};
+
+        // Notify that we're in need of a connection
+        connections_needed_.set();
 
         // Wait until a connection is healthy.
         auto [ec, node] = co_await get_healthy_node();

@@ -78,6 +78,12 @@ public:
 
     boost::capy::task<boost::capy::results<>> run()
     {
+        // Check that we're not running and set the state adequately
+        // TODO: this is a bit sus. The 'running' check should be done only once
+        //   and return already_running. The 'cancelled' status needs to be independent, though.
+        BOOST_ASSERT(status_ == pool_status::initial);
+        status_ = pool_status::running;
+
         // Don't create the connections up-front. Wait until at least one request arrives,
         // so we don't pay for what we don't use
         if (auto [ec] = co_await connections_needed_.wait(); ec)

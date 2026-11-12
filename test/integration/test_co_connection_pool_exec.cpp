@@ -390,6 +390,33 @@ capy::task<> test_connections_reused()
     }());
 }
 
+// Connections are re-established when they encounter a fatal error
+capy::task<> test_connection_recovery()
+{
+    co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params(1)};
+
+    co_await with_pool_running(pool, [&]() -> capy::task<> {
+        // Get the single connection's PID
+        const auto pid = co_await pool_backend_pid(pool);
+        if (pid == 0)
+            co_return;
+
+        // Break the connection
+        request req_break;
+        req_break.add_query("SELECT pg_terminate_backend($1)", pid);
+        auto [ec] = co_await pool.exec(req_break, check());
+        BOOST_TEST_NE(ec, std::error_code());
+
+        // Issue a request to obtain the PID. This will wait until a new session
+        // has been established
+        const auto new_pid = co_await pool_backend_pid(pool);
+        BOOST_TEST_NE(new_pid, pid);
+
+        // Pool's OK
+        co_await check_pool_usable(pool);
+    }());
+}
+
 //
 // Errors and cancellations. An error in a request shouldn't impact subsequent ones.
 //
@@ -604,6 +631,7 @@ int main()
     run_coroutine_test(test_parallel_execs_single_connection());
     run_coroutine_test(test_parallel_execs_several_connections());
     run_coroutine_test(test_connections_reused());
+    run_coroutine_test(test_connection_recovery());
 
     run_coroutine_test(test_server_error());
     run_coroutine_test(test_server_error_with_parallel_request());

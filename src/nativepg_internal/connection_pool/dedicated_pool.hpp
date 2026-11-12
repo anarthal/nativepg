@@ -5,8 +5,8 @@
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#ifndef NATIVEPG_CONNECTION_POOL_IMPL_HPP
-#define NATIVEPG_CONNECTION_POOL_IMPL_HPP
+#ifndef NATIVEPG_DEDICATED_POOL_HPP
+#define NATIVEPG_DEDICATED_POOL_HPP
 
 #include <boost/assert.hpp>
 #include <boost/capy/cond.hpp>
@@ -69,7 +69,7 @@ inline std::size_t num_connections_to_create(
     return (std::min)((std::max)(required_by_requests, required_by_min), room);
 }
 
-class co_connection_pool_impl
+class dedicated_pool
 {
     enum class state_t
     {
@@ -166,11 +166,14 @@ class co_connection_pool_impl
     }
 
 public:
-    co_connection_pool_impl(boost::capy::execution_context& ctx, pool_params&& params)
+    dedicated_pool(boost::capy::execution_context& ctx, pool_params&& params)
         : ctx_(ctx), params_(std::move(params))
     {
         check_pool_params(params_);
     }
+
+    // TODO: I don't like this
+    const pool_params& get_params() const { return params_; }
 
     boost::capy::task<boost::capy::results<>> run()
     {

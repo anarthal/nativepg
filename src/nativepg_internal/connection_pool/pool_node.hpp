@@ -308,7 +308,7 @@ struct multiplexed_shared_state
     boost::capy::async_event healthy_nodes_ev;
 };
 
-class multiplexed_pool_node
+class multiplexed_pool_node : public pool_node_hook
 {
     const pool_params* params_;
     co_connection conn_;

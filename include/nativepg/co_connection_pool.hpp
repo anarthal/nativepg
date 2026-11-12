@@ -29,9 +29,9 @@ namespace nativepg {
 
 namespace detail {
 class pool_node;
-class co_connection_pool_impl;
 void return_connection(pool_node&, bool should_reset);
 co_connection& get_connection(pool_node&);
+class dedicated_pool;  // TODO: I don't like this
 }  // namespace detail
 
 // Configuration for the pool
@@ -58,7 +58,7 @@ struct pool_params
         // From the total connections, how many of these should be used for
         // multiplexing? I.e. for co_connection_pool::exec()
         std::size_t size{2u};
-    } multiplexed;
+    } multiplexed{};
 
     // Timeout for connection establishment (physical connect, TLS handshake, PostgreSQL session setup).
     // Set it to zero to disable the timeout.
@@ -90,7 +90,7 @@ class pooled_connection
 
     explicit pooled_connection(detail::pool_node& node) noexcept : node_(&node) {}
 
-    friend class detail::co_connection_pool_impl;
+    friend class detail::dedicated_pool;
 
 public:
     // Constructs an empty object, wrapping no connection
@@ -195,7 +195,8 @@ public:
 //
 class co_connection_pool
 {
-    std::unique_ptr<detail::co_connection_pool_impl> impl_;
+    struct impl;
+    std::unique_ptr<impl> impl_;
 
     co_connection_pool(boost::capy::execution_context& ctx, pool_params&& params, int);
 

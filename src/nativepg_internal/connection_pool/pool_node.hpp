@@ -357,6 +357,11 @@ public:
             //  - The connection breaks (we can detect this, in part, using receive())
             //  - There is no completions for Y time, indicating a broken connection
             // TODO: this is a simplistic implementation that takes only point 2 into account
+            // TODO: this is a problematic way of detecting errors:
+            //  - If a connection encounters an error with receive(), exec()
+            //    fails with capy::error::cancelled, without the user cancelling anything.
+            //  - We're missing opportunities. If a request hasn't been written or read at all,
+            //    it can always be safely retried.
             while (true)
             {
                 // If we happen to receive any notifications, discard them

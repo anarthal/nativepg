@@ -34,8 +34,8 @@ class multiplexed_pool
         cancelled,
     };
 
-    boost::capy::execution_context& ctx_;  // TODO: duplicate
-    const pool_params& params_;            // TODO: duplicate
+    boost::capy::execution_context& ctx_;
+    const pool_params& params_;
     state_t state_{state_t::initial};
     std::vector<multiplexed_pool_node> all_nodes_;
     multiplexed_shared_state shared_st_;

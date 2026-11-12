@@ -28,7 +28,6 @@
 #include <stop_token>
 
 #include "nativepg/co_connection_pool.hpp"
-#include "nativepg_internal/connection_pool/check_pool_params.hpp"
 #include "nativepg_internal/connection_pool/pool_node.hpp"
 #include "nativepg_internal/op_counter.hpp"
 
@@ -79,7 +78,7 @@ class dedicated_pool
     };
 
     boost::capy::execution_context& ctx_;
-    pool_params params_;
+    const pool_params& params_;
     state_t state_{state_t::initial};
     std::list<pool_node> all_conns_;
     pool_shared_state shared_st_;
@@ -166,14 +165,10 @@ class dedicated_pool
     }
 
 public:
-    dedicated_pool(boost::capy::execution_context& ctx, pool_params&& params)
-        : ctx_(ctx), params_(std::move(params))
+    dedicated_pool(boost::capy::execution_context& ctx, const pool_params* params)
+        : ctx_(ctx), params_(*params)
     {
-        check_pool_params(params_);
     }
-
-    // TODO: I don't like this
-    const pool_params& get_params() const { return params_; }
 
     boost::capy::task<boost::capy::results<>> run()
     {

@@ -14,6 +14,7 @@
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_connection_pool.hpp"
+#include "nativepg_internal/connection_pool/check_pool_params.hpp"
 #include "nativepg_internal/connection_pool/dedicated_pool.hpp"
 #include "nativepg_internal/connection_pool/multiplexed_pool.hpp"
 #include "nativepg_internal/connection_pool/pool_node.hpp"
@@ -22,11 +23,19 @@ using namespace nativepg;
 
 struct nativepg::co_connection_pool::impl
 {
+    pool_params params;
     detail::dedicated_pool dedicated;
     detail::multiplexed_pool multiplexed;
 
-    impl(boost::capy::execution_context& ctx, pool_params&& params)
-        : dedicated(ctx, std::move(params)), multiplexed(ctx, &dedicated.get_params())
+    // Checks the params before the other constructors run
+    static pool_params check_and_return(pool_params&& params)
+    {
+        detail::check_pool_params(params);
+        return std::move(params);
+    }
+
+    impl(boost::capy::execution_context& ctx, pool_params&& in_params)
+        : params(check_and_return(std::move(in_params))), dedicated(ctx, &params), multiplexed(ctx, &params)
     {
     }
 

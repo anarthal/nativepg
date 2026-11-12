@@ -146,10 +146,9 @@ capy::task<std::int32_t> pool_backend_pid(
     co_return ints[0].value;
 }
 
-// --- Tests ---
-
-// TODO: no diag
-// TODO: type erased version
+//
+// Basic API, success cases
+//
 
 // exec() works in the sunny-day case
 capy::task<> test_success()
@@ -196,6 +195,53 @@ capy::task<> test_success_without_diagnostics()
         co_await check_pool_usable(pool);
     }());
 }
+
+// The type-erased version works
+capy::task<> test_success_type_erased()
+{
+    co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params()};
+
+    co_await with_pool_running(pool, [&]() -> capy::task<> {
+        request req;
+        req.add_query("SELECT 42 AS value", 42);
+        std::vector<row_int> ints;
+        auto handler = into(ints);
+        diagnostics diag;
+
+        if (!check_success(co_await pool.exec(req, &handler, &diag), diag))
+            co_return;
+
+        test_range_eq(ints, std::vector<row_int>{{.value = 42}});
+
+        // Subsequent requests succeed, too
+        co_await check_pool_usable(pool);
+    }());
+}
+
+// The type-erased version without diagnostics works
+capy::task<> test_success_type_erased_without_diagnostics()
+{
+    co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params()};
+
+    co_await with_pool_running(pool, [&]() -> capy::task<> {
+        request req;
+        req.add_query("SELECT 42 AS value", 42);
+        std::vector<row_int> ints;
+        auto handler = into(ints);
+
+        if (!check_success(co_await pool.exec(req, &handler)))
+            co_return;
+
+        test_range_eq(ints, std::vector<row_int>{{.value = 42}});
+
+        // Subsequent requests succeed, too
+        co_await check_pool_usable(pool);
+    }());
+}
+
+//
+// Success cases, advanced scenarios
+//
 
 // Requests issued before run() starts wait for a connection, rather than failing
 capy::task<> test_exec_before_run()
@@ -571,6 +617,9 @@ int main()
 {
     run_coroutine_test(test_success());
     run_coroutine_test(test_success_without_diagnostics());
+    run_coroutine_test(test_success_type_erased());
+    run_coroutine_test(test_success_type_erased_without_diagnostics());
+
     run_coroutine_test(test_exec_before_run());
     run_coroutine_test(test_exec_waits_for_healthy_connection());
     run_coroutine_test(test_parallel_execs_single_connection());

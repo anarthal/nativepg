@@ -408,6 +408,15 @@ capy::task<> test_connection_recovery()
         auto [ec] = co_await pool.exec(req_break, check());
         BOOST_TEST_NE(ec, std::error_code());
 
+        // Give the pool time to recover.
+        // TODO: this should NOT be required.
+        // This is currently required because a request that hasn't started executing
+        // is currently indistinguishable from one that is in the middle of being executed, with
+        // leftovers.
+        request req_temp;
+        req_temp.add_query("SELECT 1");
+        static_cast<void>(co_await pool.exec(req_temp, check()));
+
         // Issue a request to obtain the PID. This will wait until a new session
         // has been established
         const auto new_pid = co_await pool_backend_pid(pool);

@@ -9,6 +9,7 @@
 #define NATIVEPG_MULTIPLEXED_POOL_HPP
 
 #include <boost/assert.hpp>
+#include <boost/capy/error.hpp>
 #include <boost/capy/ex/execution_context.hpp>
 #include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
@@ -67,7 +68,9 @@ class multiplexed_pool
             if (!shared_st_.healthy_nodes.empty())
                 co_return {std::error_code(), &shared_st_.healthy_nodes.front()};
 
-            // No luck, wait until one becomes available
+            // No luck, wait until one becomes available, or the pool is cancelled
+            if (state_ == state_t::cancelled)
+                co_return {boost::capy::error::canceled, nullptr};
             shared_st_.healthy_nodes_ev.clear();  // TODO: this shouldn't be necessary, just in case
             if (auto [ec] = co_await shared_st_.healthy_nodes_ev.wait(); ec)
                 co_return {ec, nullptr};
@@ -93,7 +96,14 @@ public:
         create_nodes();
 
         // Run the nodes until we got cancelled
-        co_return co_await boost::capy::when_all(make_node_tasks());
+        auto [ec] = co_await boost::capy::when_all(make_node_tasks());
+
+        // Set the pool status, so further requests aren't accepted
+        state_ = state_t::cancelled;
+
+        // TODO: what happens if the number of connections is 0?
+
+        co_return {ec};
     }
 
     boost::capy::task<boost::capy::results<>> exec(

@@ -177,6 +177,26 @@ capy::task<> test_success()
     }());
 }
 
+// The version without diagnostics works
+capy::task<> test_success_without_diagnostics()
+{
+    co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params()};
+
+    co_await with_pool_running(pool, [&]() -> capy::task<> {
+        request req;
+        req.add_query("SELECT 42 AS value", 42);
+        std::vector<row_int> ints;
+
+        if (!check_success(co_await pool.exec(req, into(ints))))
+            co_return;
+
+        test_range_eq(ints, std::vector<row_int>{{.value = 42}});
+
+        // Subsequent requests succeed, too
+        co_await check_pool_usable(pool);
+    }());
+}
+
 // Requests issued before run() starts wait for a connection, rather than failing
 capy::task<> test_exec_before_run()
 {
@@ -550,6 +570,7 @@ capy::task<> test_exec_during_run_cancel()
 int main()
 {
     run_coroutine_test(test_success());
+    run_coroutine_test(test_success_without_diagnostics());
     run_coroutine_test(test_exec_before_run());
     run_coroutine_test(test_exec_waits_for_healthy_connection());
     run_coroutine_test(test_parallel_execs_single_connection());

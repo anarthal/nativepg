@@ -36,18 +36,18 @@
 
 namespace nativepg::detail {
 
-class pool_node;
+class dedicated_pool_node;
 
 // The hook used by pool_node for Boost.Intrusive compatibility
 using pool_node_hook = boost::intrusive::list_base_hook<>;
 
 // State shared between pool tasks
 // TODO: logging
-struct pool_shared_state
+struct dedicated_pool_shared_state
 {
     // The list of connections that are currently idle. Non-owning.
     // Using base_hook explicitly is required because pool_node is incomplete
-    boost::intrusive::list<pool_node, boost::intrusive::base_hook<pool_node_hook>> idle_list;
+    boost::intrusive::list<dedicated_pool_node, boost::intrusive::base_hook<pool_node_hook>> idle_list;
 
     // Condition variable to wait for idle connections
     boost::capy::async_condition idle_connections_cv;
@@ -58,12 +58,11 @@ struct pool_shared_state
 };
 
 // TODO: recover thread-safety tests
-// TODO: rename to exclusive_pool_node?
-class pool_node : public pool_node_hook
+class dedicated_pool_node : public pool_node_hook
 {
     const pool_params* params_;
     request ping_req_;
-    pool_shared_state* shared_st_;
+    dedicated_pool_shared_state* shared_st_;
     co_connection conn_;
     check check_handler;
 
@@ -174,7 +173,11 @@ class pool_node : public pool_node_hook
     }
 
 public:
-    pool_node(boost::capy::execution_context& ctx, const pool_params* params, pool_shared_state& shared_st)
+    dedicated_pool_node(
+        boost::capy::execution_context& ctx,
+        const pool_params* params,
+        dedicated_pool_shared_state& shared_st
+    )
         : params_(params), shared_st_(&shared_st), conn_(ctx)
     {
         // There is no explicit PING command, but sending a sync will cause
@@ -205,8 +208,8 @@ public:
         // Otherwise, safe_link mode may trigger an assert on pool destruction.
         struct idle_guard_t
         {
-            pool_node& self;
-            idle_guard_t(pool_node& self) noexcept : self(self) {}
+            dedicated_pool_node& self;
+            idle_guard_t(dedicated_pool_node& self) noexcept : self(self) {}
             ~idle_guard_t()
             {
                 if (self.is_idle())
@@ -290,7 +293,7 @@ public:
 // TODO: move
 class multiplexed_pool_node;
 
-struct multiplexed_shared_state
+struct multiplexed_pool_shared_state
 {
     // TODO: sort this by busy-ness
     boost::intrusive::list<multiplexed_pool_node, boost::intrusive::base_hook<pool_node_hook>> healthy_nodes;
@@ -301,7 +304,7 @@ class multiplexed_pool_node : public pool_node_hook
 {
     const pool_params* params_;
     co_connection conn_;
-    multiplexed_shared_state* st_;
+    multiplexed_pool_shared_state* st_;
 
     // TODO: duplicated
     auto do_connect()
@@ -313,7 +316,7 @@ public:
     multiplexed_pool_node(
         boost::capy::execution_context& ctx,
         const pool_params* params,
-        multiplexed_shared_state& st
+        multiplexed_pool_shared_state& st
     )
         : params_(params), conn_(ctx), st_(&st)
     {

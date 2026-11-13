@@ -31,7 +31,7 @@ class multiplexed_pool
     const pool_params& params_;
     pool_status status_{pool_status::initial};
     std::vector<multiplexed_pool_node> all_nodes_;
-    multiplexed_shared_state shared_st_;
+    multiplexed_pool_shared_state shared_st_;
     boost::capy::async_event connections_needed_;
 
     void create_nodes()

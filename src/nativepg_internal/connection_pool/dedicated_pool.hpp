@@ -73,8 +73,8 @@ class dedicated_pool
     boost::capy::execution_context& ctx_;
     const pool_params& params_;
     pool_status status_{pool_status::initial};
-    std::list<pool_node> all_conns_;
-    pool_shared_state shared_st_;
+    std::list<dedicated_pool_node> all_conns_;
+    dedicated_pool_shared_state shared_st_;
     boost::capy::async_event cancel_ev_;
     boost::capy::async_event connections_needed_;
     op_counter running_connections_counter_;
@@ -83,7 +83,7 @@ class dedicated_pool
     // Required to compute how many connections we should create at any given point in time.
     std::size_t num_pending_requests_{0};
 
-    boost::capy::task<> run_one(pool_node& node, op_counter::guard)
+    boost::capy::task<> run_one(dedicated_pool_node& node, op_counter::guard)
     {
         static_cast<void>(co_await boost::capy::when_any(node.run(), cancel_ev_.wait()));
     }
@@ -142,7 +142,7 @@ class dedicated_pool
         --num_pending_requests_;
     }
 
-    pool_node* try_get_connection()
+    dedicated_pool_node* try_get_connection()
     {
         if (!shared_st_.idle_list.empty())
         {

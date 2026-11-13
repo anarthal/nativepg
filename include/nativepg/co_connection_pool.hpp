@@ -28,9 +28,9 @@
 namespace nativepg {
 
 namespace detail {
-class pool_node;
-void return_connection(pool_node&, bool should_reset);
-co_connection& get_connection(pool_node&);
+class dedicated_pool_node;
+void return_connection(dedicated_pool_node&, bool should_reset);
+co_connection& get_connection(dedicated_pool_node&);
 class dedicated_pool;  // TODO: I don't like this
 }  // namespace detail
 
@@ -103,12 +103,12 @@ class pooled_connection
 {
     struct deleter
     {
-        void operator()(detail::pool_node* p) const { detail::return_connection(*p, true); }
+        void operator()(detail::dedicated_pool_node* p) const { detail::return_connection(*p, true); }
     };
 
-    std::unique_ptr<detail::pool_node, deleter> node_;
+    std::unique_ptr<detail::dedicated_pool_node, deleter> node_;
 
-    explicit pooled_connection(detail::pool_node& node) noexcept : node_(&node) {}
+    explicit pooled_connection(detail::dedicated_pool_node& node) noexcept : node_(&node) {}
 
     friend class detail::dedicated_pool;
 

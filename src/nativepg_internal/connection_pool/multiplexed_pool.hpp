@@ -8,6 +8,7 @@
 #ifndef NATIVEPG_MULTIPLEXED_POOL_HPP
 #define NATIVEPG_MULTIPLEXED_POOL_HPP
 
+#include <boost/assert.hpp>
 #include <boost/capy/error.hpp>
 #include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/execution_context.hpp>
@@ -18,7 +19,9 @@
 #include <boost/corosio/delay.hpp>
 
 #include <cstddef>
+#include <limits>
 #include <system_error>
+#include <vector>
 
 #include "nativepg/capy-stub/ex/async_condition.hpp"
 #include "nativepg/co_connection.hpp"
@@ -31,8 +34,6 @@
 #include "nativepg_internal/connection_pool/run_with_timeout.hpp"
 
 namespace nativepg::detail {
-
-class multiplexed_pool_node;
 
 struct multiplexed_pool_shared_state
 {
@@ -101,6 +102,8 @@ public:
                 if (auto [ec] = co_await conn_.receive(notifs); ec)
                     break;
             }
+
+            // TODO: should we sleep here to prevent spinning?
         }
 
         co_return {};
@@ -176,13 +179,15 @@ class multiplexed_pool
     {
         while (true)
         {
+            // Check for cancellations
+            if (status_ == pool_status::cancelled)
+                co_return {boost::capy::error::canceled, nullptr};
+
             // Try to get a healthy node
             if (auto* node = find_least_loaded_node())
                 co_return {std::error_code(), node};
 
             // No luck, wait until one becomes available, or the pool is cancelled
-            if (status_ == pool_status::cancelled)
-                co_return {boost::capy::error::canceled, nullptr};
             if (auto [ec] = co_await shared_st_.healthy_nodes_cv.wait(); ec)
                 co_return {ec, nullptr};
         }
@@ -249,7 +254,7 @@ public:
 
         // Execute the request on the connection we just got
         BOOST_ASSERT(node != nullptr);
-        co_return co_await node->connection().exec(req, handler, diag);
+        co_return co_await node->exec(req, handler, diag);
     }
 };
 

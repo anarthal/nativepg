@@ -8,22 +8,112 @@
 #ifndef NATIVEPG_MULTIPLEXED_POOL_HPP
 #define NATIVEPG_MULTIPLEXED_POOL_HPP
 
-#include <boost/assert.hpp>
 #include <boost/capy/error.hpp>
+#include <boost/capy/ex/async_event.hpp>
 #include <boost/capy/ex/execution_context.hpp>
+#include <boost/capy/ex/this_coro.hpp>
 #include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
+#include <boost/corosio/delay.hpp>
+#include <boost/intrusive/list.hpp>
+#include <boost/intrusive/list_hook.hpp>
+#include <boost/intrusive/options.hpp>
 
-#include <cstddef>
 #include <system_error>
-#include <vector>
 
+#include "nativepg/co_connection.hpp"
 #include "nativepg/co_connection_pool.hpp"
-#include "nativepg_internal/connection_pool/pool_node.hpp"
+#include "nativepg/extended_error.hpp"
+#include "nativepg/notification_vector.hpp"
+#include "nativepg/request.hpp"
+#include "nativepg/responses/response_handler.hpp"
 #include "nativepg_internal/connection_pool/pool_status.hpp"
+#include "nativepg_internal/connection_pool/run_with_timeout.hpp"
 
 namespace nativepg::detail {
+
+class multiplexed_pool_node;
+
+struct multiplexed_pool_shared_state
+{
+    // TODO: sort this by busy-ness
+    boost::intrusive::
+        list<multiplexed_pool_node, boost::intrusive::base_hook<boost::intrusive::list_base_hook<>>>
+            healthy_nodes;
+    boost::capy::async_event healthy_nodes_ev;
+};
+
+class multiplexed_pool_node : public boost::intrusive::list_base_hook<>
+{
+    const pool_params* params_;
+    co_connection conn_;
+    multiplexed_pool_shared_state* st_;
+
+    // TODO: duplicated
+    auto do_connect()
+    {
+        return run_with_timeout(conn_.connect(params_->transport), params_->connect_timeout);
+    }
+
+public:
+    multiplexed_pool_node(
+        boost::capy::execution_context& ctx,
+        const pool_params* params,
+        multiplexed_pool_shared_state& st
+    )
+        : params_(params), conn_(ctx), st_(&st)
+    {
+    }
+
+    co_connection& connection() { return conn_; }
+
+    boost::capy::task<boost::capy::results<>> run()
+    {
+        const auto tok = co_await boost::capy::this_coro::stop_token;
+        notification_vector notifs;
+
+        while (!tok.stop_requested())
+        {
+            // Try to connect
+            if (auto [ec] = co_await do_connect(); ec)
+            {
+                // If we failed, sleep and try again
+                static_cast<void>(co_await boost::corosio::delay(params_->retry_interval));
+                continue;
+            }
+
+            // We've succeeded. Notify tasks that they've got a healthy connection
+            st_->healthy_nodes.push_back(*this);
+            st_->healthy_nodes_ev.set();
+
+            // Now wait until
+            //  - It is time to ping (either because of inactivity or because it's been X time since the last
+            //  cleanup)
+            //  - The connection breaks (we can detect this, in part, using receive())
+            //  - There is no completions for Y time, indicating a broken connection
+            // TODO: this is a simplistic implementation that takes only point 2 into account
+            // TODO: this is a problematic way of detecting errors:
+            //  - If a connection encounters an error with receive(), exec()
+            //    fails with capy::error::cancelled, without the user cancelling anything.
+            //  - We're missing opportunities. If a request hasn't been written or read at all,
+            //    it can always be safely retried.
+            while (true)
+            {
+                // If we happen to receive any notifications, discard them
+                if (auto [ec] = co_await conn_.receive(notifs); ec)
+                    break;
+            }
+
+            // We are no longer healthy. TODO: RAII
+            st_->healthy_nodes.erase(st_->healthy_nodes.iterator_to(*this));
+            if (st_->healthy_nodes.empty())
+                st_->healthy_nodes_ev.clear();
+        }
+
+        co_return {};
+    }
+};
 
 class multiplexed_pool
 {

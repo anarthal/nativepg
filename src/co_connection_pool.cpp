@@ -17,7 +17,6 @@
 #include "nativepg_internal/connection_pool/check_pool_params.hpp"
 #include "nativepg_internal/connection_pool/dedicated_pool.hpp"
 #include "nativepg_internal/connection_pool/multiplexed_pool.hpp"
-#include "nativepg_internal/connection_pool/pool_node.hpp"
 
 using namespace nativepg;
 

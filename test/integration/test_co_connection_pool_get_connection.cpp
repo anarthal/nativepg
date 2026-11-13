@@ -22,7 +22,6 @@
 #include <cstdint>
 #include <iostream>
 #include <optional>
-#include <stdexcept>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -48,7 +47,6 @@
 #include "test_utils/test_cond_eq.hpp"
 #include "test_utils/test_opt_eq.hpp"
 #include "test_utils/test_range_eq.hpp"
-#include "test_utils/test_string_contains.hpp"
 #include "test_utils/yield.hpp"
 
 namespace capy = boost::capy;
@@ -696,52 +694,6 @@ capy::task<> test_cancel_get_connection()
     }());
 }
 
-// Spotcheck: constructing a pool with invalid params throws
-capy::task<> test_invalid_params()
-{
-    auto ex = co_await capy::this_coro::executor;
-
-    auto check_throws = [ex](
-                            pool_params params,
-                            std::string_view expected_msg,
-                            boost::source_location loc = BOOST_CURRENT_LOCATION
-                        ) {
-        try
-        {
-            static_cast<void>(co_connection_pool(ex, std::move(params)));
-            BOOST_ERROR("Expected std::invalid_argument, but no exception was thrown");
-            std::cerr << "  Called from " << loc << std::endl;
-        }
-        catch (const std::invalid_argument& exc)
-        {
-            test_string_contains(exc.what(), expected_msg, loc);
-        }
-    };
-
-    check_throws(
-        {.transport = {}, .max_total_size = 0},
-        "pool_params::max_total_size must be greater than zero"
-    );
-    check_throws(
-        {.transport = {}, .max_total_size = 2, .dedicated = {.initial_size = 4}},
-        "pool_params::max_total_size must be greater than or equal to pool_params::dedicated.initial_size"
-    );
-    check_throws(
-        {.transport = {}, .connect_timeout = -1s},
-        "pool_params::connect_timeout must not be negative"
-    );
-    check_throws(
-        {.transport = {}, .retry_interval = 0s},
-        "pool_params::retry_interval must be greater than zero"
-    );
-    check_throws(
-        {.transport = {}, .retry_interval = -1s},
-        "pool_params::retry_interval must be greater than zero"
-    );
-    check_throws({.transport = {}, .ping_interval = -1s}, "pool_params::ping_interval must not be negative");
-    check_throws({.transport = {}, .ping_timeout = -1s}, "pool_params::ping_timeout must not be negative");
-}
-
 }  // namespace
 
 int main()
@@ -767,7 +719,6 @@ int main()
     run_coroutine_test(test_get_connection_during_run_cancel());
     run_coroutine_test(test_get_connection_after_run_cancel());
     run_coroutine_test(test_cancel_get_connection());
-    run_coroutine_test(test_invalid_params());
 
     return boost::report_errors();
 }

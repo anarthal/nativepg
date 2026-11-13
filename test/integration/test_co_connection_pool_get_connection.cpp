@@ -57,11 +57,11 @@ using namespace std::chrono_literals;
 
 namespace {
 
-pool_params create_pool_params(std::size_t max_total_size = 151)
+pool_params create_pool_params(std::size_t max_size = 151)
 {
     return {
         .transport = default_connect_params(),
-        .max_total_size = max_total_size,
+        .dedicated = {.max_size = max_size},
     };
 }
 
@@ -133,7 +133,7 @@ capy::task<> test_return_with_reset()
 // pooled_connection's destructor requests a reset
 capy::task<> test_pooled_connection_destructor()
 {
-    // max_total_size is 1, so the pool can only ever hand us the same connection
+    // dedicated.max_size is 1, so the pool can only ever hand us the same connection
     co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params(1)};
 
     co_await with_pool_running(pool, [&]() -> capy::task<> {
@@ -166,7 +166,7 @@ capy::task<> test_pooled_connection_destructor()
 // If we ask for reset not to happen, and we don't break anything, no reset happens
 capy::task<> test_return_without_reset()
 {
-    // max_total_size is 1, so the pool can only ever hand us the same connection
+    // dedicated.max_size is 1, so the pool can only ever hand us the same connection
     co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params(1)};
 
     co_await with_pool_running(pool, [&]() -> capy::task<> {
@@ -533,7 +533,7 @@ capy::task<> test_connections_created_if_requests_gt_pending()
     }());
 }
 
-// The pool never creates more than max_total_size connections
+// The pool never creates more than dedicated.max_size connections
 capy::task<> test_connection_upper_limit()
 {
     co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params(1)};
@@ -583,7 +583,7 @@ capy::task<> test_get_connection_before_run()
 // relevant timer rather than expiring immediately
 capy::task<> test_zero_timeouts()
 {
-    auto params = create_pool_params(1);  // max_total_size 1
+    auto params = create_pool_params(1);  // dedicated.max_size 1
     params.connect_timeout = 0s;
     params.ping_timeout = 0s;
     params.ping_interval = 0s;

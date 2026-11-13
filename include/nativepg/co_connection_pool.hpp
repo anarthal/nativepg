@@ -41,7 +41,21 @@ struct dedicated_pool_params
     // The initial number of dedicated connections.
     // When run() is called, this number of connections will be initially created.
     // (Think of this as the minimum number of dedicated connections that a pool may have).
-    std::size_t initial_size{1};
+    // Must be less than or equal to max_size.
+    // By default, connections are created on demand.
+    std::size_t initial_size{0};
+
+    // The maximum number of dedicated connections. If a connection is requested, but none are
+    // available, a new connection will be established, up to this size.
+    // Multiplexed connections don't count towards this limit.
+    // You should choose this value according to your server's max_connections setting.
+    // The total number of connections that may be established to this server
+    // (including dedicated ones, multiplexed ones, and connections established by other applications)
+    // should be <= the configured limit. Defaults to 1/2 Postgre's default.
+    // If you are running several instances of your application against the same server,
+    // you should reduce this value.
+    // Must be greater than zero.
+    std::size_t max_size{50};
 };
 
 // Configuration for the multiplexed connections of the pool.
@@ -49,7 +63,8 @@ struct dedicated_pool_params
 struct multiplexed_pool_params
 {
     // Number of connections to create for multiplexing
-    // (i.e. for co_connection_pool::exec())
+    // (i.e. for co_connection_pool::exec()).
+    // Must be greater than zero.
     std::size_t size{2u};
 };
 
@@ -58,14 +73,6 @@ struct pool_params
 {
     // How to reach the server
     connect_params transport;
-
-    // The maximum number of connections. If a connection is requested, but none are available,
-    // a new connection will be established, up to this size.
-    // This value defaults to postgres' default max_connections.
-    // Note that max_connections is a server-wide setting. If your are running
-    // several instances of the same application, or different applications, against the same server
-    // instance, you probably want to lower this limit.
-    std::size_t max_total_size{100};
 
     // Configuration for the dedicated connections
     dedicated_pool_params dedicated{};
@@ -152,7 +159,7 @@ public:
 //   When a connection is requested by get_connection(), and no
 //   connection is available or in the process of being established,
 //   run() creates a new connection.
-//   This happens until pool_params::max_total_size connections are created.
+//   This happens until pool_params::dedicated.max_size connections are created.
 //   Further requests wait until a connection is returned to the pool.
 //   Connections are created using the execution_context passed to the pool's constructor.
 // Connection retrieval: you get a connection calling get_connection.

@@ -36,17 +36,15 @@ namespace nativepg::detail {
 
 // Given config params and the current state, computes the number
 // of connections that the pool should create at any given point in time
-// TODO: this should be passed max_total_size - multiplexed.size
 inline std::size_t num_connections_to_create(
-    std::size_t initial_size,         // config
-    std::size_t max_size,             // config
+    const dedicated_pool_params& params,
     std::size_t current_connections,  // the number of connections in the pool, in any state
     std::size_t in_use_connections,   // the number of connections in the pool handed to the user
     std::size_t pending_requests      // the current number of async_get_connection requests that are waiting
 )
 {
-    BOOST_ASSERT(initial_size <= max_size);
-    BOOST_ASSERT(current_connections <= max_size);
+    BOOST_ASSERT(params.initial_size <= params.max_size);
+    BOOST_ASSERT(current_connections <= params.max_size);
     BOOST_ASSERT(in_use_connections <= current_connections);
 
     // Number of connections that are getting ready (in the process of being connected, reset, ...)
@@ -60,12 +58,12 @@ inline std::size_t num_connections_to_create(
 
     // We should always have at least min_connections.
     // This might not be the case if the pool is just starting.
-    std::size_t required_by_min = current_connections < initial_size
-                                      ? static_cast<std::size_t>(initial_size - current_connections)
+    std::size_t required_by_min = current_connections < params.initial_size
+                                      ? static_cast<std::size_t>(params.initial_size - current_connections)
                                       : 0u;
 
     // We can't excess max_connections. This is the room for new connections that we have
-    std::size_t room = static_cast<std::size_t>(max_size - current_connections);
+    std::size_t room = static_cast<std::size_t>(params.max_size - current_connections);
 
     return (std::min)((std::max)(required_by_requests, required_by_min), room);
 }
@@ -114,15 +112,14 @@ class dedicated_pool
     {
         // Calculate how many we should create
         std::size_t n = num_connections_to_create(
-            params_.dedicated.initial_size,
-            params_.max_total_size,
+            params_.dedicated,
             all_conns_.size(),
             shared_st_.num_in_use_connections,
             num_pending_requests_
         );
 
         // Create them
-        BOOST_ASSERT((all_conns_.size() + n) <= params_.max_total_size);
+        BOOST_ASSERT((all_conns_.size() + n) <= params_.dedicated.max_size);
         for (std::size_t i = 0; i < n; ++i)
             create_connection(env);
     }

@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <system_error>
 
+#include "nativepg/capy-stub/ex/async_condition.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/co_connection_pool.hpp"
 #include "nativepg/extended_error.hpp"
@@ -35,8 +36,7 @@ class multiplexed_pool_node;
 
 struct multiplexed_pool_shared_state
 {
-    std::size_t num_healthy{};
-    boost::capy::async_event healthy_nodes_ev;
+    boost::capy::async_condition healthy_nodes_cv;
 };
 
 class multiplexed_pool_node
@@ -82,8 +82,7 @@ public:
             }
 
             // We've succeeded. Notify tasks that they've got a healthy connection
-            ++st_->num_healthy;
-            st_->healthy_nodes_ev.set();
+            st_->healthy_nodes_cv.notify_all();
 
             // Now wait until
             //  - It is time to ping (either because of inactivity or because it's been X time since the last
@@ -102,10 +101,6 @@ public:
                 if (auto [ec] = co_await conn_.receive(notifs); ec)
                     break;
             }
-
-            // We are no longer healthy. TODO: RAII
-            if (--st_->num_healthy)
-                st_->healthy_nodes_ev.clear();
         }
 
         co_return {};
@@ -188,7 +183,7 @@ class multiplexed_pool
             // No luck, wait until one becomes available, or the pool is cancelled
             if (status_ == pool_status::cancelled)
                 co_return {boost::capy::error::canceled, nullptr};
-            if (auto [ec] = co_await shared_st_.healthy_nodes_ev.wait(); ec)
+            if (auto [ec] = co_await shared_st_.healthy_nodes_cv.wait(); ec)
                 co_return {ec, nullptr};
         }
     }
@@ -227,8 +222,9 @@ public:
         // Set the pool status, so further requests aren't accepted.
         // Unblock any exec()'s waiting for nodes to become healthy
         // TODO: this probably should be RAII
+        // TODO: I'd prefer if the status check was encapsulated, this is prone to race conditions
         status_ = pool_status::cancelled;
-        shared_st_.healthy_nodes_ev.set();
+        shared_st_.healthy_nodes_cv.notify_all();
 
         co_return {ec};
     }

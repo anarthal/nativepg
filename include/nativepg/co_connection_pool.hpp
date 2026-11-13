@@ -34,31 +34,41 @@ co_connection& get_connection(pool_node&);
 class dedicated_pool;  // TODO: I don't like this
 }  // namespace detail
 
+// Configuration for the dedicated connections of the pool.
+// I.e. the ones handed out by co_connection_pool::get_connection()
+struct dedicated_pool_params
+{
+    // The initial number of dedicated connections.
+    // When run() is called, this number of connections will be initially created.
+    // (Think of this as the minimum number of dedicated connections that a pool may have).
+    std::size_t initial_size{1};
+};
+
+// Configuration for the multiplexed connections of the pool.
+// I.e. the ones used by co_connection_pool::exec()
+struct multiplexed_pool_params
+{
+    // Number of connections to create for multiplexing
+    // (i.e. for co_connection_pool::exec())
+    std::size_t size{2u};
+};
+
 // Configuration for the pool
 struct pool_params
 {
     // How to reach the server
     connect_params transport;
 
-    // The initial number of dedicated connections.
-    // When run() is called, this number of connections will be initially created.
-    // (Think of this as the minimum number of connections that a pool may have).
-    // TODO: this should go into a dedicated_params struct
-    std::size_t initial_size{1};
-
     // The maximum number of connections. If a connection is requested, but none are available,
     // a new connection will be established, up to this size.
     // TODO: update this number, this is MySQL's default.
-    // TODO: rename to max_total_size
-    std::size_t max_size{151};
+    std::size_t max_total_size{151};
 
-    // TODO: is this OK inline?
-    struct multiplexed_params
-    {
-        // From the total connections, how many of these should be used for
-        // multiplexing? I.e. for co_connection_pool::exec()
-        std::size_t size{2u};
-    } multiplexed{};
+    // Configuration for the dedicated connections
+    dedicated_pool_params dedicated{};
+
+    // Configuration for the multiplexed connections
+    multiplexed_pool_params multiplexed{};
 
     // Timeout for connection establishment (physical connect, TLS handshake, PostgreSQL session setup).
     // Set it to zero to disable the timeout.
@@ -135,11 +145,11 @@ public:
 //   It establishes connections and keeps them healthy.
 //   It must be called exactly once per pool.
 // Connection creation: performed by run(). At first,
-//   pool_params::initial_size connections are created.
+//   pool_params::dedicated.initial_size connections are created.
 //   When a connection is requested by get_connection(), and no
 //   connection is available or in the process of being established,
 //   run() creates a new connection.
-//   This happens until pool_params::max_size connections are created.
+//   This happens until pool_params::max_total_size connections are created.
 //   Further requests wait until a connection is returned to the pool.
 //   Connections are created using the execution_context passed to the pool's constructor.
 // Connection retrieval: you get a connection calling get_connection.

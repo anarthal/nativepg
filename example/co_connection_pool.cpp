@@ -197,7 +197,7 @@ int main(int argc, char** argv)
             .password = password,
             .database = "postgres",
         },
-        .initial_size = 0u,
+        .dedicated = {.initial_size = 0u},
     });
     // clang-format on
 

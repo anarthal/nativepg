@@ -97,6 +97,7 @@ public:
         create_nodes();
 
         // Run the nodes until we got cancelled
+        BOOST_ASSERT(!all_nodes_.empty());  // guaranteed by param checking
         auto [ec] = co_await boost::capy::when_all(make_node_tasks());
 
         // Set the pool status, so further requests aren't accepted.
@@ -104,8 +105,6 @@ public:
         // TODO: this probably should be RAII
         status_ = pool_status::cancelled;
         shared_st_.healthy_nodes_ev.set();
-
-        // TODO: what happens if the number of connections is 0?
 
         co_return {ec};
     }

@@ -36,7 +36,6 @@ namespace nativepg::detail {
 
 // Given config params and the current state, computes the number
 // of connections that the pool should create at any given point in time
-// TODO: this should be passed max_total_size - multiplexed.size
 inline std::size_t num_connections_to_create(
     std::size_t initial_size,         // config
     std::size_t max_size,             // config
@@ -115,14 +114,14 @@ class dedicated_pool
         // Calculate how many we should create
         std::size_t n = num_connections_to_create(
             params_.dedicated.initial_size,
-            params_.max_total_size,
+            params_.dedicated.max_size,
             all_conns_.size(),
             shared_st_.num_in_use_connections,
             num_pending_requests_
         );
 
         // Create them
-        BOOST_ASSERT((all_conns_.size() + n) <= params_.max_total_size);
+        BOOST_ASSERT((all_conns_.size() + n) <= params_.dedicated.max_size);
         for (std::size_t i = 0; i < n; ++i)
             create_connection(env);
     }

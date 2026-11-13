@@ -71,12 +71,11 @@ BOOST_DESCRIBE_STRUCT(row_string, (), (value))
 using boost::describe::operators::operator==;
 using boost::describe::operators::operator<<;
 
-pool_params create_pool_params(std::size_t multiplexed_size = 2, std::size_t max_total_size = 151)
+pool_params create_pool_params(std::size_t multiplexed_size = 2, std::size_t dedicated_max_size = 151)
 {
     return {
         .transport = default_connect_params(),
-        .max_total_size = max_total_size,
-        .dedicated = {.initial_size = 0u},
+        .dedicated = {.initial_size = 0u, .max_size = dedicated_max_size},
         .multiplexed = {.size = multiplexed_size},
     };
 }

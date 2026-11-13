@@ -47,12 +47,16 @@ void check_throws(
 void test_invalid_params()
 {
     check_throws(
-        {.transport = {}, .max_total_size = 0},
-        "pool_params::max_total_size must be greater than zero"
+        {.transport = {}, .dedicated = {.max_size = 0}},
+        "pool_params::dedicated.max_size must be greater than zero"
     );
     check_throws(
-        {.transport = {}, .max_total_size = 2, .dedicated = {.initial_size = 4}},
-        "pool_params::max_total_size must be greater than or equal to pool_params::dedicated.initial_size"
+        {.transport = {}, .dedicated = {.initial_size = 4, .max_size = 2}},
+        "pool_params::dedicated.max_size must be greater than or equal to pool_params::dedicated.initial_size"
+    );
+    check_throws(
+        {.transport = {}, .multiplexed = {.size = 0}},
+        "pool_params::multiplexed.size must be greater than zero"
     );
     check_throws(
         {.transport = {}, .connect_timeout = -1s},

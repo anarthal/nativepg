@@ -19,11 +19,13 @@ namespace nativepg::detail {
 inline void check_pool_params(const pool_params& params)
 {
     const char* msg = nullptr;
-    if (params.max_total_size == 0)
-        msg = "pool_params::max_total_size must be greater than zero";
-    else if (params.max_total_size < params.dedicated.initial_size)
-        msg = "pool_params::max_total_size must be greater than or equal to "
+    if (params.dedicated.max_size == 0)
+        msg = "pool_params::dedicated.max_size must be greater than zero";
+    else if (params.dedicated.max_size < params.dedicated.initial_size)
+        msg = "pool_params::dedicated.max_size must be greater than or equal to "
               "pool_params::dedicated.initial_size";
+    else if (params.multiplexed.size == 0)
+        msg = "pool_params::multiplexed.size must be greater than zero";
     else if (params.connect_timeout.count() < 0)
         msg = "pool_params::connect_timeout must not be negative";
     else if (params.retry_interval.count() <= 0)
@@ -32,7 +34,6 @@ inline void check_pool_params(const pool_params& params)
         msg = "pool_params::ping_interval must not be negative";
     else if (params.ping_timeout.count() < 0)
         msg = "pool_params::ping_timeout must not be negative";
-    // TODO: check multiplexed
 
     if (msg != nullptr)
     {

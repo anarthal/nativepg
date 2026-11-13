@@ -38,16 +38,15 @@ namespace nativepg::detail {
 
 class dedicated_pool_node;
 
-// The hook used by pool_node for Boost.Intrusive compatibility
-using pool_node_hook = boost::intrusive::list_base_hook<>;
-
 // State shared between pool tasks
 // TODO: logging
 struct dedicated_pool_shared_state
 {
     // The list of connections that are currently idle. Non-owning.
     // Using base_hook explicitly is required because pool_node is incomplete
-    boost::intrusive::list<dedicated_pool_node, boost::intrusive::base_hook<pool_node_hook>> idle_list;
+    boost::intrusive::
+        list<dedicated_pool_node, boost::intrusive::base_hook<boost::intrusive::list_base_hook<>>>
+            idle_list;
 
     // Condition variable to wait for idle connections
     boost::capy::async_condition idle_connections_cv;
@@ -58,7 +57,7 @@ struct dedicated_pool_shared_state
 };
 
 // TODO: recover thread-safety tests
-class dedicated_pool_node : public pool_node_hook
+class dedicated_pool_node : public boost::intrusive::list_base_hook<>
 {
     const pool_params* params_;
     request ping_req_;
@@ -296,11 +295,13 @@ class multiplexed_pool_node;
 struct multiplexed_pool_shared_state
 {
     // TODO: sort this by busy-ness
-    boost::intrusive::list<multiplexed_pool_node, boost::intrusive::base_hook<pool_node_hook>> healthy_nodes;
+    boost::intrusive::
+        list<multiplexed_pool_node, boost::intrusive::base_hook<boost::intrusive::list_base_hook<>>>
+            healthy_nodes;
     boost::capy::async_event healthy_nodes_ev;
 };
 
-class multiplexed_pool_node : public pool_node_hook
+class multiplexed_pool_node : public boost::intrusive::list_base_hook<>
 {
     const pool_params* params_;
     co_connection conn_;

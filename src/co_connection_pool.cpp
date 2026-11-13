@@ -17,7 +17,6 @@
 #include "nativepg_internal/connection_pool/check_pool_params.hpp"
 #include "nativepg_internal/connection_pool/dedicated_pool.hpp"
 #include "nativepg_internal/connection_pool/multiplexed_pool.hpp"
-#include "nativepg_internal/connection_pool/pool_node.hpp"
 
 using namespace nativepg;
 
@@ -71,7 +70,7 @@ boost::capy::task<boost::capy::results<>> co_connection_pool::exec(
     return impl_->multiplexed.exec(req, handler, diag);
 }
 
-void detail::return_connection(pool_node& node, bool should_reset)
+void detail::return_connection(dedicated_pool_node& node, bool should_reset)
 {
     // Reset any exec_state's still pointing into the connection.
     // This must be done here for thread-safety, because it writes into the exec_state's,
@@ -82,4 +81,4 @@ void detail::return_connection(pool_node& node, bool should_reset)
     node.mark_as_collectable(should_reset);
 }
 
-co_connection& detail::get_connection(pool_node& node) { return node.connection(); }
+co_connection& detail::get_connection(dedicated_pool_node& node) { return node.connection(); }

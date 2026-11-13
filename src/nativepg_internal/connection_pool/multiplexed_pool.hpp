@@ -16,10 +16,8 @@
 #include <boost/capy/task.hpp>
 #include <boost/capy/when_all.hpp>
 #include <boost/corosio/delay.hpp>
-#include <boost/intrusive/list.hpp>
-#include <boost/intrusive/list_hook.hpp>
-#include <boost/intrusive/options.hpp>
 
+#include <cstddef>
 #include <system_error>
 
 #include "nativepg/co_connection.hpp"
@@ -37,15 +35,13 @@ class multiplexed_pool_node;
 
 struct multiplexed_pool_shared_state
 {
-    // TODO: sort this by busy-ness
-    boost::intrusive::
-        list<multiplexed_pool_node, boost::intrusive::base_hook<boost::intrusive::list_base_hook<>>>
-            healthy_nodes;
+    std::size_t num_healthy{};
     boost::capy::async_event healthy_nodes_ev;
 };
 
-class multiplexed_pool_node : public boost::intrusive::list_base_hook<>
+class multiplexed_pool_node
 {
+    std::size_t in_flight_requests_{};
     const pool_params* params_;
     co_connection conn_;
     multiplexed_pool_shared_state* st_;
@@ -68,6 +64,8 @@ public:
 
     co_connection& connection() { return conn_; }
 
+    std::size_t in_flight_requests() const { return in_flight_requests_; }
+
     boost::capy::task<boost::capy::results<>> run()
     {
         const auto tok = co_await boost::capy::this_coro::stop_token;
@@ -84,7 +82,7 @@ public:
             }
 
             // We've succeeded. Notify tasks that they've got a healthy connection
-            st_->healthy_nodes.push_back(*this);
+            ++st_->num_healthy;
             st_->healthy_nodes_ev.set();
 
             // Now wait until
@@ -106,12 +104,33 @@ public:
             }
 
             // We are no longer healthy. TODO: RAII
-            st_->healthy_nodes.erase(st_->healthy_nodes.iterator_to(*this));
-            if (st_->healthy_nodes.empty())
+            if (--st_->num_healthy)
                 st_->healthy_nodes_ev.clear();
         }
 
         co_return {};
+    }
+
+    // TODO: I'd prefer if we can avoid some of these intermediate frames
+    boost::capy::task<boost::capy::results<>> exec(
+        const request& req,
+        response_handler_ref handler,
+        diagnostics* diag
+    )
+    {
+        // Mark the request in-flight
+        ++in_flight_requests_;
+        struct in_flight_guard
+        {
+            multiplexed_pool_node& self;
+            in_flight_guard(multiplexed_pool_node& obj) noexcept : self(obj) {}
+            in_flight_guard(in_flight_guard&&) = delete;
+            in_flight_guard& operator=(in_flight_guard&&) = delete;
+            ~in_flight_guard() { --self.in_flight_requests_; }
+        } guard{*this};
+
+        // Execute it
+        co_return co_await conn_.exec(req, handler, diag);
     }
 };
 
@@ -120,7 +139,7 @@ class multiplexed_pool
     boost::capy::execution_context& ctx_;
     const pool_params& params_;
     pool_status status_{pool_status::initial};
-    std::vector<multiplexed_pool_node> all_nodes_;
+    std::vector<multiplexed_pool_node> all_nodes_;  // code relies on this not re-allocating
     multiplexed_pool_shared_state shared_st_;
     boost::capy::async_event connections_needed_;
 
@@ -142,14 +161,29 @@ class multiplexed_pool
         return res;
     }
 
+    multiplexed_pool_node* find_least_loaded_node()
+    {
+        multiplexed_pool_node* res = nullptr;
+        std::size_t best_load = (std::numeric_limits<std::size_t>::max)();
+        for (auto& node : all_nodes_)
+        {
+            if (node.connection().is_connected() && node.in_flight_requests() < best_load)
+            {
+                res = &node;
+                best_load = node.in_flight_requests();
+            }
+        }
+        return res;
+    }
+
     // Waits until a connection becomes healthy
     boost::capy::task<boost::capy::results<multiplexed_pool_node*>> get_healthy_node()
     {
         while (true)
         {
             // Try to get a healthy node
-            if (!shared_st_.healthy_nodes.empty())
-                co_return {std::error_code(), &shared_st_.healthy_nodes.front()};
+            if (auto* node = find_least_loaded_node())
+                co_return {std::error_code(), node};
 
             // No luck, wait until one becomes available, or the pool is cancelled
             if (status_ == pool_status::cancelled)

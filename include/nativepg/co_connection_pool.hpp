@@ -15,20 +15,58 @@
 #include <boost/capy/task.hpp>
 
 #include <chrono>
+#include <cstddef>
 #include <memory>
 #include <utility>
 
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
+#include "nativepg/extended_error.hpp"
+#include "nativepg/request.hpp"
+#include "nativepg/responses/response_handler.hpp"
 
 namespace nativepg {
 
 namespace detail {
-class pool_node;
-class co_connection_pool_impl;
-void return_connection(pool_node&, bool should_reset);
-co_connection& get_connection(pool_node&);
+class dedicated_pool_node;
+void return_connection(dedicated_pool_node&, bool should_reset);
+co_connection& get_connection(dedicated_pool_node&);
+class dedicated_pool;  // TODO: I don't like this
 }  // namespace detail
+
+// Configuration for the dedicated connections of the pool.
+// I.e. the ones handed out by co_connection_pool::get_connection()
+struct dedicated_pool_params
+{
+    // The initial number of dedicated connections.
+    // When run() is called, this number of connections will be initially created.
+    // (Think of this as the minimum number of dedicated connections that a pool may have).
+    // Must be less than or equal to max_size.
+    // By default, connections are created on demand.
+    std::size_t initial_size{0};
+
+    // The maximum number of dedicated connections. If a connection is requested, but none are
+    // available, a new connection will be established, up to this size.
+    // Multiplexed connections don't count towards this limit.
+    // You should choose this value according to your server's max_connections setting.
+    // The total number of connections that may be established to this server
+    // (including dedicated ones, multiplexed ones, and connections established by other applications)
+    // should be <= the configured limit. Defaults to 1/2 Postgre's default.
+    // If you are running several instances of your application against the same server,
+    // you should reduce this value.
+    // Must be greater than zero.
+    std::size_t max_size{50};
+};
+
+// Configuration for the multiplexed connections of the pool.
+// I.e. the ones used by co_connection_pool::exec()
+struct multiplexed_pool_params
+{
+    // Number of connections to create for multiplexing
+    // (i.e. for co_connection_pool::exec()).
+    // Must be greater than zero.
+    std::size_t size{2u};
+};
 
 // Configuration for the pool
 struct pool_params
@@ -36,15 +74,11 @@ struct pool_params
     // How to reach the server
     connect_params transport;
 
-    // The initial number of dedicated connections.
-    // When run() is called, this number of connections will be initially created.
-    // (Think of this as the minimum number of connections that a pool may have).
-    std::size_t initial_size{1};
+    // Configuration for the dedicated connections
+    dedicated_pool_params dedicated{};
 
-    // The maximum number of connections. If a connection is requested, but none are available,
-    // a new connection will be established, up to this size.
-    // TODO: update this number, this is MySQL's default.
-    std::size_t max_size{151};
+    // Configuration for the multiplexed connections
+    multiplexed_pool_params multiplexed{};
 
     // Timeout for connection establishment (physical connect, TLS handshake, PostgreSQL session setup).
     // Set it to zero to disable the timeout.
@@ -69,14 +103,14 @@ class pooled_connection
 {
     struct deleter
     {
-        void operator()(detail::pool_node* p) const { detail::return_connection(*p, true); }
+        void operator()(detail::dedicated_pool_node* p) const { detail::return_connection(*p, true); }
     };
 
-    std::unique_ptr<detail::pool_node, deleter> node_;
+    std::unique_ptr<detail::dedicated_pool_node, deleter> node_;
 
-    explicit pooled_connection(detail::pool_node& node) noexcept : node_(&node) {}
+    explicit pooled_connection(detail::dedicated_pool_node& node) noexcept : node_(&node) {}
 
-    friend class detail::co_connection_pool_impl;
+    friend class detail::dedicated_pool;
 
 public:
     // Constructs an empty object, wrapping no connection
@@ -115,17 +149,29 @@ public:
     }
 };
 
-// A pool of dedicated connections.
+// A pool of connections. Pools offer two modes:
+//  - Dedicated connections: use get_connection(). Use them when
+//    you need exclusive access to a connection for a period of time.
+//    E.g. for explicit transaction blocks, queries that change session state,
+//    heavyweight queries, operations using exec_state, receive() or COPY.
+//  - Multiplexed connections: use exec(). Use them for lightweight queries
+//    that don't mutate session state. Several requests submitted through exec()
+//    may be executed concurrently over the same connection.
+//    E.g. for SELECT queries, or statements running in implicit transactions.
 //
 // Running the pool: for the pool to work you must call run().
 //   It establishes connections and keeps them healthy.
 //   It must be called exactly once per pool.
+//
+// Dedicated connections
+// =====================
+//
 // Connection creation: performed by run(). At first,
-//   pool_params::initial_size connections are created.
+//   pool_params::dedicated.initial_size connections are created.
 //   When a connection is requested by get_connection(), and no
 //   connection is available or in the process of being established,
 //   run() creates a new connection.
-//   This happens until pool_params::max_size connections are created.
+//   This happens until pool_params::dedicated.max_size connections are created.
 //   Further requests wait until a connection is returned to the pool.
 //   Connections are created using the execution_context passed to the pool's constructor.
 // Connection retrieval: you get a connection calling get_connection.
@@ -179,9 +225,43 @@ public:
 // Lifetime rules: the pool must outlive any pooled_connection retrieved by get_connection.
 //   It is safe for run() to complete before all pooled_connection objects are destroyed.
 //
+// Multiplexed connections
+// =======================
+//
+// Connection creation: also performed by run(). Happens lazily,
+//   when the first exec() is called, so if you never call exec(),
+//   you don't pay for them. At that point, pool_params::multiplexed.size
+//   connections are created. The pool doesn't add or remove connections
+//   afterwards, although broken ones are re-established.
+//   Connections are created using the execution_context passed to the pool's constructor.
+//   Connections used for multiplexing are never used for dedicated purposes, and vice versa.
+// Establishing a connection: performed in the background by run(), using co_connection::connect.
+//   If session establishment fails or times out, pool_params::retry_interval is waited before
+//   trying again. There is no retry limit.
+// Keeping a connection healthy: TODO: implement this.
+// Using a connection with exec(): the pool routes the request to one of its multiplexed
+//   connections, acting as a load balancer. co_connection::exec() is used to execute the request.
+//   You don't get to choose which connection executes the request; if you need to, use a dedicated
+//   connection.
+// Load balancing: the pool routes exec()'s to the connection that it considers least loaded.
+//   In the current implementation, the (healthy) connection with the smallest number
+//   of outstanding exec()'s is chosen. This assumes that all requests
+//   take a similar amount of work. Future implementations might change the strategy.
+// Error handling: if the connection executing exec() encounters an error, it is
+//   propagated. Requests are never retried, as they may have partially executed.
+// If all connections are unhealthy: exec() waits until one connection becomes healthy.
+//   If the server never becomes available, exec() blocks indefinitely, so you may want
+//   to set a timeout.
+// Calling exec() before run() waits until run() is called and a connection becomes
+//   healthy, rather than failing. Calling exec() after run() completes fails with an
+//   error that compares equal to capy::cond::canceled. exec()'s that are waiting for
+//   a healthy connection when run() completes fail with that same error.
+// Lifetime rules: destroying a pool with outstanding exec() operations results in undefined behavior.
+//   It is safe for run() to complete before all exec() operations complete.
 class co_connection_pool
 {
-    std::unique_ptr<detail::co_connection_pool_impl> impl_;
+    struct impl;
+    std::unique_ptr<impl> impl_;
 
     co_connection_pool(boost::capy::execution_context& ctx, pool_params&& params, int);
 
@@ -212,6 +292,23 @@ public:
     boost::capy::task<boost::capy::results<>> run();
 
     boost::capy::task<boost::capy::results<pooled_connection>> get_connection();
+
+    boost::capy::task<boost::capy::results<>> exec(
+        const request& req,
+        response_handler_ref handler,
+        diagnostics* diag = nullptr
+    );
+
+    template <response_handler ResponseHandler>
+    boost::capy::task<boost::capy::results<>> exec(
+        const request& req,
+        ResponseHandler handler,
+        diagnostics* diag = nullptr
+    )
+    {
+        // Keep the handler alive
+        co_return co_await exec(req, response_handler_ref(&handler), diag);
+    }
 };
 
 }  // namespace nativepg

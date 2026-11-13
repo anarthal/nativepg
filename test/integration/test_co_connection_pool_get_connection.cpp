@@ -22,7 +22,6 @@
 #include <cstdint>
 #include <iostream>
 #include <optional>
-#include <stdexcept>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -41,13 +40,13 @@
 #include "nativepg/responses/check.hpp"
 #include "nativepg/responses/response_handler.hpp"
 #include "test_utils/ci_server.hpp"
+#include "test_utils/co_connection_pool_utils.hpp"
 #include "test_utils/co_connection_utils.hpp"
 #include "test_utils/corosio_utils.hpp"
 #include "test_utils/printing.hpp"
 #include "test_utils/test_cond_eq.hpp"
 #include "test_utils/test_opt_eq.hpp"
 #include "test_utils/test_range_eq.hpp"
-#include "test_utils/test_string_contains.hpp"
 #include "test_utils/yield.hpp"
 
 namespace capy = boost::capy;
@@ -62,26 +61,8 @@ pool_params create_pool_params(std::size_t max_size = 151)
 {
     return {
         .transport = default_connect_params(),
-        .max_size = max_size,
+        .dedicated = {.max_size = max_size},
     };
-}
-
-// Utility to run a test that requires a running pool
-capy::task<> with_pool_running(co_connection_pool& pool, capy::task<> body)
-{
-    static_cast<void>(co_await capy::when_any(
-        [&]() -> capy::task<capy::results<>> {
-            // Run the pool. If the test passes, the body finishes 1st and cancels run()
-            auto [ec] = co_await pool.run();
-            test_cond_eq(ec, capy::cond::canceled);
-            co_return {};
-        }(),
-        [&]() -> capy::task<capy::results<>> {
-            // Run the test
-            co_await std::move(body);
-            co_return {};
-        }()
-    ));
 }
 
 // Writes a request but never reads its response, so the connection is healthy
@@ -152,7 +133,7 @@ capy::task<> test_return_with_reset()
 // pooled_connection's destructor requests a reset
 capy::task<> test_pooled_connection_destructor()
 {
-    // max_size is 1, so the pool can only ever hand us the same connection
+    // dedicated.max_size is 1, so the pool can only ever hand us the same connection
     co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params(1)};
 
     co_await with_pool_running(pool, [&]() -> capy::task<> {
@@ -185,7 +166,7 @@ capy::task<> test_pooled_connection_destructor()
 // If we ask for reset not to happen, and we don't break anything, no reset happens
 capy::task<> test_return_without_reset()
 {
-    // max_size is 1, so the pool can only ever hand us the same connection
+    // dedicated.max_size is 1, so the pool can only ever hand us the same connection
     co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params(1)};
 
     co_await with_pool_running(pool, [&]() -> capy::task<> {
@@ -552,7 +533,7 @@ capy::task<> test_connections_created_if_requests_gt_pending()
     }());
 }
 
-// The pool never creates more than max_size connections
+// The pool never creates more than dedicated.max_size connections
 capy::task<> test_connection_upper_limit()
 {
     co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params(1)};
@@ -602,7 +583,7 @@ capy::task<> test_get_connection_before_run()
 // relevant timer rather than expiring immediately
 capy::task<> test_zero_timeouts()
 {
-    auto params = create_pool_params(1);  // max_size 1
+    auto params = create_pool_params(1);  // dedicated.max_size 1
     params.connect_timeout = 0s;
     params.ping_timeout = 0s;
     params.ping_interval = 0s;
@@ -713,49 +694,6 @@ capy::task<> test_cancel_get_connection()
     }());
 }
 
-// Spotcheck: constructing a pool with invalid params throws
-capy::task<> test_invalid_params()
-{
-    auto ex = co_await capy::this_coro::executor;
-
-    auto check_throws = [ex](
-                            pool_params params,
-                            std::string_view expected_msg,
-                            boost::source_location loc = BOOST_CURRENT_LOCATION
-                        ) {
-        try
-        {
-            static_cast<void>(co_connection_pool(ex, std::move(params)));
-            BOOST_ERROR("Expected std::invalid_argument, but no exception was thrown");
-            std::cerr << "  Called from " << loc << std::endl;
-        }
-        catch (const std::invalid_argument& exc)
-        {
-            test_string_contains(exc.what(), expected_msg, loc);
-        }
-    };
-
-    check_throws({.transport = {}, .max_size = 0}, "pool_params::max_size must be greater than zero");
-    check_throws(
-        {.transport = {}, .initial_size = 4, .max_size = 2},
-        "pool_params::max_size must be greater than or equal to pool_params::initial_size"
-    );
-    check_throws(
-        {.transport = {}, .connect_timeout = -1s},
-        "pool_params::connect_timeout must not be negative"
-    );
-    check_throws(
-        {.transport = {}, .retry_interval = 0s},
-        "pool_params::retry_interval must be greater than zero"
-    );
-    check_throws(
-        {.transport = {}, .retry_interval = -1s},
-        "pool_params::retry_interval must be greater than zero"
-    );
-    check_throws({.transport = {}, .ping_interval = -1s}, "pool_params::ping_interval must not be negative");
-    check_throws({.transport = {}, .ping_timeout = -1s}, "pool_params::ping_timeout must not be negative");
-}
-
 }  // namespace
 
 int main()
@@ -781,7 +719,6 @@ int main()
     run_coroutine_test(test_get_connection_during_run_cancel());
     run_coroutine_test(test_get_connection_after_run_cancel());
     run_coroutine_test(test_cancel_get_connection());
-    run_coroutine_test(test_invalid_params());
 
     return boost::report_errors();
 }

@@ -17,7 +17,6 @@
 #include <boost/capy/results.hpp>
 #include <boost/capy/task.hpp>
 #include <boost/corosio/delay.hpp>
-#include <boost/corosio/timeout.hpp>
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive/list_hook.hpp>
 
@@ -25,7 +24,6 @@
 #include <chrono>
 #include <cstddef>
 #include <system_error>
-#include <utility>
 
 #include "nativepg/capy-stub/ex/async_condition.hpp"
 #include "nativepg/co_connection.hpp"
@@ -34,18 +32,9 @@
 #include "nativepg/protocol/ready_for_query.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/check.hpp"
+#include "nativepg_internal/connection_pool/run_with_timeout.hpp"
 
 namespace nativepg::detail {
-
-template <class Awaitable>
-auto run_with_timeout(Awaitable aw, std::chrono::steady_clock::duration dur)
-{
-    // Most of the time, we do have a timeout, so we optimize for this case.
-    // Doing this instead of a conditional is one less frame
-    auto deadline = dur.count() > 0 ? std::chrono::steady_clock::now() + dur
-                                    : (std::chrono::steady_clock::time_point::max)();
-    return boost::corosio::timeout(std::move(aw), deadline);
-}
 
 class pool_node;
 

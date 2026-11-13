@@ -153,36 +153,16 @@ void test_parse_text_bytea_success()
     {
         // Arrange
         std::vector<std::byte> ba_storage(4);
-        std::span<std::byte> ba{ba_storage};
         std::string str = "\\x21061977";
         std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
         field_view fv{data};
 
         // Act
-        auto err = types::parse_text_bytea(fv, ba);
+        auto err = types::parse_text_bytea(fv, ba_storage);
 
         // Assert
         BOOST_TEST_EQ(err, std::error_code());
-        BOOST_TEST_EQ(ba.size(), 4u);
-        std::stringstream ss;
-        ss << ba_storage;
-        BOOST_TEST_EQ(ss.str(), "0x21061977");
-    }
-
-    // std::array as storage
-    {
-        std::array<std::byte, 4> ba_storage{};
-        std::span<std::byte> ba{ba_storage};
-        std::string str = "\\x21061977";
-        std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
-        field_view fv{data};
-
-        // Act
-        auto err = types::parse_text_bytea(fv, ba);
-
-        // Assert
-        BOOST_TEST_EQ(err, std::error_code());
-        BOOST_TEST_EQ(ba.size(), 4u);
+        BOOST_TEST_EQ(ba_storage.size(), 4u);
         std::stringstream ss;
         ss << ba_storage;
         BOOST_TEST_EQ(ss.str(), "0x21061977");
@@ -195,36 +175,16 @@ void test_parse_binary_bytea_success()
     {
         // Arrange
         std::vector<std::byte> ba_storage(4);
-        std::span<std::byte> ba{ba_storage};
         static constexpr unsigned char pg_bytea[] = {0x21, 0x06, 0x19, 0x77};
         std::span<const unsigned char> data(pg_bytea);
         field_view fv{data};
 
         // Act
-        auto err = types::parse_binary_bytea(fv, ba);
+        auto err = types::parse_binary_bytea(fv, ba_storage);
 
         // Assert
         BOOST_TEST_EQ(err, std::error_code());
-        BOOST_TEST_EQ(ba.size(), 4u);
-        std::stringstream ss;
-        ss << ba_storage;
-        BOOST_TEST_EQ(ss.str(), "0x21061977");
-    }
-    // std::array as storage
-    {
-        // Arrange
-        std::array<std::byte, 4> ba_storage;
-        std::span<std::byte> ba{ba_storage};
-        static constexpr unsigned char pg_bytea[] = {0x21, 0x06, 0x19, 0x77};
-        std::span<const unsigned char> data(pg_bytea);
-        field_view fv{data};
-
-        // Act
-        auto err = types::parse_binary_bytea(fv, ba);
-
-        // Assert
-        BOOST_TEST_EQ(err, std::error_code());
-        BOOST_TEST_EQ(ba.size(), 4u);
+        BOOST_TEST_EQ(ba_storage.size(), 4u);
         std::stringstream ss;
         ss << ba_storage;
         BOOST_TEST_EQ(ss.str(), "0x21061977");
@@ -241,7 +201,7 @@ void test_parse_text_bytea_missing_prefix_error()
     field_view fv{data};
 
     // Act
-    auto err = types::parse_text_bytea(fv, ba);
+    auto err = types::parse_text_bytea(fv, ba_storage);
 
     // Assert
     BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
@@ -251,13 +211,12 @@ void test_parse_text_bytea_odd_length_error()
 {
     // Arrange
     std::vector<std::byte> ba_storage(16);
-    std::span<std::byte> ba{ba_storage};
     std::string str = "\\x210";  // Odd number of hex digits
     std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
-    auto err = types::parse_text_bytea(fv, ba);
+    auto err = types::parse_text_bytea(fv, ba_storage);
 
     // Assert
     BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
@@ -267,13 +226,12 @@ void test_parse_text_bytea_invalid_hex_error()
 {
     // Arrange
     std::vector<std::byte> ba_storage(16);
-    std::span<std::byte> ba{ba_storage};
     std::string str = "\\xzz";  // Not valid hex digits
     std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
-    auto err = types::parse_text_bytea(fv, ba);
+    auto err = types::parse_text_bytea(fv, ba_storage);
 
     // Assert
     BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
@@ -337,6 +295,45 @@ void test_parse_text_char_special_success()
         auto err = types::parse_text_char(field_view{data}, c);
         BOOST_TEST_EQ(err, std::error_code());
         BOOST_TEST_EQ(c, smp.expected);
+    }
+}
+
+void test_serialize_text_char()
+{
+    struct sample
+    {
+        char value;
+        std::string_view expected;
+    };
+    const sample samples[] = {
+        {'z',                     "z"    },
+        {'\0',                    ""     },
+        {'\\',                    "\\"   },
+        {static_cast<char>(0200), "\\200"},
+        {static_cast<char>(0303), "\\303"},
+        {static_cast<char>(0377), "\\377"},
+    };
+    for (const auto& smp : samples)
+    {
+        std::vector<unsigned char> to;
+        BOOST_TEST_EQ(types::serialize_text_char(smp.value, to), std::error_code());
+        BOOST_TEST_EQ(std::string_view(reinterpret_cast<const char*>(to.data()), to.size()), smp.expected);
+    }
+}
+
+void test_serialize_text_char_roundtrip()
+{
+    for (int i = 0; i < 256; ++i)
+    {
+        const char c = static_cast<char>(i);
+        std::vector<unsigned char> to;
+        BOOST_TEST_EQ(types::serialize_text_char(c, to), std::error_code());
+        char parsed = 'x';
+        BOOST_TEST_EQ(
+            types::parse_text_char(field_view{std::span<const unsigned char>(to)}, parsed),
+            std::error_code()
+        );
+        BOOST_TEST_EQ(parsed, c);
     }
 }
 
@@ -560,35 +557,38 @@ void test_parse_text_int64_overflow_error()
 
 void test_parse_text_bytea_edge_cases()
 {
-    auto parse = [](std::string_view text, std::span<std::byte> out) {
+    auto parse = [](std::string_view text, std::vector<std::byte>& out) {
         std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(text.data()), text.size());
         return types::parse_text_bytea(field_view{data}, out);
     };
 
     // Empty value
     {
-        std::array<std::byte, 2> out{std::byte{1}, std::byte{2}};
+        std::vector<std::byte> out{std::byte{1}, std::byte{2}};
+        ;
         BOOST_TEST_EQ(parse("\\x", out), error_code());
         BOOST_TEST(out[0] == std::byte{1});
     }
 
     // Uppercase digits are accepted
     {
-        std::array<std::byte, 2> out{};
+        std::vector<std::byte> out{};
         BOOST_TEST_EQ(parse("\\xABcd", out), error_code());
         BOOST_TEST(out[0] == std::byte{0xab});
         BOOST_TEST(out[1] == std::byte{0xcd});
     }
 
-    // Destination too small
+    // Destination too small => will resize and succeed
     {
-        std::array<std::byte, 1> out{};
-        BOOST_TEST_EQ(parse("\\x0102", out), std::make_error_code(std::errc::result_out_of_range));
+        std::vector<std::byte> out(1);
+        BOOST_TEST_EQ(parse("\\x0102", out), error_code());
+        BOOST_TEST(out[0] == std::byte{0x01});
+        BOOST_TEST(out[1] == std::byte{0x02});
     }
 
     // An invalid digit after valid ones doesn't leave a partial write
     {
-        std::array<std::byte, 3> out{std::byte{9}, std::byte{9}, std::byte{9}};
+        std::vector<std::byte> out{std::byte{9}, std::byte{9}, std::byte{9}};
         BOOST_TEST_EQ(parse("\\x0102zz", out), error_code(client_errc::protocol_value_error));
         BOOST_TEST(out[0] == std::byte{9});
         BOOST_TEST(out[1] == std::byte{9});
@@ -598,11 +598,8 @@ void test_parse_text_bytea_edge_cases()
 void test_parse_binary_bytea_too_small_error()
 {
     static constexpr unsigned char pg_bytea[] = {0x01, 0x02};
-    std::array<std::byte, 1> out{};
-    auto err = types::parse_binary_bytea(
-        field_view{std::span<const unsigned char>(pg_bytea)},
-        std::span<std::byte>(out)
-    );
+    std::vector<std::byte> out(1);
+    auto err = types::parse_binary_bytea(field_view{std::span<const unsigned char>(pg_bytea)}, out);
     BOOST_TEST_EQ(err, std::make_error_code(std::errc::result_out_of_range));
 }
 
@@ -731,34 +728,32 @@ void test_parse_binary_float_wrong_size_error()
     BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
 }
 
-template <typename T = std::string>
-void test_parse_text_text_success(const T& in_val)
+void test_parse_text_text_success(const std::string& in_val)
 {
     // Arrange
-    T out_val;
+    std::string out_val;
     const std::string str = in_val;
     std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
-    auto err = types::parse_text_text<T>(fv, out_val);
+    auto err = types::parse_text_text(fv, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(out_val, in_val);
 }
 
-template <typename T = std::string>
-void test_parse_binary_text_success(const T& in_val)
+void test_parse_binary_text_success(const std::string& in_val)
 {
     // Arrange
-    T out_val;
+    std::string out_val;
     const std::string_view str = in_val;
     std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
-    auto err = types::parse_binary_text<T>(fv, out_val);
+    auto err = types::parse_binary_text(fv, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code());
@@ -1018,7 +1013,7 @@ void test_field_parse_text_optional_non_null_success()
 static_assert(parsable_field<bool>);
 static_assert(parsable_field<std::int32_t>);
 static_assert(parsable_field<std::string>);
-static_assert(parsable_field<std::span<std::byte>>);
+static_assert(parsable_field<std::vector<std::byte>>);
 static_assert(parsable_field<std::optional<std::int32_t>>);
 
 // Parsing requires an owning string
@@ -1334,12 +1329,7 @@ void test_field_is_compatible_more_types()
         error_code(client_errc::incompatible_field_type)
     );
     BOOST_TEST_EQ(field_is_compatible<double>(detail::float4_oid), error_code());
-    BOOST_TEST_EQ(field_is_compatible<std::span<std::byte>>(detail::bytea_oid), error_code());
     BOOST_TEST_EQ(field_is_compatible<std::vector<std::byte>>(detail::bytea_oid), error_code());
-    BOOST_TEST_EQ(
-        field_is_compatible<std::span<std::byte>>(detail::text_oid),
-        error_code(client_errc::incompatible_field_type)
-    );
 }
 
 // Serialized values parse back to the same value
@@ -1353,26 +1343,6 @@ void test_serialize_parse_roundtrip()
             double out{};
             BOOST_TEST_EQ(field_parse(field_view(buff), detail::float8_oid, code, out), error_code());
             BOOST_TEST_EQ(out, 0.1);
-        }
-        {
-            std::vector<unsigned char> buff;
-            std::array<std::byte, 3> in_storage{std::byte{0x00}, std::byte{0x7f}, std::byte{0xff}};
-            std::span<const std::byte> in{in_storage};
-            BOOST_TEST_EQ(field_serialize(in, code, buff), error_code());
-            std::array<std::byte, 3> out_storage{};
-            std::span<std::byte> out{out_storage};
-            BOOST_TEST_EQ(field_parse(field_view(buff), detail::bytea_oid, code, out), error_code());
-            BOOST_TEST(out_storage == in_storage);
-        }
-        {
-            std::vector<unsigned char> buff;
-            std::vector<std::byte> in_storage{std::byte{0x00}, std::byte{0x7f}, std::byte{0xff}};
-            std::span<const std::byte> in{in_storage};
-            BOOST_TEST_EQ(field_serialize(in, code, buff), error_code());
-            std::vector<std::byte> out_storage(in_storage.size());
-            std::span<std::byte> out{out_storage};
-            BOOST_TEST_EQ(field_parse(field_view(buff), detail::bytea_oid, code, out), error_code());
-            BOOST_TEST(out_storage == in_storage);
         }
         {
             std::vector<unsigned char> buff;
@@ -1405,7 +1375,7 @@ void test_serialize_parse_roundtrip()
         {
             std::vector<unsigned char> buff;
             std::array<std::byte, 3> in_storage{std::byte{0x00}, std::byte{0x7f}, std::byte{0xff}};
-            BOOST_TEST_EQ(field_serialize(std::span<const std::byte>(in_storage), code, buff), error_code());
+            BOOST_TEST_EQ(field_serialize(in_storage, code, buff), error_code());
             std::vector<std::byte> out;
             BOOST_TEST_EQ(field_parse(field_view(buff), detail::bytea_oid, code, out), error_code());
             BOOST_TEST_EQ(out.size(), 3u);
@@ -1481,6 +1451,8 @@ int main()
     test_parse_text_char_success();
     test_parse_binary_char_success();
     test_parse_text_char_special_success();
+    test_serialize_text_char();
+    test_serialize_text_char_roundtrip();
     test_parse_text_char_invalid_error();
     test_parse_binary_char_wrong_size_error();
 
@@ -1571,8 +1543,8 @@ int main()
     test_parse_binary_float_wrong_size_error<double>();
 
     // TEXT / VARCHAR
-    test_parse_text_text_success<std::string>("The quick brown fox jumps over the lazy dog!");
-    test_parse_binary_text_success<std::string>("The quick brown fox jumps over the lazy dog!");
+    test_parse_text_text_success("The quick brown fox jumps over the lazy dog!");
+    test_parse_binary_text_success("The quick brown fox jumps over the lazy dog!");
 
     // field_is_compatible / field_parse
     test_field_is_compatible_bool_success();

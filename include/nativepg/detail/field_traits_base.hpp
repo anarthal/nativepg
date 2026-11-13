@@ -90,7 +90,7 @@ struct parse_field_traits<bool>
 
 // BYTEA
 template <>
-struct parse_field_traits<std::span<std::byte>>
+struct parse_field_traits<std::vector<std::byte>>
 {
     static std::error_code is_compatible(std::int32_t type_oid)
     {
@@ -104,30 +104,6 @@ struct parse_field_traits<std::span<std::byte>>
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
         protocol::format_code code,
-        std::span<std::byte>& to
-    )
-    {
-        if (from.is_null())
-            return client_errc::unexpected_null;
-        BOOST_ASSERT(type_oid == detail::bytea_oid);
-        return code == protocol::format_code::binary ? types::parse_binary_bytea(from, to)
-                                                     : types::parse_text_bytea(from, to);
-    }
-};
-
-// BYTEA, owning variant: the vector is sized to fit the value
-template <>
-struct parse_field_traits<std::vector<std::byte>>
-{
-    static std::error_code is_compatible(std::int32_t type_oid)
-    {
-        return parse_field_traits<std::span<std::byte>>::is_compatible(type_oid);
-    }
-
-    static std::error_code parse(
-        field_view from,
-        std::int32_t type_oid,
-        protocol::format_code code,
         std::vector<std::byte>& to
     )
     {
@@ -137,8 +113,9 @@ struct parse_field_traits<std::vector<std::byte>>
             to.resize(from.data().size());
         else
             to.resize(from.data().size() >= 2 ? (from.data().size() - 2) / 2 : 0);
-        std::span<std::byte> view{to};
-        return parse_field_traits<std::span<std::byte>>::parse(from, type_oid, code, view);
+        BOOST_ASSERT(type_oid == detail::bytea_oid);
+        return code == protocol::format_code::binary ? types::parse_binary_bytea(from, to)
+                                                     : types::parse_text_bytea(from, to);
     }
 };
 
@@ -424,28 +401,11 @@ struct serialize_field_traits<bool>
     }
 };
 
-// BYTEA
-template <>
-struct serialize_field_traits<std::span<const std::byte>>
-{
-    static constexpr std::int32_t oid = detail::bytea_oid;
-
-    static std::error_code serialize(
-        std::span<const std::byte> value,
-        protocol::format_code code,
-        std::vector<unsigned char>& to
-    )
-    {
-        return code == protocol::format_code::binary ? types::serialize_binary_bytea(value, to)
-                                                     : types::serialize_text_bytea(value, to);
-    }
-};
-
-// BYTEA, any contiguous container of bytes (e.g. std::vector<std::byte>) or mutable span
+// BYTEA: std::span<const std::byte>, any contiguous container of bytes (e.g. std::vector<std::byte>),
+// or mutable span
 template <class T>
     requires(
-        !std::convertible_to<T, std::string_view> && !std::same_as<T, std::span<const std::byte>> &&
-        std::convertible_to<const T&, std::span<const std::byte>>
+        !std::convertible_to<T, std::string_view> && std::convertible_to<const T&, std::span<const std::byte>>
     )
 struct serialize_field_traits<T>
 {
@@ -457,7 +417,8 @@ struct serialize_field_traits<T>
         std::vector<unsigned char>& to
     )
     {
-        return serialize_field_traits<std::span<const std::byte>>::serialize(value, code, to);
+        return code == protocol::format_code::binary ? types::serialize_binary_bytea(value, to)
+                                                     : types::serialize_text_bytea(value, to);
     }
 };
 

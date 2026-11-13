@@ -2,6 +2,7 @@
 #ifndef NATIVEPG_TYPES_DATETIME_HPP
 #define NATIVEPG_TYPES_DATETIME_HPP
 
+#include <boost/capy/buffers.hpp>
 #include <boost/endian/conversion.hpp>
 
 #include <cctype>
@@ -764,7 +765,7 @@ inline std::error_code split_timestamp(
         return client_errc::value_too_big;
 
     ymd = std::chrono::year_month_day{
-        std::chrono::sys_days{std::chrono::days(static_cast<std::chrono::days::rep>(days))}
+        std::chrono::sys_days{std::chrono::duration_cast<std::chrono::days>(std::chrono::duration<std::int64_t, std::micro>(days * micros_per_day))}
     };
     return ymd.ok() ? std::error_code() : std::error_code(client_errc::value_too_big);
 }
@@ -1028,18 +1029,9 @@ std::error_code serialize_binary_interval(const T& value, std::vector<unsigned c
 {
     const auto offset = to.size();
     to.resize(offset + 16);
-    boost::endian::endian_store<std::int64_t, 8, boost::endian::order::big>(
-        to.data() + offset,
-        static_cast<std::int64_t>(value.time.count())
-    );
-    boost::endian::endian_store<std::int32_t, 4, boost::endian::order::big>(
-        to.data() + offset + 8,
-        static_cast<std::int32_t>(value.days)
-    );
-    boost::endian::endian_store<std::int32_t, 4, boost::endian::order::big>(
-        to.data() + offset + 12,
-        static_cast<std::int32_t>(value.months)
-    );
+    boost::endian::store_big_s64(to.data() + offset, static_cast<std::int64_t>(value.time.count()));
+    boost::endian::store_big_s32(to.data() + offset + 8, static_cast<std::int32_t>(value.days));
+    boost::endian::store_big_s32(to.data() + offset + 12, static_cast<std::int32_t>(value.months));
     return {};
 }
 

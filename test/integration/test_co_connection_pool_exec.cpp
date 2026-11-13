@@ -16,6 +16,7 @@
 #include <boost/capy/when_all.hpp>
 #include <boost/capy/when_any.hpp>
 #include <boost/core/lightweight_test.hpp>
+#include <boost/corosio/delay.hpp>
 #include <boost/corosio/timeout.hpp>
 #include <boost/describe/class.hpp>
 #include <boost/describe/operators.hpp>
@@ -390,6 +391,40 @@ capy::task<> test_connections_reused()
     }());
 }
 
+// Work is distributed by load. Parallel requests are routed to different connections.
+// If the pool is idle, they all go through the same connection (no round-robin).
+capy::task<> test_load_balancing()
+{
+    // Two connections are enough
+    co_connection_pool pool{co_await capy::this_coro::executor, create_pool_params(2)};
+
+    co_await with_pool_running(pool, [&]() -> capy::task<> {
+        // We have no way to assert that the two connections have been established
+        // through the API. We issue two parallel requests repeatedly, until we find
+        // that they're served by different PIDs. If this doesn't happen, the test times out.
+        while (true)
+        {
+            auto get_pid_task = [&]() -> capy::task<capy::results<int>> {
+                co_return {std::error_code(), co_await pool_backend_pid(pool)};
+            };
+
+            auto [dummy, pid1, pid2] = co_await capy::when_all(get_pid_task(), get_pid_task());
+            if (pid1 == 0 || pid2 == 0)
+                co_return;
+            if (pid1 != pid2)
+                break;
+            check_success(co_await corosio::delay(10ms));
+        }
+
+        // The pool has its two connections established.
+        // Important, otherwise the test passes because the pool has no option.
+        // Serial requests are routed to the same node
+        const auto pid1 = co_await pool_backend_pid(pool);
+        const auto pid2 = co_await pool_backend_pid(pool);
+        BOOST_TEST_EQ(pid1, pid2);
+    }());
+}
+
 // Connections are re-established when they encounter a fatal error
 capy::task<> test_connection_recovery()
 {
@@ -638,6 +673,7 @@ int main()
     run_coroutine_test(test_parallel_execs_single_connection());
     run_coroutine_test(test_parallel_execs_several_connections());
     run_coroutine_test(test_connections_reused());
+    run_coroutine_test(test_load_balancing());
     run_coroutine_test(test_connection_recovery());
 
     run_coroutine_test(test_server_error());

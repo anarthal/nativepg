@@ -149,11 +149,23 @@ public:
     }
 };
 
-// A pool of dedicated connections.
+// A pool of connections. Pools offer two modes:
+//  - Dedicated connections: use get_connection(). Use them when
+//    you need exclusive access to a connection for a period of time.
+//    E.g. for explicit transaction blocks, queries that change session state,
+//    heavyweight queries, operations using exec_state, receive() or COPY.
+//  - Multiplexed connections: use exec(). Use them for lightweight queries
+//    that don't mutate session state. Several requests submitted through exec()
+//    may be executed concurrently over the same connection.
+//    E.g. for SELECT queries, or statements running in implicit transactions.
 //
 // Running the pool: for the pool to work you must call run().
 //   It establishes connections and keeps them healthy.
 //   It must be called exactly once per pool.
+//
+// Dedicated connections
+// =====================
+//
 // Connection creation: performed by run(). At first,
 //   pool_params::dedicated.initial_size connections are created.
 //   When a connection is requested by get_connection(), and no
@@ -213,6 +225,39 @@ public:
 // Lifetime rules: the pool must outlive any pooled_connection retrieved by get_connection.
 //   It is safe for run() to complete before all pooled_connection objects are destroyed.
 //
+// Multiplexed connections
+// =======================
+//
+// Connection creation: also performed by run(). Happens lazily,
+//   when the first exec() is called, so if you never call exec(),
+//   you don't pay for them. At that point, pool_params::multiplexed.size
+//   connections are created. The pool doesn't add or remove connections
+//   afterwards, although broken ones are re-established.
+//   Connections are created using the execution_context passed to the pool's constructor.
+//   Connections used for multiplexing are never used for dedicated purposes, and vice versa.
+// Establishing a connection: performed in the background by run(), using co_connection::connect.
+//   If session establishment fails or times out, pool_params::retry_interval is waited before
+//   trying again. There is no retry limit.
+// Keeping a connection healthy: TODO: implement this.
+// Using a connection with exec(): the pool routes the request to one of its multiplexed
+//   connections, acting as a load balancer. co_connection::exec() is used to execute the request.
+//   You don't get to choose which connection executes the request; if you need to, use a dedicated
+//   connection.
+// Load balancing: the pool routes exec()'s to the connection that it considers least loaded.
+//   In the current implementation, the (healthy) connection with the smallest number
+//   of outstanding exec()'s is chosen. This assumes that all requests
+//   take a similar amount of work. Future implementations might change the strategy.
+// Error handling: if the connection executing exec() encounters an error, it is
+//   propagated. Requests are never retried, as they may have partially executed.
+// If all connections are unhealthy: exec() waits until one connection becomes healthy.
+//   If the server never becomes available, exec() blocks indefinitely, so you may want
+//   to set a timeout.
+// Calling exec() before run() waits until run() is called and a connection becomes
+//   healthy, rather than failing. Calling exec() after run() completes fails with an
+//   error that compares equal to capy::cond::canceled. exec()'s that are waiting for
+//   a healthy connection when run() completes fail with that same error.
+// Lifetime rules: destroying a pool with outstanding exec() operations results in undefined behavior.
+//   It is safe for run() to complete before all exec() operations complete.
 class co_connection_pool
 {
     struct impl;

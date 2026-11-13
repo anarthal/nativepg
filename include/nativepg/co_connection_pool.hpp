@@ -61,8 +61,11 @@ struct pool_params
 
     // The maximum number of connections. If a connection is requested, but none are available,
     // a new connection will be established, up to this size.
-    // TODO: update this number, this is MySQL's default.
-    std::size_t max_total_size{151};
+    // This value defaults to postgres' default max_connections.
+    // Note that max_connections is a server-wide setting. If your are running
+    // several instances of the same application, or different applications, against the same server
+    // instance, you probably want to lower this limit.
+    std::size_t max_total_size{100};
 
     // Configuration for the dedicated connections
     dedicated_pool_params dedicated{};

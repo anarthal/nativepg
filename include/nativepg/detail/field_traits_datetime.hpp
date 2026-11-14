@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cstdint>
 #include <system_error>
+#include <vector>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/field_traits.hpp"
@@ -39,8 +40,6 @@ inline constexpr std::int32_t daterange_oid = 3912;
 namespace nativepg {
 
 // --- Parse
-// There is no serialization counterpart: nativepg/types/datetime.hpp implements parsing only,
-// so these types can't be used as query parameters yet.
 
 // DATE
 template <>
@@ -183,6 +182,110 @@ struct parse_field_traits<types::pg_interval>
         BOOST_ASSERT(type_oid == detail::interval_oid);
         return code == protocol::format_code::binary ? types::parse_binary_interval(from.data(), to)
                                                      : types::parse_text_interval(from.data(), to);
+    }
+};
+
+// --- Serialize
+
+// DATE
+template <>
+struct serialize_field_traits<std::chrono::sys_days>
+{
+    static constexpr std::int32_t oid = detail::date_oid;
+
+    static std::error_code serialize(
+        const std::chrono::sys_days& value,
+        protocol::format_code code,
+        std::vector<unsigned char>& to
+    )
+    {
+        return code == protocol::format_code::binary ? types::serialize_binary_date(value, to)
+                                                     : types::serialize_text_date(value, to);
+    }
+};
+
+// TIME
+template <>
+struct serialize_field_traits<std::chrono::microseconds>
+{
+    static constexpr std::int32_t oid = detail::time_oid;
+
+    static std::error_code serialize(
+        const std::chrono::microseconds& value,
+        protocol::format_code code,
+        std::vector<unsigned char>& to
+    )
+    {
+        return code == protocol::format_code::binary ? types::serialize_binary_time(value, to)
+                                                     : types::serialize_text_time(value, to);
+    }
+};
+
+// TIMETZ
+template <>
+struct serialize_field_traits<types::pg_timetz>
+{
+    static constexpr std::int32_t oid = detail::timetz_oid;
+
+    static std::error_code serialize(
+        const types::pg_timetz& value,
+        protocol::format_code code,
+        std::vector<unsigned char>& to
+    )
+    {
+        return code == protocol::format_code::binary ? types::serialize_binary_timetz(value, to)
+                                                     : types::serialize_text_timetz(value, to);
+    }
+};
+
+// TIMESTAMP
+template <>
+struct serialize_field_traits<types::pg_timestamp>
+{
+    static constexpr std::int32_t oid = detail::timestamp_oid;
+
+    static std::error_code serialize(
+        const types::pg_timestamp& value,
+        protocol::format_code code,
+        std::vector<unsigned char>& to
+    )
+    {
+        return code == protocol::format_code::binary ? types::serialize_binary_timestamp(value, to)
+                                                     : types::serialize_text_timestamp(value, to);
+    }
+};
+
+// TIMESTAMPTZ
+template <>
+struct serialize_field_traits<types::pg_timestamptz>
+{
+    static constexpr std::int32_t oid = detail::timestamptz_oid;
+
+    static std::error_code serialize(
+        const types::pg_timestamptz& value,
+        protocol::format_code code,
+        std::vector<unsigned char>& to
+    )
+    {
+        return code == protocol::format_code::binary ? types::serialize_binary_timestamptz(value, to)
+                                                     : types::serialize_text_timestamptz(value, to);
+    }
+};
+
+// INTERVAL
+template <>
+struct serialize_field_traits<types::pg_interval>
+{
+    static constexpr std::int32_t oid = detail::interval_oid;
+
+    static std::error_code serialize(
+        const types::pg_interval& value,
+        protocol::format_code code,
+        std::vector<unsigned char>& to
+    )
+    {
+        return code == protocol::format_code::binary ? types::serialize_binary_interval(value, to)
+                                                     : types::serialize_text_interval(value, to);
     }
 };
 

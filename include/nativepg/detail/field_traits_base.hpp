@@ -8,10 +8,13 @@
 #ifndef NATIVEPG_DETAIL_FIELD_TRAITS_BASE_HPP
 #define NATIVEPG_DETAIL_FIELD_TRAITS_BASE_HPP
 
-#pragma once
+#include <boost/assert.hpp>
+
+#include <array>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -106,6 +109,10 @@ struct parse_field_traits<std::vector<std::byte>>
     {
         if (from.is_null())
             return client_errc::unexpected_null;
+        if (code == protocol::format_code::binary)
+            to.resize(from.data().size());
+        else
+            to.resize(from.data().size() >= 2 ? (from.data().size() - 2) / 2 : 0);
         BOOST_ASSERT(type_oid == detail::bytea_oid);
         return code == protocol::format_code::binary ? types::parse_binary_bytea(from, to)
                                                      : types::parse_text_bytea(from, to);
@@ -196,7 +203,8 @@ struct parse_field_traits<std::int32_t>
                 std::int16_t value{};
                 const auto ec = binary ? types::parse_binary_int(from, value)
                                        : types::parse_text_int(from, value);
-                to = value;
+                if (!ec)
+                    to = value;
                 return ec;
             }
             case detail::int4_oid:
@@ -236,7 +244,8 @@ struct parse_field_traits<std::int64_t>
                 std::int16_t value{};
                 const auto ec = binary ? types::parse_binary_int(from, value)
                                        : types::parse_text_int(from, value);
-                to = value;
+                if (!ec)
+                    to = value;
                 return ec;
             }
             case detail::int4_oid:
@@ -244,7 +253,8 @@ struct parse_field_traits<std::int64_t>
                 std::int32_t value{};
                 const auto ec = binary ? types::parse_binary_int(from, value)
                                        : types::parse_text_int(from, value);
-                to = value;
+                if (!ec)
+                    to = value;
                 return ec;
             }
             case detail::int8_oid:
@@ -313,7 +323,8 @@ struct parse_field_traits<double>
                 float value{};
                 const auto ec = binary ? types::parse_binary_float<float>(from, value)
                                        : types::parse_text_float<float>(from, value);
-                to = value;
+                if (!ec)
+                    to = value;
                 return ec;
             }
             default: BOOST_ASSERT(false); return {client_errc::incompatible_field_type};
@@ -376,8 +387,96 @@ struct parse_field_traits<std::uint32_t>
 };
 
 // --- Serialize
-// Types without a serialization function in nativepg/types/base.hpp (bool, bytea, char,
-// float4, float8) are intentionally left out: they can't be used as query parameters yet.
+
+// BOOL
+template <>
+struct serialize_field_traits<bool>
+{
+    static constexpr std::int32_t oid = detail::bool_oid;
+
+    static std::error_code serialize(bool value, protocol::format_code code, std::vector<unsigned char>& to)
+    {
+        return code == protocol::format_code::binary ? types::serialize_binary_bool(value, to)
+                                                     : types::serialize_text_bool(value, to);
+    }
+};
+
+// BYTEA: std::span<const std::byte>, any contiguous container of bytes (e.g. std::vector<std::byte>),
+// or mutable span
+template <class T>
+    requires(
+        !std::convertible_to<T, std::string_view> && std::convertible_to<const T&, std::span<const std::byte>>
+    )
+struct serialize_field_traits<T>
+{
+    static constexpr std::int32_t oid = detail::bytea_oid;
+
+    static std::error_code serialize(
+        std::span<const std::byte> value,
+        protocol::format_code code,
+        std::vector<unsigned char>& to
+    )
+    {
+        return code == protocol::format_code::binary ? types::serialize_binary_bytea(value, to)
+                                                     : types::serialize_text_bytea(value, to);
+    }
+};
+
+// INTERNAL CHAR
+template <>
+struct serialize_field_traits<char>
+{
+    static constexpr std::int32_t oid = detail::char_oid;
+
+    static std::error_code serialize(char value, protocol::format_code code, std::vector<unsigned char>& to)
+    {
+        return code == protocol::format_code::binary ? types::serialize_binary_char(value, to)
+                                                     : types::serialize_text_char(value, to);
+    }
+};
+
+// FLOAT4
+template <>
+struct serialize_field_traits<float>
+{
+    static constexpr std::int32_t oid = detail::float4_oid;
+
+    static std::error_code serialize(float value, protocol::format_code code, std::vector<unsigned char>& to)
+    {
+        return code == protocol::format_code::binary ? types::serialize_binary_float(value, to)
+                                                     : types::serialize_text_float(value, to);
+    }
+};
+
+// FLOAT8
+template <>
+struct serialize_field_traits<double>
+{
+    static constexpr std::int32_t oid = detail::float8_oid;
+
+    static std::error_code serialize(double value, protocol::format_code code, std::vector<unsigned char>& to)
+    {
+        return code == protocol::format_code::binary ? types::serialize_binary_float(value, to)
+                                                     : types::serialize_text_float(value, to);
+    }
+};
+
+// OID
+template <>
+struct serialize_field_traits<std::uint32_t>
+{
+    static constexpr std::int32_t oid = detail::oid_oid;
+
+    static std::error_code serialize(
+        std::uint32_t value,
+        protocol::format_code code,
+        std::vector<unsigned char>& to
+    )
+    {
+        return code == protocol::format_code::binary ? types::serialize_binary_int(value, to)
+                                                     : types::serialize_text_int(value, to);
+    }
+};
 
 // INT2
 template <>
@@ -449,4 +548,4 @@ struct serialize_field_traits<T>
 
 }  // namespace nativepg
 
-#endif
+#endif  // NATIVEPG_DETAIL_FIELD_TRAITS_BASE_HPP

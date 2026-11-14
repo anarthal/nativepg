@@ -16,6 +16,7 @@
 
 #include <cstdint>
 #include <system_error>
+#include <vector>
 
 #include "nativepg/client_errc.hpp"
 #include "nativepg/field_traits.hpp"
@@ -33,8 +34,6 @@ inline constexpr std::int32_t jsonb_oid = 3802;
 namespace nativepg {
 
 // --- Parse
-// There is no serialization counterpart: nativepg/types/json.hpp implements parsing only,
-// so these types can't be used as query parameters yet.
 
 // JSON(B) => boost::json::value
 template <>
@@ -63,6 +62,25 @@ struct parse_field_traits<boost::json::value>
         if (code == protocol::format_code::binary && type_oid == detail::jsonb_oid)
             return types::parse_binary_jsonb(from, to);
         return types::parse_json(from.data_str(), to);
+    }
+};
+
+// --- Serialize
+
+// boost::json::value is sent as JSONB, the type most commonly used to store JSON
+template <>
+struct serialize_field_traits<boost::json::value>
+{
+    static constexpr std::int32_t oid = detail::jsonb_oid;
+
+    static std::error_code serialize(
+        const boost::json::value& value,
+        protocol::format_code code,
+        std::vector<unsigned char>& to
+    )
+    {
+        return code == protocol::format_code::binary ? types::serialize_binary_jsonb(value, to)
+                                                     : types::serialize_text_json(value, to);
     }
 };
 

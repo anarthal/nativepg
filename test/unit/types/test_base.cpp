@@ -6,7 +6,9 @@
 //
 
 #include <boost/core/lightweight_test.hpp>
+#include <boost/endian/conversion.hpp>
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -33,7 +35,7 @@ using std::error_code;
 
 namespace {
 
-std::ostream& operator<<(std::ostream& os, const std::vector<std::byte>& bytes)
+std::ostream& operator<<(std::ostream& os, const std::span<std::byte>& bytes)
 {
     if (bytes.empty())
     {
@@ -147,52 +149,59 @@ void test_parse_binary_bool_invalid_size_error()
 // BYTEA
 void test_parse_text_bytea_success()
 {
-    // Arrange
-    std::vector<std::byte> ba;
-    std::string str = "\\x21061977";
-    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
-    field_view fv{data};
+    // std::vector as storage
+    {
+        // Arrange
+        std::vector<std::byte> ba_storage(4);
+        std::string str = "\\x21061977";
+        std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+        field_view fv{data};
 
-    // Act
-    auto err = types::parse_text_bytea(fv, ba);
+        // Act
+        auto err = types::parse_text_bytea(fv, ba_storage);
 
-    // Assert
-    BOOST_TEST_EQ(err, std::error_code());
-    BOOST_TEST_EQ(ba.size(), 4u);
-    std::stringstream ss;
-    ss << ba;
-    BOOST_TEST_EQ(ss.str(), "0x21061977");
+        // Assert
+        BOOST_TEST_EQ(err, std::error_code());
+        BOOST_TEST_EQ(ba_storage.size(), 4u);
+        std::stringstream ss;
+        ss << ba_storage;
+        BOOST_TEST_EQ(ss.str(), "0x21061977");
+    }
 }
 
 void test_parse_binary_bytea_success()
 {
-    // Arrange
-    std::vector<std::byte> ba;
-    static constexpr unsigned char pg_bytea[] = {0x21, 0x06, 0x19, 0x77};
-    std::span<const unsigned char> data(pg_bytea);
-    field_view fv{data};
+    // std::vector as storage
+    {
+        // Arrange
+        std::vector<std::byte> ba_storage(4);
+        static constexpr unsigned char pg_bytea[] = {0x21, 0x06, 0x19, 0x77};
+        std::span<const unsigned char> data(pg_bytea);
+        field_view fv{data};
 
-    // Act
-    auto err = types::parse_binary_bytea(fv, ba);
+        // Act
+        auto err = types::parse_binary_bytea(fv, ba_storage);
 
-    // Assert
-    BOOST_TEST_EQ(err, std::error_code());
-    BOOST_TEST_EQ(ba.size(), 4u);
-    std::stringstream ss;
-    ss << ba;
-    BOOST_TEST_EQ(ss.str(), "0x21061977");
+        // Assert
+        BOOST_TEST_EQ(err, std::error_code());
+        BOOST_TEST_EQ(ba_storage.size(), 4u);
+        std::stringstream ss;
+        ss << ba_storage;
+        BOOST_TEST_EQ(ss.str(), "0x21061977");
+    }
 }
 
 void test_parse_text_bytea_missing_prefix_error()
 {
     // Arrange
-    std::vector<std::byte> ba;
+    std::vector<std::byte> ba_storage(16);
+    std::span<std::byte> ba{ba_storage};
     std::string str = "21061977";  // Missing the \x prefix
     std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
-    auto err = types::parse_text_bytea(fv, ba);
+    auto err = types::parse_text_bytea(fv, ba_storage);
 
     // Assert
     BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
@@ -201,13 +210,13 @@ void test_parse_text_bytea_missing_prefix_error()
 void test_parse_text_bytea_odd_length_error()
 {
     // Arrange
-    std::vector<std::byte> ba;
+    std::vector<std::byte> ba_storage(16);
     std::string str = "\\x210";  // Odd number of hex digits
     std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
-    auto err = types::parse_text_bytea(fv, ba);
+    auto err = types::parse_text_bytea(fv, ba_storage);
 
     // Assert
     BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
@@ -216,13 +225,13 @@ void test_parse_text_bytea_odd_length_error()
 void test_parse_text_bytea_invalid_hex_error()
 {
     // Arrange
-    std::vector<std::byte> ba;
+    std::vector<std::byte> ba_storage(16);
     std::string str = "\\xzz";  // Not valid hex digits
     std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
-    auto err = types::parse_text_bytea(fv, ba);
+    auto err = types::parse_text_bytea(fv, ba_storage);
 
     // Assert
     BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
@@ -261,19 +270,83 @@ void test_parse_binary_char_success()
     BOOST_TEST_EQ(c, 'z');
 }
 
-void test_parse_text_char_empty_error()
+// Postgres sends \0 as an empty string, and bytes with the high bit set as \ooo
+void test_parse_text_char_special_success()
 {
-    // Arrange
-    char c = '\0';
-    std::string str;  // Empty string is not a valid single-byte char
-    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
-    field_view fv{data};
+    struct sample
+    {
+        std::string_view text;
+        char expected;
+    };
+    const sample samples[] = {
+        {"",      '\0'                   },
+        {"\\",    '\\'                   },
+        {"\\303", static_cast<char>(0303)},
+        {"\\377", static_cast<char>(0377)},
+        {"\\000", '\0'                   },
+    };
+    for (const auto& smp : samples)
+    {
+        char c = 'x';
+        std::span<const unsigned char> data(
+            reinterpret_cast<const unsigned char*>(smp.text.data()),
+            smp.text.size()
+        );
+        auto err = types::parse_text_char(field_view{data}, c);
+        BOOST_TEST_EQ(err, std::error_code());
+        BOOST_TEST_EQ(c, smp.expected);
+    }
+}
 
-    // Act
-    auto err = types::parse_text_char(fv, c);
+void test_serialize_text_char()
+{
+    struct sample
+    {
+        char value;
+        std::string_view expected;
+    };
+    const sample samples[] = {
+        {'z',                     "z"    },
+        {'\0',                    ""     },
+        {'\\',                    "\\"   },
+        {static_cast<char>(0200), "\\200"},
+        {static_cast<char>(0303), "\\303"},
+        {static_cast<char>(0377), "\\377"},
+    };
+    for (const auto& smp : samples)
+    {
+        std::vector<unsigned char> to;
+        BOOST_TEST_EQ(types::serialize_text_char(smp.value, to), std::error_code());
+        BOOST_TEST_EQ(std::string_view(reinterpret_cast<const char*>(to.data()), to.size()), smp.expected);
+    }
+}
 
-    // Assert
-    BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
+void test_serialize_text_char_roundtrip()
+{
+    for (int i = 0; i < 256; ++i)
+    {
+        const char c = static_cast<char>(i);
+        std::vector<unsigned char> to;
+        BOOST_TEST_EQ(types::serialize_text_char(c, to), std::error_code());
+        char parsed = 'x';
+        BOOST_TEST_EQ(
+            types::parse_text_char(field_view{std::span<const unsigned char>(to)}, parsed),
+            std::error_code()
+        );
+        BOOST_TEST_EQ(parsed, c);
+    }
+}
+
+void test_parse_text_char_invalid_error()
+{
+    for (std::string_view text : {"ab", "\\40", "\\400", "\\38z", "\\389"})
+    {
+        char c = 'x';
+        std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+        auto err = types::parse_text_char(field_view{data}, c);
+        BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
+        BOOST_TEST_EQ(c, 'x');
+    }
 }
 
 void test_parse_binary_char_wrong_size_error()
@@ -437,6 +510,98 @@ void test_parse_binary_int_wrong_size_error()
     BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
 }
 
+template <typename T>
+void test_parse_binary_int_empty_error()
+{
+    // Arrange
+    T out_val{};
+    std::vector<uint8_t> buffer;  // Empty buffer
+    field_view fv{buffer};
+
+    // Act
+    auto err = types::parse_binary_int<T>(fv, out_val);
+
+    // Assert
+    BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
+}
+
+template <typename T>
+void test_parse_text_number_empty_error()
+{
+    // Arrange. The output must not be touched
+    T out_val = 7;
+    std::span<const unsigned char> data;
+    field_view fv{data};
+
+    // Act
+    error_code err;
+    if constexpr (std::is_integral_v<T>)
+        err = types::parse_text_int<T>(fv, out_val);
+    else
+        err = types::parse_text_float<T>(fv, out_val);
+
+    // Assert
+    BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
+    BOOST_TEST_EQ(out_val, T(7));
+}
+
+void test_parse_text_int64_overflow_error()
+{
+    std::string str = "9223372036854775808";
+    std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
+    std::int64_t out_val = 7;
+    auto err = types::parse_text_int<std::int64_t>(field_view{data}, out_val);
+    BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
+    BOOST_TEST_EQ(out_val, 7);
+}
+
+void test_parse_text_bytea_edge_cases()
+{
+    auto parse = [](std::string_view text, std::vector<std::byte>& out) {
+        std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+        return types::parse_text_bytea(field_view{data}, out);
+    };
+
+    // Empty value
+    {
+        std::vector<std::byte> out{std::byte{1}, std::byte{2}};
+        ;
+        BOOST_TEST_EQ(parse("\\x", out), error_code());
+        BOOST_TEST(out[0] == std::byte{1});
+    }
+
+    // Uppercase digits are accepted
+    {
+        std::vector<std::byte> out{4};
+        BOOST_TEST_EQ(parse("\\xABcd", out), error_code());
+        BOOST_TEST(out[0] == std::byte{0xab});
+        BOOST_TEST(out[1] == std::byte{0xcd});
+    }
+
+    // Destination too small will return an error
+    {
+        // @TODO: Discuss whether to return an error or resize the vector. For now, we return an error.
+        std::vector<std::byte> out(1);
+        BOOST_TEST_EQ(parse("\\x0102", out), std::make_error_code(std::errc::result_out_of_range));
+    }
+
+    // An invalid digit after valid ones doesn't leave a partial write
+    {
+        std::vector<std::byte> out{std::byte{9}, std::byte{9}, std::byte{9}};
+        BOOST_TEST_EQ(parse("\\x0102zz", out), error_code(client_errc::protocol_value_error));
+        BOOST_TEST(out[0] == std::byte{9});
+        BOOST_TEST(out[1] == std::byte{9});
+    }
+}
+
+void test_parse_binary_bytea_too_small_error()
+{
+    static constexpr unsigned char pg_bytea[] = {0x01, 0x02};
+    std::vector<std::byte> out(1);
+    auto err = types::parse_binary_bytea(field_view{std::span<const unsigned char>(pg_bytea)}, out);
+    BOOST_TEST_EQ(err, std::make_error_code(std::errc::result_out_of_range));
+}
+
 // FLOAT
 template <typename T, T in_val>
 void test_parse_text_float_success()
@@ -562,52 +727,39 @@ void test_parse_binary_float_wrong_size_error()
     BOOST_TEST_EQ(err, error_code(client_errc::protocol_value_error));
 }
 
-template <typename T = std::string>
-void test_parse_text_text_success(const T& in_val)
+void test_parse_text_text_success(const std::string& in_val)
 {
     // Arrange
-    T out_val;
+    std::string out_val;
     const std::string str = in_val;
     std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
-    auto err = types::parse_text_text<T>(fv, out_val);
+    auto err = types::parse_text_text(fv, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(out_val, in_val);
 }
 
-template <typename T = std::string>
-void test_parse_binary_text_success(const T& in_val)
+void test_parse_binary_text_success(const std::string& in_val)
 {
     // Arrange
-    T out_val;
+    std::string out_val;
     const std::string_view str = in_val;
     std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(str.data()), str.size());
     field_view fv{data};
 
     // Act
-    auto err = types::parse_binary_text<T>(fv, out_val);
+    auto err = types::parse_binary_text(fv, out_val);
 
     // Assert
     BOOST_TEST_EQ(err, std::error_code());
     BOOST_TEST_EQ(out_val, in_val);
 
-    if constexpr (std::is_same_v<T, std::string_view>)
-    {
-        BOOST_TEST_EQ(
-            static_cast<const void*>(out_val.data()),
-            static_cast<const void*>(data.data())
-        );  // zero-copy: aliases input
-    }
-    else
-    {
-        BOOST_TEST(
-            static_cast<const void*>(out_val.data()) != static_cast<const void*>(data.data())
-        );  // std::string: owns a copy
-    }
+    // Owns a copy
+    BOOST_TEST(static_cast<const void*>(out_val.data()) != static_cast<const void*>(data.data()));
 }
 
 //
@@ -880,18 +1032,18 @@ static_assert(serializable_field<std::int64_t>);
 static_assert(serializable_field<std::string>);
 static_assert(serializable_field<std::string_view>);
 
-// Serialization is not implemented for these yet
-static_assert(!serializable_field<bool>);
-static_assert(!serializable_field<char>);
-static_assert(!serializable_field<float>);
-static_assert(!serializable_field<double>);
-static_assert(!serializable_field<std::vector<std::byte>>);
+static_assert(serializable_field<bool>);
+static_assert(serializable_field<char>);
+static_assert(serializable_field<float>);
+static_assert(serializable_field<double>);
+static_assert(serializable_field<std::uint32_t>);
+static_assert(serializable_field<std::span<const std::byte>>);
 
 // An optional is serializable if and only if its value type is
 static_assert(serializable_field<std::optional<std::int32_t>>);
 static_assert(serializable_field<std::optional<std::string>>);
 static_assert(serializable_field<std::optional<std::string_view>>);
-static_assert(!serializable_field<std::optional<bool>>);
+static_assert(serializable_field<std::optional<bool>>);
 static_assert(!serializable_field<std::optional<unmapped_type>>);
 
 // An optional advertises the OID of its value type
@@ -978,6 +1130,285 @@ void test_field_serialize_string_success()
     }
 }
 
+void test_field_serialize_bool_success()
+{
+    check_serialize(true, protocol::format_code::text, {'t'});
+    check_serialize(false, protocol::format_code::text, {'f'});
+    check_serialize(true, protocol::format_code::binary, {0x01});
+    check_serialize(false, protocol::format_code::binary, {0x00});
+}
+
+void test_field_serialize_bytea_success()
+{
+    std::vector<std::byte> storage{std::byte{0x00}, std::byte{0x0f}, std::byte{0xab}, std::byte{0xff}};
+    const std::span<const std::byte> value{storage};
+    check_serialize(value, protocol::format_code::text, {'\\', 'x', '0', '0', '0', 'f', 'a', 'b', 'f', 'f'});
+    check_serialize(value, protocol::format_code::binary, {0x00, 0x0f, 0xab, 0xff});
+
+    // Empty values
+    check_serialize(std::span<const std::byte>{}, protocol::format_code::text, {'\\', 'x'});
+    check_serialize(std::span<const std::byte>{}, protocol::format_code::binary, {});
+}
+
+void test_field_serialize_char_success()
+{
+    for (auto code : {protocol::format_code::text, protocol::format_code::binary})
+    {
+        check_serialize('a', code, {'a'});
+    }
+    check_serialize('\0', protocol::format_code::text, {});
+    check_serialize('\0', protocol::format_code::binary, {0x00});
+}
+
+void test_field_serialize_bytea_vector()
+{
+    std::vector<std::byte> value{std::byte{0x01}, std::byte{0xff}};
+    check_serialize(value, protocol::format_code::text, {'\\', 'x', '0', '1', 'f', 'f'});
+    check_serialize(value, protocol::format_code::binary, {0x01, 0xff});
+    static_assert(serializable_field<std::vector<std::byte>>);
+    static_assert(serializable_field<std::span<std::byte>>);
+}
+
+void test_field_parse_optional_error_resets()
+{
+    const unsigned char buf[] = {'x'};
+    field_view fv{std::span<const unsigned char>(buf)};
+    std::optional<std::int32_t> out = 5;
+    BOOST_TEST_EQ(
+        field_parse(fv, detail::int4_oid, protocol::format_code::text, out),
+        error_code(client_errc::protocol_value_error)
+    );
+    BOOST_TEST(!out.has_value());
+}
+
+void test_field_serialize_oid_success()
+{
+    check_serialize(std::uint32_t(42), protocol::format_code::text, {'4', '2'});
+    check_serialize(
+        std::uint32_t(4294967295u),
+        protocol::format_code::text,
+        {'4', '2', '9', '4', '9', '6', '7', '2', '9', '5'}
+    );
+    check_serialize(std::uint32_t(42), protocol::format_code::binary, {0x00, 0x00, 0x00, 0x2a});
+    check_serialize(std::uint32_t(4294967295u), protocol::format_code::binary, {0xff, 0xff, 0xff, 0xff});
+}
+
+void test_field_serialize_float_text_success()
+{
+    check_serialize(1.5f, protocol::format_code::text, {'1', '.', '5'});
+    check_serialize(-0.25f, protocol::format_code::text, {'-', '0', '.', '2', '5'});
+    check_serialize(0.1, protocol::format_code::text, {'0', '.', '1'});
+    check_serialize(std::numeric_limits<double>::infinity(), protocol::format_code::text, {'i', 'n', 'f'});
+    check_serialize(std::numeric_limits<double>::quiet_NaN(), protocol::format_code::text, {'n', 'a', 'n'});
+}
+
+void test_field_serialize_float_binary_success()
+{
+    check_serialize(1.5f, protocol::format_code::binary, {0x3f, 0xc0, 0x00, 0x00});
+    check_serialize(-2.0f, protocol::format_code::binary, {0xc0, 0x00, 0x00, 0x00});
+    check_serialize(1.5, protocol::format_code::binary, {0x3f, 0xf8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
+    check_serialize(-2.0, protocol::format_code::binary, {0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
+    check_serialize(
+        std::numeric_limits<double>::infinity(),
+        protocol::format_code::binary,
+        {0x7f, 0xf0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+    );
+}
+
+void test_field_serialize_float_nan_sign()
+{
+    for (auto code : {protocol::format_code::text})
+        check_serialize(-std::numeric_limits<double>::quiet_NaN(), code, {'n', 'a', 'n'});
+}
+
+void test_field_serialize_bytea_const_span()
+{
+    const std::array<std::byte, 2> storage{std::byte{0x01}, std::byte{0xff}};
+    const std::span<const std::byte> value{storage};
+    check_serialize(value, protocol::format_code::text, {'\\', 'x', '0', '1', 'f', 'f'});
+    check_serialize(value, protocol::format_code::binary, {0x01, 0xff});
+}
+
+void test_field_serialize_oid_selection()
+{
+    // String-like and byte-like types must resolve to different traits
+    BOOST_TEST_EQ(serialize_field_traits<std::string>::oid, detail::text_oid);
+    BOOST_TEST_EQ(serialize_field_traits<std::string_view>::oid, detail::text_oid);
+    BOOST_TEST_EQ(serialize_field_traits<const char*>::oid, detail::text_oid);
+    BOOST_TEST_EQ(serialize_field_traits<std::span<const std::byte>>::oid, detail::bytea_oid);
+    BOOST_TEST_EQ(serialize_field_traits<std::span<std::byte>>::oid, detail::bytea_oid);
+    BOOST_TEST_EQ(serialize_field_traits<std::vector<std::byte>>::oid, detail::bytea_oid);
+    BOOST_TEST_EQ((serialize_field_traits<std::array<std::byte, 2>>::oid), detail::bytea_oid);
+}
+
+void test_field_parse_widening_success()
+{
+    auto fv_of = [](const auto& buf) { return field_view{std::span<const unsigned char>(buf)}; };
+
+    // int2 -> int8, int4 -> int8, float4 -> float8
+    {
+        const unsigned char buf[] = {0xff, 0xfe};
+        std::int64_t out = 0;
+        BOOST_TEST_EQ(
+            field_parse(fv_of(buf), detail::int2_oid, protocol::format_code::binary, out),
+            error_code()
+        );
+        BOOST_TEST_EQ(out, -2);
+    }
+    {
+        const unsigned char buf[] = {0x00, 0x00, 0x01, 0x00};
+        std::int64_t out = 0;
+        BOOST_TEST_EQ(
+            field_parse(fv_of(buf), detail::int4_oid, protocol::format_code::binary, out),
+            error_code()
+        );
+        BOOST_TEST_EQ(out, 256);
+    }
+    {
+        const unsigned char buf[] = {0x3f, 0xc0, 0x00, 0x00};
+        double out = 0;
+        BOOST_TEST_EQ(
+            field_parse(fv_of(buf), detail::float4_oid, protocol::format_code::binary, out),
+            error_code()
+        );
+        BOOST_TEST_EQ(out, 1.5);
+    }
+}
+
+void test_field_parse_widening_error_keeps_output()
+{
+    const unsigned char buf[] = {0x01};  // Wrong size for int2
+    field_view fv{std::span<const unsigned char>(buf)};
+    std::int32_t out32 = 7;
+    std::int64_t out64 = 7;
+    double outd = 7;
+    BOOST_TEST_EQ(
+        field_parse(fv, detail::int2_oid, protocol::format_code::binary, out32),
+        error_code(client_errc::protocol_value_error)
+    );
+    BOOST_TEST_EQ(
+        field_parse(fv, detail::int4_oid, protocol::format_code::binary, out64),
+        error_code(client_errc::protocol_value_error)
+    );
+    BOOST_TEST_EQ(
+        field_parse(fv, detail::float4_oid, protocol::format_code::binary, outd),
+        error_code(client_errc::protocol_value_error)
+    );
+    BOOST_TEST_EQ(out32, 7);
+    BOOST_TEST_EQ(out64, 7);
+    BOOST_TEST_EQ(outd, 7.0);
+}
+
+void test_field_parse_vector_bytea_success()
+{
+    {
+        const unsigned char buf[] = {0x01, 0x02, 0x03};
+        std::vector<std::byte> out;
+        BOOST_TEST_EQ(
+            field_parse(
+                field_view{std::span<const unsigned char>(buf)},
+                detail::bytea_oid,
+                protocol::format_code::binary,
+                out
+            ),
+            error_code()
+        );
+        BOOST_TEST_EQ(out.size(), 3u);
+        BOOST_TEST(out[2] == std::byte{3});
+    }
+    {
+        std::string_view text = "\\x0aff";
+        std::span<const unsigned char> data(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+        std::vector<std::byte> out;
+        BOOST_TEST_EQ(
+            field_parse(field_view{data}, detail::bytea_oid, protocol::format_code::text, out),
+            error_code()
+        );
+        BOOST_TEST_EQ(out.size(), 2u);
+        BOOST_TEST(out[0] == std::byte{0x0a});
+        BOOST_TEST(out[1] == std::byte{0xff});
+    }
+}
+
+void test_field_is_compatible_more_types()
+{
+    BOOST_TEST_EQ(field_is_compatible<std::int64_t>(detail::int8_oid), error_code());
+    BOOST_TEST_EQ(field_is_compatible<std::int64_t>(detail::int2_oid), error_code());
+    BOOST_TEST_EQ(field_is_compatible<float>(detail::float4_oid), error_code());
+    BOOST_TEST_EQ(
+        field_is_compatible<float>(detail::float8_oid),
+        error_code(client_errc::incompatible_field_type)
+    );
+    BOOST_TEST_EQ(field_is_compatible<double>(detail::float4_oid), error_code());
+    BOOST_TEST_EQ(field_is_compatible<std::vector<std::byte>>(detail::bytea_oid), error_code());
+}
+
+// Serialized values parse back to the same value
+void test_serialize_parse_roundtrip()
+{
+    for (auto code : {protocol::format_code::text, protocol::format_code::binary})
+    {
+        {
+            std::vector<unsigned char> buff;
+            BOOST_TEST_EQ(field_serialize(0.1, code, buff), error_code());
+            double out{};
+            BOOST_TEST_EQ(field_parse(field_view(buff), detail::float8_oid, code, out), error_code());
+            BOOST_TEST_EQ(out, 0.1);
+        }
+        {
+            std::vector<unsigned char> buff;
+            BOOST_TEST_EQ(field_serialize(std::int64_t(-42), code, buff), error_code());
+            std::int64_t out = 0;
+            BOOST_TEST_EQ(field_parse(field_view(buff), detail::int8_oid, code, out), error_code());
+            BOOST_TEST_EQ(out, -42);
+        }
+        {
+            std::vector<unsigned char> buff;
+            BOOST_TEST_EQ(field_serialize(std::uint32_t(4000000000u), code, buff), error_code());
+            std::uint32_t out = 0;
+            BOOST_TEST_EQ(field_parse(field_view(buff), detail::oid_oid, code, out), error_code());
+            BOOST_TEST_EQ(out, 4000000000u);
+        }
+        {
+            std::vector<unsigned char> buff;
+            BOOST_TEST_EQ(field_serialize(std::string("hello"), code, buff), error_code());
+            std::string out;
+            BOOST_TEST_EQ(field_parse(field_view(buff), detail::text_oid, code, out), error_code());
+            BOOST_TEST_EQ(out, "hello");
+        }
+        {
+            std::vector<unsigned char> buff;
+            BOOST_TEST_EQ(field_serialize('z', code, buff), error_code());
+            char out = 0;
+            BOOST_TEST_EQ(field_parse(field_view(buff), detail::char_oid, code, out), error_code());
+            BOOST_TEST_EQ(out, 'z');
+        }
+        {
+            std::vector<unsigned char> buff;
+            std::array<std::byte, 3> in_storage{std::byte{0x00}, std::byte{0x7f}, std::byte{0xff}};
+            BOOST_TEST_EQ(field_serialize(in_storage, code, buff), error_code());
+            std::vector<std::byte> out;
+            BOOST_TEST_EQ(field_parse(field_view(buff), detail::bytea_oid, code, out), error_code());
+            BOOST_TEST_EQ(out.size(), 3u);
+            BOOST_TEST(out[1] == std::byte{0x7f});
+        }
+        {
+            std::vector<unsigned char> buff;
+            BOOST_TEST_EQ(field_serialize(true, code, buff), error_code());
+            bool out = false;
+            BOOST_TEST_EQ(field_parse(field_view(buff), detail::bool_oid, code, out), error_code());
+            BOOST_TEST(out);
+        }
+    }
+}
+
+static_assert(field_serialize_oid<bool> == 16);
+static_assert(field_serialize_oid<std::span<const std::byte>> == 17);
+static_assert(field_serialize_oid<char> == 18);
+static_assert(field_serialize_oid<float> == 700);
+static_assert(field_serialize_oid<double> == 701);
+static_assert(field_serialize_oid<std::uint32_t> == 26);
+
 //
 // Nullable serialization (field_traits_nullable.hpp)
 //
@@ -1024,11 +1455,16 @@ int main()
     test_parse_text_bytea_missing_prefix_error();
     test_parse_text_bytea_odd_length_error();
     test_parse_text_bytea_invalid_hex_error();
+    test_parse_text_bytea_edge_cases();
+    test_parse_binary_bytea_too_small_error();
 
     // CHAR
     test_parse_text_char_success();
     test_parse_binary_char_success();
-    test_parse_text_char_empty_error();
+    test_parse_text_char_special_success();
+    test_serialize_text_char();
+    test_serialize_text_char_roundtrip();
+    test_parse_text_char_invalid_error();
     test_parse_binary_char_wrong_size_error();
 
     // OID
@@ -1058,6 +1494,15 @@ int main()
     test_parse_text_int_garbage_error<std::int64_t>();
     test_parse_text_int_overflow_error<std::int16_t>();
     test_parse_text_int_overflow_error<std::int32_t>();
+    test_parse_text_int64_overflow_error();
+    test_parse_text_number_empty_error<std::int16_t>();
+    test_parse_text_number_empty_error<std::int32_t>();
+    test_parse_text_number_empty_error<std::int64_t>();
+    test_parse_text_number_empty_error<float>();
+    test_parse_text_number_empty_error<double>();
+    test_parse_binary_int_empty_error<std::int16_t>();
+    test_parse_binary_int_empty_error<std::int32_t>();
+    test_parse_binary_int_empty_error<std::int64_t>();
     test_parse_binary_int_wrong_size_error<std::int16_t>();
     test_parse_binary_int_wrong_size_error<std::int32_t>();
     test_parse_binary_int_wrong_size_error<std::int64_t>();
@@ -1109,8 +1554,8 @@ int main()
     test_parse_binary_float_wrong_size_error<double>();
 
     // TEXT / VARCHAR
-    test_parse_text_text_success<std::string>("The quick brown fox jumps over the lazy dog!");
-    test_parse_binary_text_success<std::string>("The quick brown fox jumps over the lazy dog!");
+    test_parse_text_text_success("The quick brown fox jumps over the lazy dog!");
+    test_parse_binary_text_success("The quick brown fox jumps over the lazy dog!");
 
     // field_is_compatible / field_parse
     test_field_is_compatible_bool_success();
@@ -1141,8 +1586,24 @@ int main()
     test_field_serialize_int_text_success();
     test_field_serialize_int_binary_success();
     test_field_serialize_string_success();
+    test_field_serialize_bool_success();
+    test_field_serialize_bytea_success();
+    test_field_serialize_char_success();
+    test_field_serialize_oid_success();
+    test_field_serialize_float_text_success();
+    test_field_serialize_float_binary_success();
+    test_serialize_parse_roundtrip();
+    test_field_serialize_float_nan_sign();
+    test_field_serialize_bytea_const_span();
+    test_field_serialize_oid_selection();
+    test_field_parse_widening_success();
+    test_field_parse_widening_error_keeps_output();
+    test_field_parse_vector_bytea_success();
+    test_field_is_compatible_more_types();
     test_field_serialize_optional_engaged_success();
     test_field_serialize_optional_null();
+    test_field_serialize_bytea_vector();
+    test_field_parse_optional_error_resets();
 
     return boost::report_errors();
 }

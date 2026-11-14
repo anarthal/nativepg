@@ -572,18 +572,17 @@ void test_parse_text_bytea_edge_cases()
 
     // Uppercase digits are accepted
     {
-        std::vector<std::byte> out{};
+        std::vector<std::byte> out{4};
         BOOST_TEST_EQ(parse("\\xABcd", out), error_code());
         BOOST_TEST(out[0] == std::byte{0xab});
         BOOST_TEST(out[1] == std::byte{0xcd});
     }
 
-    // Destination too small => will resize and succeed
+    // Destination too small will return an error
     {
+        // @TODO: Discuss whether to return an error or resize the vector. For now, we return an error.
         std::vector<std::byte> out(1);
-        BOOST_TEST_EQ(parse("\\x0102", out), error_code());
-        BOOST_TEST(out[0] == std::byte{0x01});
-        BOOST_TEST(out[1] == std::byte{0x02});
+        BOOST_TEST_EQ(parse("\\x0102", out), std::make_error_code(std::errc::result_out_of_range));
     }
 
     // An invalid digit after valid ones doesn't leave a partial write
@@ -1230,6 +1229,18 @@ void test_field_serialize_bytea_const_span()
     check_serialize(value, protocol::format_code::binary, {0x01, 0xff});
 }
 
+void test_field_serialize_oid_selection()
+{
+    // String-like and byte-like types must resolve to different traits
+    BOOST_TEST_EQ(serialize_field_traits<std::string>::oid, detail::text_oid);
+    BOOST_TEST_EQ(serialize_field_traits<std::string_view>::oid, detail::text_oid);
+    BOOST_TEST_EQ(serialize_field_traits<const char*>::oid, detail::text_oid);
+    BOOST_TEST_EQ(serialize_field_traits<std::span<const std::byte>>::oid, detail::bytea_oid);
+    BOOST_TEST_EQ(serialize_field_traits<std::span<std::byte>>::oid, detail::bytea_oid);
+    BOOST_TEST_EQ(serialize_field_traits<std::vector<std::byte>>::oid, detail::bytea_oid);
+    BOOST_TEST_EQ((serialize_field_traits<std::array<std::byte, 2>>::oid), detail::bytea_oid);
+}
+
 void test_field_parse_widening_success()
 {
     auto fv_of = [](const auto& buf) { return field_view{std::span<const unsigned char>(buf)}; };
@@ -1584,6 +1595,7 @@ int main()
     test_serialize_parse_roundtrip();
     test_field_serialize_float_nan_sign();
     test_field_serialize_bytea_const_span();
+    test_field_serialize_oid_selection();
     test_field_parse_widening_success();
     test_field_parse_widening_error_keeps_output();
     test_field_parse_vector_bytea_success();

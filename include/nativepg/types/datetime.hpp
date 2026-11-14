@@ -1,8 +1,13 @@
+//
+// Copyright (c) 2025 Ruben Perez Hidalgo (rubenperez038 at gmail dot com)
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
 
 #ifndef NATIVEPG_TYPES_DATETIME_HPP
 #define NATIVEPG_TYPES_DATETIME_HPP
 
-#include <boost/capy/buffers.hpp>
 #include <boost/endian/conversion.hpp>
 
 #include <cctype>
@@ -765,7 +770,7 @@ inline std::error_code split_timestamp(
         return client_errc::value_too_big;
 
     ymd = std::chrono::year_month_day{
-        std::chrono::sys_days{std::chrono::duration_cast<std::chrono::days>(std::chrono::duration<std::int64_t, std::micro>(days * micros_per_day))}
+        std::chrono::sys_days(std::chrono::days(days))
     };
     return ymd.ok() ? std::error_code() : std::error_code(client_errc::value_too_big);
 }

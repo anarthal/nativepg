@@ -129,15 +129,18 @@ inline std::error_code parse_text_bytea(const field_view& from, std::vector<std:
     // Calculate required capacity
     const std::size_t required_size = sv.size() / 2;
 
-    // Check if the provided span has enough pre-allocated space
-    if (to.size() < required_size)
-        to.resize(required_size);
-
     // Validate first, so that errors don't leave a partially written destination
     for (const char c : sv)
     {
         if (detail::hex_value(c) < 0)
             return client_errc::protocol_value_error;
+    }
+
+    // Check if the provided span has enough pre-allocated space
+    if (to.size() < required_size)
+    {
+        // TODO: Discuss whether to return an error or resize the vector. For now, we return an error.
+        return std::make_error_code(std::errc::result_out_of_range);
     }
 
     for (std::size_t i = 0; i < required_size; ++i)

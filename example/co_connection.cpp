@@ -13,6 +13,7 @@
 #include <iostream>
 
 #include "nativepg/co_connection.hpp"
+#include "nativepg/context.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/responses/check.hpp"
 #include "nativepg/responses/error_into.hpp"
@@ -60,6 +61,16 @@ static capy::task<> co_main()
         co_return;
     }
     std::cout << "Startup complete\n";
+
+    auto [ec_types] = co_await conn.load_dynamic_types(&diag);
+    if (ec_types)
+    {
+        print_err("Error loading dynamic types", ec_types, diag);
+        co_return;
+    }
+    for (const auto& t : (*conn.ctx()->types()))
+        std::cout << "Type: " << t.schema_name << "." << t.type_name << " (OID: " << t.type_oid << ")\n";
+    std::cout << "Loading dynamic types complete\n";
 
     // Compose our request
     request req;

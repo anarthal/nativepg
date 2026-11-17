@@ -12,12 +12,14 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <iostream>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
+#include "nativepg/context.hpp"
 #include "nativepg/field_traits.hpp"
 #include "nativepg/field_view.hpp"
 #include "nativepg/protocol/common.hpp"
@@ -62,7 +64,7 @@ namespace nativepg {
 template <>
 struct parse_field_traits<bool>
 {
-    static std::error_code is_compatible(std::int32_t type_oid)
+    static std::error_code is_compatible(std::int32_t type_oid, [[maybe_unused]] context* ctx)
     {
         if (type_oid == detail::bool_oid)
             return std::error_code{};
@@ -74,7 +76,8 @@ struct parse_field_traits<bool>
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
         protocol::format_code code,
-        bool& to
+        bool& to,
+        [[maybe_unused]] context* ctx
     )
     {
         if (from.is_null())
@@ -89,7 +92,7 @@ struct parse_field_traits<bool>
 template <>
 struct parse_field_traits<std::vector<std::byte>>
 {
-    static std::error_code is_compatible(std::int32_t type_oid)
+    static std::error_code is_compatible(std::int32_t type_oid, [[maybe_unused]] context* ctx)
     {
         if (type_oid == detail::bytea_oid)
             return std::error_code{};
@@ -101,7 +104,8 @@ struct parse_field_traits<std::vector<std::byte>>
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
         protocol::format_code code,
-        std::vector<std::byte>& to
+        std::vector<std::byte>& to,
+        [[maybe_unused]] context* ctx
     )
     {
         if (from.is_null())
@@ -117,7 +121,7 @@ struct parse_field_traits<std::vector<std::byte>>
 template <>
 struct parse_field_traits<char>
 {
-    static std::error_code is_compatible(std::int32_t type_oid)
+    static std::error_code is_compatible(std::int32_t type_oid, [[maybe_unused]] context* ctx)
     {
         if (type_oid == detail::char_oid)
             return std::error_code{};
@@ -129,7 +133,8 @@ struct parse_field_traits<char>
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
         protocol::format_code code,
-        char& to
+        char& to,
+        [[maybe_unused]] context* ctx
     )
     {
         if (from.is_null())
@@ -144,7 +149,7 @@ struct parse_field_traits<char>
 template <>
 struct parse_field_traits<std::int16_t>
 {
-    static std::error_code is_compatible(std::int32_t type_oid)
+    static std::error_code is_compatible(std::int32_t type_oid, [[maybe_unused]] context* ctx)
     {
         if (type_oid == detail::int2_oid)
             return std::error_code{};
@@ -156,7 +161,8 @@ struct parse_field_traits<std::int16_t>
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
         protocol::format_code code,
-        std::int16_t& to
+        std::int16_t& to,
+        [[maybe_unused]] context* ctx
     )
     {
         if (from.is_null())
@@ -171,7 +177,7 @@ struct parse_field_traits<std::int16_t>
 template <>
 struct parse_field_traits<std::int32_t>
 {
-    static std::error_code is_compatible(std::int32_t type_oid)
+    static std::error_code is_compatible(std::int32_t type_oid, [[maybe_unused]] context* ctx)
     {
         if (type_oid == detail::int4_oid || type_oid == detail::int2_oid)
             return std::error_code{};
@@ -183,7 +189,8 @@ struct parse_field_traits<std::int32_t>
         field_view from,
         std::int32_t type_oid,
         protocol::format_code code,
-        std::int32_t& to
+        std::int32_t& to,
+        [[maybe_unused]] context* ctx
     )
     {
         if (from.is_null())
@@ -211,7 +218,7 @@ struct parse_field_traits<std::int32_t>
 template <>
 struct parse_field_traits<std::int64_t>
 {
-    static std::error_code is_compatible(std::int32_t type_oid)
+    static std::error_code is_compatible(std::int32_t type_oid, [[maybe_unused]] context* ctx)
     {
         if (type_oid == detail::int8_oid || type_oid == detail::int4_oid || type_oid == detail::int2_oid)
             return std::error_code{};
@@ -223,7 +230,8 @@ struct parse_field_traits<std::int64_t>
         field_view from,
         std::int32_t type_oid,
         protocol::format_code code,
-        std::int64_t& to
+        std::int64_t& to,
+        [[maybe_unused]] context* ctx
     )
     {
         if (from.is_null())
@@ -258,7 +266,7 @@ struct parse_field_traits<std::int64_t>
 template <>
 struct parse_field_traits<float>
 {
-    static std::error_code is_compatible(std::int32_t type_oid)
+    static std::error_code is_compatible(std::int32_t type_oid, [[maybe_unused]] context* ctx)
     {
         if (type_oid == detail::float4_oid)
             return std::error_code{};
@@ -270,7 +278,8 @@ struct parse_field_traits<float>
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
         protocol::format_code code,
-        float& to
+        float& to,
+        [[maybe_unused]] context* ctx
     )
     {
         if (from.is_null())
@@ -285,7 +294,7 @@ struct parse_field_traits<float>
 template <>
 struct parse_field_traits<double>
 {
-    static std::error_code is_compatible(std::int32_t type_oid)
+    static std::error_code is_compatible(std::int32_t type_oid, [[maybe_unused]] context* ctx)
     {
         if (type_oid == detail::float8_oid || type_oid == detail::float4_oid)
             return std::error_code{};
@@ -297,7 +306,8 @@ struct parse_field_traits<double>
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
         protocol::format_code code,
-        double& to
+        double& to,
+        [[maybe_unused]] context* ctx
     )
     {
         if (from.is_null())
@@ -325,7 +335,7 @@ struct parse_field_traits<double>
 template <class Traits, class Alloc>
 struct parse_field_traits<std::basic_string<char, Traits, Alloc>>
 {
-    static std::error_code is_compatible(std::int32_t type_oid)
+    static std::error_code is_compatible(std::int32_t type_oid, [[maybe_unused]] context* ctx)
     {
         if (detail::is_string_oid(type_oid))
             return std::error_code{};
@@ -337,7 +347,8 @@ struct parse_field_traits<std::basic_string<char, Traits, Alloc>>
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
         protocol::format_code code,
-        std::basic_string<char, Traits, Alloc>& to
+        std::basic_string<char, Traits, Alloc>& to,
+        [[maybe_unused]] context* ctx
     )
     {
         if (from.is_null())
@@ -352,7 +363,7 @@ struct parse_field_traits<std::basic_string<char, Traits, Alloc>>
 template <>
 struct parse_field_traits<std::uint32_t>
 {
-    static std::error_code is_compatible(std::int32_t type_oid)
+    static std::error_code is_compatible(std::int32_t type_oid, [[maybe_unused]] context* ctx)
     {
         if (type_oid == detail::oid_oid)
             return std::error_code{};
@@ -364,7 +375,8 @@ struct parse_field_traits<std::uint32_t>
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
         protocol::format_code code,
-        std::uint32_t& to
+        std::uint32_t& to,
+        [[maybe_unused]] context* ctx
     )
     {
         if (from.is_null())
@@ -388,7 +400,8 @@ struct serialize_field_traits<std::int16_t>
     static std::error_code serialize(
         std::int16_t value,
         protocol::format_code code,
-        std::vector<unsigned char>& to
+        std::vector<unsigned char>& to,
+        [[maybe_unused]] context* ctx
     )
     {
         return code == protocol::format_code::binary ? types::serialize_binary_int(value, to)
@@ -405,7 +418,8 @@ struct serialize_field_traits<std::int32_t>
     static std::error_code serialize(
         std::int32_t value,
         protocol::format_code code,
-        std::vector<unsigned char>& to
+        std::vector<unsigned char>& to,
+        [[maybe_unused]] context* ctx
     )
     {
         return code == protocol::format_code::binary ? types::serialize_binary_int(value, to)
@@ -422,7 +436,8 @@ struct serialize_field_traits<std::int64_t>
     static std::error_code serialize(
         std::int64_t value,
         protocol::format_code code,
-        std::vector<unsigned char>& to
+        std::vector<unsigned char>& to,
+        [[maybe_unused]] context* ctx
     )
     {
         return code == protocol::format_code::binary ? types::serialize_binary_int(value, to)
@@ -439,7 +454,8 @@ struct serialize_field_traits<T>
     static std::error_code serialize(
         std::string_view value,
         protocol::format_code code,
-        std::vector<unsigned char>& to
+        std::vector<unsigned char>& to,
+        [[maybe_unused]] context* ctx
     )
     {
         return code == protocol::format_code::binary ? types::serialize_binary_text(value, to)

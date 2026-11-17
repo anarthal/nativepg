@@ -19,7 +19,7 @@ class check
 {
 public:
     check() = default;
-    handler_setup_result setup(const request& req, std::size_t) { return req.messages().size(); }
+    handler_setup_result setup(const request& req, std::size_t, [[maybe_unused]] context* ctx = nullptr) { return req.messages().size(); }
     void on_message(const any_request_message& msg, std::size_t, extended_error& err)
     {
         detail::maybe_store_error(msg, err);

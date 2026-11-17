@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
+#include "nativepg/context.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/command_complete.hpp"
@@ -168,7 +169,8 @@ void test_simple_query()
     req.add_simple_query("SELECT 1");
 
     // Handler setup
-    BOOST_TEST_EQ(cb.setup(req, 0u), handler_setup_result(1u));
+    context ctx;
+    BOOST_TEST_EQ(cb.setup(req, 0u, &ctx), handler_setup_result(1u));
 
     // Messages
     BOOST_TEST_EQ(feed(cb, descrs, 0u), extended_error{});

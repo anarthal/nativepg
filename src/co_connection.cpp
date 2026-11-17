@@ -33,6 +33,7 @@
 #include "nativepg/client_errc.hpp"
 #include "nativepg/co_connection.hpp"
 #include "nativepg/connect_params.hpp"
+#include "nativepg/context.hpp"
 #include "nativepg/detail/exec_state_impl.hpp"
 #include "nativepg/encoding.hpp"
 #include "nativepg/exclusivity.hpp"
@@ -46,7 +47,12 @@
 #include "nativepg/protocol/parse_message.hpp"
 #include "nativepg/protocol/sync.hpp"
 #include "nativepg/protocol/terminate.hpp"
+#include "nativepg/registries/types_registry.hpp"
 #include "nativepg/request.hpp"
+#include "nativepg/responses/check.hpp"
+#include "nativepg/responses/error_into.hpp"
+#include "nativepg/responses/into.hpp"
+#include "nativepg/responses/response.hpp"
 #include "nativepg/responses/response_handler.hpp"
 #include "nativepg/write_status.hpp"
 #include "nativepg_internal/check_request.hpp"
@@ -254,11 +260,12 @@ struct detail::co_connection_impl
         exec_state& exec_st,
         const request& req,
         response_handler_ref handler,
-        exclusivity excl
+        exclusivity excl,
+        context& ctx
     )
     {
         // Perform request setup
-        if (auto ec = protocol::detail::setup_request(req, handler))
+        if (auto ec = protocol::detail::setup_request(req, handler, &ctx))
             return ec;
 
         // Set the state up. This cleans up any leftover from previous operations
@@ -865,7 +872,7 @@ struct detail::co_connection_impl
 };
 
 co_connection::co_connection(capy::execution_context& ctx)
-    : impl_(std::make_unique<detail::co_connection_impl>(ctx))
+    : impl_(std::make_unique<detail::co_connection_impl>(ctx)), ctx_(std::make_unique<context>())
 {
 }
 
@@ -896,7 +903,7 @@ std::error_code co_connection::prepare_request(
     exclusivity excl
 )
 {
-    return impl_->prepare_request(exec_st, req, handler, excl);
+    return impl_->prepare_request(exec_st, req, handler, excl, *ctx_);
 }
 
 capy::task<capy::results<>> co_connection::write_request(exec_state& st)
@@ -947,6 +954,25 @@ capy::task<capy::results<>> co_connection::exec(
     );
 
     co_return {final_ec};
+}
+
+capy::task<capy::results<>> co_connection::load_dynamic_types(diagnostics* diag)
+{
+    std::vector<type_info> vec;
+    extended_error err1, err2;
+    request req;
+
+    req.add_query(types_registry::load_sql());
+
+    auto [ec] = co_await exec(
+        req,
+        response{error_into(into(vec), err2)},
+        diag
+    );
+
+    ctx_->types_ = std::make_unique<types_registry>(vec);
+
+    co_return {ec};
 }
 
 capy::task<capy::results<std::uint64_t>> co_connection::copy_in(

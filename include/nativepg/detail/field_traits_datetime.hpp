@@ -46,7 +46,7 @@ namespace nativepg {
 template <>
 struct parse_field_traits<std::chrono::sys_days>
 {
-    static std::error_code is_compatible(std::int32_t type_oid)
+    static std::error_code is_compatible(std::int32_t type_oid, [[maybe_unused]] context* ctx)
     {
         return type_oid == detail::date_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
@@ -55,7 +55,8 @@ struct parse_field_traits<std::chrono::sys_days>
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
         protocol::format_code code,
-        std::chrono::sys_days& to
+        std::chrono::sys_days& to,
+        [[maybe_unused]] context* ctx
     )
     {
         if (from.is_null())
@@ -70,7 +71,7 @@ struct parse_field_traits<std::chrono::sys_days>
 template <>
 struct parse_field_traits<std::chrono::microseconds>
 {
-    static std::error_code is_compatible(std::int32_t type_oid)
+    static std::error_code is_compatible(std::int32_t type_oid, [[maybe_unused]] context* ctx)
     {
         return type_oid == detail::time_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
@@ -79,7 +80,8 @@ struct parse_field_traits<std::chrono::microseconds>
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
         protocol::format_code code,
-        std::chrono::microseconds& to
+        std::chrono::microseconds& to,
+        [[maybe_unused]] context* ctx
     )
     {
         if (from.is_null())
@@ -94,7 +96,7 @@ struct parse_field_traits<std::chrono::microseconds>
 template <>
 struct parse_field_traits<types::pg_timetz>
 {
-    static std::error_code is_compatible(std::int32_t type_oid)
+    static std::error_code is_compatible(std::int32_t type_oid, [[maybe_unused]] context* ctx)
     {
         return type_oid == detail::timetz_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
@@ -103,7 +105,8 @@ struct parse_field_traits<types::pg_timetz>
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
         protocol::format_code code,
-        types::pg_timetz& to
+        types::pg_timetz& to,
+        [[maybe_unused]] context* ctx
     )
     {
         if (from.is_null())
@@ -118,7 +121,7 @@ struct parse_field_traits<types::pg_timetz>
 template <>
 struct parse_field_traits<types::pg_timestamp>
 {
-    static std::error_code is_compatible(std::int32_t type_oid)
+    static std::error_code is_compatible(std::int32_t type_oid, [[maybe_unused]] context* ctx)
     {
         return type_oid == detail::timestamp_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
@@ -127,7 +130,8 @@ struct parse_field_traits<types::pg_timestamp>
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
         protocol::format_code code,
-        types::pg_timestamp& to
+        types::pg_timestamp& to,
+        [[maybe_unused]] context* ctx
     )
     {
         if (from.is_null())
@@ -142,7 +146,7 @@ struct parse_field_traits<types::pg_timestamp>
 template <>
 struct parse_field_traits<types::pg_timestamptz>
 {
-    static std::error_code is_compatible(std::int32_t type_oid)
+    static std::error_code is_compatible(std::int32_t type_oid, [[maybe_unused]] context* ctx)
     {
         return type_oid == detail::timestamptz_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
@@ -151,7 +155,8 @@ struct parse_field_traits<types::pg_timestamptz>
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
         protocol::format_code code,
-        types::pg_timestamptz& to
+        types::pg_timestamptz& to,
+        [[maybe_unused]] context* ctx
     )
     {
         if (from.is_null())
@@ -166,7 +171,7 @@ struct parse_field_traits<types::pg_timestamptz>
 template <>
 struct parse_field_traits<types::pg_interval>
 {
-    static std::error_code is_compatible(std::int32_t type_oid)
+    static std::error_code is_compatible(std::int32_t type_oid, [[maybe_unused]] context* ctx)
     {
         return type_oid == detail::interval_oid ? std::error_code() : client_errc::incompatible_field_type;
     }
@@ -175,7 +180,8 @@ struct parse_field_traits<types::pg_interval>
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
         protocol::format_code code,
-        types::pg_interval& to
+        types::pg_interval& to,
+        [[maybe_unused]] context* ctx
     )
     {
         if (from.is_null())

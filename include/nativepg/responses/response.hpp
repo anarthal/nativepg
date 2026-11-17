@@ -28,12 +28,13 @@ handler_setup_result response_setup(
     const request& req,
     std::size_t initial_offset,
     std::size_t* out_offsets,
+    context* ctx,
     H0& h0,
     HRest&... hrest
 )
 {
     // Setup the first handler
-    handler_setup_result h0_res = h0.setup(req, initial_offset);
+    handler_setup_result h0_res = setup_response_handler(h0, req, initial_offset, ctx);
 
     // Exit on failure
     if (h0_res.ec)
@@ -50,7 +51,7 @@ handler_setup_result response_setup(
     else
     {
         // Recursively setup the rest of the handlers
-        return response_setup(req, h0_res.offset, out_offsets + 1, hrest...);
+        return response_setup(req, h0_res.offset, out_offsets + 1, ctx, hrest...);
     }
 }
 
@@ -76,7 +77,17 @@ public:
     {
         return std::apply(
             [this, &req, offset](auto&... h) {
-                return detail::response_setup(req, offset, offsets_.data(), h...);
+                return detail::response_setup(req, offset, offsets_.data(), nullptr, h...);
+            },
+            handlers_
+        );
+    }
+
+    handler_setup_result setup(const request& req, std::size_t offset, context* ctx)
+    {
+        return std::apply(
+            [this, &req, offset, ctx](auto&... h) {
+                return detail::response_setup(req, offset, offsets_.data(), ctx, h...);
             },
             handlers_
         );

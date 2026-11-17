@@ -18,6 +18,8 @@
 
 namespace nativepg {
 
+class context;
+
 namespace detail {
 struct is_unspecialized
 {
@@ -37,7 +39,7 @@ struct is_unspecialized
  *    here, as this function is invoked only once, while parsing
  *    is invoked once per row. Signature:
  *
- *    static std::error_code is_compatible(std::int32_t type_oid);
+ *    static std::error_code is_compatible(std::int32_t type_oid, context* ctx);
  *
  *  - parse: performs the actual parsing. Returns an error if the value can't be
  *    represented in your type. type_oid is the OID that is_compatible accepted, and is
@@ -45,7 +47,8 @@ struct is_unspecialized
  *    the field using the text or the binary format. field_view is non-owning and
  *    can represent database NULLs - remember to check for these. Signature:
  *
- *    static std::error_code parse(field_view, std::int32_t type_oid, protocol::format_code code, T&)
+ *    static std::error_code parse(
+ *        field_view, std::int32_t type_oid, protocol::format_code code, T&, context* ctx)
  *
  */
 template <class T>
@@ -70,7 +73,7 @@ struct parse_field_traits : detail::is_unspecialized
  *    can be returned. Signature:
  *
  *    static std::error_code serialize(
- *        const T& value, protocol::format_code code, std::vector<unsigned char>& buffer)
+ *        const T& value, protocol::format_code code, std::vector<unsigned char>& buffer, context* ctx)
  *
  *    To express that the value is a SQL NULL, return client_errc::serialize_null
  *    without appending anything to the buffer.
@@ -93,13 +96,21 @@ concept parsable_field =
         // If you are seeing an error message pointing to this expression,
         // your is_compatible function in the parse_field_traits specialization
         // for your type is missing or has an incorrect shape.
-        { parse_field_traits<T>::is_compatible(std::int32_t{}) } -> std::convertible_to<std::error_code>;
+        {
+            parse_field_traits<T>::is_compatible(std::int32_t{}, static_cast<context*>(nullptr))
+        } -> std::convertible_to<std::error_code>;
 
         // If you are seeing an error message pointing to this expression,
         // your parse function in the parse_field_traits specialization
         // for your type is missing or has an incorrect shape.
         {
-            parse_field_traits<T>::parse(field_view{}, std::int32_t{}, protocol::format_code{}, value)
+            parse_field_traits<T>::parse(
+                field_view{},
+                std::int32_t{},
+                protocol::format_code{},
+                value,
+                static_cast<context*>(nullptr)
+            )
         } -> std::convertible_to<std::error_code>;
     };
 
@@ -120,7 +131,12 @@ concept serializable_field =
         // your serialize function in the serialize_field_traits specialization
         // for your type is missing or has an incorrect shape.
         {
-            serialize_field_traits<T>::serialize(value, protocol::format_code{}, to)
+            serialize_field_traits<T>::serialize(
+                value,
+                protocol::format_code{},
+                to,
+                static_cast<context*>(nullptr)
+            )
         } -> std::convertible_to<std::error_code>;
     };
 
@@ -128,24 +144,35 @@ concept serializable_field =
 // But if you need to call the functionality here, don't invoke the traits structs directly,
 // but use these functions, as they invoke concept checking.
 template <parsable_field T>
-std::error_code field_is_compatible(std::int32_t type_oid)
+std::error_code field_is_compatible(std::int32_t type_oid, context* ctx = nullptr)
 {
-    return parse_field_traits<T>::is_compatible(type_oid);
+    return parse_field_traits<T>::is_compatible(type_oid, ctx);
 }
 
 template <parsable_field T>
-std::error_code field_parse(field_view from, std::int32_t type_oid, protocol::format_code code, T& to)
+std::error_code field_parse(
+    field_view from,
+    std::int32_t type_oid,
+    protocol::format_code code,
+    T& to,
+    context* ctx = nullptr
+)
 {
-    return parse_field_traits<T>::parse(from, type_oid, code, to);
+    return parse_field_traits<T>::parse(from, type_oid, code, to, ctx);
 }
 
 template <serializable_field T>
 inline constexpr std::int32_t field_serialize_oid = serialize_field_traits<T>::oid;
 
 template <serializable_field T>
-std::error_code field_serialize(const T& value, protocol::format_code code, std::vector<unsigned char>& to)
+std::error_code field_serialize(
+    const T& value,
+    protocol::format_code code,
+    std::vector<unsigned char>& to,
+    context* ctx = nullptr
+)
 {
-    return serialize_field_traits<T>::serialize(value, code, to);
+    return serialize_field_traits<T>::serialize(value, code, to, ctx);
 }
 
 }  // namespace nativepg

@@ -44,7 +44,7 @@ struct parse_field_traits<
     using value_type = boost::multiprecision::
         number<boost::multiprecision::cpp_dec_float<Digits, Exp, Alloc>, ET>;
 
-    static std::error_code is_compatible(std::int32_t type_oid)
+    static std::error_code is_compatible(std::int32_t type_oid, [[maybe_unused]] context* ctx)
     {
         return type_oid == detail::numeric_oid ? std::error_code{} : client_errc::incompatible_field_type;
     }
@@ -53,7 +53,8 @@ struct parse_field_traits<
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
         protocol::format_code code,
-        value_type& to
+        value_type& to,
+        [[maybe_unused]] context* ctx
     )
     {
         if (from.is_null())

@@ -50,13 +50,17 @@ struct parse_field_traits<std::optional<T>>
         "Nested std::optional (e.g. std::optional<std::optional<T>>) is not supported"
     );
 
-    static std::error_code is_compatible(std::int32_t type_oid) { return field_is_compatible<T>(type_oid); }
+    static std::error_code is_compatible(std::int32_t type_oid, context* ctx)
+    {
+        return field_is_compatible<T>(type_oid, ctx);
+    }
 
     static std::error_code parse(
         field_view from,
         std::int32_t type_oid,
         protocol::format_code code,
-        std::optional<T>& to
+        std::optional<T>& to,
+        context* ctx
     )
     {
         if (from.is_null())
@@ -64,7 +68,7 @@ struct parse_field_traits<std::optional<T>>
             to.reset();
             return std::error_code{};
         }
-        return field_parse(from, type_oid, code, to.emplace());
+        return field_parse(from, type_oid, code, to.emplace(), ctx);
     }
 };
 
@@ -83,11 +87,12 @@ struct serialize_field_traits<std::optional<T>>
     static std::error_code serialize(
         const std::optional<T>& value,
         protocol::format_code code,
-        std::vector<unsigned char>& to
+        std::vector<unsigned char>& to,
+        context* ctx
     )
     {
         // serialize_null indicates that a NULL value should be serialized (not an error)
-        return value.has_value() ? field_serialize(*value, code, to) : client_errc::serialize_null;
+        return value.has_value() ? field_serialize(*value, code, to, ctx) : client_errc::serialize_null;
     }
 };
 

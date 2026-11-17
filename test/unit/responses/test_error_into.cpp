@@ -20,6 +20,7 @@
 #include "nativepg/protocol/notice_error.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/any_request_message.hpp"
+#include "nativepg/responses/check.hpp"
 #include "nativepg/responses/error_into.hpp"
 #include "nativepg/responses/response_handler.hpp"
 #include "test_utils/printing.hpp"
@@ -73,6 +74,8 @@ struct mock_handler
 // error_into is a valid handler
 static_assert(response_handler<mock_handler>);
 static_assert(response_handler<error_into<mock_handler>>);
+static_assert(response_handler<check_execute>);
+static_assert(response_handler<error_into<check_execute>>);
 
 // Some distinct errors to hand out
 extended_error first_error() { return {client_errc::field_not_found, diagnostics(std::string("first"))}; }

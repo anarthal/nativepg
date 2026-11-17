@@ -48,7 +48,7 @@ namespace nativepg {
 template <detail::is_decimal T>
 struct parse_field_traits<T>
 {
-    static std::error_code is_compatible(std::int32_t type_oid)
+    static std::error_code is_compatible(std::int32_t type_oid, [[maybe_unused]] context* ctx)
     {
         return type_oid == detail::decimal_oid ? std::error_code{} : client_errc::incompatible_field_type;
     }
@@ -57,7 +57,8 @@ struct parse_field_traits<T>
         field_view from,
         [[maybe_unused]] std::int32_t type_oid,
         protocol::format_code code,
-        T& to
+        T& to,
+        [[maybe_unused]] context* ctx
     )
     {
         if (from.is_null())

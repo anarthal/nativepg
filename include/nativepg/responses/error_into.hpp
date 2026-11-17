@@ -17,6 +17,7 @@
 #include "nativepg/responses/response_handler.hpp"
 
 namespace nativepg {
+class request;
 
 // Wrapper response handler that allows extracting individual errors.
 // Use it when executing a pipeline with multiple, independent steps,
@@ -34,10 +35,10 @@ public:
     {
     }
 
-    handler_setup_result setup(const request& req, std::size_t offset)
+    handler_setup_result setup(const request& req, std::size_t offset, context* ctx = nullptr)
     {
         *err_ptr_ = {};
-        return inner_.setup(req, offset);
+        return detail::setup_response_handler(inner_, req, offset, ctx);
     }
 
     void on_message(const any_request_message& msg, std::size_t offset, extended_error& err)

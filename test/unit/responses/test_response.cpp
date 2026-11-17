@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "nativepg/client_errc.hpp"
+#include "nativepg/context.hpp"
 #include "nativepg/extended_error.hpp"
 #include "nativepg/protocol/bind.hpp"
 #include "nativepg/protocol/command_complete.hpp"
@@ -19,8 +20,10 @@
 #include "nativepg/protocol/parse.hpp"
 #include "nativepg/request.hpp"
 #include "nativepg/responses/any_request_message.hpp"
+#include "nativepg/responses/error_into.hpp"
 #include "nativepg/responses/response.hpp"
 #include "nativepg/responses/response_handler.hpp"
+#include "nativepg_internal/check_request.hpp"
 #include "test_utils/printing.hpp"
 #include "test_utils/response_handler_utils.hpp"
 #include "test_utils/test_range_eq.hpp"
@@ -81,6 +84,33 @@ void test_two_handlers()
     test_range_eq(std::get<1>(res.handlers()).msgs, expected2);
 }
 
+struct context_handler
+{
+    context* ctx_seen{};
+
+    handler_setup_result setup(const request&, std::size_t offset, context* ctx = nullptr)
+    {
+        ctx_seen = ctx;
+        return {offset + 1u};
+    }
+    void on_message(const any_request_message&, std::size_t, extended_error&) {}
+};
+
+void test_context_setup()
+{
+    request req;
+    req.add_simple_query("SELECT 1");
+    context ctx;
+    extended_error err;
+    response res{
+        error_into{context_handler{}, err}
+    };
+    response_handler_ref handler{&res};
+
+    BOOST_TEST_EQ(protocol::detail::setup_request(req, handler, &ctx), std::error_code());
+    BOOST_TEST(std::get<0>(res.handlers()).handler().ctx_seen == &ctx);
+}
+
 // Errors are forwarded to the inner handler
 void test_errors()
 {
@@ -137,6 +167,7 @@ int main()
 {
     test_two_handlers();
     test_errors();
+    test_context_setup();
     test_deduction_guide();
     test_copy();
     test_move();

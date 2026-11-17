@@ -71,6 +71,7 @@ class resultset_callback_t
     std::vector<field_view> random_access_data_;
     Callback cb_;
     command_info* info_{};
+    context* ctx_{};
 
     // Metadata
     void on_row_description(const protocol::row_description& msg, extended_error& out_err)
@@ -91,9 +92,9 @@ class resultset_callback_t
         using type_identities = boost::mp11::mp_transform<std::type_identity, detail::row_field_types_t<T>>;
         std::size_t idx = 0u;
         std::error_code ec;
-        boost::mp11::mp_for_each<type_identities>([&idx, &ec, &pos_map = pos_map_](auto type_identity) {
+        boost::mp11::mp_for_each<type_identities>([&idx, &ec, &pos_map = pos_map_, this](auto type_identity) {
             using FieldType = typename decltype(type_identity)::type;
-            auto ec2 = field_is_compatible<FieldType>(pos_map[idx++].type_oid);
+            auto ec2 = field_is_compatible<FieldType>(pos_map[idx++].type_oid, ctx_);
             if (!ec)
                 ec = ec2;
         });
@@ -129,7 +130,7 @@ class resultset_callback_t
         detail::for_each_member(row, [&ec, &idx, this](auto& member) {
             const detail::pos_map_entry& ent = pos_map_[idx++];
             const field_view fv = random_access_data_.at(ent.db_index);
-            std::error_code ec2 = field_parse(fv, ent.type_oid, ent.fmt_code, member);
+            std::error_code ec2 = field_parse(fv, ent.type_oid, ent.fmt_code, member, ctx_);
             if (!ec)
                 ec = ec2;
         });
@@ -175,6 +176,16 @@ class resultset_callback_t
         state_ = state_t::done;
     }
 
+    handler_setup_result setup_impl(const request& req, std::size_t offset, context* ctx)
+    {
+        state_ = state_t::parsing_meta;
+        ctx_ = ctx;
+
+        if (info_)
+            detail::reset_info(*info_);
+        return detail::resultset_setup(req, offset);
+    }
+
 public:
     template <std::invocable<T&&> Cb>
     explicit resultset_callback_t(Cb&& cb, command_info* out_info = nullptr)
@@ -182,12 +193,9 @@ public:
     {
     }
 
-    handler_setup_result setup(const request& req, std::size_t offset)
+    handler_setup_result setup(const request& req, std::size_t offset, context* ctx = nullptr)
     {
-        state_ = state_t::parsing_meta;
-        if (info_)
-            detail::reset_info(*info_);
-        return detail::resultset_setup(req, offset);
+        return setup_impl(req, offset, ctx);
     }
 
     void on_message(const any_request_message& msg, std::size_t, extended_error& err)

@@ -61,14 +61,14 @@ inline std::error_code check_request(const request& req)
     return {};
 }
 
-inline std::error_code setup_request(const request& req, response_handler_ref res)
+inline std::error_code setup_request(const request& req, response_handler_ref res, context* ctx = nullptr)
 {
     // Check that the request is correctly formed
     if (auto ec_req = check_request(req))
         return ec_req;
 
     // Perform the response setup
-    auto [ec, offset] = res.setup(req, 0u);
+    auto [ec, offset] = ctx ? res.setup(req, 0u, ctx) : res.setup(req, 0u);
     if (ec)
         return ec;
     if (offset != req.messages().size())
